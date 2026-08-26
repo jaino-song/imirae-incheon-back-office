@@ -10,12 +10,9 @@ jest.mock("@/hooks/useAgentChat", () => ({
   AGENT_DISCOVERY_ERROR_MESSAGE: "AI 운영 코파일럿을 준비하지 못했습니다.",
 }));
 
-jest.mock("@/components/app/chat/AgentMobileShell", () => ({
-  AgentMobileShell: () => <div data-testid="agent-mobile-shell" />,
-}));
-
-jest.mock("@/components/app/chat/ChatPageLoading", () => ({
-  ChatPageLoading: () => <div data-testid="chat-page-loading" />,
+jest.mock("@/components/app/chat/AgentShell", () => ({
+  AgentShell: () => <div data-testid="agent-shell" />,
+  AgentShellLoading: () => <div data-testid="agent-shell-loading" />,
 }));
 
 jest.mock("@/components/app/chat/LegacyChatPage", () => ({
@@ -32,28 +29,28 @@ describe("ChatPage composition", () => {
 
     render(<ChatPage />);
 
-    expect(screen.getByTestId("chat-page-loading")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-shell-loading")).toBeInTheDocument();
     expect(screen.queryByTestId("legacy-chat-page")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("agent-mobile-shell")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("agent-shell")).not.toBeInTheDocument();
   });
 
-  it("renders the imported legacy organism when the flag is disabled", () => {
+  it("renders legacy chat only for explicit compatibility-off mode", () => {
     mockUseAgentShellEnabled.mockReturnValue("compatibility-off");
 
     render(<ChatPage />);
 
     expect(screen.getByTestId("legacy-chat-page")).toBeInTheDocument();
-    expect(screen.queryByTestId("chat-page-loading")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("agent-mobile-shell")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("agent-shell-loading")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("agent-shell")).not.toBeInTheDocument();
   });
 
-  it("renders the imported agent organism when the flag is enabled", () => {
+  it("renders the imported agent organism when discovery succeeds", () => {
     mockUseAgentShellEnabled.mockReturnValue("enabled");
 
     render(<ChatPage />);
 
-    expect(screen.getByTestId("agent-mobile-shell")).toBeInTheDocument();
-    expect(screen.queryByTestId("chat-page-loading")).not.toBeInTheDocument();
+    expect(screen.getByTestId("agent-shell")).toBeInTheDocument();
+    expect(screen.queryByTestId("agent-shell-loading")).not.toBeInTheDocument();
     expect(screen.queryByTestId("legacy-chat-page")).not.toBeInTheDocument();
   });
 
@@ -61,8 +58,8 @@ describe("ChatPage composition", () => {
     mockUseAgentShellEnabled.mockReturnValue("discovery-error");
 
     expect(() => ChatPage()).toThrow("AI 운영 코파일럿을 준비하지 못했습니다.");
-    expect(screen.queryByTestId("chat-page-loading")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("agent-shell-loading")).not.toBeInTheDocument();
     expect(screen.queryByTestId("legacy-chat-page")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("agent-mobile-shell")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("agent-shell")).not.toBeInTheDocument();
   });
 });

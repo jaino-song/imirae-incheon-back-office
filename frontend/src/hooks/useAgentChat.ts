@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DefaultChatTransport } from "ai";
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
+import { AgentCapabilityMetaSchema } from "@babyjamjam/shared/agent";
 
 const AGENT_SESSION_KEY = "agent_session_id";
 
@@ -56,6 +57,15 @@ function isTruthy(value: string | undefined): boolean {
     return value === "1" || value?.toLowerCase() === "true";
 }
 
+export type AgentShellState = "compatibility-off" | "loading" | "enabled" | "discovery-error";
+export const AGENT_DISCOVERY_ERROR_MESSAGE = "AI 운영 코파일럿을 준비하지 못했습니다.";
+
+function isUsableCapabilityCatalog(value: unknown): boolean {
+    return Array.isArray(value)
+        && value.length > 0
+        && value.every((capability) => AgentCapabilityMetaSchema.safeParse(capability).success);
+}
+
 function readAgentSessionId(): string | null {
     return typeof window === "undefined" ? null : window.sessionStorage.getItem(AGENT_SESSION_KEY);
 }
@@ -75,19 +85,26 @@ function makeAgentTransport(transportFetch: (input: RequestInfo | URL, init?: Re
     });
 }
 
-export function useAgentShellEnabled(): boolean | null {
+export function useAgentShellEnabled(): AgentShellState {
     const shellConfigured = isTruthy(process.env.NEXT_PUBLIC_AGENT_SHELL_ENABLED);
-    const [enabled, setEnabled] = useState<boolean | null>(shellConfigured ? null : false);
+    const [state, setState] = useState<AgentShellState>(shellConfigured ? "loading" : "compatibility-off");
     useEffect(() => {
         if (!shellConfigured) return;
         let active = true;
-        fetch("/api/ai/agent/capabilities", { credentials: "same-origin" })
-            .then((response) => response.ok ? response.json() : [])
-            .then((capabilities) => active && setEnabled(Array.isArray(capabilities) && capabilities.length > 0))
-            .catch(() => active && setEnabled(false));
+        void (async () => {
+            try {
+                const response = await fetch("/api/ai/agent/capabilities", { credentials: "same-origin" });
+                if (!response.ok) throw new Error("Capability discovery failed");
+                const capabilities: unknown = await response.json();
+                if (!isUsableCapabilityCatalog(capabilities)) throw new Error("Capability catalog unavailable");
+                if (active) setState("enabled");
+            } catch {
+                if (active) setState("discovery-error");
+            }
+        })();
         return () => { active = false; };
     }, [shellConfigured]);
-    return enabled;
+    return state;
 }
 
 export function useAgentChat() {
