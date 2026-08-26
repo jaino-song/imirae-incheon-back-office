@@ -13,6 +13,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { FooterNavigation } from "@/components/ui/footer-navigation";
 import { getRoleLabel } from "@/lib/constants/roles";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
 import { getUserBranches, setCurrentBranch } from "./actions";
 
 interface Branch {
@@ -65,6 +66,10 @@ export default function SelectBranchPage() {
         setSelecting(branchId);
 
         try {
+            // Branch is part of the authority namespace. Clear before the
+            // server action so old-branch requests/drafts cannot survive a
+            // failed or successful switch, including a failed server action.
+            await resetAuthorityState(queryClient);
             const result = await setCurrentBranch(branchId);
 
             if (!result.success) {
@@ -72,11 +77,6 @@ export default function SelectBranchPage() {
                 setSelecting(null);
                 return false;
             }
-
-            // 지점 전환 시 이전 지점의 React Query 캐시(고객 목록·전자계약 등)를 모두 비운다.
-            // QueryClient는 브라우저 싱글톤이라 soft navigation(router.replace) 후에도
-            // 유지되므로, 비우지 않으면 이전 지점 데이터가 새로고침 전까지 그대로 남는다.
-            queryClient.clear();
 
             router.replace("/dashboard");
             return true;
@@ -206,7 +206,8 @@ export default function SelectBranchPage() {
                         </Button>
                         <Button
                             variant="outline"
-                            onClick={() => {
+                            onClick={async () => {
+                                await resetAuthorityState(queryClient);
                                 // Clear auth cookies and redirect to login
                                 document.cookie = "auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
                                 document.cookie = "refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";

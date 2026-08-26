@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { AUTH_ROUTES } from "@/lib/auth/routes";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
 import { exchangeToken } from "@/app/(auth)/callback/actions";
 import { getSafeCallbackError } from "@/lib/auth/auth-errors";
 
@@ -54,6 +55,9 @@ export function useCallbackPageController() {
       }
 
       try {
+        // OAuth callback may replace an already-authenticated browser
+        // identity; clear its cache and drafts before accepting new tokens.
+        await resetAuthorityState();
         // De-duping the single-use code is handled by exchangeTokenOnce's
         // module-level cache. A per-render ref guard must NOT be added here: under
         // React Strict Mode (dev) the effect runs twice, and a ref guard makes the

@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 
 import AuthCallbackPage from "./page";
 import { exchangeToken } from "./actions";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -16,7 +17,12 @@ jest.mock("./actions", () => ({
   exchangeToken: jest.fn(),
 }));
 
+jest.mock("@/lib/auth/authority-state", () => ({
+  resetAuthorityState: jest.fn().mockResolvedValue(undefined),
+}));
+
 const mockExchangeToken = jest.mocked(exchangeToken);
+const mockResetAuthorityState = jest.mocked(resetAuthorityState);
 
 describe("AuthCallbackPage", () => {
   const originalLocation = window.location;
@@ -26,6 +32,8 @@ describe("AuthCallbackPage", () => {
     mockPush.mockReset();
     mockReplace.mockReset();
     mockExchangeToken.mockReset();
+    mockResetAuthorityState.mockReset();
+    mockResetAuthorityState.mockResolvedValue(undefined);
     mockSearchParams = new URLSearchParams();
 
     mockLocationReplace.mockReset();
@@ -79,5 +87,6 @@ describe("AuthCallbackPage", () => {
 
     await waitFor(() => expect(mockExchangeToken).toHaveBeenCalledWith("one-time-code"));
     await waitFor(() => expect(mockLocationReplace).toHaveBeenCalledWith("/dashboard"));
+    expect(mockResetAuthorityState).toHaveBeenCalled();
   });
 });

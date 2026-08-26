@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Spinner } from "@/components/ui/spinner";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
 import { logout } from "./actions";
 
 export default function LogoutPage() {
@@ -9,6 +10,7 @@ export default function LogoutPage() {
 
     useEffect(() => {
         const performLogout = async () => {
+            await resetAuthorityState();
             const result = await logout();
 
             if (result.success) {

@@ -111,6 +111,7 @@ interface FormStore {
         secondaryEmployee?: { id: number; name: string } | null;
     }) => void;
     prefillFromContract: (prefill: ContractCreationPrefill) => void;
+    resetAll: () => void;
 }
 
 // 현재 연도를 기본값으로 사용
@@ -264,6 +265,35 @@ export const useFormStore = create<FormStore>((set) => {
             voucherYear: prefill.voucherYear ?? currentYear,
             area: "",
             preservePrefilledPrices: true,
+        }),
+        resetAll: () => set({
+            clientId: null,
+            isManualEntry: false,
+            name: "",
+            phone: "",
+            birthday: "",
+            dueDate: "",
+            address: "",
+            employeeId: null,
+            isEmployeeManualEntry: false,
+            employeeName: "",
+            employeePhone: "",
+            showEmployee2: false,
+            employee2Id: null,
+            isEmployee2ManualEntry: false,
+            employee2Name: "",
+            employee2Phone: "",
+            startDate: "",
+            endDate: "",
+            fullPrice: "",
+            grant: "",
+            actualPrice: "",
+            paymentDate: todayIsoDate(),
+            voucherType: "",
+            voucherDuration: "",
+            voucherYear: currentYear,
+            area: "",
+            preservePrefilledPrices: false,
         }),
     }
 })

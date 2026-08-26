@@ -9,6 +9,7 @@ import { loginSchema, type LoginFormData } from "@/lib/validations/auth";
 import { useNavigationPending } from "@/hooks/use-navigation-pending";
 import { loginWithEmail } from "./actions";
 import { authApi } from "@/services/api";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
 import { safeStorageGetItem, safeStorageRemoveItem, safeStorageSetItem } from "@/lib/safe-storage";
 import "@/components/app/mobile-redesign/redesign.css";
 import { LoginAuthErrorModal } from "@/components/auth/login-auth-error-modal";
@@ -86,6 +87,7 @@ const LoginPage = () => {
         safeStorageRemoveItem("local", "login:savedEmail");
       }
 
+      await resetAuthorityState();
       const response = await loginWithEmail(result.data.email, result.data.password, autoLogin);
 
       if (response.success) {
