@@ -739,6 +739,92 @@ describe("SbClientRepository", () => {
         });
     });
 
+    describe("automatic service-status CAS", () => {
+        it("updates only when the branch and observed status still match", async () => {
+            clientModel.updateMany.mockResolvedValue({ count: 1 });
+
+            const result = await repository.updateServiceStatusIfCurrent(
+                branchId,
+                1,
+                "waiting",
+                "active",
+            );
+
+            expect(result).toBe("updated");
+            expect(clientModel.updateMany).toHaveBeenCalledWith({
+                where: { id: 1, branchId, serviceStatus: "waiting" },
+                data: { serviceStatus: "active" },
+            });
+        });
+
+        it("returns stale when the expected status no longer matches", async () => {
+            clientModel.updateMany.mockResolvedValue({ count: 0 });
+
+            const result = await repository.updateServiceStatusIfCurrent(
+                branchId,
+                1,
+                "waiting",
+                "active",
+            );
+
+            expect(result).toBe("stale");
+            expect(clientModel.updateMany).toHaveBeenCalledWith({
+                where: { id: 1, branchId, serviceStatus: "waiting" },
+                data: { serviceStatus: "active" },
+            });
+        });
+
+        it.each(["pre_booking", "terminated", "replacement_requested"])(
+            "rejects automatic movement from manual %s before touching the database",
+            async (manualStatus) => {
+                const result = await repository.updateServiceStatusIfCurrent(
+                    branchId,
+                    1,
+                    manualStatus,
+                    "active",
+                );
+
+                expect(result).toBe("stale");
+                expect(clientModel.updateMany).not.toHaveBeenCalled();
+            },
+        );
+
+        it("returns stale for a missing or wrong-branch client without an unscoped write", async () => {
+            clientModel.updateMany.mockResolvedValue({ count: 0 });
+
+            await expect(repository.updateServiceStatusIfCurrent(
+                "wrong-branch",
+                999,
+                "waiting",
+                "active",
+            )).resolves.toBe("stale");
+
+            expect(clientModel.updateMany).toHaveBeenCalledWith({
+                where: { id: 999, branchId: "wrong-branch", serviceStatus: "waiting" },
+                data: { serviceStatus: "active" },
+            });
+        });
+
+        it("refuses a late first generation after a newer background generation has won", async () => {
+            clientModel.updateMany
+                .mockResolvedValueOnce({ count: 1 })
+                .mockResolvedValueOnce({ count: 0 });
+
+            await expect(repository.updateServiceStatusIfCurrent(
+                branchId,
+                1,
+                "waiting",
+                "active",
+            )).resolves.toBe("updated");
+            await expect(repository.updateServiceStatusIfCurrent(
+                branchId,
+                1,
+                "waiting",
+                "completed",
+            )).resolves.toBe("stale");
+        });
+    });
+
     // ============================================
     // birth_date deploy-window gating (mirrors area_id/supportsAreaId)
     // ============================================

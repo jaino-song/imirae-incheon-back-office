@@ -187,6 +187,7 @@ describe("ClientService", () => {
         create: jest.fn(),
         createWithInitialSchedule: jest.fn(),
         update: jest.fn(),
+        updateServiceStatusIfCurrent: jest.fn().mockResolvedValue("updated"),
         updateIfTargetVersion: jest.fn(),
         delete: jest.fn(),
         findByStartDate: jest.fn(),
