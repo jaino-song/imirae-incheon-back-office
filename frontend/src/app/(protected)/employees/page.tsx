@@ -46,6 +46,8 @@ import {
     ListEmptyState,
 } from "@/components/app/v3";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/app/ui/status-badge";
 import {
     DropdownMenu,
@@ -116,9 +118,11 @@ export default function EmployeesPage() {
         employees,
         allEmployees,
         isLoading,
+        isError,
         isFetchingNextPage,
         hasNextPage,
         fetchNextPage,
+        refetch,
     } = useInfiniteEmployees({ filter, search });
     const deleteEmployee = useDeleteEmployee();
 
@@ -230,13 +234,36 @@ export default function EmployeesPage() {
                             className="text-[calc(12px*var(--glint-ui-scale,1))]"
                         />
                     }
-                    emptyState={!isLoading && employees.length === 0 ? (
+                    emptyState={!isLoading && !isError && employees.length === 0 ? (
                         <ListEmptyState
                             message={search || filter !== "all" ? "검색 결과가 없습니다" : "등록된 직원이 없습니다"}
                         />
                     ) : undefined}
                 >
-                    <AnimatedSlotList<Employee>
+                    {!isLoading && isError ? (
+                        <Alert
+                            variant="destructive"
+                            data-component="desktop_employees_split-layout_list-panel_error"
+                            className="m-6"
+                        >
+                            <AlertTitle>직원 목록을 불러오지 못했습니다</AlertTitle>
+                            <AlertDescription>
+                                잠시 후 다시 시도해 주세요.
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    data-component="desktop_employees_split-layout_list-panel_error_retry"
+                                    className="mt-3"
+                                    aria-label="직원 목록 다시 시도"
+                                    onClick={() => void refetch()}
+                                >
+                                    다시 시도
+                                </Button>
+                            </AlertDescription>
+                        </Alert>
+                    ) : (
+                        <AnimatedSlotList<Employee>
                             items={employees}
                             isLoading={isLoading}
                             loadingCount={6}
@@ -287,6 +314,7 @@ export default function EmployeesPage() {
                                 );
                             }}
                         />
+                    )}
                 </ListPanel>
 
                 {isCreatingEmployee ? (
