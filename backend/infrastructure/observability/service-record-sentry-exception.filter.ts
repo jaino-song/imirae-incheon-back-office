@@ -9,6 +9,7 @@ import { BaseExceptionFilter, HttpAdapterHost } from "@nestjs/core";
 import type { Request } from "express";
 
 import {
+    captureBackendError,
     captureServiceRecordError,
     getServiceRecordOperation,
     isServiceRecordSignal,
@@ -31,12 +32,20 @@ export class ServiceRecordSentryExceptionFilter
                 ? exception.getStatus()
                 : HttpStatus.INTERNAL_SERVER_ERROR;
 
-            if (statusCode >= 500 && isServiceRecordSignal(path)) {
-                captureServiceRecordError(exception, {
-                    operation: getServiceRecordOperation(path),
-                    handled: false,
-                    statusCode,
-                });
+            if (statusCode >= 500) {
+                if (isServiceRecordSignal(path)) {
+                    captureServiceRecordError(exception, {
+                        operation: getServiceRecordOperation(path),
+                        handled: false,
+                        statusCode,
+                    });
+                } else {
+                    captureBackendError(exception, {
+                        operation: "http",
+                        handled: false,
+                        statusCode,
+                    });
+                }
             }
         }
 
