@@ -11,6 +11,10 @@ import {
 import { GET as getMessageAutomationPolicies } from "../message-automation-policies/route";
 import { PUT as updateMessageAutomationPastTriggerConfig } from "../message-automation-policies/past-trigger/route";
 import {
+  GET as getNotificationPreferences,
+  PUT as updateNotificationPreferences,
+} from "../notification-preferences/route";
+import {
   GET as getClientRegistrationPolicy,
   PUT as updateClientRegistrationPolicy,
 } from "../client-registration-policy/route";
@@ -219,6 +223,80 @@ describe("settings API routes", () => {
     expect(responseBody.error).toBe("Invalid request body");
     expect(Array.isArray(responseBody.issues)).toBe(true);
     expect(mockPut).not.toHaveBeenCalled();
+  });
+
+  it("requires auth before fetching notification preferences", async () => {
+    const response = await getNotificationPreferences(
+      noCookieRequest("/api/settings/notification-preferences"),
+    );
+
+    expect(response.status).toBe(401);
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  it("proxies notification preference reads", async () => {
+    const preferences = { emailNotificationsEnabled: false };
+    mockGet.mockResolvedValue({ status: 200, data: preferences });
+
+    const response = await getNotificationPreferences(
+      createRequest("/api/settings/notification-preferences"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(preferences);
+    expect(mockGet).toHaveBeenCalledWith(
+      "/settings/notification-preferences",
+      { headers: { Authorization: "Bearer auth-token" } },
+    );
+  });
+
+  it("requires auth before updating notification preferences", async () => {
+    const response = await updateNotificationPreferences(
+      noCookieRequest("/api/settings/notification-preferences", "PUT"),
+    );
+
+    expect(response.status).toBe(401);
+    expect(mockPut).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing the boolean", {}],
+    ["using a string boolean", { emailNotificationsEnabled: "false" }],
+    ["using an unknown field", { emailNotificationsEnabled: true, unexpected: true }],
+  ])("rejects notification preference updates %s before proxying", async (_caseName, body) => {
+    const response = await updateNotificationPreferences(
+      createRequest("/api/settings/notification-preferences", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const responseBody = await response.json();
+    expect(responseBody.error).toBe("Invalid request body");
+    expect(mockPut).not.toHaveBeenCalled();
+  });
+
+  it("proxies a validated notification preference update", async () => {
+    const preferences = { emailNotificationsEnabled: false };
+    mockPut.mockResolvedValue({ status: 200, data: preferences });
+
+    const response = await updateNotificationPreferences(
+      createRequest("/api/settings/notification-preferences", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(preferences),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(preferences);
+    expect(mockPut).toHaveBeenCalledWith(
+      "/settings/notification-preferences",
+      preferences,
+      { headers: { Authorization: "Bearer auth-token" } },
+    );
   });
 
   it("proxies client registration policy reads and partial updates", async () => {

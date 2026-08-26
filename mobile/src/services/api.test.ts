@@ -24,17 +24,22 @@ function createAxiosServerError(status: number): AxiosError {
 
 async function loadApiModule(): Promise<{
     apiModule: ApiModule;
+    mockGet: jest.Mock;
     mockPost: jest.Mock;
+    mockPut: jest.Mock;
 }> {
     jest.resetModules();
 
+    const mockGet = jest.fn();
     const mockPost = jest.fn();
+    const mockPut = jest.fn();
 
     jest.doMock("@/lib/api/client", () => ({
         api: {
             delete: jest.fn(),
-            get: jest.fn(),
+            get: mockGet,
             post: mockPost,
+            put: mockPut,
         },
     }));
     jest.doMock("@/lib/env", () => ({
@@ -46,9 +51,33 @@ async function loadApiModule(): Promise<{
 
     return {
         apiModule: await import("./api"),
+        mockGet,
         mockPost,
+        mockPut,
     };
 }
+
+describe("settingsApi notification preferences", () => {
+    it("uses the authenticated notification preference endpoints", async () => {
+        const { apiModule, mockGet, mockPut } = await loadApiModule();
+        const savedPreferences = { emailNotificationsEnabled: false };
+        mockGet.mockResolvedValue({ data: { emailNotificationsEnabled: true } });
+        mockPut.mockResolvedValue({ data: savedPreferences });
+
+        await expect(apiModule.settingsApi.getNotificationPreferences()).resolves.toEqual({
+            emailNotificationsEnabled: true,
+        });
+        await expect(apiModule.settingsApi.updateNotificationPreferences(false)).resolves.toEqual(
+            savedPreferences,
+        );
+
+        expect(mockGet).toHaveBeenCalledWith("/settings/notification-preferences");
+        expect(mockPut).toHaveBeenCalledWith(
+            "/settings/notification-preferences",
+            { emailNotificationsEnabled: false },
+        );
+    });
+});
 
 describe("eformsignApi.authenticate", () => {
     beforeEach(() => {
