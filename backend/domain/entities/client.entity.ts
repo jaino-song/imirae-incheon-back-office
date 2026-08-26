@@ -1,4 +1,8 @@
-import { computeServiceStatus, ServiceStatusType } from "domain/value-objects/service-status.vo";
+import {
+    computeServiceStatus,
+    isAutomaticServiceStatusTransitionAllowed,
+    ServiceStatusType,
+} from "domain/value-objects/service-status.vo";
 
 interface UpdateClientProps {
     name?: string;
@@ -97,7 +101,7 @@ export class ClientEntity {
      */
     needsStatusUpdate(): boolean {
         const computed = this.computeCurrentStatus();
-        return this.serviceStatus !== computed;
+        return isAutomaticServiceStatusTransitionAllowed(this.serviceStatus, computed);
     }
 
     static create(

@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { ClientEntity } from "domain/entities/client.entity";
 import {
     ClientWithInitialSchedule,
+    AutomaticServiceStatusUpdateResult,
     IClientRepository,
     InitialClientSchedule,
     PaginatedResult,
@@ -14,6 +15,10 @@ import {
 } from "infrastructure/database/schema-capabilities";
 import { normalizePhone } from "application/utils/normalize-phone";
 import { clientAgentTargetVersion } from "application/usecases/client/client-agent-target";
+import {
+    isAutomaticServiceStatusTransitionAllowed,
+    ServiceStatusType,
+} from "domain/value-objects/service-status.vo";
 import type { Prisma } from "@prisma/client";
 
 @Injectable()
@@ -249,6 +254,28 @@ export class SbClientRepository implements IClientRepository {
             throw new Error("Client not found after update");
         }
         return ClientMapper.toDomain(updated as any);
+    }
+
+    async updateServiceStatusIfCurrent(
+        branchid: string,
+        id: number,
+        expectedServiceStatus: string | null,
+        newServiceStatus: ServiceStatusType,
+    ): Promise<AutomaticServiceStatusUpdateResult> {
+        if (!isAutomaticServiceStatusTransitionAllowed(expectedServiceStatus, newServiceStatus)) {
+            return "stale";
+        }
+
+        const result = await this.prismaService.client.updateMany({
+            where: {
+                id,
+                branchId: branchid,
+                serviceStatus: expectedServiceStatus,
+            },
+            data: { serviceStatus: newServiceStatus },
+        });
+
+        return result.count === 1 ? "updated" : "stale";
     }
 
     async updateIfTargetVersion(

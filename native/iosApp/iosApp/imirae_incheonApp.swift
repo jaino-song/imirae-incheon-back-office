@@ -1,5 +1,6 @@
 import SwiftUI
 import UserNotifications
+import shared
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -41,6 +42,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        #if DEBUG
+        SafeLogger.shared.configureIos(debugBuild: true)
+        #else
+        SafeLogger.shared.configureIos(debugBuild: false)
+        #endif
+
         AppBootstrapper.shared.initializeKoin()
         configurePushNotifications(for: application)
 

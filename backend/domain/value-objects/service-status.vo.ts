@@ -33,6 +33,16 @@ const MANUAL_STATUSES: ServiceStatusType[] = [
     SERVICE_STATUS.REPLACEMENT_REQUESTED,
 ];
 
+// Only these statuses may be produced by date-based recomputation. Manual
+// statuses are deliberately excluded so a stale background snapshot cannot
+// move an authoritative transition backwards.
+const AUTOMATIC_STATUSES: ServiceStatusType[] = [
+    SERVICE_STATUS.PRE_BOOKING,
+    SERVICE_STATUS.WAITING,
+    SERVICE_STATUS.ACTIVE,
+    SERVICE_STATUS.COMPLETED,
+];
+
 /**
  * Compute service status based on start_date and end_date
  * Manual statuses (terminated, replacement_requested) are preserved
@@ -83,12 +93,22 @@ export function shouldUpdateStatus(
     currentStatus: string | null,
     computedStatus: ServiceStatusType,
 ): boolean {
-    // Manual statuses should never be auto-updated
+    return isAutomaticServiceStatusTransitionAllowed(currentStatus, computedStatus);
+}
+
+/**
+ * Check whether a date-derived status may be applied to the observed state.
+ * The repository repeats this guard immediately before its atomic write.
+ */
+export function isAutomaticServiceStatusTransitionAllowed(
+    currentStatus: string | null,
+    computedStatus: ServiceStatusType,
+): boolean {
     if (currentStatus && MANUAL_STATUSES.includes(currentStatus as ServiceStatusType)) {
         return false;
     }
 
-    return currentStatus !== computedStatus;
+    return AUTOMATIC_STATUSES.includes(computedStatus) && currentStatus !== computedStatus;
 }
 
 /**

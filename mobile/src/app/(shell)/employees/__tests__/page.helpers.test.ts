@@ -48,6 +48,18 @@ describe("buildAllEmployeeRowsForList", () => {
 });
 
 describe("groupForEmployee", () => {
+  it("keeps working status independent from next-work availability", () => {
+    const employee = {
+      ...createEmployee(1, "working"),
+      openToNextWork: false,
+    } as Employee;
+
+    expect(groupForEmployee(employee)).toMatchObject({
+      key: "working",
+      badge: "근무 중",
+    });
+  });
+
   it("does not label unknown statuses as available", () => {
     expect(groupForEmployee(createEmployee(1, "paused" as Employee["status"])).badge).toBe("상태 미정");
   });
