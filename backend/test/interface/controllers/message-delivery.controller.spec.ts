@@ -63,6 +63,48 @@ describe("MessageDeliveryController", () => {
         expect(prismaService.message_log.create).not.toHaveBeenCalled();
     });
 
+    it.each([
+        { scheduledDate: "2026-02-30", scheduledTime: "12:00", reason: "impossible calendar day" },
+        { scheduledDate: "2026-02-28", scheduledTime: "24:00", reason: "midnight overflow" },
+        { scheduledDate: "2026-03-01", scheduledTime: "24:01", reason: "out-of-range time" },
+        { scheduledDate: "2026-03-01", scheduledTime: "12:60", reason: "minute overflow" },
+        { scheduledDate: "2026-2-01", scheduledTime: "12:00", reason: "malformed date" },
+    ])("should reject $reason before creating a log or calling Aligo", async ({ scheduledDate, scheduledTime }) => {
+        jest.spyOn(Date, "now").mockReturnValue(new Date("2026-01-01T00:00:00.000Z").getTime());
+
+        await expect(
+            controller.sendSms(
+                { branchId: "org-1" },
+                {
+                    receiver: "01012345678",
+                    message: "테스트 예약 발송",
+                    triggerType: "scheduled",
+                    scheduledDate,
+                    scheduledTime,
+                },
+            ),
+        ).rejects.toThrow(BadRequestException);
+
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+        expect(prismaService.message_log.create).not.toHaveBeenCalled();
+    });
+
+    it("should reject a scheduled request with missing date or time before side effects", async () => {
+        await expect(
+            controller.sendSms(
+                { branchId: "org-1" },
+                {
+                    receiver: "01012345678",
+                    message: "필수 예약 값 누락",
+                    triggerType: "scheduled",
+                },
+            ),
+        ).rejects.toThrow(BadRequestException);
+
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+        expect(prismaService.message_log.create).not.toHaveBeenCalled();
+    });
+
     it("should normalize scheduled fields for the Aligo request and response payload", async () => {
         jest.spyOn(Date, "now").mockReturnValue(new Date("2026-03-09T11:00:00.000Z").getTime());
         aligoService.sendSms.mockResolvedValue({

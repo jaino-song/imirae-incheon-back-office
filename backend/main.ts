@@ -10,15 +10,8 @@ import { ServiceRecordSentryExceptionFilter } from "./infrastructure/observabili
 import { GlobalValidationPipe } from "./infrastructure/pipes/global-validation.pipe";
 import { assertVendorStubsConfigured } from "./infrastructure/vendor-stubs/e2e-vendor-stubs";
 import { resolveRuntimeNetworkConfig } from "./infrastructure/config/runtime-config";
-
-// Catch any unhandled errors
-process.on('uncaughtException', (error) => {
-    console.error('UNCAUGHT EXCEPTION:', error);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('UNHANDLED REJECTION at:', promise, 'reason:', reason);
-});
+import { ReadinessService } from "./infrastructure/health/readiness.service";
+import { createFatalProcessLifecycle } from "./infrastructure/lifecycle/fatal-process-lifecycle";
 
 // Add BigInt serialization support (env reloaded)
 (BigInt.prototype as any).toJSON = function () {
@@ -48,6 +41,12 @@ async function bootstrap() {
 
     const app = await NestFactory.create(AppModule);
     app.enableShutdownHooks();
+    const readiness = app.get(ReadinessService);
+    createFatalProcessLifecycle({
+        markNotReady: () => readiness.markNotReady(),
+        shutdown: () => app.close(),
+        exit: (code) => process.exit(code),
+    }).install();
     app.use(helmet());
     // 1mb: call-transcript webhook payloads (long transcripts) exceed the 100kb express default
     app.use(json({ limit: "1mb" }));

@@ -19,6 +19,7 @@ export interface IGeminiGateway {
     chatStream(
         messages: ChatMessage[],
         tools?: FunctionDeclaration[],
+        callerSignal?: AbortSignal,
     ): AsyncGenerator<GeminiStreamChunk>;
 
     sendFunctionResult(
@@ -359,6 +360,7 @@ export class AIChatService {
         userId: string,
         userMessage: string,
         branchid: string,
+        callerSignal?: AbortSignal,
     ): AsyncGenerator<ChatStreamEvent> {
         let session = sessionId
             ? await this.sessionRepository.findById(sessionId)
@@ -406,7 +408,7 @@ export class AIChatService {
 
                 while (retryCount <= MAX_RETRIES) {
                     try {
-                        for await (const chunk of this.geminiGateway.chatStream(messages, allTools)) {
+                        for await (const chunk of this.geminiGateway.chatStream(messages, allTools, callerSignal)) {
                             if (chunk.type === 'text' && chunk.content) {
                                 accumulatedText += chunk.content;
                                 yield { type: 'chunk', content: chunk.content };

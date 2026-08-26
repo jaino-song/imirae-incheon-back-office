@@ -10,6 +10,9 @@ import {
 } from "domain/constants/message-automation-policy";
 import { MESSAGE_AUTOMATION_INTENT_RULE_ID } from "domain/constants/message-automation-intent";
 import {
+    SERVICE_RECORD_LINK_RULE_ID,
+} from "domain/constants/service-record-link-message";
+import {
     MessageTriggerJobEntity,
     MessageTriggerJobPayload,
 } from "domain/entities/message-trigger-job.entity";
@@ -559,6 +562,110 @@ describe("SbMessageTriggerJobRepository", () => {
             "WHERE \"message_trigger_job\".\"status\" IN ('pending', 'canceled') "
             + "AND NOT (\"message_trigger_job\".\"status\" = 'canceled' AND \"message_trigger_job\".\"canceled_by_user\" = true)",
         );
+    });
+
+    it("promotes only an owned automatic scheduling marker to pending", async () => {
+        const job = MessageTriggerJobEntity.create({
+            branchId: "branch-1",
+            ruleId: SERVICE_RECORD_LINK_RULE_ID,
+            scheduledFor: new Date("2026-07-09T01:00:00.000Z"),
+            clientId: 1,
+            employeeScheduleId: 42,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            recipientPhone: "01012345678",
+            templateKey: MessageTriggerTemplateKey.SERVICE_RECORD_LINK,
+            dedupeKey: `${SERVICE_RECORD_LINK_RULE_ID}:schedule:42:primary`,
+            payload: {
+                clientId: 1,
+                clientName: "김산모",
+                employeeId: 7,
+                employeeName: "홍제공",
+                memberId: "employee:7",
+                recipientName: "홍제공",
+                recipientPhone: "01012345678",
+                buttonUrl: "https://mobile.test/service-record/efl_token",
+                messageBody: "service record link",
+                templateVariables: { serviceRecordUrl: "https://mobile.test/service-record/efl_token" },
+            },
+        });
+        queryRaw.mockResolvedValueOnce([{
+            id: "claim-1",
+            branch_id: "branch-1",
+            rule_id: SERVICE_RECORD_LINK_RULE_ID,
+            status: "pending",
+            scheduled_for: job.scheduledFor,
+            attempts: 0,
+            next_attempt_at: null,
+            sent_at: null,
+            canceled_at: null,
+            cancel_reason: null,
+            client_id: job.clientId,
+            employee_schedule_id: job.employeeScheduleId,
+            recipient_type: job.recipientType,
+            recipient_phone: job.recipientPhone,
+            template_key: job.templateKey,
+            dedupe_key: job.dedupeKey,
+            payload: job.payload,
+            created_at: new Date("2026-07-08T00:00:00.000Z"),
+            updated_at: new Date("2026-07-09T00:00:00.123Z"),
+        }]);
+
+        const result = await repository.promoteAutomaticSchedulingClaim(
+            "claim-1",
+            "2026-07-09 00:00:00.123456+00",
+            job,
+        );
+
+        expect(result).toMatchObject({
+            id: "claim-1",
+            status: "pending",
+            ruleId: SERVICE_RECORD_LINK_RULE_ID,
+            employeeScheduleId: 42,
+        });
+        const sqlText = getSqlText(queryRaw.mock.calls[0][0]).replace(/\s+/g, " ");
+        expect(sqlText).toContain('UPDATE "message_trigger_job"');
+        expect(sqlText).toContain("SET status = 'pending'");
+        expect(sqlText).toContain("status = 'failed'");
+        expect(sqlText).toContain("cancel_reason = ");
+        expect(sqlText).toContain("canceled_by_user = false");
+        expect(sqlText).toContain("updated_at = ");
+        expect(sqlText).toContain("RETURNING *");
+    });
+
+    it("fails closed when an automatic scheduling claim version is stale", async () => {
+        const job = MessageTriggerJobEntity.create({
+            branchId: "branch-1",
+            ruleId: SERVICE_RECORD_LINK_RULE_ID,
+            scheduledFor: new Date("2026-07-09T01:00:00.000Z"),
+            clientId: 1,
+            employeeScheduleId: 42,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            recipientPhone: "01012345678",
+            templateKey: MessageTriggerTemplateKey.SERVICE_RECORD_LINK,
+            dedupeKey: `${SERVICE_RECORD_LINK_RULE_ID}:schedule:42:primary`,
+            payload: {
+                clientId: 1,
+                clientName: "김산모",
+                employeeId: 7,
+                employeeName: "홍제공",
+                memberId: "employee:7",
+                recipientName: "홍제공",
+                recipientPhone: "01012345678",
+                templateVariables: {},
+            },
+        });
+        queryRaw.mockResolvedValueOnce([]);
+
+        await expect(repository.promoteAutomaticSchedulingClaim(
+            "claim-1",
+            "2026-07-09 00:00:00.123456+00",
+            job,
+        )).resolves.toBeNull();
+        expect(messageTriggerJobModel.findUnique).not.toHaveBeenCalled();
+        const sqlText = getSqlText(queryRaw.mock.calls[0][0]).replace(/\s+/g, " ");
+        expect(sqlText).toContain("updated_at = ");
+        expect(sqlText).toContain("dedupe_key = ");
+        expect(sqlText).toContain("employee_schedule_id = ");
     });
 
     it("upsertPendingForRuleGeneration locks and verifies the rule before writing the pending job", async () => {

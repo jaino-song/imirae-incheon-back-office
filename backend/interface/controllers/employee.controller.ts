@@ -9,6 +9,7 @@ import {
 } from "interface/dto/employee.dto";
 import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
+import { parseBooleanQuery } from "interface/parse-boolean";
 import { parseInteger } from "interface/parse-integer";
 
 @Controller("employees")
@@ -49,7 +50,7 @@ export class EmployeeController {
         @CurrentTenant() tenant: { branchId?: string },
         @Query("openToNextWork") openToNextWork?: string
     ) {
-        const flag = openToNextWork === undefined ? true : openToNextWork === "true";
+        const flag = parseBooleanQuery(openToNextWork, "openToNextWork", true);
         return this.employeeService.findByOpenStatus(tenant.branchId ?? "", flag);
     }
 

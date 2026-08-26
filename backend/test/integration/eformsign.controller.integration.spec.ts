@@ -1363,6 +1363,24 @@ describe("EformsignController (Integration)", () => {
             );
             expect(eformsignService.getAllDocuments).not.toHaveBeenCalled();
         });
+
+        it.each([
+            "/api/documents",
+            "/api/documents/status-counts",
+        ])("rejects an invalid excludeDeleted value before reading %s", async (path) => {
+            mirrorRepository.findAllVisibleInMirror.mockClear();
+            mirrorRepository.findAllVisibleInMirrorForHeadquarters.mockClear();
+            eformsignService.getAllDocuments.mockClear();
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get(path)
+                .query({ excludeDeleted: "maybe" });
+
+            expect(response.status).toBe(400);
+            expect(mirrorRepository.findAllVisibleInMirror).not.toHaveBeenCalled();
+            expect(mirrorRepository.findAllVisibleInMirrorForHeadquarters).not.toHaveBeenCalled();
+            expect(eformsignService.getAllDocuments).not.toHaveBeenCalled();
+        });
     });
 
     describe.skip("legacy synchronous eformsign read path (removed)", () => {
