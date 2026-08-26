@@ -90,7 +90,7 @@
     "@types/express": "^5.0.6",
     "@types/jest": "^29.5.12",
     "@types/multer": "^2.0.0",
-    "@types/node": "^20.3.1",
+    "@types/node": "^26.2.0",
     "@types/nodemailer": "^8.0.1",
     "@types/passport-jwt": "^3.0.10",
     "@types/passport-kakao": "^1.0.0",
