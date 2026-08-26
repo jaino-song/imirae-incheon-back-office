@@ -4,6 +4,7 @@ import {
     MESSAGE_AUTOMATION_INTENT_RETRY_REASON,
     MESSAGE_AUTOMATION_INTENT_RULE_ID,
 } from "domain/constants/message-automation-intent";
+import { MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
 
 describe("MessageAutomationIntentService", () => {
     const setup = () => {
@@ -36,6 +37,7 @@ describe("MessageAutomationIntentService", () => {
                 upsert: jest.fn().mockResolvedValue(undefined),
             },
             message_trigger_job: {
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
                 upsert: jest.fn().mockResolvedValue(undefined),
             },
         };
@@ -76,6 +78,45 @@ describe("MessageAutomationIntentService", () => {
                     cancelReason: MESSAGE_AUTOMATION_INTENT_RETRY_REASON,
                     scheduledFor: intentAt,
                     nextAttemptAt: intentAt,
+                }),
+            }),
+        );
+    });
+
+    it("cancels pending schedule jobs in the update transaction before replacing their generation", async () => {
+        const { service, transaction } = setup();
+        const intentAt = new Date("2026-08-20T01:02:03.000Z");
+
+        await service.persistScheduleIntent(transaction as never, {
+            branchId: "branch-1",
+            clientId: 31,
+            scheduleId: 72,
+            includePast: true,
+            intentAt,
+            replaceExisting: true,
+        });
+
+        expect(transaction.message_trigger_job.updateMany).toHaveBeenCalledWith({
+            where: {
+                branchId: "branch-1",
+                employeeScheduleId: 72,
+                templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+                status: "pending",
+                canceledByUser: false,
+            },
+            data: {
+                status: "canceled",
+                canceledAt: intentAt,
+                cancelReason: "Employee assignment changed",
+                nextAttemptAt: null,
+            },
+        });
+        expect(transaction.message_trigger_job.upsert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                create: expect.objectContaining({
+                    payload: expect.objectContaining({
+                        templateVariables: expect.objectContaining({ replaceExisting: "true" }),
+                    }),
                 }),
             }),
         );
@@ -332,6 +373,58 @@ describe("MessageAutomationIntentService", () => {
         expect(prisma.message_trigger_job.deleteMany).not.toHaveBeenCalled();
     });
 
+    it("rebuilds schedule jobs after an update instead of preserving the previous generation", async () => {
+        const { service, triggerService } = setup();
+
+        await expect(service.fulfillScheduleIntent({
+            branchId: "branch-1",
+            scheduleId: 72,
+            includePast: true,
+            replaceExisting: true,
+        })).resolves.toBe(true);
+
+        expect(triggerService.syncEmployeeAssignmentRulesForSchedule).toHaveBeenCalledWith(
+            "branch-1",
+            72,
+            true,
+            { preserveExisting: false },
+        );
+    });
+
+    it("does not generate schedule jobs while sender approval is absent", async () => {
+        const { service, prisma, triggerService, serviceRecordLinkService } = setup();
+        prisma.branch.findUnique.mockResolvedValue({ smsSenderApprovalStatus: "pending" });
+
+        await expect(service.fulfillScheduleIntent({
+            branchId: "branch-1",
+            scheduleId: 72,
+            includePast: true,
+            replaceExisting: true,
+        })).resolves.toBe(false);
+
+        expect(triggerService.syncEmployeeAssignmentRulesForSchedule).not.toHaveBeenCalled();
+        expect(serviceRecordLinkService.scheduleForServiceStart).not.toHaveBeenCalled();
+    });
+
+    it("retains the schedule intent when job generation fails so reconciliation can retry it", async () => {
+        const { service, prisma, triggerService } = setup();
+        triggerService.syncEmployeeAssignmentRulesForSchedule.mockRejectedValue(
+            new Error("schedule sync unavailable"),
+        );
+
+        await expect(service.fulfillScheduleIntent({
+            branchId: "branch-1",
+            scheduleId: 72,
+            includePast: true,
+            replaceExisting: true,
+        })).rejects.toThrow("schedule sync unavailable");
+
+        expect(prisma.message_trigger_job.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({ where: expect.objectContaining({ id: "intent-1" }) }),
+        );
+        expect(prisma.message_trigger_job.deleteMany).not.toHaveBeenCalled();
+    });
+
     it("reconciles both durable intent kinds and removes them only after successful generation", async () => {
         const {
             service,
@@ -363,6 +456,7 @@ describe("MessageAutomationIntentService", () => {
                         intentKind: "schedule",
                         includePast: "true",
                         suppressGreeting: "false",
+                        replaceExisting: "true",
                     },
                 },
             },
@@ -394,7 +488,7 @@ describe("MessageAutomationIntentService", () => {
                 "branch-1",
                 72,
                 true,
-                { preserveExisting: true },
+                { preserveExisting: false },
             );
         expect(serviceRecordLinkService.scheduleForServiceStart).toHaveBeenCalledWith(72);
         expect(prisma.message_trigger_job.deleteMany).toHaveBeenCalledTimes(2);

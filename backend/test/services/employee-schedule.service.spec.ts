@@ -16,8 +16,13 @@ describe("EmployeeScheduleService", () => {
             extendExpiryForEndDate: jest.fn().mockResolvedValue(undefined),
         };
         const transaction = {};
+        let transactionCommitted = false;
         const prisma = {
-            $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(transaction)),
+            $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+                const result = await callback(transaction);
+                transactionCommitted = true;
+                return result;
+            }),
         };
         const messageAutomationIntentService = {
             persistScheduleIntent: jest.fn().mockResolvedValue(undefined),
@@ -43,6 +48,7 @@ describe("EmployeeScheduleService", () => {
             createUsecase,
             updateUsecase,
             transaction,
+            wasTransactionCommitted: () => transactionCommitted,
             prisma,
             messageAutomationIntentService,
             serviceRecordLinkService,
@@ -179,6 +185,91 @@ describe("EmployeeScheduleService", () => {
         });
 
         expect(serviceRecordLinkService.extendExpiryForEndDate).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["work address", { workAddress: "부산" }],
+        ["start date", { startDate: "2026-08-02" }],
+        ["end date", { endDate: "2026-09-02" }],
+        ["replacement state", { replaced: true }],
+    ] as const)("persists a replacement automation intent when %s changes", async (_label, updates) => {
+        const {
+            service,
+            updateUsecase,
+            transaction,
+            messageAutomationIntentService,
+        } = createService();
+        updateUsecase.execute.mockResolvedValue({
+            id: 10,
+            clientId: 1,
+            endDate: new Date("2026-08-31T00:00:00.000Z"),
+        } as EmployeeScheduleEntity);
+
+        await service.update("branch-1", 10, updates);
+
+        expect(updateUsecase.execute).toHaveBeenCalledWith(
+            "branch-1",
+            10,
+            expect.any(Object),
+            transaction,
+        );
+        expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenCalledWith(
+            transaction,
+            expect.objectContaining({
+                branchId: "branch-1",
+                clientId: 1,
+                scheduleId: 10,
+                includePast: true,
+                replaceExisting: true,
+                intentAt: expect.any(Date),
+            }),
+        );
+        expect(messageAutomationIntentService.fulfillScheduleIntent).toHaveBeenCalledWith({
+            branchId: "branch-1",
+            scheduleId: 10,
+            includePast: true,
+            replaceExisting: true,
+        });
+    });
+
+    it("rolls back the schedule update when replacement intent persistence fails", async () => {
+        const {
+            service,
+            updateUsecase,
+            transaction,
+            messageAutomationIntentService,
+            wasTransactionCommitted,
+        } = createService();
+        const error = new Error("intent storage failed");
+        updateUsecase.execute.mockResolvedValue({ id: 10, clientId: 1 } as EmployeeScheduleEntity);
+        messageAutomationIntentService.persistScheduleIntent.mockRejectedValue(error);
+
+        await expect(service.update("branch-1", 10, { startDate: "2026-08-02" }))
+            .rejects.toThrow("intent storage failed");
+
+        expect(updateUsecase.execute).toHaveBeenCalledWith(
+            "branch-1",
+            10,
+            expect.any(Object),
+            transaction,
+        );
+        expect(wasTransactionCommitted()).toBe(false);
+        expect(messageAutomationIntentService.fulfillScheduleIntent).not.toHaveBeenCalled();
+    });
+
+    it("returns the committed update while leaving a durable retry when message synchronization fails", async () => {
+        const { service, updateUsecase, messageAutomationIntentService } = createService();
+        const updated = { id: 10, clientId: 1 } as EmployeeScheduleEntity;
+        updateUsecase.execute.mockResolvedValue(updated);
+        messageAutomationIntentService.fulfillScheduleIntent.mockRejectedValue(
+            new Error("message sync failed"),
+        );
+
+        await expect(service.update("branch-1", 10, { workAddress: "부산" }))
+            .resolves.toBe(updated);
+
+        expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenCalled();
+        expect(messageAutomationIntentService.fulfillScheduleIntent).toHaveBeenCalled();
     });
 });
 
