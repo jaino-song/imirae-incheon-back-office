@@ -39,6 +39,9 @@ export class CallExtractionRetrySchedulerService {
         try {
             const candidates = await this.prismaService.call_record.findMany({
                 where: {
+                    // PROCESSING is deliberately not reclaimed: this schema has no
+                    // claim lease/timestamp, so a time-based reset could race a live
+                    // owner.  An operational recovery must reset it explicitly.
                     OR: [
                         { processingStatus: "FAILED", extractionRetryCount: { lt: MAX_ATTEMPTS } },
                         // crash recovery: RECEIVED rows whose fire-and-forget kickoff died
@@ -63,10 +66,21 @@ export class CallExtractionRetrySchedulerService {
                         // their attempt count would burn retries they never actually consumed.
                         if (candidate.processingStatus === "FAILED") {
                             // retryCount counts scheduler pickups, not completed extraction attempts; stuck-RECEIVED recovery (no count filter) guarantees records are never permanently lost
-                            await this.prismaService.call_record.update({
-                                where: { id: candidate.id },
-                                data: { extractionRetryCount: { increment: 1 }, processingStatus: "RECEIVED" },
+                            const reset = await this.prismaService.call_record.updateMany({
+                                where: {
+                                    id: candidate.id,
+                                    processingStatus: "FAILED",
+                                    extractionRetryCount: candidate.extractionRetryCount,
+                                },
+                                data: {
+                                    extractionRetryCount: { increment: 1 },
+                                    processingStatus: "RECEIVED",
+                                },
                             });
+                            // The candidate list is a snapshot.  If another worker already
+                            // claimed or retried this row, do not hand it to the processor
+                            // from stale state and risk stealing its generation.
+                            if (reset.count !== 1) continue;
                         }
                         await this.processingService.processCallRecord(candidate.id);
                     } catch (error) {

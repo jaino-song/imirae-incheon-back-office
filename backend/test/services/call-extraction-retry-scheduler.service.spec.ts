@@ -2,7 +2,7 @@ import { CallExtractionRetrySchedulerService } from "application/services/call-e
 
 describe("CallExtractionRetrySchedulerService", () => {
     const prisma = {
-        call_record: { findMany: jest.fn(), update: jest.fn() },
+        call_record: { findMany: jest.fn(), updateMany: jest.fn() },
         client_draft: { updateMany: jest.fn() },
     };
     const processingService = { processCallRecord: jest.fn() };
@@ -10,7 +10,7 @@ describe("CallExtractionRetrySchedulerService", () => {
 
     beforeEach(() => {
         jest.resetAllMocks();
-        prisma.call_record.update.mockResolvedValue({});
+        prisma.call_record.updateMany.mockResolvedValue({ count: 1 });
         prisma.client_draft.updateMany.mockResolvedValue({ count: 0 });
         processingService.processCallRecord.mockResolvedValue(undefined);
         scheduler = new CallExtractionRetrySchedulerService(prisma as never, processingService as never);
@@ -25,12 +25,12 @@ describe("CallExtractionRetrySchedulerService", () => {
         await scheduler.retryFailedExtractions();
 
         // FAILED row: reset to RECEIVED + increment counter, then process
-        expect(prisma.call_record.update).toHaveBeenCalledWith({
-            where: { id: "rec-1" },
+        expect(prisma.call_record.updateMany).toHaveBeenCalledWith({
+            where: { id: "rec-1", processingStatus: "FAILED", extractionRetryCount: 1 },
             data: { extractionRetryCount: { increment: 1 }, processingStatus: "RECEIVED" },
         });
         // RECEIVED stuck row: only re-process, do NOT increment counter
-        expect(prisma.call_record.update).not.toHaveBeenCalledWith(
+        expect(prisma.call_record.updateMany).not.toHaveBeenCalledWith(
             expect.objectContaining({ where: { id: "rec-2" } }),
         );
         expect(processingService.processCallRecord).toHaveBeenCalledWith("rec-1");
@@ -66,6 +66,21 @@ describe("CallExtractionRetrySchedulerService", () => {
 
         expect(processingService.processCallRecord).toHaveBeenCalledTimes(2);
         expect(processingService.processCallRecord).toHaveBeenLastCalledWith("rec-2");
+    });
+
+    it("does not process a FAILED snapshot that lost its generation CAS", async () => {
+        prisma.call_record.findMany.mockResolvedValue([
+            { id: "rec-1", extractionRetryCount: 2, processingStatus: "FAILED" },
+        ]);
+        prisma.call_record.updateMany.mockResolvedValue({ count: 0 });
+
+        await scheduler.retryFailedExtractions();
+
+        expect(prisma.call_record.updateMany).toHaveBeenCalledWith({
+            where: { id: "rec-1", processingStatus: "FAILED", extractionRetryCount: 2 },
+            data: { extractionRetryCount: { increment: 1 }, processingStatus: "RECEIVED" },
+        });
+        expect(processingService.processCallRecord).not.toHaveBeenCalled();
     });
 
     it("sweeps stale CONFIRMING drafts back to PENDING", async () => {
