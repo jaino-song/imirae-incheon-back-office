@@ -356,6 +356,26 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         expect(updateClient.execute).not.toHaveBeenCalled();
     });
 
+    it("does not manufacture a birthDate clear when an update omits birthDate", async () => {
+        const { capabilities, updateClient, transaction } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        await capability.execute!(context, { id: 1, name: "김길동" });
+        await capability.executeApprovedTarget!(context, { id: 1, name: "김길동" }, "approved-target");
+
+        const directUpdates = updateClient.execute.mock.calls[0]?.[2] as Record<string, unknown>;
+        const approvedUpdates = updateClient.executeApprovedTarget.mock.calls[0]?.[2] as Record<string, unknown>;
+        expect(directUpdates["birthDate"]).toBeUndefined();
+        expect(approvedUpdates["birthDate"]).toBeUndefined();
+        expect(updateClient.executeApprovedTarget).toHaveBeenCalledWith(
+            "branch-a", 1, expect.objectContaining({ birthDate: undefined }), "approved-target", transaction,
+        );
+    });
+
     it("normalizes partial pricing updates and synchronizes direct writes", async () => {
         const { capabilities, updateClient, serviceRecordLifecycle } = setup();
         const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;

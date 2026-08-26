@@ -127,6 +127,59 @@ describe("CallProcessingService", () => {
         expect(prisma.client_draft.create.mock.calls[0][0].data.clientId).toBeNull();
     });
 
+    it("does not manufacture a birthDate clear when extraction omits birthDate", async () => {
+        extractionPort.extract.mockResolvedValue(extraction({
+            category: "CLIENT_SERVICE",
+            proposals: [
+                { field: "startDate", value: "2026-06-23", evidence: "e", confidence: "high" },
+            ],
+        }));
+
+        await service.processCallRecord("rec-1");
+
+        const proposals = prisma.client_draft.create.mock.calls[0][0].data.proposals;
+        expect(proposals).toEqual([
+            { field: "startDate", value: "2026-06-23", evidence: "e", confidence: "high" },
+        ]);
+        expect(proposals.some((proposal: { field: string }) => proposal.field === "birthDate")).toBe(false);
+    });
+
+    it("keeps an explicit nullable birthDate clear as a proposal", async () => {
+        extractionPort.extract.mockResolvedValue(extraction({
+            category: "CLIENT_SERVICE",
+            proposals: [
+                { field: "birthDate", value: null, evidence: "출산일을 지워 주세요", confidence: "high" },
+            ],
+        }));
+
+        await service.processCallRecord("rec-1");
+
+        expect(prisma.client_draft.create.mock.calls[0][0].data.proposals).toEqual([
+            { field: "birthDate", value: null, evidence: "출산일을 지워 주세요", confidence: "high" },
+        ]);
+    });
+
+    it.each(["name", "voucherClient", "breastPump"])(
+        "rejects an explicit null proposal for non-nullable %s without creating a draft",
+        async (field) => {
+            extractionPort.extract.mockResolvedValue(extraction({
+                category: "CLIENT_SERVICE",
+                proposals: [{ field, value: null, evidence: "e", confidence: "high" }],
+            }));
+
+            await service.processCallRecord("rec-1");
+
+            expect(prisma.client_draft.create).not.toHaveBeenCalled();
+            expect(prisma.call_record.update).toHaveBeenLastCalledWith(expect.objectContaining({
+                where: { id: "rec-1" },
+                data: expect.objectContaining({
+                    processingStatus: "FAILED",
+                    failureReason: expect.stringContaining("non-nullable"),
+                }),
+            }));
+        },
+    );
+
     it("marks FAILED with reason when extraction throws", async () => {
         extractionPort.extract.mockRejectedValue(new Error("Gemini extraction failed (429)"));
 
