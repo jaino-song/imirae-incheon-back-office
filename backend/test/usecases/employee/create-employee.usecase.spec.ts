@@ -47,7 +47,7 @@ describe("CreateEmployeeUsecase", () => {
             expect(result.openToNextWork).toBe(true);
         });
 
-        it("should create employee without registeredDate (defaults to now)", async () => {
+        it("should create employee without registeredDate as null", async () => {
             // Arrange
             const name = "신규 직원";
             const workArea = ["서울 강남구"];
@@ -68,7 +68,7 @@ describe("CreateEmployeeUsecase", () => {
             // Assert
             expect(result).toBeDefined();
             expect(result.name).toBe("신규 직원");
-            expect(result.registeredDate).toBeDefined();
+            expect(result.registeredDate).toBeNull();
         });
 
         it("should auto-increment employee id for multiple creates", async () => {

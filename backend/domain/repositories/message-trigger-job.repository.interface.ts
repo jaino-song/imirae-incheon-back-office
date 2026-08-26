@@ -75,6 +75,16 @@ export interface IMessageTriggerJobRepository {
      */
     cancelPendingByUser(id: string, branchId: string, reason: string): Promise<boolean>;
     /**
+     * Promote only the exact automatic service-record scheduling marker owned
+     * by this claim version. A null result means the claim was replaced or
+     * otherwise lost and must fail closed without reading/reviving another row.
+     */
+    promoteAutomaticSchedulingClaim(
+        markerId: string,
+        expectedClaimVersion: string,
+        job: MessageTriggerJobEntity,
+    ): Promise<MessageTriggerJobEntity | null>;
+    /**
      * Cancel mutable pending jobs only while the branch-scoped rule is at the
      * inspected generation and stale state. Null means the producer lost the
      * generation race and must leave all job rows untouched.

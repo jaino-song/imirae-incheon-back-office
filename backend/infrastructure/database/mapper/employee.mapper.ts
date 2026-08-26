@@ -22,7 +22,7 @@ export class EmployeeMapper {
             row.phone,
             normalizeEmployeeGrade(row.grade),
             row.openToNextWork,
-            row.companyRegisteredDate ?? new Date(),
+            row.companyRegisteredDate,
             row.birthday ?? undefined,
             row.deletedAt ?? undefined,
         );

@@ -11,11 +11,35 @@ import {
     IsOptional,
     IsString,
     MaxLength,
+    Min,
+    Validate,
     ValidateIf,
     ValidateNested,
+    ValidatorConstraint,
+    ValidatorConstraintInterface,
 } from "class-validator";
-import { Type } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import { PROPOSAL_FIELDS } from "application/services/call-extraction.prompt";
+import { SERVICE_STATUS_VALUES } from "domain/value-objects/service-status.vo";
+
+@ValidatorConstraint({ name: "calendarBirthday", async: false })
+class CalendarBirthdayConstraint implements ValidatorConstraintInterface {
+    validate(value: unknown): boolean {
+        if (typeof value !== "string" || !/^\d{6}$/.test(value)) return false;
+
+        const year = Number(value.slice(0, 2));
+        const month = Number(value.slice(2, 4));
+        const day = Number(value.slice(4, 6));
+        if (month < 1 || month > 12 || day < 1) return false;
+
+        const daysInMonth = [31, year % 4 === 0 ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+        return day <= (daysInMonth[month - 1] ?? 0);
+    }
+
+    defaultMessage(): string {
+        return "생년월일은 유효한 YYMMDD 6자리여야 합니다.";
+    }
+}
 
 export class CreateCallIngestTokenDto {
     @IsString()
@@ -76,10 +100,89 @@ export class PatchClientDraftDto {
     clientId?: number | null;
 }
 
+/**
+ * Staff-final values accepted by the NEW_CLIENT confirmation path.
+ *
+ * Keep this contract aligned with the fields that the confirmation service
+ * actually forwards to ClientService.create. This is deliberately separate
+ * from the permissive extraction/proposal shapes: a reviewer confirmation is
+ * a write boundary and must not coerce malformed values.
+ */
+export class ConfirmNewClientFieldsDto {
+    @Transform(({ value }) => typeof value === "string" ? value.trim() : value)
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(120)
+    name!: string;
+
+    @IsOptional() @IsString() @MaxLength(300)
+    address?: string | null;
+
+    @IsOptional() @IsString() @MaxLength(40)
+    phone?: string | null;
+
+    @IsOptional() @IsString() @MaxLength(40)
+    type?: string | null;
+
+    @IsOptional() @IsInt() @Min(0)
+    duration?: number | null;
+
+    @IsOptional() @IsString() @MaxLength(40)
+    fullPrice?: string | null;
+
+    @IsOptional() @IsString() @MaxLength(80)
+    grant?: string | null;
+
+    @IsOptional() @IsString() @MaxLength(40)
+    actualPrice?: string | null;
+
+    @IsOptional() @IsDateString()
+    startDate?: string | null;
+
+    @IsOptional() @IsDateString()
+    endDate?: string | null;
+
+    @IsOptional() @IsBoolean()
+    careCenter?: boolean | null;
+
+    @ValidateIf((_, value) => value !== undefined)
+    @IsBoolean()
+    voucherClient?: boolean;
+
+    @IsOptional() @IsString()
+    @Validate(CalendarBirthdayConstraint)
+    birthday?: string | null;
+
+    @IsOptional() @IsDateString()
+    dueDate?: string | null;
+
+    @IsOptional() @IsDateString()
+    birthDate?: string | null;
+
+    @IsOptional() @IsIn(SERVICE_STATUS_VALUES)
+    serviceStatus?: string | null;
+
+    @ValidateIf((_, value) => value !== undefined)
+    @IsBoolean()
+    breastPump?: boolean;
+
+    @IsOptional() @IsString() @MaxLength(100)
+    areaId?: string | null;
+
+    // These are optional in the client create contract and are forwarded
+    // unchanged when staff supplies an assignment during confirmation.
+    @IsOptional() @IsInt()
+    primaryEmployeeId?: number | null;
+
+    @IsOptional() @IsInt()
+    secondaryEmployeeId?: number | null;
+}
+
 export class ConfirmNewClientDraftDto {
-    /** staff-final values; same shape as CreateClientDto minus employee fields */
     @IsObject()
-    fields!: Record<string, unknown>;
+    @ValidateNested()
+    @Type(() => ConfirmNewClientFieldsDto)
+    fields!: ConfirmNewClientFieldsDto;
 
     @IsOptional()
     @IsBoolean()
@@ -96,7 +199,9 @@ export class ConfirmClientUpdateDraftDto {
 export class ConfirmDraftDto {
     @IsOptional()
     @IsObject()
-    fields?: Record<string, unknown>;
+    @ValidateNested()
+    @Type(() => ConfirmNewClientFieldsDto)
+    fields?: ConfirmNewClientFieldsDto | Record<string, unknown>;
 
     @IsOptional()
     @IsBoolean()

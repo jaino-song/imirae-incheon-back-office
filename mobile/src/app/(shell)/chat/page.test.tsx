@@ -2,10 +2,12 @@ import { render, screen } from "@testing-library/react";
 
 import ChatPage from "./page";
 
-const mockUseAgentShellEnabled = jest.fn<null | boolean, []>();
+type AgentShellState = "compatibility-off" | "loading" | "enabled" | "discovery-error";
+const mockUseAgentShellEnabled = jest.fn<AgentShellState, []>();
 
 jest.mock("@/hooks/useAgentChat", () => ({
   useAgentShellEnabled: () => mockUseAgentShellEnabled(),
+  AGENT_DISCOVERY_ERROR_MESSAGE: "AI 운영 코파일럿을 준비하지 못했습니다.",
 }));
 
 jest.mock("@/components/app/chat/AgentMobileShell", () => ({
@@ -26,7 +28,7 @@ describe("ChatPage composition", () => {
   });
 
   it("renders the imported loading organism while the flag is unresolved", () => {
-    mockUseAgentShellEnabled.mockReturnValue(null);
+    mockUseAgentShellEnabled.mockReturnValue("loading");
 
     render(<ChatPage />);
 
@@ -36,7 +38,7 @@ describe("ChatPage composition", () => {
   });
 
   it("renders the imported legacy organism when the flag is disabled", () => {
-    mockUseAgentShellEnabled.mockReturnValue(false);
+    mockUseAgentShellEnabled.mockReturnValue("compatibility-off");
 
     render(<ChatPage />);
 
@@ -46,12 +48,21 @@ describe("ChatPage composition", () => {
   });
 
   it("renders the imported agent organism when the flag is enabled", () => {
-    mockUseAgentShellEnabled.mockReturnValue(true);
+    mockUseAgentShellEnabled.mockReturnValue("enabled");
 
     render(<ChatPage />);
 
     expect(screen.getByTestId("agent-mobile-shell")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-page-loading")).not.toBeInTheDocument();
     expect(screen.queryByTestId("legacy-chat-page")).not.toBeInTheDocument();
+  });
+
+  it("throws a safe discovery error instead of mounting either chat surface", () => {
+    mockUseAgentShellEnabled.mockReturnValue("discovery-error");
+
+    expect(() => ChatPage()).toThrow("AI 운영 코파일럿을 준비하지 못했습니다.");
+    expect(screen.queryByTestId("chat-page-loading")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("legacy-chat-page")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("agent-mobile-shell")).not.toBeInTheDocument();
   });
 });

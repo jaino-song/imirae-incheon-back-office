@@ -1,310 +1,205 @@
 # 이미래 인천 (imirae-incheon) — Native App Setup Guide
 
-> Step-by-step instructions to build and run the Android and iOS apps.
+> This guide describes the native files committed in this repository. It does not claim that a device, provider account, Xcode package, or live backend has been verified.
+>
+> Run `bash native/scripts/setup-doc-freshness.test.sh` from the repository root after changing native tooling or setup instructions. The check extracts pinned facts from the committed Gradle configuration and fails when this document drifts.
 
----
+## Repository status
+
+- **Android:** A committed Gradle/Kotlin Multiplatform project is present under `native/`. The Android application module is `androidApp`.
+- **Shared module:** `shared` declares Android, iOS device, and iOS simulator framework targets.
+- **iOS:** SwiftUI source files and `Info.plist` are present under `native/iosApp/iosApp/`, but no Xcode project or workspace is committed. There is therefore no repository-backed iOS app build, signing, or run workflow yet.
+- **Push and OAuth:** Android libraries and source hooks exist, but provider configuration is not committed and the iOS Kakao action is still a TODO. Treat those integrations as unverified.
 
 ## Prerequisites
 
-### 1. Install Java 17 (required for Android + KMP)
+### Java and Gradle
+
+The project uses two Java version facts:
+
+1. The Android and shared modules compile with the Java 17 JVM toolchain.
+2. `gradle/gradle-daemon-jvm.properties` requests Java 21 for the Gradle daemon.
+
+Install a JDK 17 distribution and make it visible to the shell. If the Gradle daemon cannot provision or locate its requested JDK 21, make JDK 21 available to Gradle as well. The repository does not claim that daemon provisioning succeeds on every machine.
 
 ```bash
 brew install openjdk@17
 
-# Add to your shell profile (~/.zshrc):
+# Add to your shell profile if your JDK is not already discoverable:
 export JAVA_HOME=$(/usr/libexec/java_home -v 17 2>/dev/null || echo "/opt/homebrew/opt/openjdk@17")
 export PATH="$JAVA_HOME/bin:$PATH"
 
-# Reload:
+# Reload and inspect the active runtime:
 source ~/.zshrc
-
-# Verify:
-java -version  # Should show 17.x
+java -version
 ```
 
-### 2. Install Android Studio
-
-1. Download from https://developer.android.com/studio
-2. Open the `.dmg` and drag to Applications
-3. Launch Android Studio
-4. **First-time setup wizard**:
-   - Choose "Standard" installation
-   - Accept all SDK license agreements
-   - Let it download Android SDK 35, build tools, emulator
-5. After setup, go to **Settings → Languages & Frameworks → Android SDK**:
-   - SDK Platforms tab: verify **Android 15 (API 35)** is checked
-   - SDK Tools tab: check **Android SDK Build-Tools**, **Android Emulator**, **Android SDK Platform-Tools**
-
-6. Set `ANDROID_HOME` in `~/.zshrc`:
-```bash
-export ANDROID_HOME="$HOME/Library/Android/sdk"
-export PATH="$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools:$PATH"
-```
-
-### 3. Install Xcode (required for iOS)
-
-1. Open **App Store** → Search "Xcode" → Install (it's ~12 GB)
-2. After install, open Xcode once to accept license and install components
-3. Verify:
-```bash
-xcodebuild -version  # Should show Xcode 16.x
-```
-
-### 4. Install CocoaPods (optional, for iOS dependencies)
+The Gradle wrapper is already committed at `native/gradlew` and is pinned to the version listed below. Do not regenerate it as part of normal setup.
 
 ```bash
-brew install cocoapods
+cd /path/to/babyjamjam-admin/native
+./gradlew --version
 ```
 
----
+### Android SDK and Android Studio
 
-## Part A: Android App — Android Studio
+Android Studio is useful for emulator and IDE work, but the documented build commands use the committed wrapper directly.
 
-### Step 1: Generate Gradle Wrapper
+1. Install Android Studio from [developer.android.com/studio](https://developer.android.com/studio).
+2. In SDK Manager, install Android API 36, Android SDK Build-Tools, Android SDK Platform-Tools, and an emulator system image.
+3. Point the shell at the standard macOS SDK location when needed:
+
+   ```bash
+   export ANDROID_HOME="$HOME/Library/Android/sdk"
+   export PATH="$ANDROID_HOME/platform-tools:$PATH"
+   ```
+
+The module requires minimum SDK 26 and compiles and targets SDK 36. Android Studio's own version is not pinned in the committed project, so this guide does not claim a particular IDE release.
+
+## Android app
+
+### Build from the command line
+
+From the repository root:
 
 ```bash
-cd native/
-
-# Option A: If you have gradle installed globally
-gradle wrapper --gradle-version 8.5
-
-# Option B: If you don't have gradle, use Android Studio (see Step 2)
+cd native
+./gradlew :androidApp:assembleDebug
 ```
 
-> If you skip this step, Android Studio will offer to generate the wrapper when you open the project.
-
-### Step 2: Open Project in Android Studio
-
-1. Open Android Studio
-2. Click **"Open"** (not "New Project")
-3. Navigate to `/Users/jaino/Development/dev/native/` and select the `native` folder
-4. Click **"Open"**
-5. Android Studio will detect the Gradle project and start syncing
-
-### Step 3: Wait for Gradle Sync
-
-- Bottom bar will show "Gradle sync" progress
-- First time takes 5-10 minutes (downloads all dependencies)
-- If it asks to install missing SDK components, click **"Install"**
-- If it asks about Gradle wrapper, click **"OK"** to generate it
-
-**If sync fails:**
-- Check **File → Project Structure → SDK Location** — ensure Android SDK path is set
-- Check **File → Settings → Build → Gradle** — ensure JDK 17 is selected
-- Try **File → Invalidate Caches / Restart**
-
-### Step 4: Create an Android Emulator
-
-1. Click **Tools → Device Manager** (or the phone icon in the toolbar)
-2. Click **"Create Virtual Device"**
-3. Select **Pixel 7** (or any phone) → **Next**
-4. Select **API 35** system image → **Download** if needed → **Next**
-5. Name it anything → **Finish**
-6. Click the **▶ Play** button next to the device to launch it
-
-### Step 5: Run the App
-
-1. In the top toolbar, select:
-   - **Module**: `androidApp` (dropdown next to the green play button)
-   - **Device**: Your emulator (e.g., "Pixel 7 API 35")
-2. Click the **▶ Run** button (or press `Ctrl+R` / `⌃R`)
-3. Wait for build (first build takes 2-3 minutes)
-4. The app should launch on the emulator showing the login screen
-
-### Step 6: Firebase Setup (for Push Notifications)
-
-> Push notifications won't work without this. You can skip for initial testing.
-
-1. Go to https://console.firebase.google.com/
-2. Create a project (or use existing)
-3. Add an Android app with package name: `com.imirae.incheon`
-4. Download `google-services.json`
-5. Place it in `native/androidApp/google-services.json`
-6. Add the Google Services plugin to `native/androidApp/build.gradle.kts`:
-```kotlin
-plugins {
-    // ... existing plugins
-    id("com.google.gms.google-services")
-}
-```
-7. Add to `native/build.gradle.kts`:
-```kotlin
-plugins {
-    // ... existing plugins
-    id("com.google.gms.google-services") version "4.4.2" apply false
-}
-```
-
-### Troubleshooting Android
-
-| Problem | Solution |
-|---------|----------|
-| "SDK location not found" | Set `ANDROID_HOME` env var, or set in Android Studio → Settings → SDK |
-| "Failed to find target" | Install SDK 35 via SDK Manager |
-| "Kakao SDK error" | Replace `{NATIVE_APP_KEY}` in AndroidManifest.xml with your Kakao key |
-| Build OOM | Add to `gradle.properties`: `org.gradle.jvmargs=-Xmx4096m` |
-| Emulator slow | Enable hardware acceleration: SDK Manager → SDK Tools → Intel HAXM |
-
----
-
-## Part B: iOS App — Xcode
-
-### Step 1: Generate the Shared Framework
-
-The iOS app depends on the KMP shared module compiled as an iOS framework.
+The command is a build request; a successful APK, emulator, or device run must be observed separately. The Android Fastlane CI lane runs the following repository-backed checks when Fastlane is available:
 
 ```bash
-cd native/
+./gradlew :androidApp:test :androidApp:lint :androidApp:assembleDebug --stacktrace
+```
 
-# Generate Gradle wrapper if not already done
-# (Android Studio should have done this in Part A)
+To install a debug build on an already connected device or emulator, use:
 
-# Build the shared framework for iOS Simulator (arm64 for Apple Silicon Mac)
+```bash
+./gradlew :androidApp:installDebug
+```
+
+This command requires a connected target and does not create or start an emulator.
+
+### Android Studio
+
+1. Open the existing `native/` directory in Android Studio.
+2. Allow Gradle sync to use the committed wrapper.
+3. Select the `androidApp` module and a configured device or emulator.
+4. Run only after sync and compilation complete successfully.
+
+The repository does not provide evidence that a specific Android Studio version, emulator image, or physical device has completed this flow.
+
+### Runtime configuration currently in source
+
+The Android module defines these build-time API endpoints in `androidApp/build.gradle.kts`:
+
+- Debug builds use `http://10.0.2.2:3001`, which is the Android-emulator alias for the host machine. It is not a general physical-device address.
+- Release builds use `https://api.imirae-incheon.com`.
+
+- **Android application ID**: `com.imirae.incheon`
+
+Backend reachability, authentication, and live provider behavior are not verified by these source values.
+
+### Firebase and Kakao limitations
+
+- `firebase-messaging` is declared as an Android dependency, but no `google-services` Gradle plugin or `google-services.json` is committed in the current build. Push notification setup is not complete or verified. Keep provider configuration outside the repository and follow the secrets policy.
+- The Android manifest still contains the `kakao{NATIVE_APP_KEY}` callback placeholder. The Kakao Android library is declared, but no app key is supplied by this repository. OAuth is not a verified setup result.
+
+Do not add provider credentials to source files while following this guide.
+
+## iOS status and framework generation
+
+### What is committed
+
+The repository contains SwiftUI source files and an `Info.plist` under `native/iosApp/iosApp/`. No committed `.xcodeproj` or `.xcworkspace` exists under `native/iosApp/`.
+
+```bash
+cd native
+find iosApp -maxdepth 2 \( -name '*.xcodeproj' -o -name '*.xcworkspace' \) -print
+```
+
+The command currently produces no output. Do not create an Xcode project, invent build settings, or treat the Swift source tree as a packaged app as part of setup documentation.
+
+No iOS deployment target is declared in committed Xcode configuration. The committed `Info.plist` uses Xcode build variables for the bundle identifier and version, so it does not establish a concrete bundle ID, signing team, scheme, framework search path, or deployment target.
+
+### Generate the shared framework
+
+The shared KMP module declares these framework targets:
+
+```bash
+cd native
+
+# Apple Silicon simulator:
 ./gradlew :shared:linkDebugFrameworkIosSimulatorArm64
 
-# The framework will be at:
-# native/shared/build/bin/iosSimulatorArm64/debugFramework/shared.framework
+# Intel simulator:
+./gradlew :shared:linkDebugFrameworkIosX64
+
+# Device framework:
+./gradlew :shared:linkReleaseFrameworkIosArm64
 ```
 
-### Step 2: Create the Xcode Project
+When a task succeeds, its output is under `native/shared/build/bin/` for the corresponding target. Generating a framework does not prove that Swift sources are linked, signed, packaged, or runnable because the Xcode project is absent.
 
-1. Open **Xcode**
-2. Click **"Create New Project"**
-3. Select **iOS → App** → **Next**
-4. Fill in:
-   - **Product Name**: `iosApp`
-   - **Team**: Your Apple Developer team (or "None" for simulator-only)
-   - **Branch Identifier**: `com.imirae`
-   - **Bundle Identifier**: `com.imirae.incheon` (auto-filled)
-   - **Interface**: **SwiftUI**
-   - **Language**: **Swift**
-5. Save it inside `native/iosApp/` (replacing or alongside existing files)
-6. Xcode creates the `.xcodeproj`
+### Fastlane limitation
 
-### Step 3: Add the Shared Framework
+The committed `native/iosApp/fastlane/Fastfile` looks for an `.xcworkspace` or `.xcodeproj` and emits an important skip message when neither exists. Fastlane's iOS lane skips the build when no Xcode project is present. A skipped lane is not iOS CI or packaging evidence.
 
-1. In Xcode, select the **iosApp** project in the navigator (blue icon)
-2. Select the **iosApp** target → **General** tab
-3. Scroll to **"Frameworks, Libraries, and Embedded Content"**
-4. Click **"+"** → **"Add Other..."** → **"Add Files..."**
-5. Navigate to:
-   ```
-   native/shared/build/bin/iosSimulatorArm64/debugFramework/shared.framework
-   ```
-6. Select it, set **Embed** to **"Do Not Embed"** (it's a static framework)
+The old workflow that creates an Xcode project, adds files manually, configures framework search paths, or installs an uncommitted Kakao package is intentionally not documented here. Those steps require a separate, reviewed iOS packaging implementation. Xcode and CocoaPods versions are not pinned or verified by this repository.
 
-### Step 4: Configure Framework Search Paths
+The iOS SwiftUI Kakao button remains a TODO, and no committed iOS Firebase configuration or provider verification is present.
 
-1. Select the **iosApp** target → **Build Settings** tab
-2. Search for "Framework Search Paths"
-3. Add:
-   ```
-   $(SRCROOT)/../shared/build/bin/iosSimulatorArm64/debugFramework
-   ```
-4. Search for "Other Linker Flags"
-5. Add: `-lsqlite3` (if needed by Ktor)
+## Shared module checks
 
-### Step 5: Replace Generated Files with Our Code
+Run the shared Kotlin tests when the local toolchain and dependencies are available:
 
-The Xcode project generator created its own `ContentView.swift` and app entry point.
-Replace them with our files:
-
-1. In Xcode's file navigator, **delete** the auto-generated `ContentView.swift` and app file
-2. Right-click the **iosApp** group → **"Add Files to iosApp..."**
-3. Navigate to `native/iosApp/iosApp/` and add ALL folders:
-   - `Views/` (all screen files)
-   - `Components/` (reusable UI)
-   - `Navigation/` (AppNavigation.swift)
-   - `Helpers/` (KoinHelper.swift, AuthViewModelWrapper.swift)
-   - `Theme/` (AppTheme.swift)
-   - `Notification/` (APNsDelegate.swift)
-   - `Resources/` (Localizable.strings)
-   - `imirae_incheonApp.swift` (app entry point)
-   - `Info.plist`
-4. Make sure **"Copy items if needed"** is **unchecked** (files are already in place)
-5. Make sure **"Create groups"** is selected
-
-### Step 6: Set the Info.plist
-
-1. Select the **iosApp** target → **General** tab
-2. Under **Identity**: set Bundle Identifier to `com.imirae.incheon`
-3. Select **Build Settings** tab → search "Info.plist"
-4. Set **Info.plist File** to: `iosApp/Info.plist`
-
-### Step 7: Run on Simulator
-
-1. In the top toolbar, select a simulator: **iPhone 16** (or any)
-2. Click the **▶ Run** button (or press `⌘R`)
-3. First build takes 2-3 minutes
-4. The app should launch on the simulator showing the login screen
-
-### Step 8: Kakao SDK Setup (for OAuth)
-
-> Kakao login won't work without this. You can skip for initial testing.
-
-1. Go to https://developers.kakao.com/
-2. Create an app → get the **Native App Key**
-3. In Xcode, open `Info.plist` and replace the URL scheme placeholder with your key
-4. Add KakaoSDK via Swift Package Manager:
-   - File → Add Package Dependencies
-   - URL: `https://github.com/nickcisco/kakao-ios-sdk`
-   - Add `KakaoSDKUser` package
-
-### Troubleshooting iOS
-
-| Problem | Solution |
-|---------|----------|
-| "No such module 'shared'" | Rebuild the framework: `./gradlew :shared:linkDebugFrameworkIosSimulatorArm64` |
-| "Framework not found" | Check Framework Search Paths in Build Settings |
-| "Signing" errors | Set Team in Signing & Capabilities, or use simulator only |
-| Build error in shared | Check Java 17 is installed and JAVA_HOME is set |
-| "arm64 architecture" issues | Ensure you built for the right target (SimulatorArm64 for M1/M2 Mac) |
-
----
-
-## Quick Reference
-
-### Project Structure
-```
-native/
-├── shared/          ← KMP shared code (Kotlin, compiles to JVM + iOS framework)
-├── androidApp/      ← Android app (Jetpack Compose)
-├── iosApp/          ← iOS app (SwiftUI)
-├── build.gradle.kts ← Root build config
-└── settings.gradle.kts
-```
-
-### Useful Gradle Commands
 ```bash
-# Android
-./gradlew :androidApp:assembleDebug          # Build debug APK
-./gradlew :androidApp:installDebug           # Install on connected device/emulator
-./gradlew :androidApp:assembleRelease        # Build release APK
-
-# iOS Framework
-./gradlew :shared:linkDebugFrameworkIosSimulatorArm64    # Simulator (Apple Silicon)
-./gradlew :shared:linkDebugFrameworkIosX64               # Simulator (Intel Mac)
-./gradlew :shared:linkReleaseFrameworkIosArm64           # Device (release)
-
-# Shared
-./gradlew :shared:allTests                   # Run shared module tests
-./gradlew clean                              # Clean all build artifacts
+cd native
+./gradlew :shared:allTests
 ```
 
-### Key Files to Customize
-- `native/androidApp/google-services.json` — Firebase config (get from Firebase Console)
-- `native/androidApp/src/main/AndroidManifest.xml` — Replace `{NATIVE_APP_KEY}` with Kakao key
-- `native/iosApp/iosApp/Info.plist` — Add your Kakao URL scheme
-- `native/shared/.../network/ApiClient.kt` — Backend API base URL
+At the time this guide was refreshed, that aggregate command compiled the shared iOS simulator sources but failed at `:shared:iosSimulatorArm64Test` because test sources were present and no tests were discovered. This is a current test-configuration limitation, not evidence that the shared test suite passes.
 
----
+To remove generated Gradle outputs:
 
-## Version Info
-- **Kotlin**: 2.1.0
-- **AGP**: 8.7.3
-- **Compose BOM**: 2024.12.01
-- **Ktor**: 3.0.3
-- **Koin**: 4.0.1
-- **Min Android SDK**: 26 (Android 8.0)
-- **Target Android SDK**: 35
-- **iOS Deployment Target**: 16.0
+```bash
+./gradlew clean
+```
+
+These commands do not require provider credentials, but they may require network access to download Gradle or Maven artifacts. A command that starts or skips is not evidence of a completed app build unless its result is observed and recorded.
+
+## Version facts (checked against committed configuration)
+
+- **Gradle wrapper**: 9.2.1
+- **Kotlin**: 2.3.10
+- **AGP**: 9.0.1
+- **Compose BOM**: 2026.02.00
+- **Ktor**: 3.4.0
+- **Koin**: 4.1.1
+- **Project JVM toolchain**: Java 17
+- **Gradle daemon JVM**: Java 21
+- **Android SDK**: compile 36, target 36, minimum 26
+- **Debug API base URL**: `http://10.0.2.2:3001`
+- **Release API base URL**: `https://api.imirae-incheon.com`
+
+The exact values above are extracted from `gradle/wrapper/gradle-wrapper.properties`, `gradle/libs.versions.toml`, `gradle/gradle-daemon-jvm.properties`, `androidApp/build.gradle.kts`, and `shared/build.gradle.kts` by `scripts/check-setup-doc.sh`. If one of those files changes, update this section and the relevant instructions together.
+
+## Documentation freshness check
+
+From the repository root:
+
+```bash
+bash native/scripts/setup-doc-freshness.test.sh
+```
+
+The test first checks the current tree, then creates a temporary copy with a deliberately stale Gradle version and confirms that the checker rejects it. It removes only that temporary fixture when it exits.
+
+## Known unverified limitations
+
+- No successful Android build, emulator installation, physical-device run, or backend login is claimed by this document.
+- The current `:shared:allTests` aggregate fails at the iOS simulator test task when no tests are discovered, as described above.
+- No committed iOS Xcode project or workspace exists, so iOS packaging, signing, framework integration, and simulator/device execution are not currently available from this checkout.
+- No iOS deployment target, concrete bundle identifier, scheme, signing team, or framework search path is declared in committed Xcode configuration.
+- Firebase push delivery, Kakao OAuth, APNs, and live provider accounts are not verified here.
+- The documentation freshness script validates pinned text against local configuration; it does not replace Gradle compilation, Xcode compilation, device testing, or provider verification.
