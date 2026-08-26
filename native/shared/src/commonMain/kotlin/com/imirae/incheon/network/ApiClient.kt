@@ -1,5 +1,6 @@
 package com.imirae.incheon.network
 
+import com.imirae.incheon.logging.SafeLogger
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.*
@@ -13,6 +14,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+
+internal fun privacySafeKtorLogger(): Logger = object : Logger {
+    override fun log(message: String) {
+        // Ktor supplies a formatted request/response string here. Never pass
+        // that string onward: it can contain headers or payload text.
+        SafeLogger.debug("network.request")
+    }
+}
 
 interface TokenProvider {
     suspend fun getAccessToken(): String?
@@ -29,7 +38,19 @@ class ApiClient(
 
     val httpClient = HttpClient(platformEngine()) {
         install(ContentNegotiation) { json(this@ApiClient.json) }
-        install(Logging) { level = LogLevel.HEADERS }
+        install(Logging) {
+            // INFO retains request/response lifecycle visibility without asking
+            // Ktor to inspect headers. The callback intentionally discards the
+            // raw Ktor message and emits only a local structured debug event.
+            level = LogLevel.INFO
+            sanitizeHeader { header ->
+                header.equals(HttpHeaders.Authorization, ignoreCase = true) ||
+                    header.equals(HttpHeaders.Cookie, ignoreCase = true) ||
+                    header.equals("Set-Cookie", ignoreCase = true) ||
+                    header.equals("X-API-Key", ignoreCase = true)
+            }
+            logger = privacySafeKtorLogger()
+        }
         install(HttpTimeout) { requestTimeoutMillis = 30_000; connectTimeoutMillis = 10_000 }
         defaultRequest { url(baseUrl); contentType(ContentType.Application.Json) }
     }
