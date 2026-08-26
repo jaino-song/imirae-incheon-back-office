@@ -23,6 +23,12 @@ export interface MessageTriggerJobPayload {
     clientName?: string | null;
     employeeId?: number | null;
     employeeName?: string | null;
+    /**
+     * Hash of the schedule and assignment source used to build an employee
+     * assignment job. It is intentionally opaque so address data is not
+     * duplicated into the dispatch payload.
+     */
+    employeeScheduleFingerprint?: string;
     memberId: string;
     recipientName: string;
     recipientPhone: string;
