@@ -1,0 +1,80 @@
+name: Backend Full Flow CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, dev, preview, "feature/**", "fix/**", "ci/**" ]
+    paths:
+      - 'backend/**'
+      - 'packages/shared/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'scripts/ci/**'
+      - '.github/workflows/backend-full-flow-ci.yml'
+  pull_request:
+    branches: [ main, dev, preview, "feature/**", "fix/**", "ci/**" ]
+    paths:
+      - 'backend/**'
+      - 'packages/shared/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'scripts/ci/**'
+      - '.github/workflows/backend-full-flow-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  full-flow:
+    name: backend full flow e2e · local stubs
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres@localhost:5432/postgres
+      DIRECT_URL: postgresql://postgres@localhost:5432/postgres
+      E2E_VENDOR_STUBS: '1'
+      EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID: tpl-test
+      JWT_SECRET: e2e-dummy-jwt-signing-key-at-least-32-${{ github.run_id }}
+      AUTH_EMAIL_TOKEN_HMAC_SECRET: e2e-dummy-email-hmac-${{ github.run_id }}
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Workflow contract tests
+        run: node --test scripts/ci/workflow-contract.test.mjs
+
+      - name: Run full flow E2E against local vendor stubs
+        run: pnpm --filter ./backend run e2e:full-flow
