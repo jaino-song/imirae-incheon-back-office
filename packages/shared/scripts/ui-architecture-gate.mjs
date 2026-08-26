@@ -5,6 +5,8 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { runManifestGate } from "./design-system-manifest-gate.mjs";
+
 const TARGET_RULES = new Set(["data-component/require-data-component"]);
 const TARGET_RULE_PREFIX = "ui-architecture/";
 const BASELINE_PATH = "docs/design-system/ui-debt-baseline.json";
@@ -252,6 +254,7 @@ function printTotals(violations) {
 }
 
 function main() {
+  runManifestGate(repoRoot);
   const args = parseArgs(process.argv.slice(2));
   const platforms = args.platform ? [args.platform] : VALID_PLATFORMS;
   const current = collectViolations(platforms);
