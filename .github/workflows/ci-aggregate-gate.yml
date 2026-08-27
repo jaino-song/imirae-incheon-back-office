@@ -154,12 +154,12 @@ jobs:
                 {
                     workflow: "Native Android CI",
                     jobs: ["Android CI", "SCA Scan"],
-                    paths: ["native/**", ".github/workflows/native-android.yml"],
+                    paths: ["native/**"],
                 },
                 {
                     workflow: "Native iOS CI",
                     jobs: ["iOS CI", "SCA Scan"],
-                    paths: ["native/**", ".github/workflows/native-ios.yml"],
+                    paths: ["native/**"],
                 },
             ]);
 

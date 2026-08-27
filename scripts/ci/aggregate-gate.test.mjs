@@ -142,6 +142,13 @@ test("aggregate CI has a one-time fail-closed bootstrap when the trusted evaluat
             );
         }
         for (const path of gate.paths ?? []) {
+            // Native workflow selectors live in the trusted evaluator. The
+            // aggregate workflow's one-time bootstrap is being retired before
+            // native gates are activated, so it must not become a second
+            // source of native path truth.
+            if (gate.workflow === "Native Android CI" || gate.workflow === "Native iOS CI") {
+                continue;
+            }
             assert.match(
                 bootstrapSource,
                 new RegExp(escapeRegExp(JSON.stringify(path))),
