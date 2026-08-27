@@ -90,6 +90,34 @@ describe("resetAuthorityState", () => {
     expect(queryClient.getQueryData(["clients", "branch-a"])).toBeUndefined();
   });
 
+  it("can finish the synchronous reset without waiting for query cancellation", async () => {
+    let resolveCancellation: (() => void) | undefined;
+    const cancelQueries = jest.fn(
+      () => new Promise<void>((resolve) => {
+        resolveCancellation = resolve;
+      }),
+    );
+    const clear = jest.fn();
+    let settled = false;
+
+    const resetPromise = resetAuthorityState(
+      { cancelQueries, clear } as unknown as QueryClient,
+      { waitForCancellation: false },
+    );
+    resetPromise.then(() => {
+      settled = true;
+    });
+
+    await Promise.resolve();
+
+    expect(settled).toBe(true);
+    expect(cancelQueries).toHaveBeenCalledTimes(1);
+    expect(clear).toHaveBeenCalledTimes(1);
+
+    resolveCancellation?.();
+    await resetPromise;
+  });
+
   it("is safe to repeat for a branch switch and leaves no prior branch data or drafts", async () => {
     seedIdentityA(queryClient);
 

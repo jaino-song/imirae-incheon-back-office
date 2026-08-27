@@ -118,7 +118,7 @@ async function redirectToLoginOnce() {
     if (isAuthPage) return;
 
     isRedirectingToLogin = true;
-    await resetAuthorityState();
+    await resetAuthorityState(undefined, { waitForCancellation: false });
     window.location.href = "/login";
 }
 

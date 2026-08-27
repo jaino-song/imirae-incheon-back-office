@@ -186,7 +186,7 @@ api.interceptors.response.use(
                     const isNoLoginWizard = currentPath.startsWith("/service-record");
                     if (!isAuthPage && !isNoLoginWizard) {
                         isRedirectingToLogin = true;
-                        await resetAuthorityState();
+                        await resetAuthorityState(undefined, { waitForCancellation: false });
                         window.location.href = '/login';
                     }
                 }

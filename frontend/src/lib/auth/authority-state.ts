@@ -8,6 +8,10 @@ import { useFormStore } from "@/stores/form-store";
 import { useTemplateStore } from "@/stores/template-store";
 import { safeStorageRemoveItem } from "@/lib/safe-storage";
 
+export interface ResetAuthorityStateOptions {
+  waitForCancellation?: boolean;
+}
+
 /**
  * Clears browser state that is owned by the current authenticated identity.
  *
@@ -18,6 +22,7 @@ import { safeStorageRemoveItem } from "@/lib/safe-storage";
  */
 export async function resetAuthorityState(
   client?: QueryClient,
+  options: ResetAuthorityStateOptions = {},
 ): Promise<void> {
   // Keep the query-client module lazy. Its legacy singleton export is eager,
   // and loading it while an unrelated test has a partial react-query mock
@@ -47,5 +52,10 @@ export async function resetAuthorityState(
     safeStorageRemoveItem("session", "agent_session_id");
   }
 
-  await cancellation;
+  // An auth interceptor may be awaiting a query whose cancellation promise
+  // includes the same 401 request. Redirect paths still clear all identity
+  // state synchronously, but can continue without waiting for that request.
+  if (options.waitForCancellation !== false) {
+    await cancellation;
+  }
 }
