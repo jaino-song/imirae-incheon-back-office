@@ -10,6 +10,8 @@ import android.os.Build
 import android.os.Process
 import androidx.core.app.NotificationCompat
 import com.imirae.incheon.MainActivity
+import com.imirae.incheon.deeplink.NavigationIntent
+import com.imirae.incheon.navigation.NotificationNavigation
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import org.koin.android.ext.android.inject
@@ -58,7 +60,12 @@ class FCMService : FirebaseMessagingService() {
     }
 
     /**
-     * Handle received message — show notification if in background, route if in foreground.
+     * Handle received message.
+     *
+     * FCM does not automatically present notification payloads while the app
+     * is foregrounded.  Always rendering our own system notification keeps the
+     * title/body visible in every lifecycle state; the parsed navigation intent
+     * is attached only when it is allowlisted by the shared router.
      */
     fun onMessageReceived(
         context: Context,
@@ -75,24 +82,44 @@ class FCMService : FirebaseMessagingService() {
             data = data
         )
 
-        if (isAppInForeground) {
-            // Route directly via deep link router
-            notificationManager.routeNotification(payload)
-            notificationManager.refreshUnreadCount()
-        } else {
-            // Show system notification
+        val navigationIntent = notificationManager.routeNotification(payload)
+        if (navigationIntent is NavigationIntent.Unknown) {
+            // Keep invalid/missing links visible while opening the normal app entry point.
             showNotification(context, payload)
+        } else {
+            showNotification(context, payload, navigationIntent)
+        }
+
+        if (isAppInForeground) {
+            notificationManager.refreshUnreadCount()
         }
     }
 
     private fun showNotification(context: Context, payload: NotificationPayload) {
+        showNotification(context, payload, NavigationIntent.Unknown)
+    }
+
+    private fun showNotification(
+        context: Context,
+        payload: NotificationPayload,
+        navigationIntent: NavigationIntent,
+    ) {
+        val safeDeepLink = NotificationNavigation.deepLinkFor(navigationIntent)
+        val notificationId = NotificationNavigation.notificationId(payload.data)
         val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            payload.deepLink?.let { putExtra("deepLink", it) }
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            safeDeepLink?.let { putExtra(NotificationNavigation.EXTRA_DEEP_LINK, it) }
+            notificationId?.let { putExtra(NotificationNavigation.EXTRA_NOTIFICATION_ID, it) }
         }
+        // Use a route/id-specific request code so two notifications do not
+        // reuse each other's deep-link extras.
         val pendingIntent = PendingIntent.getActivity(
-            context, 0, intent,
-            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            context,
+            NotificationNavigation.requestCode(navigationIntent, notificationId),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)

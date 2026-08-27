@@ -40,6 +40,28 @@ class NotificationManagerTest {
     }
 
     @Test
+    fun blankDeepLinkFallsBackToUnknownWithoutRouting() = runTest {
+        val managerScope = CoroutineScope(StandardTestDispatcher(testScheduler))
+        val manager = NotificationManager(
+            deepLinkRouter = DeepLinkRouter(),
+            notificationService = RecordingNotificationService(),
+            scope = managerScope,
+        )
+
+        assertEquals(
+            NavigationIntent.Unknown,
+            manager.routeNotification(
+                NotificationPayload(
+                    title = "새 알림",
+                    body = "확인해 주세요",
+                    deepLink = "   ",
+                ),
+            ),
+        )
+        managerScope.cancel()
+    }
+
+    @Test
     fun refreshUnreadCountUpdatesState() = runTest {
         val service = RecordingNotificationService()
         val managerScope = CoroutineScope(StandardTestDispatcher(testScheduler))

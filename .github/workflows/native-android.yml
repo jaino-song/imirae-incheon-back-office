@@ -64,6 +64,9 @@ jobs:
       - name: Validate native workflow contract
         run: node scripts/ci/native-workflow-contract.test.mjs
 
+      - name: Validate Android push intent contract
+        run: bash native/scripts/android-push-intent-contract.test.sh
+
       - name: Compile shared Android sources and run Android checks
         working-directory: native
         run: ./gradlew :shared:compileAndroidMain :androidApp:test :androidApp:lint :androidApp:assembleDebug --stacktrace --no-daemon

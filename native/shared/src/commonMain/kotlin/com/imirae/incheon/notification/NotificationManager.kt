@@ -41,7 +41,13 @@ class NotificationManager(
      * Parse notification payload and return navigation intent.
      */
     fun routeNotification(payload: NotificationPayload): NavigationIntent {
-        val deepLink = payload.deepLink ?: payload.data["deepLink"] ?: payload.data["link"]
+        val deepLink = sequenceOf(
+            payload.deepLink,
+            payload.data["deepLink"],
+            payload.data["link"],
+        )
+            .map { it?.trim() }
+            .firstOrNull { !it.isNullOrEmpty() }
         return if (deepLink != null) {
             deepLinkRouter.route(deepLink)
         } else {

@@ -48,7 +48,17 @@ class DeepLinkRouter {
     private fun parseUri(uri: String): NavigationIntent {
         // Support both https:// and custom scheme imirae://
         val normalized = when {
-            uri.startsWith("imirae://") -> uri.removePrefix("imirae://")
+            uri.startsWith("imirae://") -> {
+                val withoutScheme = uri.removePrefix("imirae://")
+                // Android's manifest declares `app` as the custom-scheme host,
+                // while older callers used a host-less form.  Accept both and
+                // still route through the same path allowlist.
+                when {
+                    withoutScheme == "app" -> ""
+                    withoutScheme.startsWith("app/") -> withoutScheme.removePrefix("app/")
+                    else -> withoutScheme
+                }
+            }
             uri.startsWith("https://") -> {
                 val withoutScheme = uri.removePrefix("https://")
                 val host = withoutScheme.substringBefore("/")
