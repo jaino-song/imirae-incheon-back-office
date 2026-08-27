@@ -62,7 +62,7 @@ class FCMService : FirebaseMessagingService() {
     }
 
     /**
-     * Handle new FCM token — register with backend.
+     * Handle new FCM token — retain it and register once authenticated.
      */
     fun onNewToken(token: String, notificationManager: com.imirae.incheon.notification.NotificationManager) {
         notificationManager.registerToken(token, "android")

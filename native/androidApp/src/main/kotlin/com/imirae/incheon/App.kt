@@ -1,6 +1,7 @@
 package com.imirae.incheon
 
 import android.app.Application
+import com.imirae.incheon.auth.AuthManager
 import com.imirae.incheon.deeplink.DeepLinkRouter
 import com.imirae.incheon.di.androidModule
 import com.imirae.incheon.di.sharedModules
@@ -40,7 +41,14 @@ private val phaseFiveAndSixModule = module {
     single { AdminViewModel() }
 
     single { DeepLinkRouter() }
-    single { NotificationManager(get(), get()) }
+    single {
+        NotificationManager(
+            deepLinkRouter = get(),
+            notificationService = get(),
+            tokenStore = get(),
+            getAccessToken = { get<AuthManager>().getAccessToken() },
+        )
+    }
     single { CallRecordingManager(get()) }
 }
 
