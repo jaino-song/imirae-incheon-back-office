@@ -105,7 +105,7 @@ Backend reachability, authentication, and live provider behavior are not verifie
 ### Firebase and Kakao limitations
 
 - `firebase-messaging` is declared as an Android dependency, but no `google-services` Gradle plugin or `google-services.json` is committed in the current build. Push notification setup is not complete or verified. Keep provider configuration outside the repository and follow the secrets policy.
-- The Android manifest still contains the `kakao{NATIVE_APP_KEY}` callback placeholder. The Kakao Android library is declared, but no app key is supplied by this repository. OAuth is not a verified setup result.
+- The Android manifest uses the `kakao${KAKAO_NATIVE_APP_KEY}` callback placeholder. `androidApp/build.gradle.kts` reads the optional `KAKAO_NATIVE_APP_KEY` Gradle property and uses the lowercase `placeholder` fallback when no key is supplied, so CI can validate the manifest without credentials. OAuth is not a verified setup result.
 
 Do not add provider credentials to source files while following this guide.
 

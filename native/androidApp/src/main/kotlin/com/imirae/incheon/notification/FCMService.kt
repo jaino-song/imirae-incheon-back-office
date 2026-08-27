@@ -1,21 +1,28 @@
 package com.imirae.incheon.notification
 
+import android.app.ActivityManager
 import android.app.NotificationChannel
-import android.app.NotificationManager
+import android.app.NotificationManager as SystemNotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Process
 import androidx.core.app.NotificationCompat
 import com.imirae.incheon.MainActivity
 import com.imirae.incheon.R
+import com.google.firebase.messaging.FirebaseMessagingService
+import com.google.firebase.messaging.RemoteMessage
+import org.koin.android.ext.android.inject
 
 /**
  * Firebase Cloud Messaging service for Android.
  * Handles token registration, foreground/background/terminated message handling,
  * and notification channel management.
  */
-class FCMService {
+class FCMService : FirebaseMessagingService() {
+    private val appNotificationManager: NotificationManager by inject()
+
     companion object {
         private const val CHANNEL_ID = "imirae_default"
         private const val CHANNEL_NAME = "이미래 알림"
@@ -26,15 +33,32 @@ class FCMService {
                 val channel = NotificationChannel(
                     CHANNEL_ID,
                     CHANNEL_NAME,
-                    NotificationManager.IMPORTANCE_DEFAULT
+                    SystemNotificationManager.IMPORTANCE_DEFAULT
                 ).apply {
                     description = CHANNEL_DESCRIPTION
                     enableVibration(true)
                 }
-                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as SystemNotificationManager
                 notificationManager.createNotificationChannel(channel)
             }
         }
+    }
+
+    override fun onNewToken(token: String) {
+        onNewToken(token, appNotificationManager)
+    }
+
+    override fun onMessageReceived(remoteMessage: RemoteMessage) {
+        val data = remoteMessage.data
+        val notification = remoteMessage.notification
+        onMessageReceived(
+            context = applicationContext,
+            title = notification?.title ?: data["title"],
+            body = notification?.body ?: data["body"],
+            data = data,
+            isAppInForeground = isAppInForeground(),
+            notificationManager = appNotificationManager,
+        )
     }
 
     /**
@@ -91,7 +115,14 @@ class FCMService {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
 
-        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as SystemNotificationManager
         notificationManager.notify(System.currentTimeMillis().toInt(), notification)
+    }
+
+    private fun isAppInForeground(): Boolean {
+        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val processInfo = activityManager.runningAppProcesses
+            ?.firstOrNull { it.pid == Process.myPid() }
+        return processInfo?.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
     }
 }

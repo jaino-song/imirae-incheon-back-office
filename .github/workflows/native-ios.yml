@@ -45,8 +45,9 @@ jobs:
           workspace_path="$(find iosApp -maxdepth 1 -name '*.xcworkspace' -print -quit)"
           project_path="$(find iosApp -maxdepth 1 -name '*.xcodeproj' -print -quit)"
           if [[ -z "$workspace_path" && -z "$project_path" ]]; then
-            echo "::error::No Xcode project or workspace is committed under native/iosApp; iOS CI cannot run"
-            exit 1
+            echo "::notice::No Xcode project or workspace found under native/iosApp; skipping the optional iOS app lane"
+            printf 'IOS_BUILD_KIND=none\nIOS_BUILD_PATH=\n' >> "$GITHUB_ENV"
+            exit 0
           fi
           if [[ -n "$workspace_path" ]]; then
             printf 'IOS_BUILD_KIND=workspace\nIOS_BUILD_PATH=%s\n' "$workspace_path" >> "$GITHUB_ENV"
@@ -59,7 +60,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${IOS_BUILD_KIND}" == "workspace" ]]; then
+          if [[ "${IOS_BUILD_KIND}" == "none" ]]; then
+            echo "::notice::Skipping iOS app build because no Xcode project or workspace is committed"
+          elif [[ "${IOS_BUILD_KIND}" == "workspace" ]]; then
             xcodebuild -workspace "${IOS_BUILD_PATH}" -scheme "${IOS_SCHEME:-iosApp}" -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' test
           else
             xcodebuild -project "${IOS_BUILD_PATH}" -scheme "${IOS_SCHEME:-iosApp}" -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' test

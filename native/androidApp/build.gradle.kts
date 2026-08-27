@@ -13,6 +13,8 @@ android {
         versionCode = 1
         versionName = "1.0"
         buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:3001\"")
+        manifestPlaceholders["KAKAO_NATIVE_APP_KEY"] =
+            providers.gradleProperty("KAKAO_NATIVE_APP_KEY").orElse("placeholder").get()
     }
     buildTypes {
         release {
