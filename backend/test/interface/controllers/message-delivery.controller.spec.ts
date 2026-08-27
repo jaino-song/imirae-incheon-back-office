@@ -241,6 +241,48 @@ describe("MessageDeliveryController", () => {
                 errorMessage: null,
             }),
         });
+        expect(prismaService.client.findFirst).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        { description: "an omitted client ID", clientId: undefined },
+        { description: "an explicit null client ID", clientId: null },
+    ])("should treat $description as an unassociated SMS", async ({ clientId }) => {
+        aligoService.sendSms.mockResolvedValue({
+            request: {
+                senderPhone: "0212345678",
+                receiver: "01012345678",
+                msgType: "SMS",
+                testModeYn: "N",
+            },
+            response: {
+                result_code: 1,
+                message: "success",
+                msg_id: 123,
+                success_cnt: 1,
+                error_cnt: 0,
+                msg_type: "SMS",
+            },
+        });
+
+        await expect(
+            controller.sendSms(
+                { branchId: "branch-a" },
+                {
+                    receiver: "01012345678",
+                    message: "연결되지 않은 수신자 안내",
+                    ...(clientId === undefined ? {} : { clientId }),
+                },
+            ),
+        ).resolves.toMatchObject({ provider: "aligo_sms" });
+
+        expect(prismaService.client.findFirst).not.toHaveBeenCalled();
+        expect(prismaService.message_log.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({
+                branchId: "branch-a",
+                clientId: null,
+            }),
+        });
     });
 
     it("should reject a client from another branch before approval, history, or provider side effects", async () => {

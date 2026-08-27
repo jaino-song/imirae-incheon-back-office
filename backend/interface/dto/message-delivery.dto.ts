@@ -35,7 +35,8 @@ export class SendSmsMessageDto {
 
     @IsOptional()
     @IsInt()
-    clientId?: number;
+    /** Null/omitted means the message is not associated with a client. */
+    clientId?: number | null;
 
     @IsOptional()
     @IsIn(["AUTO", "SMS", "LMS"])

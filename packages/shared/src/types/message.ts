@@ -352,7 +352,8 @@ export interface SendMessageDeliverySmsRequest {
   message: string;
   title?: string;
   recipientName?: string;
-  clientId?: number;
+  /** Null/omitted means the message is not associated with a client. */
+  clientId?: number | null;
   msgType?: MessageDeliverySmsType;
   triggerType?: MessageDeliveryTriggerType;
   scheduledDate?: string;

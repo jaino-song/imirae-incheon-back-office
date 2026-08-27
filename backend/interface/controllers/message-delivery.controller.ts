@@ -187,9 +187,9 @@ export class MessageDeliveryController {
 
     private async assertClientBelongsToBranch(
         branchId: string,
-        clientId?: number,
+        clientId?: number | null,
     ): Promise<void> {
-        if (clientId === undefined) return;
+        if (clientId == null) return;
 
         const client = await this.prisma.client.findFirst({
             where: { id: clientId, branchId },
