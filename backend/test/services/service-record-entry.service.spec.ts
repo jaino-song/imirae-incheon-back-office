@@ -96,6 +96,7 @@ function createHarness(options: {
         count: existing?.clientSignature ? 0 : 1,
     })));
     const transactionClient = {
+        $queryRaw: jest.fn().mockResolvedValue([{ id: CASE_ID }]),
         service_record_case: {
             findUnique: jest.fn().mockResolvedValue(transactionRecord),
         },
@@ -123,6 +124,106 @@ function createHarness(options: {
     );
 
     return { service, prisma, transactionClient, upsert, updateMany, lifecycle };
+}
+
+function createConcurrentHarness() {
+    type SessionWrite = Partial<ReturnType<typeof createDay>> & { locked: boolean };
+
+    let persistedDay: ReturnType<typeof createDay> | null = null;
+    let dayReadCount = 0;
+    let caseLockObserved = false;
+    let caseLockHeld = false;
+    const lockQueries: unknown[] = [];
+    const caseLockWaiters: Array<() => void> = [];
+    let releaseSecondDayRead: (() => void) | undefined;
+    const secondDayRead = new Promise<void>((resolve) => {
+        releaseSecondDayRead = resolve;
+    });
+    let releaseSubmitWrite: (() => void) | undefined;
+    const submitWrite = new Promise<void>((resolve) => {
+        releaseSubmitWrite = resolve;
+    });
+
+    const acquireCaseLock = async () => {
+        if (caseLockHeld) {
+            await new Promise<void>((resolve) => caseLockWaiters.push(resolve));
+        }
+        caseLockHeld = true;
+    };
+    const releaseCaseLock = () => {
+        const next = caseLockWaiters.shift();
+        if (next) {
+            next();
+            return;
+        }
+        caseLockHeld = false;
+    };
+
+    const caseModel = {
+        findUnique: jest.fn().mockResolvedValue(createRecord()),
+    };
+    const scheduleModel = {
+        findUnique: jest.fn().mockResolvedValue({ primaryEmployee: { name: "제공자" } }),
+    };
+    const dayModel = {
+        findUnique: jest.fn(async () => {
+            dayReadCount += 1;
+            if (dayReadCount === 2) releaseSecondDayRead?.();
+            return persistedDay ? { ...persistedDay } : null;
+        }),
+        upsert: jest.fn(async ({ create, update }: { create: SessionWrite; update: SessionWrite }) => {
+            const data = persistedDay ? update : create;
+            if (data.locked && !caseLockObserved) {
+                await secondDayRead;
+            }
+            if (data.locked) {
+                persistedDay = { ...(persistedDay ?? createDay({ locked: false, clientSignature: null, clientSignedAt: null })), ...data };
+                releaseSubmitWrite?.();
+            } else {
+                await submitWrite;
+                persistedDay = { ...(persistedDay ?? createDay({ locked: false, clientSignature: null, clientSignedAt: null })), ...data };
+            }
+            return persistedDay;
+        }),
+        updateMany: jest.fn(async ({ data }: { data: Partial<ReturnType<typeof createDay>> }) => {
+            if (!persistedDay || persistedDay.clientSignature) return { count: 0 };
+            persistedDay = { ...persistedDay, ...data };
+            return { count: 1 };
+        }),
+    };
+    const lifecycle = { recompute: jest.fn().mockResolvedValue(createRecord()) };
+    const prisma = {
+        service_record_case: {
+            findFirst: jest.fn().mockResolvedValue(createRecord()),
+        },
+        $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+            let acquired = false;
+            const tx = {
+                $queryRaw: jest.fn(async (query: unknown) => {
+                    lockQueries.push(query);
+                    caseLockObserved = true;
+                    await acquireCaseLock();
+                    acquired = true;
+                    return [{ id: CASE_ID }];
+                }),
+                service_record_case: caseModel,
+                employee_schedule: scheduleModel,
+                service_record_day: dayModel,
+            };
+            try {
+                return await callback(tx);
+            } finally {
+                if (acquired) releaseCaseLock();
+            }
+        }),
+    };
+    const service = new ServiceRecordEntryService(
+        prisma as unknown as PrismaService,
+        {} as ServiceRecordTokenService,
+        lifecycle as unknown as ServiceRecordLifecycleService,
+    );
+
+    return { service, prisma, dayModel, lockQueries, getPersistedDay: () => persistedDay };
 }
 
 function exceptionCode(error: unknown): unknown {
@@ -301,6 +402,23 @@ describe("ServiceRecordEntryService.upsertSession", () => {
         expect(updateMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
             where: expect.objectContaining({ clientSignature: null }),
         }));
+    });
+
+    it("refuses a stale draft after a concurrent submission locks the session", async () => {
+        const { service, dayModel, lockQueries, getPersistedDay } = createConcurrentHarness();
+        const submit = service.upsertSession(context, 1, createDto(), true);
+        const draft = service.upsertSession(context, 1, createDto({ notes: "stale draft" }), false);
+
+        await expect(submit).resolves.toEqual(expect.objectContaining({ locked: true }));
+        await expect(draft).rejects.toMatchObject({
+            response: { code: "SERVICE_RECORD_SESSION_LOCKED" },
+        });
+        expect(dayModel.upsert).toHaveBeenCalledTimes(1);
+        expect(lockQueries).toHaveLength(2);
+        for (const query of lockQueries) {
+            expect((query as { strings: string[] }).strings.join(" ")).toContain("FOR UPDATE");
+        }
+        expect(getPersistedDay()).toEqual(expect.objectContaining({ locked: true }));
     });
 
     it("records clientSignedAt only on the first successful signature write", async () => {

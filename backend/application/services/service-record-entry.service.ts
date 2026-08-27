@@ -164,6 +164,19 @@ export class ServiceRecordEntryService {
         const aggregate = await this.resolveCase(ctx);
         const answers = this.validateAnswers(dto.answers ?? {});
         const saved = await this.prisma.$transaction(async (tx) => {
+            // Serialize all entry writes for this case before reading a session snapshot.
+            // Otherwise a draft can write stale unlocked data after a submission commits.
+            const lockedCases = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+                SELECT "id"
+                FROM "service_record_case"
+                WHERE "id" = ${aggregate.id}::uuid
+                  AND "branch_id" = ${ctx.branchId}::uuid
+                FOR UPDATE
+            `);
+            if (lockedCases.length !== 1) {
+                throw new NotFoundException("Service record not found");
+            }
+
             const [record, schedule] = await Promise.all([
                 tx.service_record_case.findUnique({ where: { id: aggregate.id } }),
                 tx.employee_schedule.findUnique({
