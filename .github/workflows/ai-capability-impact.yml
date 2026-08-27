@@ -8,16 +8,19 @@ on:
       - "backend/agent-manifest.json"
       - "backend/scripts/agent/**"
 
+permissions:
+  contents: read
+
 jobs:
   report:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
         with:
           run_install: false
@@ -27,14 +30,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Publish informational capability diff
-        id: report
-        run: echo "body<<EOF" >> "$GITHUB_OUTPUT" && pnpm --filter ./backend exec ts-node scripts/agent/impact-report.ts >> "$GITHUB_OUTPUT" && echo "EOF" >> "$GITHUB_OUTPUT"
+        run: |
+          set -o pipefail
+          pnpm --filter ./backend exec ts-node scripts/agent/impact-report.ts | tee "$GITHUB_STEP_SUMMARY"
         env:
           GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
-      - uses: marocchino/sticky-pull-request-comment@331f8f5b4215f0445d3c07b4967662a32a2d3e31 # v2.9.0
-        with:
-          header: ai-capability-impact
-          message: ${{ steps.report.outputs.body }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
