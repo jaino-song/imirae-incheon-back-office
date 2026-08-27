@@ -26,7 +26,10 @@ enum IOSApiEndpointConfiguration {
         ) else {
             // Do not include the configured value in a crash message: build
             // settings can accidentally contain credentials or private hosts.
-            fatalError("Invalid API endpoint configuration")
+            fatalError(
+                "Invalid API endpoint configuration. "
+                    + "Set API_BASE_URL to an HTTPS host URL without a path, query, fragment, or credentials."
+            )
         }
 
         return baseURL

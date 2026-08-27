@@ -1,9 +1,12 @@
 package com.imirae.incheon.network
 
+import io.ktor.http.URLBuilder
+import io.ktor.http.takeFrom
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ApiEndpointConfigurationTest {
     @Test
@@ -30,11 +33,11 @@ class ApiEndpointConfigurationTest {
     }
 
     @Test
-    fun iosSimulatorAcceptsAnExplicitHttpsEndpoint() {
+    fun iosSimulatorAcceptsAnExplicitPathlessHttpsEndpoint() {
         assertEquals(
-            "https://staging.example.test/api",
+            "https://staging.example.test",
             ApiEndpointConfiguration.resolve(
-                rawUrl = "https://staging.example.test/api/",
+                rawUrl = "https://staging.example.test/",
                 platform = ApiEndpointPlatform.IOS_SIMULATOR,
                 buildVariant = ApiBuildVariant.DEBUG,
             ),
@@ -73,9 +76,9 @@ class ApiEndpointConfigurationTest {
     @Test
     fun releaseAcceptsPublicCompressedIpv6LiteralWithBracketedAuthority() {
         assertEquals(
-            "https://[2001:db8::1]:443/api",
+            "https://[2001:db8::1]:443",
             ApiEndpointConfiguration.resolve(
-                rawUrl = "https://[2001:db8::1]:443/api/",
+                rawUrl = "https://[2001:db8::1]:443/",
                 platform = ApiEndpointPlatform.IOS_DEVICE,
                 buildVariant = ApiBuildVariant.RELEASE,
             ),
@@ -155,9 +158,9 @@ class ApiEndpointConfigurationTest {
     @Test
     fun releaseAcceptsIpv4MappedPublicIpv6Literal() {
         assertEquals(
-            "https://[::ffff:8.8.8.8]:443/api",
+            "https://[::ffff:8.8.8.8]:443",
             ApiEndpointConfiguration.resolve(
-                rawUrl = "https://[::ffff:8.8.8.8]:443/api/",
+                rawUrl = "https://[::ffff:8.8.8.8]:443/",
                 platform = ApiEndpointPlatform.IOS_DEVICE,
                 buildVariant = ApiBuildVariant.RELEASE,
             ),
@@ -167,9 +170,9 @@ class ApiEndpointConfigurationTest {
     @Test
     fun releaseAcceptsCanonicalPublicIpv4Literal() {
         assertEquals(
-            "https://8.8.8.8:443/api",
+            "https://8.8.8.8:443",
             ApiEndpointConfiguration.resolve(
-                rawUrl = "https://8.8.8.8:443/api/",
+                rawUrl = "https://8.8.8.8:443/",
                 platform = ApiEndpointPlatform.IOS_DEVICE,
                 buildVariant = ApiBuildVariant.RELEASE,
             ),
@@ -293,6 +296,93 @@ class ApiEndpointConfigurationTest {
     }
 
     @Test
+    fun rejectsBaseUrlPathsBeforeRootRelativeRequestsCanDropThem() {
+        val pathfulEndpoints = listOf(
+            "https://staging.example.test/api",
+            "https://staging.example.test/api/",
+            "https://staging.example.test/api/v1",
+            "https://staging.example.test/%61pi",
+            "https://staging.example.test/%2Fapi",
+        )
+
+        pathfulEndpoints.forEach { rawUrl ->
+            val exception = assertFailsWith<InvalidApiEndpointConfigurationException> {
+                ApiEndpointConfiguration.resolve(
+                    rawUrl = rawUrl,
+                    platform = ApiEndpointPlatform.IOS_SIMULATOR,
+                    buildVariant = ApiBuildVariant.DEBUG,
+                )
+            }
+
+            assertTrue(
+                exception.message.orEmpty().contains("endpoint path must be empty or /"),
+                "Expected an actionable path error for $rawUrl",
+            )
+        }
+    }
+
+    @Test
+    fun androidAndIosStartupPlatformsRejectPathfulEndpoints() {
+        listOf(
+            Triple(
+                "http://10.0.2.2:3001/api",
+                ApiEndpointPlatform.ANDROID_EMULATOR,
+                ApiBuildVariant.DEBUG,
+            ),
+            Triple(
+                "https://staging.example.test/api",
+                ApiEndpointPlatform.IOS_SIMULATOR,
+                ApiBuildVariant.DEBUG,
+            ),
+            Triple(
+                "https://api.imirae-incheon.com/api",
+                ApiEndpointPlatform.IOS_DEVICE,
+                ApiBuildVariant.RELEASE,
+            ),
+        ).forEach { (rawUrl, platform, buildVariant) ->
+            assertFailsWith<InvalidApiEndpointConfigurationException> {
+                ApiEndpointConfiguration.resolve(
+                    rawUrl = rawUrl,
+                    platform = platform,
+                    buildVariant = buildVariant,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun rootSlashIsAcceptedAndNormalizedToAPathlessBase() {
+        assertEquals(
+            "https://api.imirae-incheon.com",
+            ApiEndpointConfiguration.resolve(
+                rawUrl = "https://api.imirae-incheon.com/",
+                platform = ApiEndpointPlatform.IOS_DEVICE,
+                buildVariant = ApiBuildVariant.RELEASE,
+            ),
+        )
+    }
+
+    @Test
+    fun ktorLeadingSlashResolutionDemonstratesWhyPathfulBasesAreRejected() {
+        val configuredBaseUrl = "https://api.imirae-incheon.com/api"
+        val resolvedRequestUrl = URLBuilder(configuredBaseUrl)
+            .takeFrom("/auth/login")
+            .buildString()
+
+        assertEquals(
+            "https://api.imirae-incheon.com/auth/login",
+            resolvedRequestUrl,
+        )
+        assertFailsWith<InvalidApiEndpointConfigurationException> {
+            ApiEndpointConfiguration.resolve(
+                rawUrl = configuredBaseUrl,
+                platform = ApiEndpointPlatform.IOS_DEVICE,
+                buildVariant = ApiBuildVariant.RELEASE,
+            )
+        }
+    }
+
+    @Test
     fun malformedAndUnsupportedEndpointsFailClosed() {
         listOf(
             "",
@@ -327,6 +417,13 @@ class ApiEndpointConfigurationTest {
         assertNull(
             ApiEndpointConfiguration.resolveOrNull(
                 rawUrl = "http://10.0.2.2:3001",
+                platform = ApiEndpointPlatform.IOS_DEVICE,
+                buildVariant = ApiBuildVariant.RELEASE,
+            )
+        )
+        assertNull(
+            ApiEndpointConfiguration.resolveOrNull(
+                rawUrl = "https://api.imirae-incheon.com/api",
                 platform = ApiEndpointPlatform.IOS_DEVICE,
                 buildVariant = ApiBuildVariant.RELEASE,
             )

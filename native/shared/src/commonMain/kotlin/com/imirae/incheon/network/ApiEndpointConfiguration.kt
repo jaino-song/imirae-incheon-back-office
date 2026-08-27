@@ -24,6 +24,8 @@ class InvalidApiEndpointConfigurationException(
  * iOS receives an explicit build setting instead and must use TLS for both
  * simulator and device builds. Production validation rejects local/private
  * development hosts without embedding a production hostname in shared code.
+ * Because native request targets are root-relative, accepted base URLs must
+ * contain no path (a single root slash is normalized away).
  */
 object ApiEndpointConfiguration {
     private const val ANDROID_EMULATOR_HOST = "10.0.2.2"
@@ -51,6 +53,14 @@ object ApiEndpointConfiguration {
         val protocol = match.groupValues[1].lowercase()
         val authority = match.groupValues[2]
         val path = match.groupValues.getOrNull(3).orEmpty()
+
+        // Native service endpoints are intentionally root-relative (for example,
+        // `/auth/login`). A pathful base would therefore be discarded by Ktor's
+        // URL resolution and silently send requests to the wrong route. Keep the
+        // composition boundary pathless instead of allowing that mismatch.
+        if (path.isNotEmpty() && path != "/") {
+            invalid("endpoint path must be empty or /; native requests use root-relative paths")
+        }
 
         if (authority.contains('@')) {
             invalid("endpoint credentials are not allowed")
