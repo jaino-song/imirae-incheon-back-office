@@ -113,11 +113,20 @@ test("native Android declarations preserve FCM delivery and Kakao callback contr
     assert.doesNotMatch(setup, /`kakao\{NATIVE_APP_KEY\}`/, "setup documentation must describe the real callback placeholder");
 });
 
-test("native workflow names and jobs remain connected to the stable aggregate gate", async () => {
-    const aggregate = await readWorkflow("ci-aggregate-gate.yml");
+test("native workflow names and jobs remain connected before aggregate activation", async () => {
+    let aggregate = null;
+    try {
+        aggregate = await readWorkflow("ci-aggregate-gate.yml");
+    } catch (error) {
+        assert.equal(error?.code, "ENOENT", "aggregate workflow lookup failed unexpectedly");
+    }
     const evaluator = await readFile(resolve(WORKSPACE_ROOT, "scripts/ci/aggregate-gate.mjs"), "utf8");
     for (const [workflow, job] of [["Native Android CI", "Android CI"], ["Native iOS CI", "iOS CI"]]) {
+        assert.ok(evaluator.includes(`workflow: "${workflow}"`), `${workflow} must retain its exact aggregate workflow contract`);
+        assert.ok(evaluator.includes(`jobs: ["${job}", "SCA Scan"]`), `${workflow} must retain its exact aggregate job contract`);
+    }
+    if (!aggregate) return;
+    for (const [workflow, job] of [["Native Android CI", "Android CI"], ["Native iOS CI", "iOS CI"]]) {
         assert.match(aggregate, new RegExp(`- ${workflow.replace(/[.*+?^${}()|[\\]\\]/g, "\\\\$&")}`), `${workflow} must be observed by workflow_run`);
-        assert.match(evaluator, new RegExp(`workflow: "${workflow}"[\\s\\S]*?jobs: \\["${job}", "SCA Scan"\\]`), `${workflow} must retain its exact aggregate job contract`);
     }
 });

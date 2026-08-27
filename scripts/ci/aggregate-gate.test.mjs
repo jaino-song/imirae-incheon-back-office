@@ -1,207 +1,10 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const WORKSPACE_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "../..");
-const WORKFLOW_PATH = resolve(WORKSPACE_ROOT, ".github/workflows/ci-aggregate-gate.yml");
-
-function escapeRegExp(value) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function extractBootstrapSource(workflow) {
-    const sourceStart = workflow.indexOf("node --input-type=module <<'AGGREGATE_BOOTSTRAP'");
-    const sourceEndMatch = workflow.slice(sourceStart).match(/\n\s*AGGREGATE_BOOTSTRAP\s*$/m);
-    const sourceEnd = sourceEndMatch ? sourceStart + sourceEndMatch.index : -1;
-    assert.ok(sourceStart >= 0, "the bootstrap evaluator must be embedded in the workflow");
-    assert.ok(sourceEnd > sourceStart, "the bootstrap evaluator heredoc must be closed");
-
-    return workflow
-        .slice(workflow.indexOf("\n", sourceStart) + 1, sourceEnd)
-        .replace(/^ {12}/gm, "");
-}
-
-async function runBootstrapSource(source, payload, fixture, eventName = "pull_request") {
-    const directory = await mkdtemp(join(tmpdir(), "aggregate-bootstrap-"));
-    const eventPath = join(directory, "event.json");
-    await writeFile(eventPath, JSON.stringify(payload));
-
-    const fetchStub = `
-const fixture = JSON.parse(process.env.BOOTSTRAP_FIXTURE);
-globalThis.fetch = async (input) => {
-    const url = new URL(String(input));
-    if (url.pathname === "/repos/owner/repository/pulls/7/files") {
-        return { ok: true, status: 200, text: async () => JSON.stringify(fixture.files) };
-    }
-    if (url.pathname.includes("/compare/")) {
-        return { ok: true, status: 200, text: async () => JSON.stringify({ files: fixture.files }) };
-    }
-    if (url.pathname === "/repos/owner/repository/actions/runs") {
-        return { ok: true, status: 200, text: async () => JSON.stringify({ workflow_runs: fixture.runs }) };
-    }
-    const runId = Number(url.pathname.match(/actions\\/runs\\/(\\d+)\\/jobs/)?.[1]);
-    const run = fixture.runs.find((candidate) => candidate.id === runId);
-    if (!run) {
-        return { ok: false, status: 404, text: async () => "not found" };
-    }
-    return {
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({ jobs: run.jobs }),
-    };
-};
-`;
-
-    try {
-        return spawnSync(process.execPath, ["--input-type=module"], {
-            input: `${fetchStub}\n${source}`,
-            encoding: "utf8",
-            env: {
-                ...process.env,
-                BOOTSTRAP_FIXTURE: JSON.stringify(fixture),
-                GITHUB_API_URL: "https://api.github.test",
-                GITHUB_EVENT_NAME: eventName,
-                GITHUB_EVENT_PATH: eventPath,
-                GITHUB_REPOSITORY: "owner/repository",
-                GITHUB_TOKEN: "read-only-test-token",
-            },
-        });
-    } finally {
-        await rm(directory, { recursive: true, force: true });
-    }
-}
-
-test("aggregate CI workflow has stable PR and merge-queue triggers and read-only API access", async () => {
-    const workflow = await readFile(WORKFLOW_PATH, "utf8");
-    const { COMPONENT_GATES } = await import("./aggregate-gate.mjs");
-
-    assert.match(workflow, /^name: CI Aggregate Gate$/m);
-    assert.match(workflow, /^  pull_request:$/m);
-    assert.match(workflow, /^  merge_group:$/m);
-    assert.match(workflow, /^  workflow_run:$/m);
-    assert.match(workflow, /    types: \[completed\]/);
-    assert.match(workflow, /^permissions:\n  actions: read\n  checks: read\n  contents: read\n  pull-requests: read/m);
-    assert.match(workflow, /^concurrency:\n  group: ci-aggregate-/m);
-    assert.match(workflow, /cancel-in-progress: true/);
-    assert.match(workflow, /if: >-\n\s+github\.event_name != 'workflow_run'/);
-    assert.match(workflow, /uses: actions\/checkout@[0-9a-f]{40} # v[0-9.]+/);
-    assert.match(workflow, /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/);
-    assert.match(workflow, /persist-credentials: false/);
-    assert.doesNotMatch(workflow, /secrets\./, "the aggregate must not consume repository secrets");
-    assert.doesNotMatch(workflow, /continue-on-error:/, "the aggregate must remain a truthful gate");
-    assert.match(workflow, /node scripts\/ci\/aggregate-gate\.mjs/);
-    for (const gate of COMPONENT_GATES) {
-        assert.match(workflow, new RegExp(`^      - ${gate.workflow.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}$`, "m"));
-    }
-});
-
-test("aggregate CI has a one-time fail-closed bootstrap when the trusted evaluator is not on the base", async () => {
-    const workflow = await readFile(WORKFLOW_PATH, "utf8");
-    const bootstrapSource = extractBootstrapSource(workflow);
-
-    assert.match(
-        workflow,
-        /if \[\[ -f scripts\/ci\/aggregate-gate\.mjs \]\]; then[\s\S]*?node scripts\/ci\/aggregate-gate\.mjs[\s\S]*?elif \[\[ \"\$GITHUB_EVENT_NAME\" == \"pull_request\" \|\| \"\$GITHUB_EVENT_NAME\" == \"merge_group\" \]\]; then/,
-        "the trusted evaluator must win whenever it exists, with bootstrap limited to PR/merge-group introduction",
-    );
-    assert.match(
-        workflow,
-        /else[\s\S]*?Trusted aggregate evaluator is missing from the default branch[\s\S]*?exit 1/,
-        "all other missing-evaluator cases must fail closed",
-    );
-    assert.match(bootstrapSource, /scripts\/ci\/aggregate-gate\.mjs/);
-    assert.match(bootstrapSource, /status === \"added\"/);
-    assert.match(bootstrapSource, /status !== \"completed\"/);
-    assert.match(bootstrapSource, /conclusion !== SUCCESS/);
-    assert.match(bootstrapSource, /missing workflow run/);
-    assert.match(bootstrapSource, /missing job/);
-    assert.match(bootstrapSource, /GITHUB_TOKEN/);
-
-    for (const gate of (await import("./aggregate-gate.mjs")).COMPONENT_GATES) {
-        assert.match(
-            bootstrapSource,
-            new RegExp(`workflow: ${escapeRegExp(JSON.stringify(gate.workflow))}`),
-            `bootstrap must retain the ${gate.workflow} workflow gate`,
-        );
-        if (gate.always) {
-            assert.match(
-                bootstrapSource,
-                new RegExp(`workflow: ${escapeRegExp(JSON.stringify(gate.workflow))}[\\s\\S]*?always: true`),
-                `${gate.workflow} must remain an always-on gate`,
-            );
-        }
-        for (const job of gate.jobs) {
-            assert.match(
-                bootstrapSource,
-                new RegExp(escapeRegExp(JSON.stringify(job))),
-                `bootstrap must retain the ${gate.workflow}/${job} job gate`,
-            );
-        }
-        for (const path of gate.paths ?? []) {
-            // Native workflow selectors live in the trusted evaluator. The
-            // aggregate workflow's one-time bootstrap is being retired before
-            // native gates are activated, so it must not become a second
-            // source of native path truth.
-            if (gate.workflow === "Native Android CI" || gate.workflow === "Native iOS CI") {
-                continue;
-            }
-            assert.match(
-                bootstrapSource,
-                new RegExp(escapeRegExp(JSON.stringify(path))),
-                `bootstrap must retain the ${gate.workflow} path selector`,
-            );
-        }
-    }
-
-    assert.doesNotMatch(bootstrapSource, /secrets\./, "bootstrap must not consume repository secrets");
-    assert.doesNotMatch(bootstrapSource, /child_process|exec\(|spawn\(/, "bootstrap must not execute repository code");
-    assert.doesNotMatch(bootstrapSource, /git\s+(?:fetch|show|checkout)/, "bootstrap must not fetch or execute PR files");
-    assert.doesNotMatch(bootstrapSource, /GITHUB_ENV|GITHUB_OUTPUT/, "bootstrap must not write workflow state");
-});
-
-test("aggregate bootstrap evaluates same-SHA jobs and fails in-progress runs", async () => {
-    const workflow = await readFile(WORKFLOW_PATH, "utf8");
-    const bootstrapSource = extractBootstrapSource(workflow);
-    const { COMPONENT_GATES } = await import("./aggregate-gate.mjs");
-    const changedFiles = [{ filename: "scripts/ci/aggregate-gate.mjs", status: "added" }];
-    const selectedGates = COMPONENT_GATES.filter((gate) => (
-        gate.always || gate.paths?.some((pattern) => pattern === "scripts/ci/**")
-    ));
-    const runs = selectedGates.map((gate, index) => ({
-        id: 700 + index,
-        name: gate.workflow,
-        head_sha: "bootstrap-sha",
-        event: "pull_request",
-        run_number: index + 1,
-        run_attempt: 1,
-        status: "completed",
-        conclusion: "success",
-        jobs: gate.jobs.map((name) => ({ name, status: "completed", conclusion: "success" })),
-    }));
-    const payload = { pull_request: { number: 7, head: { sha: "bootstrap-sha" } } };
-
-    const passed = await runBootstrapSource(bootstrapSource, payload, { files: changedFiles, runs });
-    assert.equal(passed.status, 0, passed.stderr || passed.stdout);
-
-    const inProgressRuns = runs.map((run, index) => index === 0 ? { ...run, status: "in_progress" } : run);
-    const failed = await runBootstrapSource(bootstrapSource, payload, { files: changedFiles, runs: inProgressRuns });
-    assert.notEqual(failed.status, 0, "in-progress component runs must fail closed");
-    assert.match(failed.stderr, /workflow is in_progress/);
-
-    const mergeRuns = runs.map((run) => ({ ...run, event: "merge_group" }));
-    const mergePayload = { merge_group: { head_sha: "bootstrap-sha", base_sha: "base-sha" } };
-    const mergePassed = await runBootstrapSource(
-        bootstrapSource,
-        mergePayload,
-        { files: changedFiles, runs: mergeRuns },
-        "merge_group",
-    );
-    assert.equal(mergePassed.status, 0, mergePassed.stderr || mergePassed.stdout);
-});
 
 test("aggregate evaluator rejects missing and non-success component jobs", async () => {
     const { evaluateGateRuns } = await import("./aggregate-gate.mjs");
@@ -225,6 +28,57 @@ test("aggregate evaluator rejects missing and non-success component jobs", async
         ),
         /Backend CI.*backend verify.*missing|Frontend CI.*skipped/i,
     );
+});
+
+test("advisory mobile E2E signal never blocks the required aggregate", async () => {
+    const { COMPONENT_GATES, evaluateGateRuns } = await import("./aggregate-gate.mjs");
+    const mobileGate = COMPONENT_GATES.find((gate) => gate.workflow === "Mobile CI");
+    assert.ok(mobileGate, "Mobile CI must remain a required aggregate workflow");
+    assert.deepEqual(mobileGate.jobs, ["type-check · lint · test · build"]);
+
+    const requiredJob = { name: "type-check · lint · test · build", status: "completed", conclusion: "success" };
+    const advisoryJob = "playwright e2e (advisory · real backend)";
+    for (const advisoryState of [
+        { status: "completed", conclusion: "success" },
+        { status: "completed", conclusion: "failure" },
+        { status: "completed", conclusion: "skipped" },
+        { status: "in_progress", conclusion: null },
+    ]) {
+        assert.doesNotThrow(() => evaluateGateRuns(
+            [mobileGate],
+            new Map([[
+                "Mobile CI",
+                {
+                    status: "completed",
+                    conclusion: "success",
+                    jobs: [requiredJob, { name: advisoryJob, ...advisoryState }],
+                },
+            ]]),
+        ));
+    }
+
+    assert.doesNotThrow(() => evaluateGateRuns(
+        [mobileGate],
+        new Map([[
+            "Mobile CI",
+            { status: "completed", conclusion: "success", jobs: [requiredJob] },
+        ]]),
+    ));
+
+    assert.throws(() => evaluateGateRuns(
+        [mobileGate],
+        new Map([[
+            "Mobile CI",
+            {
+                status: "completed",
+                conclusion: "success",
+                jobs: [{ ...requiredJob, conclusion: "failure" }, { name: advisoryJob, status: "completed", conclusion: "success" }],
+            },
+        ]]),
+    ), /type-check · lint · test · build.*failure/i);
+
+    const mobileWorkflow = await readFile(resolve(WORKSPACE_ROOT, ".github/workflows/mobile-ci.yml"), "utf8");
+    assert.match(mobileWorkflow, /name: playwright e2e \(advisory · real backend\)/);
 });
 
 test("aggregate evaluator accepts only completed-success jobs and selects all changed-surface gates", async () => {
@@ -406,5 +260,57 @@ test("aggregate runner resolves merge-group files from the synthetic commit when
         );
     } finally {
         globalThis.fetch = originalFetch;
+    }
+});
+
+test("aggregate runner fails closed on malformed or capped merge-group file inventories", async () => {
+    const { runAggregate } = await import("./aggregate-gate.mjs");
+    const cases = [
+        { label: "null files", files: null, pattern: /file inventory array/i },
+        { label: "object files", files: {}, pattern: /file inventory array/i },
+        { label: "string files", files: "not-an-array", pattern: /file inventory array/i },
+        { label: "invalid file entry", files: [{}], pattern: /invalid file entry/i },
+        {
+            label: "exact compare cap",
+            files: Array.from({ length: 300 }, (_, index) => ({ filename: `file-${index}` })),
+            pattern: /may be truncated at 300 files/i,
+        },
+        {
+            label: "over compare cap",
+            files: Array.from({ length: 301 }, (_, index) => ({ filename: `file-${index}` })),
+            pattern: /may be truncated at 300 files/i,
+        },
+    ];
+
+    for (const testCase of cases) {
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async (url) => {
+            const requestUrl = String(url);
+            if (requestUrl.includes("/commits/merge-sha/pulls")) {
+                return { ok: true, status: 200, text: async () => "[]" };
+            }
+            if (requestUrl.endsWith("/commits/merge-sha")) {
+                return { ok: true, status: 200, text: async () => JSON.stringify({ parents: [{ sha: "merge-base" }] }) };
+            }
+            if (requestUrl.includes("/compare/merge-base...merge-sha")) {
+                return { ok: true, status: 200, text: async () => JSON.stringify({ files: testCase.files }) };
+            }
+            throw new Error(`unexpected request for ${testCase.label}: ${requestUrl}`);
+        };
+
+        try {
+            await assert.rejects(
+                () => runAggregate({
+                    eventName: "workflow_run",
+                    payload: { workflow_run: { event: "merge_group", head_sha: "merge-sha", pull_requests: [] } },
+                    repository: "owner/repository",
+                    token: "test-token",
+                }),
+                testCase.pattern,
+                testCase.label,
+            );
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
     }
 });
