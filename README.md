@@ -510,6 +510,29 @@ flowchart LR
 Do not commit directly to `main`. Do not use a release promotion to hide unresolved test failures or
 unreviewed schema changes.
 
+### Aggregate CI gate activation (staged)
+
+The first stage lands the trusted [aggregate evaluator](scripts/ci/aggregate-gate.mjs) and its
+contract tests only. The aggregate workflow is intentionally absent from that pull request. Do
+not add an inline heredoc evaluator, a PR-controlled bootstrap, or any fallback that executes code
+from the pull-request checkout.
+
+After the evaluator is present on protected default `dev`, use a separate activation pull request:
+
+1. Add the workflow so it checks out the protected default branch evaluator and listens to
+   `pull_request`, `merge_group`, and component `workflow_run` events. Grant it read-only
+   permissions, and keep the workflow and evaluator under `CODEOWNERS` coverage and required
+   administrator review.
+2. Observe the workflow in advisory mode across pull requests, merge queues, and same-SHA component
+   runs. Keep the Mobile Playwright real-backend signal visible as advisory; it must not block the
+   required aggregate.
+3. After the observations are stable, configure the exact `ci aggregate gate` check as a required
+   status check for `dev` (and the merge queue when enabled).
+
+To disable or roll back, remove `ci aggregate gate` from branch protection first, then disable or
+revert the activation workflow. Leave the evaluator and tests intact, and re-enable only through a
+reviewed activation pull request. Never restore a PR-controlled heredoc fallback.
+
 The current hosting model uses Railway for the API and Vercel for the desktop and mobile web
 applications. Environment variables, database credentials, vendor secrets, and release identifiers
 are managed outside the repository.

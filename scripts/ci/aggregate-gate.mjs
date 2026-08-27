@@ -8,6 +8,8 @@ const GITHUB_COMPARE_FILE_LIMIT = 300;
 // the migration drift guard, and its workflow run also includes auth-e2e.
 // Path-scoped gates are selected from the changed files so an intentionally
 // filtered workflow is not treated as missing on an unrelated PR.
+// The workflow is activated separately after this protected-branch evaluator
+// lands; see README.md#aggregate-ci-gate-activation-staged.
 export const COMPONENT_GATES = Object.freeze([
     {
         workflow: "Backend CI",
