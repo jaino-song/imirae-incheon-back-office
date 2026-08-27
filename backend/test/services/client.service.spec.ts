@@ -110,6 +110,7 @@ describe("ClientService", () => {
     const createMockTriggerService = () => ({
         ensureDefaultRulesForBranch: jest.fn().mockResolvedValue(undefined),
         syncClientRulesForClient: jest.fn().mockResolvedValue(undefined),
+        syncEmployeeAssignmentRulesForClient: jest.fn().mockResolvedValue(undefined),
         syncEmployeeAssignmentRulesForSchedule: jest.fn().mockResolvedValue(undefined),
         cancelPendingJobsForClientDeletion: jest.fn().mockResolvedValue(undefined),
     });
@@ -1391,6 +1392,37 @@ describe("ClientService", () => {
                     data: expect.objectContaining({ name: "New Name", address: "New Address" }),
                 }));
                 expect(result).toBe(existingClient);
+            });
+
+            it("should refresh assignment jobs when the client name changes", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await service.update(branchId, existingClient.id, { name: "새 고객 이름" });
+
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledTimes(1);
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledWith(
+                    branchId,
+                    existingClient.id,
+                );
+            });
+
+            it("should not refresh assignment jobs when an unrelated client field changes", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await service.update(branchId, existingClient.id, { address: "새 주소" });
+
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).not.toHaveBeenCalled();
+            });
+
+            it("should not refresh assignment jobs when the client name is unchanged", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await service.update(branchId, existingClient.id, { name: existingClient.name });
+
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).not.toHaveBeenCalled();
             });
 
             it("clears birthDate when the caller explicitly sends null (tri-state, mirrors areaId)", async () => {

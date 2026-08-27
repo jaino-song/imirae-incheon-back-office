@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
@@ -13,9 +13,11 @@ import { readAgentActionEffect, recordAgentActionEffect } from "application/agen
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { AgentActionCertainFailureError } from "application/agent/action-coordinator.service";
 import { employeeAgentTargetVersion } from "domain/entities/employee-agent-target";
+import { EmployeeEntity } from "domain/entities/employee.entity";
 import { EMPLOYEE_GRADES, normalizeEmployeeGrade } from "domain/constants/employee-grade.constants";
 import { normalizePhone } from "application/utils/normalize-phone";
 import { EMPLOYEE_REPOSITORY, IEmployeeRepository } from "domain/repositories/employee.repository.interface";
+import { MessageTriggerService } from "application/services/message-trigger.service";
 
 const EmployeeGradeSchema = z.preprocess(
     (value) => typeof value === "string" ? normalizeEmployeeGrade(value) : value,
@@ -127,6 +129,8 @@ function isActiveEmployee(employee: Awaited<ReturnType<FindEmployeeByIdUsecase["
 @Injectable()
 @AgentCapabilityProvider()
 export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityProviderContract {
+    private readonly logger = new Logger(EmployeeWriteAgentCapabilitiesProvider.name);
+
     constructor(
         private readonly createEmployee: CreateEmployeeUsecase,
         private readonly updateEmployee: UpdateEmployeeUsecase,
@@ -135,6 +139,7 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
         @Inject(EMPLOYEE_REPOSITORY)
         private readonly employeeRepository: IEmployeeRepository,
         private readonly prisma: PrismaService,
+        @Optional() private readonly triggerService?: MessageTriggerService,
     ) {}
 
     getCapabilities(): CapabilityDefinition[] {
@@ -183,7 +188,7 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                 execute: async (context, rawInput) => {
                     const input = UpdateEmployeeSchema.parse(rawInput);
                     const normalizedPhone = input.phone === undefined ? undefined : normalizeEmployeePhone(input.phone);
-                    await this.requireActiveEmployee(context.principal.branchId, input.id);
+                    const existing = await this.requireActiveEmployee(context.principal.branchId, input.id);
                     const { id, ...updates } = input;
                     try {
                         await ensureEmployeePhoneAvailable(this.employeeRepository, context.principal.branchId, normalizedPhone, id);
@@ -191,6 +196,13 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                             context.principal.branchId,
                             id,
                             normalizedPhone === undefined ? updates : { ...updates, phone: normalizedPhone },
+                        );
+                        await this.refreshEmployeeAssignmentJobsAfterProfileChange(
+                            context.principal.branchId,
+                            employee.id,
+                            existing,
+                            input.name,
+                            normalizedPhone,
                         );
                         return { id: employee.id, name: employee.name, status: "updated" };
                     } catch (error) {
@@ -203,6 +215,9 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                 executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
                     const input = UpdateEmployeeSchema.parse(rawInput);
                     const normalizedPhone = input.phone === undefined ? undefined : normalizeEmployeePhone(input.phone);
+                    const existing = input.name === undefined && normalizedPhone === undefined
+                        ? null
+                        : await this.findEmployee.execute(context.principal.branchId, input.id);
                     const { id, ...updates } = input;
                     try {
                         await ensureEmployeePhoneAvailable(this.employeeRepository, context.principal.branchId, normalizedPhone, id);
@@ -211,6 +226,13 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                             id,
                             normalizedPhone === undefined ? updates : { ...updates, phone: normalizedPhone },
                             expectedTargetVersion,
+                        );
+                        await this.refreshEmployeeAssignmentJobsAfterProfileChange(
+                            context.principal.branchId,
+                            employee.id,
+                            existing,
+                            input.name,
+                            normalizedPhone,
                         );
                         return { id: employee.id, name: employee.name, status: "updated" };
                     } catch (error) {
@@ -264,6 +286,28 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                 },
             },
         ];
+    }
+
+    private async refreshEmployeeAssignmentJobsAfterProfileChange(
+        branchId: string,
+        employeeId: number,
+        previousEmployee: EmployeeEntity | null,
+        updatedName: string | undefined,
+        updatedPhone: string | undefined,
+    ): Promise<void> {
+        if (!this.triggerService || !previousEmployee) return;
+
+        const profileChanged = (updatedName !== undefined && updatedName !== previousEmployee.name)
+            || (updatedPhone !== undefined && updatedPhone !== previousEmployee.phone);
+        if (!profileChanged) return;
+
+        try {
+            await this.triggerService.syncEmployeeAssignmentRulesForEmployee(branchId, employeeId);
+        } catch (error) {
+            this.logger.error(
+                `Failed to sync employee assignment triggers for employee ${employeeId}: ${error}`,
+            );
+        }
     }
 
     private async inspectEmployee(branchId: string, id: number) {

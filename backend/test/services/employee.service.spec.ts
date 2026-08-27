@@ -18,6 +18,7 @@ import {
     UpdateEmployeeUsecase,
 } from "application/usecases/employee";
 import { EMPLOYEE_REPOSITORY, IEmployeeRepository } from "domain/repositories/employee.repository.interface";
+import { MessageTriggerService } from "application/services/message-trigger.service";
 import { EmployeeFactory } from "../utils";
 
 describe("EmployeeService", () => {
@@ -40,6 +41,7 @@ describe("EmployeeService", () => {
     let changeOpenStatusUsecase: jest.Mocked<ChangeEmployeeOpenStatusUsecase>;
     let listOpenToNextWorkUsecase: jest.Mocked<ListEmployeesOpenToNextWorkUsecase>;
     let employeeRepository: jest.Mocked<Pick<IEmployeeRepository, "findByPhone">>;
+    let triggerService: jest.Mocked<Pick<MessageTriggerService, "syncEmployeeAssignmentRulesForEmployee">>;
 
     const branchId = "org-1";
 
@@ -58,6 +60,7 @@ describe("EmployeeService", () => {
         const mockChangeOpenStatusUsecase = { execute: jest.fn() };
         const mockListOpenToNextWorkUsecase = { execute: jest.fn() };
         const mockEmployeeRepository = { findByPhone: jest.fn() };
+        const mockTriggerService = { syncEmployeeAssignmentRulesForEmployee: jest.fn() };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -77,6 +80,7 @@ describe("EmployeeService", () => {
                 { provide: ListActiveClientsByEmployeeUsecase, useValue: { execute: jest.fn() } },
                 { provide: ListWorkHistoryByEmployeeUsecase, useValue: { execute: jest.fn() } },
                 { provide: EMPLOYEE_REPOSITORY, useValue: mockEmployeeRepository },
+                { provide: MessageTriggerService, useValue: mockTriggerService },
             ],
         }).compile();
 
@@ -94,6 +98,7 @@ describe("EmployeeService", () => {
         changeOpenStatusUsecase = module.get(ChangeEmployeeOpenStatusUsecase);
         listOpenToNextWorkUsecase = module.get(ListEmployeesOpenToNextWorkUsecase);
         employeeRepository = module.get(EMPLOYEE_REPOSITORY);
+        triggerService = module.get(MessageTriggerService);
     });
 
     // ============================================
@@ -289,6 +294,47 @@ describe("EmployeeService", () => {
             // Assert
             expect(updateUsecase.execute).toHaveBeenCalledWith(branchId, 3, updateParams);
             expect(result).toBe(mockEmployee);
+        });
+
+        it.each([
+            ["name", { name: "새 직원 이름" }],
+            ["phone", { phone: "010-1111-2222" }],
+        ])("should refresh assignment jobs when %s changes", async (_field, updateParams) => {
+            const existingEmployee = EmployeeFactory.create({ id: 3 });
+            const updatedEmployee = EmployeeFactory.create({ id: 3, ...updateParams });
+            findByIdUsecase.execute.mockResolvedValue(existingEmployee);
+            updateUsecase.execute.mockResolvedValue(updatedEmployee);
+
+            await service.update(branchId, existingEmployee.id, updateParams);
+
+            expect(triggerService.syncEmployeeAssignmentRulesForEmployee).toHaveBeenCalledTimes(1);
+            expect(triggerService.syncEmployeeAssignmentRulesForEmployee).toHaveBeenCalledWith(
+                branchId,
+                existingEmployee.id,
+            );
+        });
+
+        it("should not refresh assignment jobs for an unrelated profile field", async () => {
+            const existingEmployee = EmployeeFactory.create({ id: 3 });
+            findByIdUsecase.execute.mockResolvedValue(existingEmployee);
+            updateUsecase.execute.mockResolvedValue(EmployeeFactory.create({ id: 3, grade: "스탠다드" }));
+
+            await service.update(branchId, existingEmployee.id, { grade: "스탠다드" });
+
+            expect(triggerService.syncEmployeeAssignmentRulesForEmployee).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            ["name", { name: "Test Employee" }],
+            ["phone", { phone: "010-9876-5432" }],
+        ])("should not refresh assignment jobs when %s is unchanged", async (_field, updateParams) => {
+            const existingEmployee = EmployeeFactory.create({ id: 3 });
+            findByIdUsecase.execute.mockResolvedValue(existingEmployee);
+            updateUsecase.execute.mockResolvedValue(existingEmployee);
+
+            await service.update(branchId, existingEmployee.id, updateParams);
+
+            expect(triggerService.syncEmployeeAssignmentRulesForEmployee).not.toHaveBeenCalled();
         });
 
         it("should handle partial update params", async () => {

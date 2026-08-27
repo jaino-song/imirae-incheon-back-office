@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Optional } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
@@ -27,6 +27,7 @@ import {
     isVoucherServiceLabel,
     ResolveVoucherServiceSelectionUsecase,
 } from "application/usecases/voucher-price-info/resolve-voucher-service-selection.usecase";
+import { MessageTriggerService } from "application/services/message-trigger.service";
 
 const DateOnlyInput = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
     const parsed = new Date(`${value}T00:00:00Z`);
@@ -233,6 +234,8 @@ async function validateClientWrite(
 @Injectable()
 @AgentCapabilityProvider()
 export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProviderContract {
+    private readonly logger = new Logger(ClientWriteAgentCapabilitiesProvider.name);
+
     constructor(
         private readonly createClient: CreateClientUsecase,
         private readonly updateClient: UpdateClientUsecase,
@@ -242,6 +245,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
         private readonly prisma: PrismaService,
         private readonly serviceRecordLifecycleService: ServiceRecordLifecycleService,
         @Optional() private readonly voucherServiceSelection?: ResolveVoucherServiceSelectionUsecase,
+        @Optional() private readonly triggerService?: MessageTriggerService,
     ) {}
 
     getCapabilities(): CapabilityDefinition[] {
@@ -441,6 +445,12 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                             ...parsedUpdates,
                         });
                         await this.serviceRecordLifecycleService.ensureForClient(client.id);
+                        await this.refreshEmployeeAssignmentJobsAfterProfileChange(
+                            context.principal.branchId,
+                            client.id,
+                            existing.name,
+                            client.name,
+                        );
                         return { id: client.id, name: client.name, status: "updated" };
                     } catch (error) {
                         if (isClientBranchPhoneUniqueViolation(error)) throw clientPhoneConflictError();
@@ -463,7 +473,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                     };
                     await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, parsedUpdates);
                     try {
-                        return await this.prisma.$transaction(async (transaction) => {
+                        const result = await this.prisma.$transaction(async (transaction) => {
                             await validateClientServicePeriod(this.serviceRecordLifecycleService, {
                                 clientId: existing.id,
                                 startDate: parsedUpdates.startDate,
@@ -482,6 +492,13 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                             await recordAgentActionEffect(transaction, context, "clients.update", "client", client.id, result);
                             return result;
                         });
+                        await this.refreshEmployeeAssignmentJobsAfterProfileChange(
+                            context.principal.branchId,
+                            existing.id,
+                            existing.name,
+                            input.name,
+                        );
+                        return result;
                     } catch (error) {
                         if (error instanceof ClientTargetVersionMismatchError) {
                             throw new AgentActionCertainFailureError(error.message);
@@ -508,5 +525,22 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 },
             },
         ];
+    }
+
+    private async refreshEmployeeAssignmentJobsAfterProfileChange(
+        branchId: string,
+        clientId: number,
+        previousName: string,
+        updatedName: string | undefined,
+    ): Promise<void> {
+        if (!this.triggerService || updatedName === undefined || updatedName === previousName) return;
+
+        try {
+            await this.triggerService.syncEmployeeAssignmentRulesForClient(branchId, clientId);
+        } catch (error) {
+            this.logger.error(
+                `Failed to sync employee assignment triggers for client ${clientId}: ${error}`,
+            );
+        }
     }
 }

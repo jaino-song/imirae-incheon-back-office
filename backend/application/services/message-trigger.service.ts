@@ -1052,6 +1052,75 @@ export class MessageTriggerService {
         }
     }
 
+    /**
+     * Refresh assignment jobs whose source payload contains the client's name.
+     * The schedule itself remains the same generation, so its deterministic
+     * dedupe key lets the mutable pending row be rebuilt in place.
+     */
+    async syncEmployeeAssignmentRulesForClient(
+        branchId: string,
+        clientId: number,
+    ): Promise<void> {
+        if (!(await this.hasTriggerSchema())) {
+            return;
+        }
+        if (!(await this.messageSenderApprovalService.isApproved(branchId))) {
+            return;
+        }
+
+        const schedules = await this.prisma.employee_schedule.findMany({
+            where: { branchId, clientId, replaced: false },
+            select: { id: true },
+            orderBy: { id: "asc" },
+        });
+
+        for (const schedule of schedules) {
+            await this.syncEmployeeAssignmentRulesForSchedule(
+                branchId,
+                schedule.id,
+                true,
+            );
+        }
+    }
+
+    /**
+     * Refresh assignment jobs for every active schedule that references the
+     * employee. Branch and replacement predicates keep the reconciliation
+     * inside the caller's tenant and out of retired schedule generations.
+     */
+    async syncEmployeeAssignmentRulesForEmployee(
+        branchId: string,
+        employeeId: number,
+    ): Promise<void> {
+        if (!(await this.hasTriggerSchema())) {
+            return;
+        }
+        if (!(await this.messageSenderApprovalService.isApproved(branchId))) {
+            return;
+        }
+
+        const schedules = await this.prisma.employee_schedule.findMany({
+            where: {
+                branchId,
+                replaced: false,
+                OR: [
+                    { primaryEmployeeId: employeeId },
+                    { secondaryEmployeeId: employeeId },
+                ],
+            },
+            select: { id: true },
+            orderBy: { id: "asc" },
+        });
+
+        for (const schedule of schedules) {
+            await this.syncEmployeeAssignmentRulesForSchedule(
+                branchId,
+                schedule.id,
+                true,
+            );
+        }
+    }
+
     async hasActiveRulesForEvents(
         branchId: string,
         eventTypes: MessageTriggerEventType[],

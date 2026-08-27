@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
     ChangeEmployeeOpenStatusUsecase,
@@ -25,6 +25,7 @@ import {
     PaginatedEmployeeWorkHistory,
 } from "domain/repositories/employee.repository.interface";
 import { normalizePhone } from "application/utils/normalize-phone";
+import { MessageTriggerService } from "./message-trigger.service";
 
 export type EmployeeUpdateParams = {
     name?: string;
@@ -37,6 +38,8 @@ export type EmployeeUpdateParams = {
 
 @Injectable()
 export class EmployeeService {
+    private readonly logger = new Logger(EmployeeService.name);
+
     constructor(
         private readonly createEmployeeUsecase: CreateEmployeeUsecase,
         private readonly findEmployeeByIdUsecase: FindEmployeeByIdUsecase,
@@ -54,6 +57,7 @@ export class EmployeeService {
         private readonly listEmployeesOpenToNextWorkUsecase: ListEmployeesOpenToNextWorkUsecase,
         @Inject(EMPLOYEE_REPOSITORY)
         private readonly employeeRepository: IEmployeeRepository,
+        @Optional() private readonly triggerService?: MessageTriggerService,
     ) {}
 
     async create(
@@ -94,14 +98,33 @@ export class EmployeeService {
     }
 
     async update(branchid: string, id: number, params: EmployeeUpdateParams): Promise<EmployeeEntity> {
+        const existingEmployee = params.name !== undefined || params.phone !== undefined
+            ? (await this.findEmployeeByIdUsecase.execute(branchid, id) ?? null)
+            : null;
+        const profileChanged = existingEmployee !== null && (
+            (params.name !== undefined && params.name !== existingEmployee.name)
+            || (params.phone !== undefined && params.phone !== existingEmployee.phone)
+        );
+
+        let updatedEmployee: EmployeeEntity;
         try {
-            return await this.updateEmployeeUsecase.execute(branchid, id, {
+            updatedEmployee = await this.updateEmployeeUsecase.execute(branchid, id, {
                 ...params,
                 grade: params.grade === undefined ? undefined : normalizeEmployeeGrade(params.grade),
             });
         } catch (error) {
             this.rethrowPhoneConflict(error);
         }
+
+        if (profileChanged) {
+            await this.triggerService
+                ?.syncEmployeeAssignmentRulesForEmployee(branchid, id)
+                ?.catch((error) => {
+                    this.logger.error(`Failed to sync employee assignment triggers for employee ${id}: ${error}`);
+                });
+        }
+
+        return updatedEmployee;
     }
 
     delete(branchid: string, id: number): Promise<void> {

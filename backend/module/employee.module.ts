@@ -22,9 +22,10 @@ import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.em
 import { EmployeeController } from "interface/controllers/employee.controller";
 import { EmployeeAgentCapabilitiesProvider } from "application/usecases/employee/employee-agent-capabilities.provider";
 import { EmployeeWriteAgentCapabilitiesProvider } from "application/usecases/employee/employee-write-agent-capabilities.provider";
+import { MessageModule } from "./message.module";
 
 @Module({
-    imports: [DatabaseModule],
+    imports: [DatabaseModule, MessageModule],
     controllers: [EmployeeController],
     providers: [
         CreateEmployeeUsecase,

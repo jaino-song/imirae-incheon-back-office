@@ -2582,6 +2582,7 @@ describe("MessageTriggerService", () => {
         const prisma = {
             employee_schedule: {
                 findFirst: jest.fn().mockResolvedValue(createEmployeeSchedule(scheduleOverrides)),
+                findMany: jest.fn().mockResolvedValue([]),
             },
         };
         const messageLogRepository = createMessageLogRepository();
@@ -2615,6 +2616,122 @@ describe("MessageTriggerService", () => {
         expect(sync.prisma.client.findFirst).not.toHaveBeenCalled();
         expect(sync.ruleRepository.findActiveByEventTypes).not.toHaveBeenCalled();
         expect(sync.jobRepository.upsertPending).not.toHaveBeenCalled();
+    });
+
+    it("refreshes assignment jobs for every active schedule owned by a client", async () => {
+        const sync = createEmployeeSyncService();
+        sync.prisma.employee_schedule.findMany.mockResolvedValue([{ id: 77 }, { id: 88 }]);
+        const scheduleSync = jest
+            .spyOn(sync.service, "syncEmployeeAssignmentRulesForSchedule")
+            .mockResolvedValue(undefined);
+
+        await sync.service.syncEmployeeAssignmentRulesForClient(branchId, 1);
+
+        expect(sync.prisma.employee_schedule.findMany).toHaveBeenCalledWith({
+            where: { branchId, clientId: 1, replaced: false },
+            select: { id: true },
+            orderBy: { id: "asc" },
+        });
+        expect(scheduleSync).toHaveBeenNthCalledWith(
+            1,
+            branchId,
+            77,
+            true,
+        );
+        expect(scheduleSync).toHaveBeenNthCalledWith(
+            2,
+            branchId,
+            88,
+            true,
+        );
+    });
+
+    it("refreshes assignment jobs for every active schedule owned by an employee", async () => {
+        const sync = createEmployeeSyncService();
+        sync.prisma.employee_schedule.findMany.mockResolvedValue([{ id: 77 }, { id: 88 }]);
+        const scheduleSync = jest
+            .spyOn(sync.service, "syncEmployeeAssignmentRulesForSchedule")
+            .mockResolvedValue(undefined);
+
+        await sync.service.syncEmployeeAssignmentRulesForEmployee(branchId, 30);
+
+        expect(sync.prisma.employee_schedule.findMany).toHaveBeenCalledWith({
+            where: {
+                branchId,
+                replaced: false,
+                OR: [
+                    { primaryEmployeeId: 30 },
+                    { secondaryEmployeeId: 30 },
+                ],
+            },
+            select: { id: true },
+            orderBy: { id: "asc" },
+        });
+        expect(scheduleSync).toHaveBeenCalledTimes(2);
+        expect(scheduleSync).toHaveBeenNthCalledWith(1, branchId, 77, true);
+        expect(scheduleSync).toHaveBeenNthCalledWith(2, branchId, 88, true);
+    });
+
+    it("does not query schedules when assignment refresh is not approved", async () => {
+        const sync = createEmployeeSyncService();
+        sync.messageSenderApprovalService.isApproved.mockResolvedValue(false);
+
+        await sync.service.syncEmployeeAssignmentRulesForClient(branchId, 1);
+        await sync.service.syncEmployeeAssignmentRulesForEmployee(branchId, 30);
+
+        expect(sync.prisma.employee_schedule.findMany).not.toHaveBeenCalled();
+    });
+
+    it("updates one deterministic pending assignment job when a profile changes repeatedly", async () => {
+        jest.useFakeTimers().setSystemTime(new Date("2026-07-09T00:00:00.000Z"));
+        try {
+            const employeeRule = createRule({
+                id: "rule-employee-profile",
+                eventType: MessageTriggerEventType.EMPLOYEE_ASSIGNED,
+                offsetType: MessageTriggerOffsetType.IMMEDIATE,
+                recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+                templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+            });
+            const sync = createEmployeeSyncService();
+            let schedule = createEmployeeSchedule();
+            sync.prisma.employee_schedule.findMany.mockResolvedValue([{ id: schedule.id }]);
+            sync.prisma.employee_schedule.findFirst.mockImplementation(async () => schedule);
+            sync.ruleRepository.findActiveByEventTypes.mockResolvedValue([employeeRule]);
+
+            const persistedByDedupe = new Map<string, MessageTriggerJobEntity>();
+            sync.jobRepository.upsertPending.mockImplementation(async (job: MessageTriggerJobEntity) => {
+                persistedByDedupe.set(job.dedupeKey, job);
+                return job;
+            });
+
+            await sync.service.syncEmployeeAssignmentRulesForClient(branchId, schedule.clientId);
+            schedule = createEmployeeSchedule({
+                client: { id: 1, name: "새 고객 이름" },
+                primaryEmployee: { id: 30, name: "새 직원 이름", phone: "010-9999-0000" },
+            });
+            await sync.service.syncEmployeeAssignmentRulesForClient(branchId, schedule.clientId);
+
+            expect(persistedByDedupe.size).toBe(1);
+            const [job] = [...persistedByDedupe.values()];
+            if (!job) throw new Error("Expected a persisted assignment job");
+            expect(job).toMatchObject({
+                dedupeKey: "rule-employee-profile:schedule:77:employee:30:PRIMARY_EMPLOYEE",
+                recipientPhone: "010-9999-0000",
+                payload: {
+                    clientName: "새 고객 이름",
+                    employeeName: "새 직원 이름",
+                    recipientName: "새 직원 이름",
+                    recipientPhone: "010-9999-0000",
+                    templateVariables: {
+                        clientName: "새 고객 이름",
+                        employeeName: "새 직원 이름",
+                    },
+                },
+            });
+            expect(job.payload.employeeScheduleFingerprint).toBeDefined();
+        } finally {
+            jest.useRealTimers();
+        }
     });
 
     it("cancels every pending job tied to a client before client deletion", async () => {

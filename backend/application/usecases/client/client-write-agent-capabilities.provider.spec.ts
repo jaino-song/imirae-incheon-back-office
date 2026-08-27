@@ -32,6 +32,9 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
             validatePeriodChange: jest.fn().mockResolvedValue(undefined),
             ensureForClient: jest.fn().mockResolvedValue(undefined),
         };
+        const triggerService = {
+            syncEmployeeAssignmentRulesForClient: jest.fn().mockResolvedValue(undefined),
+        };
         const voucherServiceSelection = {
             execute: jest.fn().mockResolvedValue({
                 type: "A통합1형",
@@ -54,6 +57,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
             prisma as never,
             serviceRecordLifecycle as never,
             voucherServiceSelection as never,
+            triggerService as never,
         );
         return {
             createClient,
@@ -65,6 +69,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
             transaction,
             serviceRecordLifecycle,
             voucherServiceSelection,
+            triggerService,
             capabilities: provider.getCapabilities(),
         };
     }
@@ -354,6 +359,52 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
             where: expect.objectContaining({ capability: "clients.update" }),
         }));
         expect(updateClient.execute).not.toHaveBeenCalled();
+    });
+
+    it("refreshes assignment jobs after a direct client name update", async () => {
+        const { capabilities, updateClient, triggerService, existingClient } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko",
+        } as const;
+        updateClient.execute.mockResolvedValue({ ...existingClient, name: "김길동" });
+
+        await capability.execute!(context, { id: existingClient.id, name: "김길동" });
+
+        expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledTimes(1);
+        expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledWith("branch-a", existingClient.id);
+    });
+
+    it.each([
+        ["unrelated field", { address: "새 주소" }],
+        ["same name", { name: "홍길동" }],
+    ])("does not refresh assignment jobs for %s on a direct client update", async (_label, updates) => {
+        const { capabilities, triggerService } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko",
+        } as const;
+
+        await capability.execute!(context, { id: 1, ...updates });
+
+        expect(triggerService.syncEmployeeAssignmentRulesForClient).not.toHaveBeenCalled();
+    });
+
+    it("refreshes assignment jobs after an approval-bound client name update", async () => {
+        const { capabilities, updateClient, triggerService, existingClient } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+        updateClient.executeApprovedTarget.mockResolvedValue({ ...existingClient, name: "김길동" });
+
+        await capability.executeApprovedTarget!(context, { id: existingClient.id, name: "김길동" }, "approved-target");
+
+        expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledTimes(1);
+        expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledWith("branch-a", existingClient.id);
     });
 
     it("does not manufacture a birthDate clear when an update omits birthDate", async () => {
