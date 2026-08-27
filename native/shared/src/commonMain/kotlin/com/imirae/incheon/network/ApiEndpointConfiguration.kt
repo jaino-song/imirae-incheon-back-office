@@ -160,25 +160,117 @@ object ApiEndpointConfiguration {
 
     private fun isPrivateOrLocalHost(host: String): Boolean {
         val octets = host.split('.')
-        if (octets.size != 4 || octets.any { it.toIntOrNull() == null }) {
-            return host == "::1" ||
-                host.startsWith("fc", ignoreCase = true) ||
-                host.startsWith("fd", ignoreCase = true) ||
-                host.startsWith("fe80:", ignoreCase = true)
+        if (octets.size == 4 && octets.none { it.toIntOrNull() == null }) {
+            val values = octets.map { it.toInt() }
+            if (values.any { it !in 0..255 }) {
+                return true
+            }
+            val first = values[0]
+            val second = values[1]
+            return first == 0 ||
+                first == 10 ||
+                first == 127 ||
+                (first == 169 && second == 254) ||
+                (first == 172 && second in 16..31) ||
+                (first == 192 && second == 168)
         }
 
-        val values = octets.map { it.toInt() }
-        if (values.any { it !in 0..255 }) {
-            return true
+        val ipv6Hextets = parseIpv6Literal(host) ?: return false
+        val firstHextet = ipv6Hextets.first()
+        return isIpv6Loopback(ipv6Hextets) ||
+            (firstHextet and 0xFE00) == 0xFC00 ||
+            (firstHextet and 0xFFC0) == 0xFE80
+    }
+
+    /** Returns expanded hextets only when [host] is a syntactically valid IPv6 literal. */
+    private fun parseIpv6Literal(host: String): List<Int>? {
+        if (!host.contains(':') || host.contains('%')) {
+            return null
         }
-        val first = values[0]
-        val second = values[1]
-        return first == 0 ||
-            first == 10 ||
-            first == 127 ||
-            (first == 169 && second == 254) ||
-            (first == 172 && second in 16..31) ||
-            (first == 192 && second == 168)
+
+        val compressionStart = host.indexOf("::")
+        if (compressionStart >= 0 && host.indexOf("::", compressionStart + 2) >= 0) {
+            return null
+        }
+
+        val hasCompression = compressionStart >= 0
+        val leftText = if (hasCompression) host.substring(0, compressionStart) else host
+        val rightText = if (hasCompression) host.substring(compressionStart + 2) else ""
+        val leftHextets = parseIpv6Segments(leftText) ?: return null
+        val rightHextets = if (hasCompression) {
+            parseIpv6Segments(rightText) ?: return null
+        } else {
+            emptyList()
+        }
+        val segmentCount = leftHextets.size + rightHextets.size
+
+        if (hasCompression) {
+            if (segmentCount >= 8) {
+                return null
+            }
+            return leftHextets + List(8 - segmentCount) { 0 } + rightHextets
+        }
+
+        return leftHextets.takeIf { segmentCount == 8 }
+    }
+
+    private fun parseIpv6Segments(text: String): List<Int>? {
+        if (text.isEmpty()) {
+            return emptyList()
+        }
+
+        val segments = text.split(':')
+        if (segments.any { it.isEmpty() }) {
+            return null
+        }
+
+        val hextets = mutableListOf<Int>()
+        segments.forEachIndexed { index, segment ->
+            if (segment.contains('.')) {
+                if (index != segments.lastIndex) {
+                    return null
+                }
+                val ipv4 = parseIpv4Segment(segment) ?: return null
+                hextets += (ipv4 ushr 16)
+                hextets += (ipv4 and 0xFFFF)
+            } else {
+                if (segment.length !in 1..4 || segment.any { !isHexDigit(it) }) {
+                    return null
+                }
+                hextets += segment.toIntOrNull(16) ?: return null
+            }
+        }
+        return hextets
+    }
+
+    private fun parseIpv4Segment(segment: String): Int? {
+        val octets = segment.split('.')
+        if (octets.size != 4) {
+            return null
+        }
+
+        var value = 0
+        octets.forEach { octet ->
+            if (octet.isEmpty() || octet.any { it !in '0'..'9' }) {
+                return null
+            }
+            val parsed = octet.toIntOrNull() ?: return null
+            if (parsed !in 0..255) {
+                return null
+            }
+            value = (value shl 8) or parsed
+        }
+        return value
+    }
+
+    private fun isHexDigit(character: Char): Boolean =
+        character in '0'..'9' || character in 'a'..'f' || character in 'A'..'F'
+
+    private fun isIpv6Loopback(hextets: List<Int>): Boolean {
+        if (hextets.size != 8 || hextets.last() != 1) {
+            return false
+        }
+        return hextets.dropLast(1).all { it == 0 }
     }
 
     private fun invalid(reason: String): Nothing =

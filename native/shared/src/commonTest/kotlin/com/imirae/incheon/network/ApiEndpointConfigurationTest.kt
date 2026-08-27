@@ -54,6 +54,55 @@ class ApiEndpointConfigurationTest {
     }
 
     @Test
+    fun releaseAcceptsDnsNamesThatBeginWithIpv6PrivatePrefixes() {
+        listOf(
+            "https://fc-api.company.com",
+            "https://fd-api.company.com",
+        ).forEach { rawUrl ->
+            assertEquals(
+                rawUrl,
+                ApiEndpointConfiguration.resolve(
+                    rawUrl = rawUrl,
+                    platform = ApiEndpointPlatform.IOS_DEVICE,
+                    buildVariant = ApiBuildVariant.RELEASE,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun releaseAcceptsPublicCompressedIpv6LiteralWithBracketedAuthority() {
+        assertEquals(
+            "https://[2001:db8::1]:443/api",
+            ApiEndpointConfiguration.resolve(
+                rawUrl = "https://[2001:db8::1]:443/api/",
+                platform = ApiEndpointPlatform.IOS_DEVICE,
+                buildVariant = ApiBuildVariant.RELEASE,
+            ),
+        )
+    }
+
+    @Test
+    fun releaseRejectsPrivateIpv6LiteralFamilies() {
+        listOf(
+            "https://[fc00::1]",
+            "https://[fd12:3456::1]",
+            "https://[fe80::1]",
+            "https://[fe9f::1]",
+            "https://[::1]",
+            "https://[0:0:0:0:0:0:0:1]",
+        ).forEach { rawUrl ->
+            assertFailsWith<InvalidApiEndpointConfigurationException> {
+                ApiEndpointConfiguration.resolve(
+                    rawUrl = rawUrl,
+                    platform = ApiEndpointPlatform.IOS_DEVICE,
+                    buildVariant = ApiBuildVariant.RELEASE,
+                )
+            }
+        }
+    }
+
+    @Test
     fun iosSimulatorRejectsTheAndroidEmulatorAlias() {
         assertFailsWith<InvalidApiEndpointConfigurationException> {
             ApiEndpointConfiguration.resolve(
@@ -115,6 +164,9 @@ class ApiEndpointConfigurationTest {
             "https://127.0.0.1:3001",
             "https://10.0.2.2:3001",
             "https://10.0.2.2.:3001",
+            "https://169.254.1.1",
+            "https://172.16.0.1",
+            "https://192.168.1.1",
             "https://staging.example.test",
         ).forEach { rawUrl ->
             assertFailsWith<InvalidApiEndpointConfigurationException> {
