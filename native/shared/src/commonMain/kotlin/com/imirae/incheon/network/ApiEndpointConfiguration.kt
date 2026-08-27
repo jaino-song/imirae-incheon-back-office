@@ -64,6 +64,7 @@ object ApiEndpointConfiguration {
         if (host.contains('%')) {
             invalid("IPv6 zone identifiers are not allowed")
         }
+        rejectNonCanonicalNumericIpv4(host)
         val port = hostAndPort.port
         val isAndroidEmulatorDebugEndpoint =
             platform == ApiEndpointPlatform.ANDROID_EMULATOR &&
@@ -166,6 +167,39 @@ object ApiEndpointConfiguration {
             host.endsWith(".invalid") ||
             host.endsWith(".test") ||
             host.endsWith(".localhost")
+
+    /**
+     * Rejects alternate numeric IPv4 spellings before host classification.
+     *
+     * URL consumers may interpret forms such as `127.1`, `2130706433`, or
+     * `0x7f000001` as loopback. Keeping only canonical dotted-decimal literals
+     * makes the release guard agree with the URL parser instead of allowing a
+     * private/local address to bypass it.
+     */
+    private fun rejectNonCanonicalNumericIpv4(host: String) {
+        val components = host.split('.')
+        val isCanonicalDottedDecimal = components.size == 4 &&
+            components.all { component ->
+                component.isNotEmpty() &&
+                    (component == "0" || !component.startsWith('0')) &&
+                    component.all { it in '0'..'9' } &&
+                    component.toIntOrNull()?.let { it in 0..255 } == true
+            }
+        if (isCanonicalDottedDecimal) {
+            return
+        }
+
+        val isDecimalIpv4Syntax = host.isNotEmpty() &&
+            host.all { it in '0'..'9' || it == '.' }
+        val isHexIpv4Syntax = components.any { it.startsWith("0x") } &&
+            components.all { component ->
+                val digits = component.removePrefix("0x")
+                digits.isNotEmpty() && digits.all(::isHexDigit)
+            }
+        if (isDecimalIpv4Syntax || isHexIpv4Syntax) {
+            invalid("non-canonical IPv4 endpoint host")
+        }
+    }
 
     private fun isPrivateOrLocalHost(host: String): Boolean {
         val octets = host.split('.')

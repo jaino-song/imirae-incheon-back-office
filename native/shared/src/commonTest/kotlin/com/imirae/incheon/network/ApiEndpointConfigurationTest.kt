@@ -165,6 +165,38 @@ class ApiEndpointConfigurationTest {
     }
 
     @Test
+    fun releaseAcceptsCanonicalPublicIpv4Literal() {
+        assertEquals(
+            "https://8.8.8.8:443/api",
+            ApiEndpointConfiguration.resolve(
+                rawUrl = "https://8.8.8.8:443/api/",
+                platform = ApiEndpointPlatform.IOS_DEVICE,
+                buildVariant = ApiBuildVariant.RELEASE,
+            ),
+        )
+    }
+
+    @Test
+    fun releaseRejectsNonCanonicalNumericIpv4Literals() {
+        listOf(
+            "https://127.1",
+            "https://127.0.1",
+            "https://2130706433",
+            "https://0x7f000001",
+            "https://0177.0.0.1",
+            "https://127.000.000.001",
+        ).forEach { rawUrl ->
+            assertFailsWith<InvalidApiEndpointConfigurationException> {
+                ApiEndpointConfiguration.resolve(
+                    rawUrl = rawUrl,
+                    platform = ApiEndpointPlatform.IOS_DEVICE,
+                    buildVariant = ApiBuildVariant.RELEASE,
+                )
+            }
+        }
+    }
+
+    @Test
     fun malformedBracketedLiteralsFailClosed() {
         listOf(
             "https://[fe80::1%25]",
