@@ -39,6 +39,10 @@ describe("formatDateForDisplay", () => {
 });
 
 describe("formatDateTimeKo", () => {
+  it("renders exact Seoul midnight as 00:00", () => {
+    expect(formatDateTimeKo("2026-07-16T15:00:00Z")).toBe("2026.07.17 00:00");
+  });
+
   it("renders the date and the time from the same Asia/Seoul conversion", () => {
     // 2026-07-16T15:30:00Z is 2026-07-17 00:30 KST — the date and the time
     // must agree on the same (post-midnight) calendar day.
@@ -55,6 +59,28 @@ describe("formatDateTimeKo", () => {
 
   it("formats midday timestamps consistently", () => {
     expect(formatDateTimeKo("2026-07-14T03:15:00Z")).toBe("2026.07.14 12:15");
+  });
+
+  it("normalizes ICU's alternate 24-hour midnight representation", () => {
+    const formatToParts = jest
+      .spyOn(Intl.DateTimeFormat.prototype, "formatToParts")
+      .mockImplementation(() => [
+        { type: "month", value: "07" },
+        { type: "literal", value: "/" },
+        { type: "day", value: "17" },
+        { type: "literal", value: "/" },
+        { type: "year", value: "2026" },
+        { type: "literal", value: ", " },
+        { type: "hour", value: "24" },
+        { type: "literal", value: ":" },
+        { type: "minute", value: "30" },
+      ]);
+
+    try {
+      expect(formatDateTimeKo("2026-07-16T15:30:00Z")).toBe("2026.07.17 00:30");
+    } finally {
+      formatToParts.mockRestore();
+    }
   });
 
   it("returns the fallback for empty or invalid values", () => {
