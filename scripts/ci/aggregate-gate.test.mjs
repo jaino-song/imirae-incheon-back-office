@@ -124,6 +124,16 @@ test("native workflow definition changes select only their matching native gate"
     assert.ok(bothGateNames.includes("Native iOS CI"));
 });
 
+test("native workflow contract changes require both native gates", async () => {
+    const { requiredGatesForFiles } = await import("./aggregate-gate.mjs");
+
+    const nativeGateNames = requiredGatesForFiles(["scripts/ci/native-workflow-contract.test.mjs"])
+        .map((gate) => gate.workflow)
+        .filter((workflow) => workflow.startsWith("Native "));
+
+    assert.deepEqual(nativeGateNames, ["Native Android CI", "Native iOS CI"]);
+});
+
 test("required merge-queue child workflows are mounted without path filters", async () => {
     const requiredFiles = [
         "backend-ci.yml",

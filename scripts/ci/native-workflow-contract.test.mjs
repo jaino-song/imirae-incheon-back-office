@@ -21,6 +21,17 @@ function assertNativeTriggers(workflow, fileName) {
     assert.match(workflow, /^name: Native (?:Android|iOS) CI$/m, `${fileName} must have the aggregate gate name`);
     assert.match(workflow, /^  push:\n    branches: \[dev\][\s\S]*?      - ["']native\/\*\*["']/m, `${fileName} must run native changes pushed to dev`);
     assert.match(workflow, /^  pull_request:\n    branches: \[main, dev, preview\][\s\S]*?      - ["']native\/\*\*["']/m, `${fileName} must cover canonical PR branches and native paths`);
+    for (const trigger of ["push", "pull_request"]) {
+        const triggerPaths = trigger === "push"
+            ? workflow.match(/^  push:\n    branches: \[dev\]\n    paths:\n((?:      - .+\n)+)/m)?.[1]
+            : workflow.match(/^  pull_request:\n    branches: \[main, dev, preview\]\n    paths:\n((?:      - .+\n)+)/m)?.[1];
+        assert.ok(triggerPaths, `${fileName} must declare ${trigger} paths`);
+        assert.match(
+            triggerPaths,
+            /^      - ["']scripts\/ci\/native-workflow-contract\.test\.mjs["']$/m,
+            `${fileName} must run when the native workflow contract test changes on ${trigger}`,
+        );
+    }
     assert.match(workflow, new RegExp(`^      - ["']${ownWorkflowPath.replace(/[.*+?^${}()|[\\]\\]/g, "\\\\$&")}['"]$`, "m"), `${fileName} must run when its definition changes`);
     assert.doesNotMatch(workflow, new RegExp(otherWorkflowPath.replace(/[.*+?^${}()|[\\]\\]/g, "\\\\$&")), `${fileName} must not trigger for the other native workflow definition`);
     assert.match(workflow, /^  merge_group:\n    types: \[checks_requested\]$/m, `${fileName} must run in merge queues without a path filter`);

@@ -95,12 +95,20 @@ export const COMPONENT_GATES = Object.freeze([
     {
         workflow: "Native Android CI",
         jobs: ["Android CI", "SCA Scan"],
-        paths: ["native/**", ".github/workflows/native-android.yml"],
+        paths: [
+            "native/**",
+            ".github/workflows/native-android.yml",
+            "scripts/ci/native-workflow-contract.test.mjs",
+        ],
     },
     {
         workflow: "Native iOS CI",
         jobs: ["iOS CI", "SCA Scan"],
-        paths: ["native/**", ".github/workflows/native-ios.yml"],
+        paths: [
+            "native/**",
+            ".github/workflows/native-ios.yml",
+            "scripts/ci/native-workflow-contract.test.mjs",
+        ],
     },
 ]);
 
