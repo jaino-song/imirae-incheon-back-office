@@ -103,6 +103,87 @@ class ApiEndpointConfigurationTest {
     }
 
     @Test
+    fun releaseRejectsScopedLinkLocalIpv6Literals() {
+        listOf(
+            "https://[fe80::1%25en0]",
+            "https://[fe80::1%en0]",
+        ).forEach { rawUrl ->
+            assertFailsWith<InvalidApiEndpointConfigurationException> {
+                ApiEndpointConfiguration.resolve(
+                    rawUrl = rawUrl,
+                    platform = ApiEndpointPlatform.IOS_DEVICE,
+                    buildVariant = ApiBuildVariant.RELEASE,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun releaseRejectsCompressedAndExpandedUnspecifiedIpv6Literals() {
+        listOf(
+            "https://[::]",
+            "https://[0:0:0:0:0:0:0:0]",
+        ).forEach { rawUrl ->
+            assertFailsWith<InvalidApiEndpointConfigurationException> {
+                ApiEndpointConfiguration.resolve(
+                    rawUrl = rawUrl,
+                    platform = ApiEndpointPlatform.IOS_DEVICE,
+                    buildVariant = ApiBuildVariant.RELEASE,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun releaseRejectsIpv4MappedPrivateIpv6Literals() {
+        listOf(
+            "https://[::ffff:127.0.0.1]",
+            "https://[::ffff:10.0.0.1]",
+            "https://[::ffff:192.168.1.1]",
+            "https://[::ffff:169.254.1.1]",
+        ).forEach { rawUrl ->
+            assertFailsWith<InvalidApiEndpointConfigurationException> {
+                ApiEndpointConfiguration.resolve(
+                    rawUrl = rawUrl,
+                    platform = ApiEndpointPlatform.IOS_DEVICE,
+                    buildVariant = ApiBuildVariant.RELEASE,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun releaseAcceptsIpv4MappedPublicIpv6Literal() {
+        assertEquals(
+            "https://[::ffff:8.8.8.8]:443/api",
+            ApiEndpointConfiguration.resolve(
+                rawUrl = "https://[::ffff:8.8.8.8]:443/api/",
+                platform = ApiEndpointPlatform.IOS_DEVICE,
+                buildVariant = ApiBuildVariant.RELEASE,
+            ),
+        )
+    }
+
+    @Test
+    fun malformedBracketedLiteralsFailClosed() {
+        listOf(
+            "https://[fe80::1%25]",
+            "https://[gggg::1]",
+            "https://[1:2:3:4:5:6:7]",
+            "https://[::ffff:999.1.1.1]",
+            "https://[fc-api.company.com]",
+        ).forEach { rawUrl ->
+            assertFailsWith<InvalidApiEndpointConfigurationException> {
+                ApiEndpointConfiguration.resolve(
+                    rawUrl = rawUrl,
+                    platform = ApiEndpointPlatform.IOS_DEVICE,
+                    buildVariant = ApiBuildVariant.RELEASE,
+                )
+            }
+        }
+    }
+
+    @Test
     fun iosSimulatorRejectsTheAndroidEmulatorAlias() {
         assertFailsWith<InvalidApiEndpointConfigurationException> {
             ApiEndpointConfiguration.resolve(

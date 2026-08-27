@@ -61,6 +61,9 @@ object ApiEndpointConfiguration {
         if (host.isEmpty()) {
             invalid("missing endpoint host")
         }
+        if (host.contains('%')) {
+            invalid("IPv6 zone identifiers are not allowed")
+        }
         val port = hostAndPort.port
         val isAndroidEmulatorDebugEndpoint =
             platform == ApiEndpointPlatform.ANDROID_EMULATOR &&
@@ -109,6 +112,12 @@ object ApiEndpointConfiguration {
                 invalid("malformed endpoint host")
             }
             val host = authority.substring(1, closingBracket)
+            if (host.contains('%')) {
+                invalid("IPv6 zone identifiers are not allowed")
+            }
+            if (parseIpv6Literal(host) == null) {
+                invalid("malformed endpoint host")
+            }
             val suffix = authority.substring(closingBracket + 1)
             val port = parsePort(suffix)
             return Authority(host, port)
@@ -165,19 +174,14 @@ object ApiEndpointConfiguration {
             if (values.any { it !in 0..255 }) {
                 return true
             }
-            val first = values[0]
-            val second = values[1]
-            return first == 0 ||
-                first == 10 ||
-                first == 127 ||
-                (first == 169 && second == 254) ||
-                (first == 172 && second in 16..31) ||
-                (first == 192 && second == 168)
+            return isPrivateIpv4(values[0], values[1])
         }
 
         val ipv6Hextets = parseIpv6Literal(host) ?: return false
         val firstHextet = ipv6Hextets.first()
-        return isIpv6Loopback(ipv6Hextets) ||
+        return isIpv6Unspecified(ipv6Hextets) ||
+            isIpv6Loopback(ipv6Hextets) ||
+            isIpv4MappedPrivate(ipv6Hextets) ||
             (firstHextet and 0xFE00) == 0xFC00 ||
             (firstHextet and 0xFFC0) == 0xFE80
     }
@@ -266,12 +270,32 @@ object ApiEndpointConfiguration {
     private fun isHexDigit(character: Char): Boolean =
         character in '0'..'9' || character in 'a'..'f' || character in 'A'..'F'
 
+    private fun isIpv6Unspecified(hextets: List<Int>): Boolean =
+        hextets.size == 8 && hextets.all { it == 0 }
+
     private fun isIpv6Loopback(hextets: List<Int>): Boolean {
         if (hextets.size != 8 || hextets.last() != 1) {
             return false
         }
         return hextets.dropLast(1).all { it == 0 }
     }
+
+    private fun isIpv4MappedPrivate(hextets: List<Int>): Boolean {
+        if (hextets.size != 8 || hextets.take(5).any { it != 0 } || hextets[5] != 0xFFFF) {
+            return false
+        }
+        val first = hextets[6] ushr 8
+        val second = hextets[6] and 0xFF
+        return isPrivateIpv4(first, second)
+    }
+
+    private fun isPrivateIpv4(first: Int, second: Int): Boolean =
+        first == 0 ||
+            first == 10 ||
+            first == 127 ||
+            (first == 169 && second == 254) ||
+            (first == 172 && second in 16..31) ||
+            (first == 192 && second == 168)
 
     private fun invalid(reason: String): Nothing =
         throw InvalidApiEndpointConfigurationException("Invalid API endpoint configuration: $reason")
