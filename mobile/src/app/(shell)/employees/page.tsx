@@ -47,6 +47,8 @@ import {
 } from "@/components/app/mobile-redesign/detail-sheet";
 import "@/components/app/mobile-redesign/redesign.css";
 import { getOpenToNextWorkLabel } from "@babyjamjam/shared/constants/employee-status";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@babyjamjam/shared";
 import {
@@ -55,9 +57,7 @@ import {
   groupForEmployee,
   type EmployeeGroup,
 } from "@/lib/employee/list-helpers";
-
 const ALL_FILTER = "전체";
-
 function employeeInitial(name: string) {
   return name.trim().charAt(0) || "?";
 }
@@ -248,13 +248,13 @@ function EmployeeDetailContent({
         data-component="mobile_employees_detail-sheet_stack_detail-page_body_tab-panel-3"
       >
         <InfoCard data-component="mobile_employees_detail-panel_info-card-4" title="이전 담당">
-          {isWorkHistoryLoading ? (
+          {isWorkHistoryLoading && workHistory.length === 0 ? (
             <ListRowsSkeleton
               data-component="mobile_employees_detail-panel_info-card-4_loading"
               rowCount={2}
               rightLines={1}
             />
-          ) : isWorkHistoryError ? (
+          ) : isWorkHistoryError && workHistory.length === 0 ? (
             <ErrorFallback
               title="근무 내역을 불러오지 못했어요"
               description="잠시 후 다시 시도해 주세요."
@@ -264,6 +264,31 @@ function EmployeeDetailContent({
             />
           ) : workHistory.length > 0 ? (
             <>
+              {isWorkHistoryError ? (
+                <Alert
+                  variant="warning"
+                  role="status"
+                  aria-live="polite"
+                  data-component="mobile_employees_detail-panel_info-card-4_cached-data-error"
+                  className="mb-3"
+                >
+                  <AlertTitle>근무 내역을 새로 불러오지 못했어요</AlertTitle>
+                  <AlertDescription>
+                    <p>현재 저장된 근무 내역을 표시하고 있습니다. 잠시 후 다시 시도해 주세요.</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      data-component="mobile_employees_detail-panel_info-card-4_cached-data-error_retry"
+                      aria-label="근무 내역 다시 시도"
+                      className="mt-3"
+                      onClick={() => void refetchWorkHistory()}
+                    >
+                      다시 시도
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               {workHistory.map((assignment) => (
                 <div
                   key={assignment.scheduleId}

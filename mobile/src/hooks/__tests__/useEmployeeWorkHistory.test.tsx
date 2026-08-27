@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
@@ -101,5 +101,43 @@ describe("useEmployeeWorkHistory", () => {
         renderHook(() => useEmployeeWorkHistory(0), { wrapper: createWrapper() });
         await Promise.resolve();
         expect(mockGet).not.toHaveBeenCalled();
+    });
+
+    it("preserves cached history when a refetch fails", async () => {
+        const cachedEntry = {
+            scheduleId: 22,
+            clientId: 11,
+            clientName: "박서연",
+            role: "secondary",
+            startDate: "2025-01-01",
+            endDate: "2025-06-30",
+            status: "replaced",
+        } as const;
+
+        mockGet
+            .mockResolvedValueOnce({
+                data: {
+                    data: [cachedEntry],
+                    total: 1,
+                    page: 1,
+                    limit: 10,
+                    totalPages: 1,
+                },
+            })
+            .mockRejectedValueOnce(new Error("temporary history failure"));
+
+        const { result } = renderHook(() => useEmployeeWorkHistory(7, 10), {
+            wrapper: createWrapper(),
+        });
+
+        await waitFor(() => expect(result.current.history).toEqual([cachedEntry]));
+
+        await act(async () => {
+            await result.current.refetch();
+        });
+
+        await waitFor(() => expect(result.current.isError).toBe(true));
+        expect(result.current.history).toEqual([cachedEntry]);
+        expect(mockGet).toHaveBeenNthCalledWith(2, "/employees/7/work-history?page=1&limit=10");
     });
 });
