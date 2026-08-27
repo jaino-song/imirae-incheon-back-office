@@ -142,6 +142,13 @@ test("aggregate CI has a one-time fail-closed bootstrap when the trusted evaluat
             );
         }
         for (const path of gate.paths ?? []) {
+            // Native workflow selectors live in the trusted evaluator. The
+            // aggregate workflow's one-time bootstrap is being retired before
+            // native gates are activated, so it must not become a second
+            // source of native path truth.
+            if (gate.workflow === "Native Android CI" || gate.workflow === "Native iOS CI") {
+                continue;
+            }
             assert.match(
                 bootstrapSource,
                 new RegExp(escapeRegExp(JSON.stringify(path))),
@@ -240,6 +247,27 @@ test("aggregate evaluator accepts only completed-success jobs and selects all ch
         jobs: gate.jobs.map((name) => ({ name, status: "completed", conclusion: "success" })),
     }]));
     assert.deepEqual(evaluateGateRuns(selected, runs).ok, true);
+});
+
+test("native workflow definition changes select only their matching native gate", async () => {
+    const { requiredGatesForFiles } = await import("./aggregate-gate.mjs");
+
+    const androidGateNames = requiredGatesForFiles([".github/workflows/native-android.yml"])
+        .map((gate) => gate.workflow);
+    assert.ok(androidGateNames.includes("Native Android CI"));
+    assert.ok(!androidGateNames.includes("Native iOS CI"));
+
+    const iosGateNames = requiredGatesForFiles([".github/workflows/native-ios.yml"])
+        .map((gate) => gate.workflow);
+    assert.ok(iosGateNames.includes("Native iOS CI"));
+    assert.ok(!iosGateNames.includes("Native Android CI"));
+
+    const bothGateNames = requiredGatesForFiles([
+        ".github/workflows/native-android.yml",
+        ".github/workflows/native-ios.yml",
+    ]).map((gate) => gate.workflow);
+    assert.ok(bothGateNames.includes("Native Android CI"));
+    assert.ok(bothGateNames.includes("Native iOS CI"));
 });
 
 test("required merge-queue child workflows are mounted without path filters", async () => {

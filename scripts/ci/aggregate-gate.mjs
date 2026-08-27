@@ -87,18 +87,18 @@ export const COMPONENT_GATES = Object.freeze([
             ".github/workflows/shared-contracts-ci.yml",
         ],
     },
-    // These names describe the root-discoverable native workflows. They are
-    // selected only when a native path changes and are observed by the
-    // aggregate workflow_run trigger.
+    // These names describe the root-discoverable native workflows. Each gate
+    // follows its native source tree and its own workflow definition, and is
+    // observed by the aggregate workflow_run trigger.
     {
         workflow: "Native Android CI",
         jobs: ["Android CI", "SCA Scan"],
-        paths: ["native/**"],
+        paths: ["native/**", ".github/workflows/native-android.yml"],
     },
     {
         workflow: "Native iOS CI",
         jobs: ["iOS CI", "SCA Scan"],
-        paths: ["native/**"],
+        paths: ["native/**", ".github/workflows/native-ios.yml"],
     },
 ]);
 
