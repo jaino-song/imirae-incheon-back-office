@@ -242,6 +242,27 @@ test("aggregate evaluator accepts only completed-success jobs and selects all ch
     assert.deepEqual(evaluateGateRuns(selected, runs).ok, true);
 });
 
+test("native workflow definition changes select only their matching native gate", async () => {
+    const { requiredGatesForFiles } = await import("./aggregate-gate.mjs");
+
+    const androidGateNames = requiredGatesForFiles([".github/workflows/native-android.yml"])
+        .map((gate) => gate.workflow);
+    assert.ok(androidGateNames.includes("Native Android CI"));
+    assert.ok(!androidGateNames.includes("Native iOS CI"));
+
+    const iosGateNames = requiredGatesForFiles([".github/workflows/native-ios.yml"])
+        .map((gate) => gate.workflow);
+    assert.ok(iosGateNames.includes("Native iOS CI"));
+    assert.ok(!iosGateNames.includes("Native Android CI"));
+
+    const bothGateNames = requiredGatesForFiles([
+        ".github/workflows/native-android.yml",
+        ".github/workflows/native-ios.yml",
+    ]).map((gate) => gate.workflow);
+    assert.ok(bothGateNames.includes("Native Android CI"));
+    assert.ok(bothGateNames.includes("Native iOS CI"));
+});
+
 test("required merge-queue child workflows are mounted without path filters", async () => {
     const requiredFiles = [
         "backend-ci.yml",

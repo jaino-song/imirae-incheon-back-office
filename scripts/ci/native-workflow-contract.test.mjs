@@ -13,9 +13,16 @@ async function readWorkflow(fileName) {
 }
 
 function assertNativeTriggers(workflow, fileName) {
+    const ownWorkflowPath = `.github/workflows/${fileName}`;
+    const otherWorkflowPath = fileName === "native-android.yml"
+        ? ".github/workflows/native-ios.yml"
+        : ".github/workflows/native-android.yml";
+
     assert.match(workflow, /^name: Native (?:Android|iOS) CI$/m, `${fileName} must have the aggregate gate name`);
     assert.match(workflow, /^  push:\n    branches: \[dev\][\s\S]*?      - ["']native\/\*\*["']/m, `${fileName} must run native changes pushed to dev`);
     assert.match(workflow, /^  pull_request:\n    branches: \[main, dev, preview\][\s\S]*?      - ["']native\/\*\*["']/m, `${fileName} must cover canonical PR branches and native paths`);
+    assert.match(workflow, new RegExp(`^      - ["']${ownWorkflowPath.replace(/[.*+?^${}()|[\\]\\]/g, "\\\\$&")}['"]$`, "m"), `${fileName} must run when its definition changes`);
+    assert.doesNotMatch(workflow, new RegExp(otherWorkflowPath.replace(/[.*+?^${}()|[\\]\\]/g, "\\\\$&")), `${fileName} must not trigger for the other native workflow definition`);
     assert.match(workflow, /^  merge_group:\n    types: \[checks_requested\]$/m, `${fileName} must run in merge queues without a path filter`);
     assert.match(workflow, /^permissions:\n  contents: read\n/m, `${fileName} must default to read-only repository access`);
     assert.doesNotMatch(workflow, /pull_request_target|continue-on-error:/, `${fileName} must not bypass untrusted-code or failure gates`);
