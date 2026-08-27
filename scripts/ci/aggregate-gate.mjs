@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 
 const DEFAULT_API_URL = "https://api.github.com";
 const SUCCESS = "success";
+const GITHUB_COMPARE_FILE_LIMIT = 300;
 
 // These are the live repository-side gates. The backend verify workflow owns
 // the migration drift guard, and its workflow run also includes auth-e2e.
@@ -23,10 +24,9 @@ export const COMPONENT_GATES = Object.freeze([
     },
     {
         workflow: "Mobile CI",
-        jobs: [
-            "type-check · lint · test · build",
-            "playwright e2e (advisory · real backend)",
-        ],
+        // The real-backend Playwright job remains visible as an independent
+        // signal, but it is intentionally advisory and not a merge gate.
+        jobs: ["type-check · lint · test · build"],
         always: true,
     },
     {
@@ -309,7 +309,20 @@ async function changedFilesForEvent({ eventName, payload, repository, headSha, t
             `/repos/${repository}/compare/${encodeURIComponent(baseSha)}...${encodeURIComponent(headSha)}`,
             token,
         );
-        return (comparison.files ?? []).map((file) => file.filename).filter(Boolean);
+        if (!Array.isArray(comparison.files)) {
+            throw new Error("GitHub compare response did not include a file inventory array");
+        }
+        // GitHub truncates compare responses at 300 files. Without a complete
+        // inventory, path-scoped required gates could disappear silently.
+        if (comparison.files.length >= GITHUB_COMPARE_FILE_LIMIT) {
+            throw new Error(`GitHub compare response may be truncated at ${GITHUB_COMPARE_FILE_LIMIT} files`);
+        }
+        return comparison.files.map((file) => {
+            if (!file || typeof file.filename !== "string" || file.filename.length === 0) {
+                throw new Error("GitHub compare response included an invalid file entry");
+            }
+            return file.filename;
+        });
     }
 
     throw new Error(`could not determine changed files for ${eventName} at ${headSha}`);
