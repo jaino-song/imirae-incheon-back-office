@@ -135,6 +135,37 @@ describe("EmployeeController (Integration)", () => {
                     }),
                 );
             });
+
+            it("should expose the current Korean registration date when the field is omitted", async () => {
+                jest.useFakeTimers().setSystemTime(new Date("2026-08-27T23:30:00.000Z"));
+                try {
+                    const createDto = {
+                        name: "오늘 등록 직원",
+                        workArea: ["Seoul"],
+                        phone: "010-9999-7777",
+                        grade: "베스트",
+                        openToNextWork: true,
+                    };
+                    employeeService.create.mockResolvedValue(
+                        EmployeeEntity.create(
+                            createDto.name,
+                            createDto.workArea,
+                            createDto.phone,
+                            createDto.grade,
+                            createDto.openToNextWork,
+                        ),
+                    );
+
+                    const response = await request(app.getHttpServer())
+                        .post("/employees")
+                        .send(createDto);
+
+                    expect(response.status).toBe(201);
+                    expect(response.body.registeredDate).toBe("2026-08-28T00:00:00.000Z");
+                } finally {
+                    jest.useRealTimers();
+                }
+            });
         });
 
         describe("given employee with registeredDate", () => {

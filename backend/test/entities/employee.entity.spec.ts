@@ -70,18 +70,23 @@ describe("EmployeeEntity", () => {
             expect(employee.name).toBe("테스트 직원");
         });
 
-        it("should preserve an omitted registeredDate as null", () => {
-            // Act
-            const employee = EmployeeEntity.create(
-                "테스트 직원",
-                ["서울"],
-                "010-0000-0000",
-                "베스트",
-                false,
-            );
+        it("should default an omitted registeredDate to the current Korean calendar date", () => {
+            jest.useFakeTimers().setSystemTime(new Date("2026-08-27T23:30:00.000Z"));
+            try {
+                // Act
+                const employee = EmployeeEntity.create(
+                    "테스트 직원",
+                    ["서울"],
+                    "010-0000-0000",
+                    "베스트",
+                    false,
+                );
 
-            // Assert
-            expect(employee.registeredDate).toBeNull();
+                // Assert: PostgreSQL DATE values are represented at UTC midnight.
+                expect(employee.registeredDate).toEqual(new Date("2026-08-28T00:00:00.000Z"));
+            } finally {
+                jest.useRealTimers();
+            }
         });
 
         it("should use provided registeredDate when specified", () => {
@@ -184,6 +189,20 @@ describe("EmployeeEntity", () => {
             expect(employee.grade).toBe("특급");
             expect(employee.openToNextWork).toBe(false);
             expect(employee.registeredDate).toEqual(new Date("2022-03-20"));
+        });
+
+        it("should preserve a null registeredDate from legacy persistence", () => {
+            const employee = EmployeeEntity.reconstitute(
+                101,
+                "레거시 직원",
+                ["서울"],
+                "010-0000-0000",
+                "베스트",
+                true,
+                null,
+            );
+
+            expect(employee.registeredDate).toBeNull();
         });
     });
 

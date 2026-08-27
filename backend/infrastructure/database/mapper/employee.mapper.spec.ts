@@ -37,18 +37,25 @@ describe("EmployeeMapper", () => {
         );
     });
 
-    it("maps an omitted registeredDate to a nullable create value", () => {
-        const employee = EmployeeEntity.create(
-            "신규 직원",
-            ["서울"],
-            "010-9999-8888",
-            "스탠다드",
-            false,
-        );
+    it("maps an omitted registeredDate to today's Korean calendar date for persistence", () => {
+        jest.useFakeTimers().setSystemTime(new Date("2026-08-27T23:30:00.000Z"));
+        try {
+            const employee = EmployeeEntity.create(
+                "신규 직원",
+                ["서울"],
+                "010-9999-8888",
+                "스탠다드",
+                false,
+            );
 
-        expect(employee.registeredDate).toBeNull();
-        expect(EmployeeMapper.toPrismaCreate(employee)).toEqual(
-            expect.objectContaining({ companyRegisteredDate: null }),
-        );
+            expect(employee.registeredDate).toEqual(new Date("2026-08-28T00:00:00.000Z"));
+            expect(EmployeeMapper.toPrismaCreate(employee)).toEqual(
+                expect.objectContaining({
+                    companyRegisteredDate: new Date("2026-08-28T00:00:00.000Z"),
+                }),
+            );
+        } finally {
+            jest.useRealTimers();
+        }
     });
 });

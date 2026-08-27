@@ -1,5 +1,16 @@
 // Employee status type - active schedules take precedence over availability.
+import { isoDateInKorea } from "domain/utils/business-days";
+
 export type EmployeeStatus = 'available' | 'working' | 'unavailable';
+
+/**
+ * `company_registered_date` is a PostgreSQL DATE. Represent today's Korean
+ * calendar day at UTC midnight so Prisma round-trips the same calendar date
+ * regardless of the backend process timezone.
+ */
+function currentRegistrationDate(): Date {
+    return new Date(`${isoDateInKorea()}T00:00:00.000Z`);
+}
 
 /**
  * Derive current work status from the authoritative inputs. An active
@@ -75,7 +86,7 @@ export class EmployeeEntity {
             phone,
             grade,
             openToNextWork,
-            registeredDate ?? null,
+            registeredDate === undefined ? currentRegistrationDate() : registeredDate,
             birthday,
         );
     }
