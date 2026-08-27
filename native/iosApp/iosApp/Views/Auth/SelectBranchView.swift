@@ -4,6 +4,7 @@ import shared
 struct SelectBranchView: View {
     @ObservedObject var viewModel: AuthViewModelWrapper
     @State private var hasLoadedBranches = false
+    @State private var isLoggingOut = false
 
     var onNavigateToDashboard: () -> Void = {}
     var onNavigateToLogin: () -> Void = {}
@@ -37,8 +38,15 @@ struct SelectBranchView: View {
         .frame(maxWidth: 400)
         .onAppear(perform: loadBranchesIfNeeded)
         .onChange(of: viewModel.authState) { _, newState in
-            if newState is AuthState.Authenticated {
+            // AuthViewModel.logout launches asynchronously; only route after
+            // AuthManager has cleared the session and published Unauthenticated.
+            if !isLoggingOut, newState is AuthState.Authenticated {
                 onNavigateToDashboard()
+            }
+
+            if isLoggingOut, newState is AuthState.Unauthenticated {
+                isLoggingOut = false
+                onNavigateToLogin()
             }
         }
     }
@@ -111,7 +119,7 @@ struct SelectBranchView: View {
                     .cornerRadius(CGFloat(AppTheme.Radius.md))
                 }
                 .buttonStyle(.plain)
-                .disabled(viewModel.isLoading)
+                .disabled(viewModel.isLoading || isLoggingOut)
                 .accessibilityIdentifier("auth-select-branch-item-\(branch.id)")
             }
         }
@@ -134,11 +142,12 @@ struct SelectBranchView: View {
             Button(retryTitle, action: viewModel.loadBranches)
                 .buttonStyle(.borderedProminent)
                 .tint(.appPrimary)
-                .disabled(viewModel.isLoading)
+                .disabled(viewModel.isLoading || isLoggingOut)
                 .accessibilityIdentifier("auth-select-branch-retry")
 
             Button("로그아웃", action: logout)
                 .buttonStyle(.bordered)
+                .disabled(viewModel.isLoading || isLoggingOut)
                 .accessibilityIdentifier("auth-select-branch-logout")
         }
     }
@@ -153,7 +162,11 @@ struct SelectBranchView: View {
     }
 
     private func logout() {
+        guard !isLoggingOut else {
+            return
+        }
+
+        isLoggingOut = true
         viewModel.logout()
-        onNavigateToLogin()
     }
 }
