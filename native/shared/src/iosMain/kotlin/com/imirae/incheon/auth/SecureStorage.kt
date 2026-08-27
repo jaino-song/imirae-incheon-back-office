@@ -224,12 +224,16 @@ actual class SecureStorage {
                 if (key != null) {
                     val account = createKeychainString(key)
                     try {
+                        // This dictionary has no retain callbacks, so keep the account's
+                        // ownership until Security.framework has consumed the query.
                         setDictionaryValue(query, kSecAttrAccount, account)
+                        block(query)
                     } finally {
                         CFRelease(account)
                     }
+                } else {
+                    block(query)
                 }
-                block(query)
             } finally {
                 CFRelease(service)
             }
