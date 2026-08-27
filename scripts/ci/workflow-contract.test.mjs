@@ -297,6 +297,30 @@ test("database failover validation has no OIDC token while deploy jobs retain OI
     }
 });
 
+test("AI capability impact report is read-only and publishes a job summary", async () => {
+    const fileName = "ai-capability-impact.yml";
+    const workflow = await readWorkflow(fileName);
+    const job = jobBlock(workflow, "report", fileName);
+    const jobText = job.join("\n");
+    const steps = stepBlocks(job, "report", fileName);
+    const checkoutStep = steps.find((step) => step.some((line) => line.includes("actions/checkout@")));
+    const reportStep = steps.find((step) => step.some((line) => line.includes("impact-report.ts")));
+
+    assert.match(workflow, /^permissions:\n  contents: read\n/m, `${fileName} must default the workflow token to read-only contents access`);
+    assert.match(jobText, /^    permissions:\n      contents: read$/m, `${fileName} report must explicitly retain only read-only contents access`);
+    assert.doesNotMatch(workflow, /pull-requests:\s+write/, `${fileName} must not grant a pull-requests write token`);
+    assert.doesNotMatch(workflow, /^ {4,}(?:actions|checks|contents|deployments|id-token|issues|packages|pull-requests|security-events|statuses): write$/m, `${fileName} must not grant a writable job token`);
+    assert.ok(checkoutStep, `${fileName} report must checkout the repository`);
+    assert.match(checkoutStep.join("\n"), /persist-credentials: false/, `${fileName} checkout must not persist the workflow token`);
+    assert.ok(reportStep, `${fileName} report must run the capability impact generator`);
+    assert.match(reportStep.join("\n"), /GITHUB_STEP_SUMMARY/, `${fileName} must publish the Markdown report to the job summary`);
+    assert.match(reportStep.join("\n"), /set -o pipefail/, `${fileName} must preserve report-generation failures through the summary pipe`);
+    assert.doesNotMatch(reportStep.join("\n"), /GITHUB_OUTPUT/, `${fileName} must not stage report content for a privileged comment action`);
+    assert.doesNotMatch(workflow, /sticky-pull-request-comment/, `${fileName} must not post PR comments from PR-controlled execution`);
+    assert.doesNotMatch(workflow, /secrets\.GITHUB_TOKEN/, `${fileName} must not pass a write-capable token to PR-controlled steps`);
+    assertUsesPinnedActions(workflow, fileName);
+});
+
 test("all external workflow actions and service images use immutable references with release labels", async () => {
     const files = await workflowFiles();
     const workflows = await Promise.all(files.map(async (fileName) => ({
