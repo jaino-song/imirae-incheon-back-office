@@ -48,4 +48,18 @@ forbidden_text "stringForKey" "reads still use plaintext UserDefaults"
 forbidden_text "setObject" "writes still use plaintext UserDefaults"
 forbidden_text "defaults?.removeObjectForKey" "single-key deletion bypasses Keychain"
 
+account_line="$(grep -n -m1 "val account = createKeychainString(key)" "$IOS_STORAGE" | cut -d: -f1)"
+account_release_line="$(grep -n -m1 "CFRelease(account)" "$IOS_STORAGE" | cut -d: -f1)"
+query_block_line="$(grep -n -m1 "block(query)" "$IOS_STORAGE" | cut -d: -f1)"
+
+if [[ -z "$account_line" || -z "$account_release_line" || -z "$query_block_line" ]]; then
+    echo "iOS secure storage contract failure: keyed query ownership markers are missing" >&2
+    exit 1
+fi
+
+if (( account_release_line <= query_block_line )); then
+    echo "iOS secure storage contract failure: account must remain alive through the Security.framework query" >&2
+    exit 1
+fi
+
 echo "iOS secure storage source contract passed"
