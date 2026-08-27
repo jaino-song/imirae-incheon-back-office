@@ -75,7 +75,12 @@ jest.mock("@/components/app/v3", () => ({
   DetailPanel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   EmptyState: ({ message }: { message: string }) => <div>{message}</div>,
   HeaderActionButton: ({ label }: { label: string }) => <span>{label}</span>,
-  InfoCard: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  InfoCard: ({ children, title }: { children: ReactNode; title?: string }) => (
+    <div>
+      {title ? <h2>{title}</h2> : null}
+      {children}
+    </div>
+  ),
   InfoRow: ({ label, value }: { label: string; value: ReactNode }) => (
     <div>
       {label}: {value}
@@ -85,11 +90,14 @@ jest.mock("@/components/app/v3", () => ({
   ListPanel: ({
     children,
     emptyState,
+    subHeader,
   }: {
     children: ReactNode;
     emptyState?: ReactNode;
+    subHeader?: ReactNode;
   }) => (
     <section>
+      {subHeader}
       {emptyState}
       {children}
     </section>
@@ -159,6 +167,90 @@ describe("EmployeesPage employee list query states", () => {
     expect(screen.getByText("홍길동")).toBeInTheDocument();
     expect(screen.queryByText("등록된 직원이 없습니다")).not.toBeInTheDocument();
     expect(screen.queryByText("직원 목록을 불러오지 못했습니다")).not.toBeInTheDocument();
+  });
+
+  it("keeps cached rows visible when a background refetch fails", () => {
+    mockedUseInfiniteEmployees.mockReturnValue(
+      makeQueryResult({
+        employees: [employee],
+        allEmployees: [employee],
+        filteredCount: 1,
+        isError: true,
+      }),
+    );
+
+    render(<EmployeesPage />);
+
+    expect(screen.getByText("홍길동")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveAttribute(
+      "data-component",
+      "desktop_employees_split-layout_list-panel_cached-data-error",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "현재 저장된 직원 목록을 표시하고 있습니다.",
+    );
+    expect(screen.getByRole("button", { name: "직원 목록 다시 시도" })).toBeInTheDocument();
+    expect(screen.queryByText("등록된 직원이 없습니다")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "직원 목록 다시 시도" }));
+
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves the selected employee detail while a refetch fails", () => {
+    mockedUseInfiniteEmployees.mockReturnValue(
+      makeQueryResult({
+        employees: [employee],
+        allEmployees: [employee],
+        filteredCount: 1,
+      }),
+    );
+    const { rerender } = render(<EmployeesPage />);
+
+    fireEvent.click(screen.getByText("홍길동"));
+    expect(screen.getByText("기본 정보")).toBeInTheDocument();
+
+    mockedUseInfiniteEmployees.mockReturnValue(
+      makeQueryResult({
+        employees: [employee],
+        allEmployees: [employee],
+        filteredCount: 1,
+        isError: true,
+      }),
+    );
+    rerender(<EmployeesPage />);
+
+    expect(screen.getByText("홍길동")).toBeInTheDocument();
+    expect(screen.getByText("기본 정보")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
+  it("removes the cached-data warning after a successful retry", () => {
+    mockedUseInfiniteEmployees.mockReturnValue(
+      makeQueryResult({
+        employees: [employee],
+        allEmployees: [employee],
+        filteredCount: 1,
+        isError: true,
+      }),
+    );
+    const { rerender } = render(<EmployeesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "직원 목록 다시 시도" }));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+
+    mockedUseInfiniteEmployees.mockReturnValue(
+      makeQueryResult({
+        employees: [employee],
+        allEmployees: [employee],
+        filteredCount: 1,
+      }),
+    );
+    rerender(<EmployeesPage />);
+
+    expect(screen.getByText("홍길동")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "직원 목록 다시 시도" })).not.toBeInTheDocument();
   });
 
   it("renders a localized unknown value when registration date is unavailable", () => {

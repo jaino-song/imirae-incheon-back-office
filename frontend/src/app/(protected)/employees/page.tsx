@@ -225,7 +225,7 @@ export default function EmployeesPage() {
                     searchValue={search}
                     onSearchChange={setSearch}
                     searchPlaceholder="이름, 연락처, 지역으로 검색..."
-                    isLoading={isLoading}
+                    isLoading={isLoading} subHeader={!isLoading && isError && employees.length > 0 ? <Alert variant="warning" data-component="desktop_employees_split-layout_list-panel_cached-data-error"><AlertTitle>직원 목록을 불러오지 못했습니다</AlertTitle><AlertDescription>현재 저장된 직원 목록을 표시하고 있습니다. 잠시 후 다시 시도해 주세요.<Button type="button" variant="outline" size="sm" data-component="desktop_employees_split-layout_list-panel_cached-data-error_retry" className="mt-3" aria-label="직원 목록 다시 시도" onClick={() => void refetch()}>다시 시도</Button></AlertDescription></Alert> : undefined}
                     headerActions={
                         <HeaderActionButton
                             icon={Plus}
@@ -241,7 +241,7 @@ export default function EmployeesPage() {
                         />
                     ) : undefined}
                 >
-                    {!isLoading && isError ? (
+                    {!isLoading && isError && employees.length === 0 ? (
                         <Alert
                             variant="destructive"
                             data-component="desktop_employees_split-layout_list-panel_error"
