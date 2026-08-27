@@ -6,6 +6,7 @@ import { useEmployeeDialogStore } from "@/stores/employee-dialog-store";
 import { useEmployeeWizardStore } from "@/stores/employee-wizard-store";
 import { useFormStore } from "@/stores/form-store";
 import { useTemplateStore } from "@/stores/template-store";
+import { safeStorageRemoveItem } from "@/lib/safe-storage";
 
 /**
  * Clears browser state that is owned by the current authenticated identity.
@@ -36,12 +37,14 @@ export async function resetAuthorityState(
   useTemplateStore.getState().reset();
 
   if (typeof window !== "undefined") {
+    // Storage may be unavailable in strict-privacy contexts; it must not block
+    // the cookie and session cleanup that follows this reset.
     // The chat-session id is an identity-owned handle to persisted business
     // conversation state; retaining it could make the next account request it.
-    window.localStorage.removeItem("ai_chat_session_id");
+    safeStorageRemoveItem("local", "ai_chat_session_id");
     // The agent session id is an identity-owned handle to persisted business
     // conversation state; retaining it could make the next account request it.
-    window.sessionStorage.removeItem("agent_session_id");
+    safeStorageRemoveItem("session", "agent_session_id");
   }
 
   await cancellation;

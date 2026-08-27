@@ -101,4 +101,74 @@ describe("resetAuthorityState", () => {
     expect(useClientWizardStore.getState().name).toBe("");
     expect(useEmployeeWizardStore.getState().name).toBe("");
   });
+
+  it("continues clearing authority state when browser storage access throws", async () => {
+    seedIdentityA(queryClient);
+
+    const localStorageDescriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
+    const sessionStorageDescriptor = Object.getOwnPropertyDescriptor(window, "sessionStorage");
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get: () => {
+        throw new Error("local storage unavailable");
+      },
+    });
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      get: () => {
+        throw new Error("session storage unavailable");
+      },
+    });
+
+    try {
+      await expect(resetAuthorityState(queryClient)).resolves.toBeUndefined();
+    } finally {
+      if (localStorageDescriptor) {
+        Object.defineProperty(window, "localStorage", localStorageDescriptor);
+      }
+      if (sessionStorageDescriptor) {
+        Object.defineProperty(window, "sessionStorage", sessionStorageDescriptor);
+      }
+    }
+
+    expect(queryClient.getQueryData(["authUser"])).toBeUndefined();
+    expect(useFormStore.getState()).toMatchObject({ name: "", phone: "", clientId: null });
+  });
+
+  it("continues clearing authority state when browser storage removal throws", async () => {
+    seedIdentityA(queryClient);
+
+    const localStorageDescriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
+    const sessionStorageDescriptor = Object.getOwnPropertyDescriptor(window, "sessionStorage");
+    const localRemoveItem = jest.fn(() => {
+      throw new Error("local storage removal unavailable");
+    });
+    const sessionRemoveItem = jest.fn(() => {
+      throw new Error("session storage removal unavailable");
+    });
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: { removeItem: localRemoveItem },
+    });
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      value: { removeItem: sessionRemoveItem },
+    });
+
+    try {
+      await expect(resetAuthorityState(queryClient)).resolves.toBeUndefined();
+      expect(localRemoveItem).toHaveBeenCalledWith("ai_chat_session_id");
+      expect(sessionRemoveItem).toHaveBeenCalledWith("agent_session_id");
+    } finally {
+      if (localStorageDescriptor) {
+        Object.defineProperty(window, "localStorage", localStorageDescriptor);
+      }
+      if (sessionStorageDescriptor) {
+        Object.defineProperty(window, "sessionStorage", sessionStorageDescriptor);
+      }
+    }
+
+    expect(queryClient.getQueryData(["authUser"])).toBeUndefined();
+    expect(useFormStore.getState()).toMatchObject({ name: "", phone: "", clientId: null });
+  });
 });
