@@ -77,9 +77,33 @@ test("native iOS workflow has real shared framework and Xcode build/test command
     assert.match(workflow, /:shared:linkDebugFrameworkIosSimulatorArm64/);
     assert.match(workflow, /xcodebuild[\s\S]*\btest\b/);
     assert.match(workflow, /\.xcodeproj|\.xcworkspace/);
-    assert.match(workflow, /::error::[\s\S]*?\n[\s\S]*?exit 1/, "missing iOS project metadata must fail the lane");
+    assert.match(workflow, /IOS_BUILD_KIND=none/);
+    assert.match(workflow, /\[\[\s*"\$\{IOS_BUILD_KIND\}"\s*==\s*"none"\s*\]\]/);
+    assert.match(workflow, /::notice::No Xcode project or workspace found[\s\S]*?optional iOS app lane/);
+    assert.doesNotMatch(workflow, /No Xcode project or workspace is committed[\s\S]*?exit 1/, "missing iOS project metadata must skip only the optional app lane");
     assertPinnedActions(workflow, "native-ios.yml");
     assert.match(workflow, /jobs:\n[\s\S]*?sca_scan:\n    name: SCA Scan/);
+});
+
+test("native Android declarations preserve FCM delivery and Kakao callback contracts", async () => {
+    const [manifest, gradle, fcmService, setup] = await Promise.all([
+        readFile(resolve(WORKSPACE_ROOT, "native/androidApp/src/main/AndroidManifest.xml"), "utf8"),
+        readFile(resolve(WORKSPACE_ROOT, "native/androidApp/build.gradle.kts"), "utf8"),
+        readFile(resolve(WORKSPACE_ROOT, "native/androidApp/src/main/kotlin/com/imirae/incheon/notification/FCMService.kt"), "utf8"),
+        readFile(resolve(WORKSPACE_ROOT, "native/SETUP.md"), "utf8"),
+    ]);
+
+    assert.match(manifest, /android:name="\.notification\.FCMService"/);
+    assert.match(fcmService, /class\s+FCMService\s*:\s*FirebaseMessagingService\(\)/);
+    assert.match(fcmService, /override\s+fun\s+onNewToken\(token:\s*String\)/);
+    assert.match(fcmService, /override\s+fun\s+onMessageReceived\(remoteMessage:\s*RemoteMessage\)/);
+    assert.match(manifest, /android:scheme="kakao\$\{KAKAO_NATIVE_APP_KEY\}"/);
+    assert.doesNotMatch(manifest, /kakao\{NATIVE_APP_KEY\}/, "the Kakao callback must use a Gradle manifest placeholder");
+    assert.match(gradle, /manifestPlaceholders\["KAKAO_NATIVE_APP_KEY"\]/);
+    assert.match(gradle, /orElse\("placeholder"\)/, "CI must have a deterministic lowercase callback-scheme fallback");
+    assert.match(setup, /`kakao\$\{KAKAO_NATIVE_APP_KEY\}`/);
+    assert.match(setup, /optional `KAKAO_NATIVE_APP_KEY` Gradle property/);
+    assert.doesNotMatch(setup, /`kakao\{NATIVE_APP_KEY\}`/, "setup documentation must describe the real callback placeholder");
 });
 
 test("native workflow names and jobs remain connected to the stable aggregate gate", async () => {
