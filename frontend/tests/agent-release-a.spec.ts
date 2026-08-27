@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Route } from "@playwright/test";
+import type { AgentCapabilityMeta } from "@babyjamjam/shared/agent";
 
 const shellEnabled = ["1", "true"].includes((process.env.NEXT_PUBLIC_AGENT_SHELL_ENABLED ?? "").toLowerCase());
 const runAgentE2E = process.env.RUN_AGENT_E2E === "1";
@@ -11,6 +12,18 @@ const authResponse = {
     profile_image: "",
     role: "admin",
 };
+
+const releaseACapability = {
+    name: "clients.search",
+    domain: "clients",
+    version: "1.0.0",
+    description: "Search clients in the current branch by name or identifier",
+    risk: "read",
+    requiredRoles: ["owner", "admin", "manager", "user"],
+    renderer: "entity-choice",
+    flagKey: "agent.capability.clients.search",
+    sideEffect: false,
+} satisfies AgentCapabilityMeta;
 
 async function setupRoutes(page: Page) {
     let sessionDeleted = false;
@@ -26,7 +39,7 @@ async function setupRoutes(page: Page) {
     await page.route("**/api/ai/agent/capabilities", (route) => route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(shellEnabled ? [{ name: "clients.search", domain: "clients", renderer: "entity-choice" }] : []),
+        body: JSON.stringify(shellEnabled ? [releaseACapability] : []),
     }));
     await page.route("**/api/ai/agent/sessions", async (route: Route) => {
         if (route.request().method() === "GET") {
