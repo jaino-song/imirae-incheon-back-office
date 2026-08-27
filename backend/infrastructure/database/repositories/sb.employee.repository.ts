@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { deriveEmployeeStatus, EmployeeEntity } from "domain/entities/employee.entity";
+import { isoDateInKorea } from "domain/utils/business-days";
 import {
     ActiveClientByEmployee,
     EmployeeWorkHistoryByEmployee,
@@ -185,8 +186,8 @@ export class SbEmployeeRepository implements IEmployeeRepository {
         page: number,
         limit: number,
     ): Promise<PaginatedEmployeeWorkHistory> {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // employee_schedule.endDate is a PostgreSQL DATE represented at UTC midnight by Prisma.
+        const today = new Date(`${isoDateInKorea()}T00:00:00.000Z`);
         const where: Prisma.employee_scheduleWhereInput = {
             branchId: branchid,
             client: { branchId: branchid },

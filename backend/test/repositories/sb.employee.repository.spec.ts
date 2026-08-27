@@ -332,6 +332,25 @@ describe("SbEmployeeRepository", () => {
             expect(findManyWhere).toEqual(expect.objectContaining({ branchId, client: { branchId } }));
             expect(countWhere).toEqual(expect.objectContaining({ branchId, client: { branchId } }));
         });
+
+        it("uses the current Korea calendar date before the UTC day rolls over", async () => {
+            jest.useFakeTimers().setSystemTime(new Date("2026-07-16T16:30:00.000Z"));
+            try {
+                employeeScheduleModel.findMany.mockResolvedValue([]);
+                employeeScheduleModel.count.mockResolvedValue(0);
+
+                await repository.findWorkHistoryByEmployee(branchId, 7, 1, 20);
+
+                const expectedCutoff = new Date("2026-07-17T00:00:00.000Z");
+                const expectedWhere = expect.objectContaining({
+                    AND: [{ OR: [{ replaced: true }, { endDate: { lt: expectedCutoff } }] }],
+                });
+                expect(employeeScheduleModel.findMany.mock.calls[0]?.[0]?.where).toEqual(expectedWhere);
+                expect(employeeScheduleModel.count.mock.calls[0]?.[0]?.where).toEqual(expectedWhere);
+            } finally {
+                jest.useRealTimers();
+            }
+        });
     });
 
     // ============================================
