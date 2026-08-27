@@ -409,3 +409,34 @@ test("database patch credentials are step-scoped and never reach setup or instal
         assert.doesNotMatch(checkoutStep.join("\n"), /^\s+ref:/m, `${fileName} ${jobDefinition.id} must not checkout an attacker-controlled ref`);
     }
 });
+
+test("database patch jobs apply the call-processing claim lease migration after its prerequisite through the safe runner", async () => {
+    const fileName = "database-patches.yml";
+    const workflow = await readWorkflow(fileName);
+    const prerequisitePath = "prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql";
+    const migrationPath = "prisma/migrations/20260827090000_add_call_processing_claim_lease/migration.sql";
+
+    for (const jobId of ["apply-dev", "apply-preview", "apply-production"]) {
+        const job = jobBlock(workflow, jobId, fileName);
+        const steps = stepBlocks(job, jobId, fileName);
+        const prerequisiteSteps = steps.filter((step) => step.join("\n").includes(prerequisitePath));
+        const migrationSteps = steps.filter((step) => step.join("\n").includes(migrationPath));
+
+        assert.equal(prerequisiteSteps.length, 1, `${fileName} ${jobId} must retain exactly one prerequisite patch step`);
+        assert.equal(migrationSteps.length, 1, `${fileName} ${jobId} must apply the call-processing claim lease migration exactly once`);
+
+        const prerequisiteIndex = steps.indexOf(prerequisiteSteps[0]);
+        const migrationIndex = steps.indexOf(migrationSteps[0]);
+        assert.ok(migrationIndex > prerequisiteIndex, `${fileName} ${jobId} must apply the lease migration after the prerequisite patch`);
+
+        const migrationStep = migrationSteps[0];
+        const migrationText = migrationStep.join("\n");
+        assert.match(migrationText, /working-directory: backend/);
+        assert.match(
+            migrationText,
+            new RegExp(`run: \\.\\/scripts\\/run-prisma-db-execute\\.sh --schema prisma\\/schema\\.prisma --file ${migrationPath.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}`),
+            `${fileName} ${jobId} must execute the lease migration through the failover-safe runner`,
+        );
+        assert.doesNotMatch(migrationText, /pnpm exec prisma db execute/);
+    }
+});
