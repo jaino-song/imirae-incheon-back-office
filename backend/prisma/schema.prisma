@@ -1151,6 +1151,7 @@ model call_record {
   callerPhone          String?       @map("caller_phone")
   matchedClientId      Int?          @map("matched_client_id")
   processingStatus     String        @default("RECEIVED") @map("processing_status")
+  processingClaimedAt  DateTime?     @map("processing_claimed_at") @db.Timestamptz(6)
   extractionRetryCount Int           @default(0) @map("extraction_retry_count")
   failureReason        String?       @map("failure_reason")
   createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1161,6 +1162,7 @@ model call_record {
   @@index([branchId, createdAt], map: "idx_call_record_branch_created")
   @@index([branchId, category], map: "idx_call_record_branch_category")
   @@index([processingStatus], map: "idx_call_record_processing_status")
+  @@index([processingStatus, processingClaimedAt], map: "idx_call_record_processing_status_claimed_at")
 }
 
 model client_draft {

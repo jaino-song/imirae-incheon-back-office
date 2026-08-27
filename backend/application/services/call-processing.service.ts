@@ -18,6 +18,7 @@ const BOOLEAN_FIELDS = new Set(["careCenter", "voucherClient", "breastPump"]);
 const NUMBER_FIELDS = new Set(["duration"]);
 const NON_NULLABLE_FIELDS = new Set(["name", "voucherClient", "breastPump"]);
 const ALLOWED_FIELDS = new Set<string>(PROPOSAL_FIELDS);
+export const CALL_PROCESSING_CLAIM_LEASE_MS = 10 * 60 * 1000;
 
 export type CallProcessingResult =
     | "processed"
@@ -54,22 +55,28 @@ export class CallProcessingService {
 
         if (record.processingStatus !== "RECEIVED" && record.processingStatus !== "FAILED") {
             // PROCESSING is an active claim owned by another invocation.  EXTRACTED is
-            // terminal.  Neither state is safe to re-enter without a lease/token column.
+            // terminal.  Expired PROCESSING claims are reclaimed by the retry scheduler,
+            // so a direct invocation must not bypass that lease check.
             return record.processingStatus === "PROCESSING" ? "in_progress" : "already_processed";
         }
 
-        // processingStatus is used as the in-progress marker and extractionRetryCount is
-        // the generation fence.  The conditional update is the authoritative ownership
-        // decision: a read followed by an unconditional update would allow two providers
-        // to extract and publish for the same recording.
+        // processingStatus is the in-progress marker, processingClaimedAt is the lease
+        // token, and extractionRetryCount is the generation fence.  The conditional update
+        // is the authoritative ownership decision: a read followed by an unconditional
+        // update would allow two providers to extract and publish for the same recording.
         const claimGeneration = record.extractionRetryCount;
+        const claimAt = new Date(Date.now());
         const claimed = await this.prismaService.call_record.updateMany({
             where: {
                 id: callRecordId,
                 processingStatus: record.processingStatus,
                 extractionRetryCount: claimGeneration,
             },
-            data: { processingStatus: "PROCESSING", failureReason: null },
+            data: {
+                processingStatus: "PROCESSING",
+                processingClaimedAt: claimAt,
+                failureReason: null,
+            },
         });
         if (claimed.count !== 1) {
             return this.observeCurrentState(callRecordId);
@@ -84,7 +91,12 @@ export class CallProcessingService {
             });
         } catch (error) {
             this.logger.error(`Extraction failed for ${callRecordId}: ${error}`);
-            return this.markClaimFailed(callRecordId, claimGeneration, String(error).slice(0, 1_000));
+            return this.markClaimFailed(
+                callRecordId,
+                claimGeneration,
+                claimAt,
+                String(error).slice(0, 1_000),
+            );
         }
 
         let callerPhone: string | null;
@@ -95,6 +107,7 @@ export class CallProcessingService {
             return this.markClaimFailed(
                 callRecordId,
                 claimGeneration,
+                claimAt,
                 `extraction normalization: ${String(error).slice(0, 950)}`,
             );
         }
@@ -106,6 +119,7 @@ export class CallProcessingService {
             return this.markClaimFailed(
                 callRecordId,
                 claimGeneration,
+                claimAt,
                 `extraction validation: ${String(error).slice(0, 950)}`,
             );
         }
@@ -118,6 +132,7 @@ export class CallProcessingService {
                         id: callRecordId,
                         processingStatus: "PROCESSING",
                         extractionRetryCount: claimGeneration,
+                        processingClaimedAt: claimAt,
                     },
                     data: {
                         category: extraction.category,
@@ -125,6 +140,7 @@ export class CallProcessingService {
                         callerPhone,
                         matchedClientId,
                         processingStatus: "EXTRACTED",
+                        processingClaimedAt: null,
                         failureReason: null,
                     },
                 });
@@ -163,6 +179,7 @@ export class CallProcessingService {
             return this.markClaimFailed(
                 callRecordId,
                 claimGeneration,
+                claimAt,
                 `persistence: ${String(error).slice(0, 950)}`,
             );
         }
@@ -181,6 +198,7 @@ export class CallProcessingService {
     private async markClaimFailed(
         callRecordId: string,
         claimGeneration: number,
+        claimAt: Date,
         failureReason: string,
     ): Promise<CallProcessingResult> {
         try {
@@ -189,8 +207,13 @@ export class CallProcessingService {
                     id: callRecordId,
                     processingStatus: "PROCESSING",
                     extractionRetryCount: claimGeneration,
+                    processingClaimedAt: claimAt,
                 },
-                data: { processingStatus: "FAILED", failureReason },
+                data: {
+                    processingStatus: "FAILED",
+                    processingClaimedAt: null,
+                    failureReason,
+                },
             });
             if (failed.count === 1) return "failed";
         } catch (error) {

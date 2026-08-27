@@ -19,6 +19,7 @@ describe("CallProcessingService", () => {
         transcript: [{ speaker: "고객", text: "..." }],
         summary: null,
         processingStatus: "RECEIVED",
+        processingClaimedAt: null,
         extractionRetryCount: 0,
     };
 
