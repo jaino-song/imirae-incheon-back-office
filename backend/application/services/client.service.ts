@@ -777,6 +777,7 @@ export class ClientService {
         primaryEmployeeId: number | null,
         secondaryEmployeeId: number | null,
         transaction: Prisma.TransactionClient,
+        retainedEmployeeIds?: ReadonlySet<number>,
     ): Promise<void> {
         assertEmployeeAssignmentShape(primaryEmployeeId, secondaryEmployeeId);
         if (primaryEmployeeId === null) return;
@@ -810,6 +811,7 @@ export class ClientService {
             primaryEmployeeId,
             secondaryEmployeeId,
             employees,
+            retainedEmployeeIds,
         );
     }
 
@@ -822,36 +824,41 @@ export class ClientService {
         endDate: Date;
         applyMessageAutomation: boolean;
     }): Promise<{ createdScheduleId: number | null; replacedScheduleId: number | null }> {
-        const currentSchedule = await this.prismaService.employee_schedule.findFirst({
-            where: { clientId: params.clientId, branchId: branchid, replaced: false },
-            orderBy: { id: "desc" },
-        });
-        const currentPrimaryEmployeeId = currentSchedule?.primaryEmployeeId ?? null;
-        const currentSecondaryEmployeeId = currentSchedule?.secondaryEmployeeId ?? null;
-        const newPrimaryEmployeeId = params.primaryEmployeeId ?? currentPrimaryEmployeeId;
-        const newSecondaryEmployeeId = params.secondaryEmployeeId !== undefined
-            ? params.secondaryEmployeeId
-            : currentSecondaryEmployeeId;
-
-        if (
-            newPrimaryEmployeeId === currentPrimaryEmployeeId &&
-            newSecondaryEmployeeId === currentSecondaryEmployeeId
-        ) {
-            return { createdScheduleId: null, replacedScheduleId: null };
-        }
-
-        assertEmployeeAssignmentShape(newPrimaryEmployeeId, newSecondaryEmployeeId);
-        if (newPrimaryEmployeeId === null) {
-            throw new BadRequestException("primary employee is required to create an assignment");
-        }
-
         const intentAt = new Date();
         const newSchedule = await this.prismaService.$transaction(async (transaction) => {
+            const currentSchedule = await transaction.employee_schedule.findFirst({
+                where: { clientId: params.clientId, branchId: branchid, replaced: false },
+                orderBy: { id: "desc" },
+            });
+            const currentPrimaryEmployeeId = currentSchedule?.primaryEmployeeId ?? null;
+            const currentSecondaryEmployeeId = currentSchedule?.secondaryEmployeeId ?? null;
+            const newPrimaryEmployeeId = params.primaryEmployeeId ?? currentPrimaryEmployeeId;
+            const newSecondaryEmployeeId = params.secondaryEmployeeId !== undefined
+                ? params.secondaryEmployeeId
+                : currentSecondaryEmployeeId;
+
+            if (
+                newPrimaryEmployeeId === currentPrimaryEmployeeId &&
+                newSecondaryEmployeeId === currentSecondaryEmployeeId
+            ) {
+                return null;
+            }
+
+            assertEmployeeAssignmentShape(newPrimaryEmployeeId, newSecondaryEmployeeId);
+            if (newPrimaryEmployeeId === null) {
+                throw new BadRequestException("primary employee is required to create an assignment");
+            }
+
+            const retainedEmployeeIds = new Set(
+                [currentPrimaryEmployeeId, currentSecondaryEmployeeId]
+                    .filter((employeeId): employeeId is number => employeeId !== null),
+            );
             await this.assertAllowedEmployees(
                 branchid,
                 newPrimaryEmployeeId,
                 newSecondaryEmployeeId,
                 transaction,
+                retainedEmployeeIds,
             );
             if (currentSchedule) {
                 await transaction.employee_schedule.update({
@@ -880,12 +887,19 @@ export class ClientService {
                     intentAt,
                 });
             }
-            return newSchedule;
+            return {
+                schedule: newSchedule,
+                replacedScheduleId: currentSchedule?.id ?? null,
+            };
         });
 
+        if (newSchedule === null) {
+            return { createdScheduleId: null, replacedScheduleId: null };
+        }
+
         return {
-            createdScheduleId: newSchedule.id,
-            replacedScheduleId: currentSchedule?.id ?? null,
+            createdScheduleId: newSchedule.schedule.id,
+            replacedScheduleId: newSchedule.replacedScheduleId,
         };
     }
 
@@ -1485,61 +1499,58 @@ export class ClientService {
 
         let createdScheduleId: number | null = null;
         let replacedScheduleId: number | null = null;
-        let currentSchedule: {
-            id: number;
-            primaryEmployeeId: number;
-            secondaryEmployeeId: number | null;
-        } | null = null;
-        let assignmentChanged = false;
-        if (employeeChanged) {
-            currentSchedule = await this.prismaService.employee_schedule.findFirst({
-                where: { clientId: id, branchId: branchid, replaced: false },
-                orderBy: { id: "desc" },
-            });
-            const primaryEmployeeId = params.primaryEmployeeId ?? currentSchedule?.primaryEmployeeId ?? null;
-            const secondaryEmployeeId = params.secondaryEmployeeId !== undefined
-                ? params.secondaryEmployeeId
-                : currentSchedule?.secondaryEmployeeId ?? null;
-            assertEmployeeAssignmentShape(primaryEmployeeId, secondaryEmployeeId);
-            assignmentChanged = primaryEmployeeId !== (currentSchedule?.primaryEmployeeId ?? null)
-                || secondaryEmployeeId !== (currentSchedule?.secondaryEmployeeId ?? null);
-        }
 
         await this.prismaService.$transaction(async (transaction) => {
-            if (assignmentChanged) {
-                const primaryEmployeeId = params.primaryEmployeeId ?? currentSchedule?.primaryEmployeeId ?? null;
+            if (employeeChanged) {
+                const currentSchedule = await transaction.employee_schedule.findFirst({
+                    where: { clientId: id, branchId: branchid, replaced: false },
+                    orderBy: { id: "desc" },
+                });
+                const currentPrimaryEmployeeId = currentSchedule?.primaryEmployeeId ?? null;
+                const currentSecondaryEmployeeId = currentSchedule?.secondaryEmployeeId ?? null;
+                const primaryEmployeeId = params.primaryEmployeeId ?? currentPrimaryEmployeeId;
                 const secondaryEmployeeId = params.secondaryEmployeeId !== undefined
                     ? params.secondaryEmployeeId
-                    : currentSchedule?.secondaryEmployeeId ?? null;
-                if (primaryEmployeeId === null) {
-                    throw new BadRequestException("primary employee is required to create an assignment");
-                }
-                await this.assertAllowedEmployees(
-                    branchid,
-                    primaryEmployeeId,
-                    secondaryEmployeeId,
-                    transaction,
-                );
-                if (currentSchedule) {
-                    await transaction.employee_schedule.update({
-                        where: { id: currentSchedule.id },
-                        data: { replaced: true, endDate: new Date() },
-                    });
-                    replacedScheduleId = currentSchedule.id;
-                }
-                const schedule = await transaction.employee_schedule.create({
-                    data: {
-                        clientId: id,
-                        branchId: branchid,
+                    : currentSecondaryEmployeeId;
+                assertEmployeeAssignmentShape(primaryEmployeeId, secondaryEmployeeId);
+                const assignmentChanged = primaryEmployeeId !== currentPrimaryEmployeeId
+                    || secondaryEmployeeId !== currentSecondaryEmployeeId;
+                if (assignmentChanged) {
+                    if (primaryEmployeeId === null) {
+                        throw new BadRequestException("primary employee is required to create an assignment");
+                    }
+                    const retainedEmployeeIds = new Set(
+                        [currentPrimaryEmployeeId, currentSecondaryEmployeeId]
+                            .filter((employeeId): employeeId is number => employeeId !== null),
+                    );
+                    await this.assertAllowedEmployees(
+                        branchid,
                         primaryEmployeeId,
                         secondaryEmployeeId,
-                        workAddress: params.address ?? existingClient.address ?? "",
-                        startDate,
-                        endDate,
-                        replaced: false,
-                    },
-                });
-                createdScheduleId = schedule.id;
+                        transaction,
+                        retainedEmployeeIds,
+                    );
+                    if (currentSchedule) {
+                        await transaction.employee_schedule.update({
+                            where: { id: currentSchedule.id },
+                            data: { replaced: true, endDate: new Date() },
+                        });
+                        replacedScheduleId = currentSchedule.id;
+                    }
+                    const schedule = await transaction.employee_schedule.create({
+                        data: {
+                            clientId: id,
+                            branchId: branchid,
+                            primaryEmployeeId,
+                            secondaryEmployeeId,
+                            workAddress: params.address ?? existingClient.address ?? "",
+                            startDate,
+                            endDate,
+                            replaced: false,
+                        },
+                    });
+                    createdScheduleId = schedule.id;
+                }
             }
 
             const result = await transaction.client.updateMany({
@@ -1688,11 +1699,20 @@ export class ClientService {
 
         let replacedScheduleId: number | null = null;
         const replacementSchedule = await this.prismaService.$transaction(async (transaction) => {
+            const currentSchedule = await transaction.employee_schedule.findFirst({
+                where: { clientId, branchId: branchid, replaced: false },
+                orderBy: { id: "desc" },
+            });
+            const retainedEmployeeIds = new Set(
+                [currentSchedule?.primaryEmployeeId ?? null, currentSchedule?.secondaryEmployeeId ?? null]
+                    .filter((employeeId): employeeId is number => employeeId !== null),
+            );
             await this.assertAllowedEmployees(
                 branchid,
                 newPrimaryEmployeeId,
                 newSecondaryEmployeeId ?? null,
                 transaction,
+                retainedEmployeeIds,
             );
             const updateResult = await transaction.client.updateMany({
                 where: { id: clientId, branchId: branchid },
@@ -1702,10 +1722,6 @@ export class ClientService {
                 throw new NotFoundException(`Client with id ${clientId} not found`);
             }
 
-            const currentSchedule = await transaction.employee_schedule.findFirst({
-                where: { clientId, branchId: branchid, replaced: false },
-                orderBy: { id: "desc" },
-            });
             if (currentSchedule) {
                 await transaction.employee_schedule.update({
                     where: { id: currentSchedule.id },

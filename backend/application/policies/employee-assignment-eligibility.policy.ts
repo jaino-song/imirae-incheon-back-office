@@ -9,6 +9,7 @@ export type EmployeeAssignmentCandidate = {
 
 const INVALID_EMPLOYEE_ASSIGNMENT_MESSAGE =
     "selected employees must belong to the client branch and be open to next work";
+const EMPTY_RETAINED_EMPLOYEE_IDS: ReadonlySet<number> = new Set();
 
 /**
  * Validate role structure before reading or mutating persistence state.
@@ -32,27 +33,30 @@ export function assertEmployeeAssignmentShape(
 }
 
 /**
- * The canonical persisted employee predicate for new assignments.
- * Historical schedules do not use this predicate when they are read.
+ * The canonical persisted employee predicate for an assignment write.
+ * New assignees must be open to next work; retained assignees may remain
+ * unavailable while branch and soft-delete checks still apply.
  */
 export function isEmployeeAssignmentEligible(
     employee: EmployeeAssignmentCandidate,
     branchId: string,
+    retainedEmployeeIds: ReadonlySet<number> = EMPTY_RETAINED_EMPLOYEE_IDS,
 ): boolean {
     return employee.branchId === branchId
         && employee.deletedAt === null
-        && employee.openToNextWork === true;
+        && (employee.openToNextWork === true || retainedEmployeeIds.has(employee.id));
 }
 
 /**
- * Refuse unless every requested employee is present and satisfies the same
- * branch, soft-delete, and availability policy.
+ * Refuse unless every requested employee is present and satisfies the branch,
+ * soft-delete, and new-versus-retained availability policy.
  */
 export function assertEmployeeAssignmentEligibility(
     branchId: string,
     primaryEmployeeId: number | null,
     secondaryEmployeeId: number | null,
     employees: readonly EmployeeAssignmentCandidate[],
+    retainedEmployeeIds: ReadonlySet<number> = EMPTY_RETAINED_EMPLOYEE_IDS,
 ): void {
     assertEmployeeAssignmentShape(primaryEmployeeId, secondaryEmployeeId);
     if (primaryEmployeeId === null) return;
@@ -62,7 +66,7 @@ export function assertEmployeeAssignmentEligibility(
         .filter((employeeId): employeeId is number => employeeId !== null);
     if (employeeIds.some((employeeId) => {
         const employee = byId.get(employeeId);
-        return employee === undefined || !isEmployeeAssignmentEligible(employee, branchId);
+        return employee === undefined || !isEmployeeAssignmentEligible(employee, branchId, retainedEmployeeIds);
     })) {
         throw new BadRequestException(INVALID_EMPLOYEE_ASSIGNMENT_MESSAGE);
     }

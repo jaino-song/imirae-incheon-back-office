@@ -2916,6 +2916,209 @@ describe("ClientService", () => {
         });
     });
 
+    describe("retained assignment eligibility", () => {
+        type EmployeeCandidate = {
+            id: number;
+            branchId: string;
+            deletedAt: Date | null;
+            openToNextWork: boolean;
+        };
+
+        const candidate = (id: number, overrides: Partial<EmployeeCandidate> = {}): EmployeeCandidate => ({
+            id,
+            branchId,
+            deletedAt: null,
+            openToNextWork: true,
+            ...overrides,
+        });
+
+        it("allows an unavailable retained primary when adding an available secondary", async () => {
+            const existingClient = createClientEntity();
+            findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+            prismaService.employee_schedule.findFirst.mockResolvedValue({
+                id: 10,
+                clientId: existingClient.id,
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: null,
+            });
+            prismaService.employee.findMany.mockResolvedValue([
+                candidate(5, { openToNextWork: false }),
+                candidate(8),
+            ]);
+            prismaService.employee_schedule.update.mockResolvedValue({});
+            prismaService.employee_schedule.create.mockResolvedValue({ id: 20, clientId: existingClient.id });
+
+            await expect(service.update(branchId, existingClient.id, { secondaryEmployeeId: 8 }))
+                .resolves.toBe(existingClient);
+
+            expect(prismaService.employee_schedule.create).toHaveBeenCalledWith({
+                data: expect.objectContaining({
+                    primaryEmployeeId: 5,
+                    secondaryEmployeeId: 8,
+                    replaced: false,
+                }),
+            });
+        });
+
+        it("rejects an unavailable newly added secondary while retaining an unavailable primary", async () => {
+            const existingClient = createClientEntity();
+            findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+            prismaService.employee_schedule.findFirst.mockResolvedValue({
+                id: 10,
+                clientId: existingClient.id,
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: null,
+            });
+            prismaService.employee.findMany.mockResolvedValue([
+                candidate(5, { openToNextWork: false }),
+                candidate(8, { openToNextWork: false }),
+            ]);
+
+            await expect(service.update(branchId, existingClient.id, { secondaryEmployeeId: 8 }))
+                .rejects.toBeInstanceOf(BadRequestException);
+
+            expect(prismaService.employee_schedule.update).not.toHaveBeenCalled();
+            expect(prismaService.employee_schedule.create).not.toHaveBeenCalled();
+            expect(prismaService.client.updateMany).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            ["wrong branch", candidate(5, { branchId: "branch-b", openToNextWork: false })],
+            ["soft deleted", candidate(5, {
+                deletedAt: new Date("2026-01-01T00:00:00.000Z"),
+                openToNextWork: false,
+            })],
+        ])("still rejects a retained %s employee", async (_label, retainedEmployee) => {
+            const existingClient = createClientEntity();
+            findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+            prismaService.employee_schedule.findFirst.mockResolvedValue({
+                id: 10,
+                clientId: existingClient.id,
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: null,
+            });
+            prismaService.employee.findMany.mockResolvedValue([retainedEmployee, candidate(8)]);
+
+            await expect(service.update(branchId, existingClient.id, { secondaryEmployeeId: 8 }))
+                .rejects.toBeInstanceOf(BadRequestException);
+
+            expect(prismaService.employee_schedule.update).not.toHaveBeenCalled();
+            expect(prismaService.employee_schedule.create).not.toHaveBeenCalled();
+        });
+
+        it("allows an unavailable retained primary when duplicate-client reuse adds an available secondary", async () => {
+            const existingClient = createClientEntity();
+            clientRepository.findByPhone.mockResolvedValue(existingClient);
+            prismaService.employee_schedule.findFirst.mockResolvedValue({
+                id: 10,
+                clientId: existingClient.id,
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: null,
+            });
+            prismaService.employee.findMany.mockResolvedValue([
+                candidate(5, { openToNextWork: false }),
+                candidate(8),
+            ]);
+            prismaService.employee_schedule.create.mockResolvedValue({ id: 33, clientId: existingClient.id });
+
+            await expect(service.create(branchId, {
+                name: "Existing Client",
+                phone: existingClient.phone,
+                secondaryEmployeeId: 8,
+                careCenter: false,
+                voucherClient: true,
+                breastPump: false,
+                reuseExistingClient: true,
+            })).resolves.toBe(existingClient);
+
+            expect(prismaService.employee_schedule.create).toHaveBeenCalledWith({
+                data: expect.objectContaining({
+                    primaryEmployeeId: 5,
+                    secondaryEmployeeId: 8,
+                    replaced: false,
+                }),
+            });
+        });
+
+        it("rejects an unavailable newly added secondary during duplicate-client reuse", async () => {
+            const existingClient = createClientEntity();
+            clientRepository.findByPhone.mockResolvedValue(existingClient);
+            prismaService.employee_schedule.findFirst.mockResolvedValue({
+                id: 10,
+                clientId: existingClient.id,
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: null,
+            });
+            prismaService.employee.findMany.mockResolvedValue([
+                candidate(5, { openToNextWork: false }),
+                candidate(8, { openToNextWork: false }),
+            ]);
+
+            await expect(service.create(branchId, {
+                name: "Existing Client",
+                phone: existingClient.phone,
+                secondaryEmployeeId: 8,
+                careCenter: false,
+                voucherClient: true,
+                breastPump: false,
+                reuseExistingClient: true,
+            })).rejects.toBeInstanceOf(BadRequestException);
+
+            expect(prismaService.employee_schedule.update).not.toHaveBeenCalled();
+            expect(prismaService.employee_schedule.create).not.toHaveBeenCalled();
+        });
+
+        it("allows an unavailable retained counterpart in a replacement request", async () => {
+            const existingClient = createClientEntity();
+            findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+            prismaService.employee_schedule.findFirst.mockResolvedValue({
+                id: 10,
+                clientId: existingClient.id,
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: 6,
+            });
+            prismaService.employee.findMany.mockResolvedValue([
+                candidate(7),
+                candidate(6, { openToNextWork: false }),
+            ]);
+            prismaService.employee_schedule.update.mockResolvedValue({});
+            prismaService.employee_schedule.create.mockResolvedValue({ id: 20, clientId: existingClient.id });
+
+            await expect(service.requestReplacement(branchId, existingClient.id, 7, 6))
+                .resolves.toBe(existingClient);
+
+            expect(prismaService.employee_schedule.create).toHaveBeenCalledWith({
+                data: expect.objectContaining({
+                    primaryEmployeeId: 7,
+                    secondaryEmployeeId: 6,
+                    replaced: false,
+                }),
+            });
+        });
+
+        it("rejects an unavailable newly requested replacement employee", async () => {
+            const existingClient = createClientEntity();
+            findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+            prismaService.employee_schedule.findFirst.mockResolvedValue({
+                id: 10,
+                clientId: existingClient.id,
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: 6,
+            });
+            prismaService.employee.findMany.mockResolvedValue([
+                candidate(7, { openToNextWork: false }),
+                candidate(6, { openToNextWork: false }),
+            ]);
+
+            await expect(service.requestReplacement(branchId, existingClient.id, 7, 6))
+                .rejects.toBeInstanceOf(BadRequestException);
+
+            expect(prismaService.client.updateMany).not.toHaveBeenCalled();
+            expect(prismaService.employee_schedule.update).not.toHaveBeenCalled();
+            expect(prismaService.employee_schedule.create).not.toHaveBeenCalled();
+        });
+    });
+
     describe("assignment eligibility refusal", () => {
         type EmployeeCandidate = {
             id: number;
