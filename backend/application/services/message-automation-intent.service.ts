@@ -20,12 +20,24 @@ const CLAIM_LEASE_MINUTES = 10;
 const RETRY_DELAY_MS = 5 * 60 * 1000;
 const RECONCILIATION_BATCH_SIZE = 100;
 
+function toDate(value: Date | string): Date {
+    return value instanceof Date ? value : new Date(value);
+}
+
 interface IntentCandidate {
     id: string;
     branchId: string | null;
     clientId: number | null;
     employeeScheduleId: number | null;
+    scheduledFor: Date;
+    updatedAt: Date;
     payload: Prisma.JsonValue;
+}
+
+interface ScheduleIntentClaim {
+    id: string;
+    scheduledFor: Date;
+    updatedAt: Date;
 }
 
 @Injectable()
@@ -83,14 +95,15 @@ export class MessageAutomationIntentService {
         scheduleId: number;
         includePast: boolean;
         replaceExisting?: boolean;
+        intentAt?: Date;
     }): Promise<boolean> {
         const dedupeKey = getScheduleAutomationIntentDedupeKey(params.branchId, params.scheduleId);
-        const claimId = await this.claimIntent(dedupeKey);
-        if (!claimId) return false;
+        const claim = await this.claimIntent(dedupeKey, params.intentAt);
+        if (!claim) return false;
 
         try {
             if (!(await this.isBranchApproved(params.branchId))) {
-                await this.releaseIntent(claimId);
+                await this.releaseIntent(claim);
                 return false;
             }
             await this.triggerService.syncEmployeeAssignmentRulesForSchedule(
@@ -100,14 +113,13 @@ export class MessageAutomationIntentService {
                 { preserveExisting: params.replaceExisting !== true },
             );
             if (!(await this.isBranchApproved(params.branchId))) {
-                await this.releaseIntent(claimId);
+                await this.releaseIntent(claim);
                 return false;
             }
             await this.serviceRecordLinkService.scheduleForServiceStart(params.scheduleId);
-            await this.deleteClaimedIntent(claimId);
-            return true;
+            return this.deleteClaimedIntent(claim);
         } catch (error) {
-            await this.releaseAfterFailure(claimId, error);
+            await this.releaseAfterFailure(claim, error);
             throw error;
         }
     }
@@ -130,6 +142,8 @@ export class MessageAutomationIntentService {
                 branchId: true,
                 clientId: true,
                 employeeScheduleId: true,
+                scheduledFor: true,
+                updatedAt: true,
                 payload: true,
             },
             orderBy: [
@@ -152,8 +166,18 @@ export class MessageAutomationIntentService {
         return fulfilled;
     }
 
-    private async claimIntent(dedupeKey: string): Promise<string | null> {
-        const claimed = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    private async claimIntent(
+        dedupeKey: string,
+        expectedIntentAt?: Date,
+    ): Promise<ScheduleIntentClaim | null> {
+        const expectedIntentFilter = expectedIntentAt
+            ? Prisma.sql`AND scheduled_for = ${expectedIntentAt}`
+            : Prisma.empty;
+        const claimed = await this.prisma.$queryRaw<Array<{
+            id: string;
+            scheduled_for: Date | string;
+            updated_at?: Date | string;
+        }>>(Prisma.sql`
             UPDATE "message_trigger_job"
             SET next_attempt_at = clock_timestamp() + (${CLAIM_LEASE_MINUTES} * interval '1 minute'),
                 updated_at = date_trunc('milliseconds', clock_timestamp())
@@ -162,10 +186,19 @@ export class MessageAutomationIntentService {
               AND status = 'failed'
               AND cancel_reason = ${MESSAGE_AUTOMATION_INTENT_RETRY_REASON}
               AND canceled_by_user = false
+              ${expectedIntentFilter}
               AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
-            RETURNING id;
+            RETURNING id, scheduled_for, updated_at;
         `);
-        return claimed[0]?.id ?? null;
+        const row = claimed[0];
+        if (!row) return null;
+
+        const scheduledFor = toDate(row.scheduled_for);
+        return {
+            id: row.id,
+            scheduledFor,
+            updatedAt: row.updated_at ? toDate(row.updated_at) : scheduledFor,
+        };
     }
 
     private async isBranchApproved(branchId: string): Promise<boolean> {
@@ -176,14 +209,16 @@ export class MessageAutomationIntentService {
         return branch?.smsSenderApprovalStatus === "approved";
     }
 
-    private async releaseIntent(id: string): Promise<void> {
+    private async releaseIntent(claim: ScheduleIntentClaim): Promise<void> {
         await this.prisma.message_trigger_job.updateMany({
             where: {
-                id,
+                id: claim.id,
                 ruleId: MESSAGE_AUTOMATION_INTENT_RULE_ID,
                 status: "failed",
                 cancelReason: MESSAGE_AUTOMATION_INTENT_RETRY_REASON,
                 canceledByUser: false,
+                scheduledFor: claim.scheduledFor,
+                updatedAt: claim.updatedAt,
             },
             data: {
                 nextAttemptAt: new Date(Date.now() + RETRY_DELAY_MS),
@@ -191,31 +226,41 @@ export class MessageAutomationIntentService {
         });
     }
 
-    private async releaseAfterFailure(id: string, originalError: unknown): Promise<void> {
+    private async releaseAfterFailure(
+        claim: ScheduleIntentClaim,
+        originalError: unknown,
+    ): Promise<void> {
         try {
-            await this.releaseIntent(id);
+            await this.releaseIntent(claim);
         } catch (releaseError) {
             this.logger.error(
-                `[Message Automation Intent] Failed to release claim ${id} after ${String(originalError)}: ${String(releaseError)}`,
+                `[Message Automation Intent] Failed to release claim ${claim.id} after ${String(originalError)}: ${String(releaseError)}`,
             );
         }
     }
 
-    private async deleteClaimedIntent(id: string): Promise<void> {
-        await this.prisma.message_trigger_job.deleteMany({
+    private async deleteClaimedIntent(claim: ScheduleIntentClaim): Promise<boolean> {
+        const deleted = await this.prisma.message_trigger_job.deleteMany({
             where: {
-                id,
+                id: claim.id,
                 ruleId: MESSAGE_AUTOMATION_INTENT_RULE_ID,
                 status: "failed",
                 cancelReason: MESSAGE_AUTOMATION_INTENT_RETRY_REASON,
                 canceledByUser: false,
+                scheduledFor: claim.scheduledFor,
+                updatedAt: claim.updatedAt,
             },
         });
+        return deleted.count === 1;
     }
 
     private async fulfillCandidate(candidate: IntentCandidate): Promise<boolean> {
+        const expectedVersion = {
+            scheduledFor: candidate.scheduledFor,
+            updatedAt: candidate.updatedAt,
+        };
         if (!candidate.branchId) {
-            await this.discardOrphanedIntent(candidate.id);
+            await this.discardOrphanedIntent(candidate.id, expectedVersion);
             return false;
         }
         const variables = this.readTemplateVariables(candidate.payload);
@@ -236,20 +281,24 @@ export class MessageAutomationIntentService {
                 scheduleId: candidate.employeeScheduleId,
                 includePast,
                 replaceExisting,
+                intentAt: candidate.scheduledFor,
             });
         }
         if (
             (kind === "client" && candidate.clientId === null)
             || (kind === "schedule" && candidate.employeeScheduleId === null)
         ) {
-            await this.discardOrphanedIntent(candidate.id);
+            await this.discardOrphanedIntent(candidate.id, expectedVersion);
             return false;
         }
-        await this.quarantineInvalidIntent(candidate.id);
+        await this.quarantineInvalidIntent(candidate.id, expectedVersion);
         return false;
     }
 
-    private async discardOrphanedIntent(id: string): Promise<void> {
+    private async discardOrphanedIntent(
+        id: string,
+        expectedVersion: Pick<ScheduleIntentClaim, "scheduledFor" | "updatedAt">,
+    ): Promise<void> {
         await this.prisma.message_trigger_job.deleteMany({
             where: {
                 id,
@@ -257,11 +306,16 @@ export class MessageAutomationIntentService {
                 status: "failed",
                 cancelReason: MESSAGE_AUTOMATION_INTENT_RETRY_REASON,
                 canceledByUser: false,
+                scheduledFor: expectedVersion.scheduledFor,
+                updatedAt: expectedVersion.updatedAt,
             },
         });
     }
 
-    private async quarantineInvalidIntent(id: string): Promise<void> {
+    private async quarantineInvalidIntent(
+        id: string,
+        expectedVersion: Pick<ScheduleIntentClaim, "scheduledFor" | "updatedAt">,
+    ): Promise<void> {
         await this.prisma.message_trigger_job.updateMany({
             where: {
                 id,
@@ -269,6 +323,8 @@ export class MessageAutomationIntentService {
                 status: "failed",
                 cancelReason: MESSAGE_AUTOMATION_INTENT_RETRY_REASON,
                 canceledByUser: false,
+                scheduledFor: expectedVersion.scheduledFor,
+                updatedAt: expectedVersion.updatedAt,
             },
             data: {
                 cancelReason: MESSAGE_AUTOMATION_INTENT_INVALID_REASON,

@@ -67,6 +67,7 @@ export class EmployeeScheduleService {
                 branchId: branchid,
                 scheduleId: schedule.id,
                 includePast: true,
+                intentAt,
             })
             .catch((error) => {
                 this.logger.error(
@@ -136,6 +137,7 @@ export class EmployeeScheduleService {
                 scheduleId: schedule.id,
                 includePast: true,
                 replaceExisting: true,
+                intentAt,
             })
             .catch((error) => {
                 this.logger.error(

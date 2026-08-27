@@ -12,6 +12,7 @@ describe("MessageAutomationIntentService", () => {
             $queryRaw: jest.fn().mockResolvedValue([{
                 id: "intent-1",
                 scheduled_for: new Date("2026-08-20T01:02:03.000Z"),
+                updated_at: new Date("2026-08-20T01:02:04.000Z"),
             }]),
             branch: {
                 findUnique: jest.fn().mockResolvedValue({
@@ -425,6 +426,123 @@ describe("MessageAutomationIntentService", () => {
         expect(prisma.message_trigger_job.deleteMany).not.toHaveBeenCalled();
     });
 
+    it("does not let an older post-commit caller claim a newer replacement marker", async () => {
+        const { service, prisma, triggerService, serviceRecordLinkService } = setup();
+        const olderIntentAt = new Date("2026-08-20T01:02:03.000Z");
+        const newerIntentAt = new Date("2026-08-20T01:02:05.000Z");
+        const newerClaimedAt = new Date("2026-08-20T01:02:06.000Z");
+        prisma.$queryRaw
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([{
+                id: "intent-1",
+                scheduled_for: newerIntentAt,
+                updated_at: newerClaimedAt,
+            }]);
+
+        await expect(service.fulfillScheduleIntent({
+            branchId: "branch-1",
+            scheduleId: 72,
+            includePast: true,
+            intentAt: olderIntentAt,
+        })).resolves.toBe(false);
+        await expect(service.fulfillScheduleIntent({
+            branchId: "branch-1",
+            scheduleId: 72,
+            includePast: true,
+            replaceExisting: true,
+            intentAt: newerIntentAt,
+        })).resolves.toBe(true);
+
+        expect(triggerService.syncEmployeeAssignmentRulesForSchedule).toHaveBeenCalledTimes(1);
+        expect(serviceRecordLinkService.scheduleForServiceStart).toHaveBeenCalledTimes(1);
+        const staleClaimQuery = prisma.$queryRaw.mock.calls[0]?.[0] as {
+            strings?: readonly string[];
+            values?: readonly unknown[];
+        };
+        expect(staleClaimQuery.strings?.join("?")).toContain("scheduled_for =");
+        expect(staleClaimQuery.values).toContain(olderIntentAt);
+    });
+
+    it("does not delete a replacement marker when it is persisted during an older claim", async () => {
+        const { service, prisma, triggerService, transaction } = setup();
+        const olderIntentAt = new Date("2026-08-20T01:02:03.000Z");
+        const olderClaimVersion = new Date("2026-08-20T01:02:04.000Z");
+        const newerIntentAt = new Date("2026-08-20T01:02:05.000Z");
+        const newerClaimVersion = new Date("2026-08-20T01:02:06.000Z");
+        let replacementPersisted = false;
+        let finishOlderSync: (() => void) | undefined;
+        let olderSyncStarted: (() => void) | undefined;
+        const olderSyncReady = new Promise<void>((resolve) => {
+            olderSyncStarted = resolve;
+        });
+        triggerService.syncEmployeeAssignmentRulesForSchedule.mockImplementationOnce(
+            () => {
+                olderSyncStarted?.();
+                return new Promise<void>((resolve) => {
+                    finishOlderSync = resolve;
+                });
+            },
+        );
+        prisma.$queryRaw
+            .mockResolvedValueOnce([{
+                id: "intent-1",
+                scheduled_for: olderIntentAt,
+                updated_at: olderClaimVersion,
+            }])
+            .mockResolvedValueOnce([{
+                id: "intent-1",
+                scheduled_for: newerIntentAt,
+                updated_at: newerClaimVersion,
+            }]);
+        transaction.message_trigger_job.upsert.mockImplementation(async () => {
+            replacementPersisted = true;
+        });
+        prisma.message_trigger_job.deleteMany.mockImplementation(async (query) => {
+            const where = query.where as { scheduledFor?: Date };
+            return {
+                count: replacementPersisted && where.scheduledFor?.getTime() === olderIntentAt.getTime()
+                    ? 0
+                    : 1,
+            };
+        });
+
+        const olderFulfillment = service.fulfillScheduleIntent({
+            branchId: "branch-1",
+            scheduleId: 72,
+            includePast: true,
+            replaceExisting: true,
+            intentAt: olderIntentAt,
+        });
+        await olderSyncReady;
+        await service.persistScheduleIntent(transaction as never, {
+            branchId: "branch-1",
+            clientId: 31,
+            scheduleId: 72,
+            includePast: true,
+            intentAt: newerIntentAt,
+            replaceExisting: true,
+        });
+        finishOlderSync?.();
+
+        await expect(olderFulfillment).resolves.toBe(false);
+        expect(prisma.message_trigger_job.deleteMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    id: "intent-1",
+                    scheduledFor: olderIntentAt,
+                    updatedAt: olderClaimVersion,
+                }),
+            }),
+        );
+        await expect(service.fulfillScheduleIntent({
+            branchId: "branch-1",
+            scheduleId: 72,
+            includePast: true,
+            replaceExisting: true,
+            intentAt: newerIntentAt,
+        })).resolves.toBe(true);
+    });
+
     it("reconciles both durable intent kinds and removes them only after successful generation", async () => {
         const {
             service,
@@ -438,6 +556,8 @@ describe("MessageAutomationIntentService", () => {
                 branchId: "branch-1",
                 clientId: 31,
                 employeeScheduleId: null,
+                scheduledFor: new Date("2026-08-20T01:02:03.000Z"),
+                updatedAt: new Date("2026-08-20T01:02:04.000Z"),
                 payload: {
                     templateVariables: {
                         intentKind: "client",
@@ -451,6 +571,8 @@ describe("MessageAutomationIntentService", () => {
                 branchId: "branch-1",
                 clientId: 31,
                 employeeScheduleId: 72,
+                scheduledFor: new Date("2026-08-20T01:02:03.000Z"),
+                updatedAt: new Date("2026-08-20T01:02:04.000Z"),
                 payload: {
                     templateVariables: {
                         intentKind: "schedule",
@@ -465,8 +587,13 @@ describe("MessageAutomationIntentService", () => {
             .mockResolvedValueOnce([{
                 id: "client-intent",
                 scheduled_for: new Date("2026-08-20T01:02:03.000Z"),
+                updated_at: new Date("2026-08-20T01:02:04.000Z"),
             }])
-            .mockResolvedValueOnce([{ id: "schedule-intent" }]);
+            .mockResolvedValueOnce([{
+                id: "schedule-intent",
+                scheduled_for: new Date("2026-08-20T01:02:03.000Z"),
+                updated_at: new Date("2026-08-20T01:02:04.000Z"),
+            }]);
 
         await expect(service.reconcilePendingIntents(
             new Date("2026-08-20T01:05:00.000Z"),
@@ -502,6 +629,8 @@ describe("MessageAutomationIntentService", () => {
                 branchId: "branch-1",
                 clientId: 31,
                 employeeScheduleId: null,
+                scheduledFor: new Date("2026-08-20T01:02:03.000Z"),
+                updatedAt: new Date("2026-08-20T01:02:04.000Z"),
                 payload: {
                     templateVariables: {
                         intentKind: "schedule",
@@ -514,6 +643,8 @@ describe("MessageAutomationIntentService", () => {
                 branchId: "branch-1",
                 clientId: 31,
                 employeeScheduleId: null,
+                scheduledFor: new Date("2026-08-20T01:02:03.000Z"),
+                updatedAt: new Date("2026-08-20T01:02:04.000Z"),
                 payload: {
                     templateVariables: {
                         intentKind: "unexpected",

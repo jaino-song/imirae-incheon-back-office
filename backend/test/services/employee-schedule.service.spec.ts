@@ -106,6 +106,7 @@ describe("EmployeeScheduleService", () => {
             branchId: "branch-1",
             scheduleId: 10,
             includePast: true,
+            intentAt: expect.any(Date),
         });
     });
 
@@ -229,6 +230,7 @@ describe("EmployeeScheduleService", () => {
             scheduleId: 10,
             includePast: true,
             replaceExisting: true,
+            intentAt: expect.any(Date),
         });
     });
 
