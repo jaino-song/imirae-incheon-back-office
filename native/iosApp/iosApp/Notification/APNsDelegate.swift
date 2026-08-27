@@ -3,7 +3,7 @@ import UserNotifications
 import shared
 
 /// APNs delegate for iOS push notification handling.
-/// Manages token registration, foreground/background/terminated notification handling.
+/// Handles permission and foreground/background/terminated notification events.
 class APNsDelegate: NSObject, UNUserNotificationCenterDelegate {
     static let shared = APNsDelegate()
 
@@ -28,11 +28,13 @@ class APNsDelegate: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    // MARK: - Token Registration
+    // MARK: - Remote Notification Registration
 
-    func didRegisterForRemoteNotifications(deviceToken: Data) {
+    func didRegisterForRemoteNotifications(deviceToken _: Data) {
         SafeLogger.shared.apnsRegistered()
-        // TODO: Register token with NotificationManager via KMP bridge
+        // Native token registration remains unsupported until the CR-PUSH
+        // mobile-token backend contract is implemented. Do not persist or
+        // forward the provider token here.
     }
 
     func didFailToRegisterForRemoteNotifications(error: Error) {

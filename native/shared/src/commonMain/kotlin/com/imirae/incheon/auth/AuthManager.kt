@@ -5,7 +5,6 @@ import com.imirae.incheon.domain.models.Branch
 import com.imirae.incheon.network.ApiResult
 import com.imirae.incheon.network.TokenProvider
 import com.imirae.incheon.network.platformEngine
-import com.imirae.incheon.notification.NotificationManager
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -36,7 +35,6 @@ class AuthManager(
     private val authService: AuthService,
     private val secureStorage: SecureStorage,
     private val apiBaseUrl: String,
-    private val notificationManager: NotificationManager? = null,
 ) : TokenProvider {
     private val sessionPolicy = SessionPolicy(secureStorage)
     private val stepUpAuth = StepUpAuth(secureStorage)
@@ -210,7 +208,6 @@ class AuthManager(
                     result.data.role,
                     result.data.branchName
                 )
-                notificationManager?.retryPendingToken()
                 updateActivity()
             }
 

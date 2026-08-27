@@ -8,8 +8,6 @@ import com.imirae.incheon.data.remote.*
 import com.imirae.incheon.deeplink.DeepLinkRouter
 import com.imirae.incheon.media.MediaPicker
 import com.imirae.incheon.notification.NotificationManager
-import com.imirae.incheon.notification.NotificationTokenStore
-import com.imirae.incheon.notification.SecureNotificationTokenStore
 import com.imirae.incheon.network.ApiClient
 import com.imirae.incheon.network.RateLimitHandler
 import com.imirae.incheon.viewmodel.AdminViewModel
@@ -44,7 +42,6 @@ val authModule = module {
             authService = get(),
             secureStorage = get(),
             apiBaseUrl = getProperty("API_BASE_URL"),
-            notificationManager = get(),
         )
     }
     single { SessionPolicy(get()) }
@@ -54,15 +51,7 @@ val authModule = module {
 
 val phaseFiveAndSixModule = module {
     single { DeepLinkRouter() }
-    single<NotificationTokenStore> { SecureNotificationTokenStore(get()) }
-    single {
-        NotificationManager(
-            deepLinkRouter = get(),
-            notificationService = get(),
-            tokenStore = get(),
-            getAccessToken = { get<AuthManager>().getAccessToken() },
-        )
-    }
+    single { NotificationManager(get(), get()) }
 
     single { MessageTemplateViewModel(get()) }
     single { ChatViewModel(get()) }

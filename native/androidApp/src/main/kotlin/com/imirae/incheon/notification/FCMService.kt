@@ -10,15 +10,15 @@ import android.os.Build
 import android.os.Process
 import androidx.core.app.NotificationCompat
 import com.imirae.incheon.MainActivity
-import com.imirae.incheon.R
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import org.koin.android.ext.android.inject
 
 /**
  * Firebase Cloud Messaging service for Android.
- * Handles token registration, foreground/background/terminated message handling,
- * and notification channel management.
+ * Handles foreground/background/terminated message handling and notification
+ * channel management. Native token registration remains unsupported until the
+ * CR-PUSH mobile-token backend contract is implemented.
  */
 class FCMService : FirebaseMessagingService() {
     private val appNotificationManager: NotificationManager by inject()
@@ -44,10 +44,6 @@ class FCMService : FirebaseMessagingService() {
         }
     }
 
-    override fun onNewToken(token: String) {
-        onNewToken(token, appNotificationManager)
-    }
-
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         val data = remoteMessage.data
         val notification = remoteMessage.notification
@@ -59,13 +55,6 @@ class FCMService : FirebaseMessagingService() {
             isAppInForeground = isAppInForeground(),
             notificationManager = appNotificationManager,
         )
-    }
-
-    /**
-     * Handle new FCM token — retain it and register once authenticated.
-     */
-    fun onNewToken(token: String, notificationManager: com.imirae.incheon.notification.NotificationManager) {
-        notificationManager.registerToken(token, "android")
     }
 
     /**

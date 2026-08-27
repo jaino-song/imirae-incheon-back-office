@@ -12,7 +12,7 @@ package com.imirae.incheon.test.contract
  * - Documents: 5 endpoints (CRUD + search)
  * - Templates: 6 endpoints (message CRUD + system list + render)
  * - Chat: 4 endpoints (history + send + stream + clear)
- * - Notifications: 5 endpoints (list + read + subscribe + unsubscribe + unread-count)
+ * - Notifications: 3 native endpoints (list + read + unread-count); native push subscription is intentionally unsupported pending CR-PUSH
  * - Files: 5 endpoints (list + upload + download + delete + metadata)
  * - Settings: 5 endpoints (get + update + voucher-prices + org-settings + user-prefs)
  *
@@ -118,8 +118,6 @@ class ChatContractTests {
 class NotificationContractTests {
     fun testGetNotifications_Success() { /* TODO */ }
     fun testMarkAsRead_Success() { /* TODO */ }
-    fun testSubscribe_Success() { /* TODO */ }
-    fun testUnsubscribe_Success() { /* TODO */ }
     fun testGetUnreadCount_Success() { /* TODO */ }
 }
 

@@ -27,8 +27,7 @@ class KoinHelper {
     private lazy var authManager: AuthManager = AuthManager(
         authService: authService,
         secureStorage: secureStorage,
-        apiBaseUrl: apiBaseURL,
-        notificationManager: nil
+        apiBaseUrl: apiBaseURL
     )
     private lazy var authenticatedApiClient: ApiClient = ApiClient(baseUrl: apiBaseURL, tokenProvider: authManager)
 

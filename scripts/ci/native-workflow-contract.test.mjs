@@ -102,8 +102,10 @@ test("native Android declarations preserve FCM delivery and Kakao callback contr
 
     assert.match(manifest, /android:name="\.notification\.FCMService"/);
     assert.match(fcmService, /class\s+FCMService\s*:\s*FirebaseMessagingService\(\)/);
-    assert.match(fcmService, /override\s+fun\s+onNewToken\(token:\s*String\)/);
     assert.match(fcmService, /override\s+fun\s+onMessageReceived\(remoteMessage:\s*RemoteMessage\)/);
+    assert.match(fcmService, /notificationManager\.routeNotification\(payload\)/);
+    assert.match(fcmService, /showNotification\(context, payload\)/);
+    assert.doesNotMatch(fcmService, /onNewToken|registerToken|registerDeviceToken|notifications\/subscribe/);
     assert.match(manifest, /android:scheme="kakao\$\{KAKAO_NATIVE_APP_KEY\}"/);
     assert.doesNotMatch(manifest, /kakao\{NATIVE_APP_KEY\}/, "the Kakao callback must use a Gradle manifest placeholder");
     assert.match(gradle, /manifestPlaceholders\["KAKAO_NATIVE_APP_KEY"\]/);
@@ -111,6 +113,41 @@ test("native Android declarations preserve FCM delivery and Kakao callback contr
     assert.match(setup, /`kakao\$\{KAKAO_NATIVE_APP_KEY\}`/);
     assert.match(setup, /optional `KAKAO_NATIVE_APP_KEY` Gradle property/);
     assert.doesNotMatch(setup, /`kakao\{NATIVE_APP_KEY\}`/, "setup documentation must describe the real callback placeholder");
+});
+
+test("native notification sources do not expose the unsupported web-push subscription path", async () => {
+    const sourcePaths = {
+        notificationService: "native/shared/src/commonMain/kotlin/com/imirae/incheon/data/remote/NotificationService.kt",
+        notificationManager: "native/shared/src/commonMain/kotlin/com/imirae/incheon/notification/NotificationManager.kt",
+        authManager: "native/shared/src/commonMain/kotlin/com/imirae/incheon/auth/AuthManager.kt",
+        sharedModule: "native/shared/src/commonMain/kotlin/com/imirae/incheon/di/SharedModule.kt",
+        androidModule: "native/androidApp/src/main/kotlin/com/imirae/incheon/App.kt",
+        fcmService: "native/androidApp/src/main/kotlin/com/imirae/incheon/notification/FCMService.kt",
+        apnsDelegate: "native/iosApp/iosApp/Notification/APNsDelegate.swift",
+    };
+    const sources = await Promise.all(
+        Object.entries(sourcePaths).map(async ([name, path]) => [name, await readFile(resolve(WORKSPACE_ROOT, path), "utf8")]),
+    );
+
+    for (const [name, source] of sources) {
+        assert.doesNotMatch(
+            source,
+            /\/notifications\/(?:un)?subscribe|registerDeviceToken|unregisterDeviceToken|retryPendingToken|NotificationTokenStore|notification_device_token/,
+            `${name} must not retain the unsupported native token registration path`,
+        );
+    }
+
+    assert.doesNotMatch(sources.find(([name]) => name === "authManager")[1], /notificationManager/);
+    assert.match(
+        sources.find(([name]) => name === "apnsDelegate")[1],
+        /didRegisterForRemoteNotifications\(deviceToken _:\s*Data\)/,
+        "the APNs callback must ignore the provider token until the mobile-token contract exists",
+    );
+    await assert.rejects(
+        readFile(resolve(WORKSPACE_ROOT, "native/shared/src/commonMain/kotlin/com/imirae/incheon/notification/NotificationTokenStore.kt"), "utf8"),
+        (error) => error?.code === "ENOENT",
+        "the native token store must be removed while mobile push is unsupported",
+    );
 });
 
 test("native workflow names and jobs remain connected before aggregate activation", async () => {

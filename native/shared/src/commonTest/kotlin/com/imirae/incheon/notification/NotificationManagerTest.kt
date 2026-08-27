@@ -2,8 +2,8 @@ package com.imirae.incheon.notification
 
 import com.imirae.incheon.data.remote.NotificationService
 import com.imirae.incheon.deeplink.DeepLinkRouter
+import com.imirae.incheon.deeplink.NavigationIntent
 import com.imirae.incheon.domain.models.Notification
-import com.imirae.incheon.network.ApiError
 import com.imirae.incheon.network.ApiResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
@@ -16,124 +16,103 @@ import kotlin.test.assertEquals
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class NotificationManagerTest {
     @Test
-    fun preLoginTokenIsRetainedAndRegisteredAfterAuthentication() = runTest {
-        var accessToken: String? = null
-        val store = InMemoryNotificationTokenStore()
+    fun routesAllowedDeepLinkWithoutServiceCall() = runTest {
         val service = RecordingNotificationService()
         val managerScope = CoroutineScope(StandardTestDispatcher(testScheduler))
         val manager = NotificationManager(
             deepLinkRouter = DeepLinkRouter(),
             notificationService = service,
-            tokenStore = store,
-            getAccessToken = { accessToken },
             scope = managerScope,
         )
 
-        manager.registerToken(" fcm-token ", "android")
-        advanceUntilIdle()
-
-        assertEquals(emptyList(), service.registrations)
         assertEquals(
-            StoredNotificationToken("fcm-token", "android"),
-            store.read(),
+            NavigationIntent.ClientDetail("client-1"),
+            manager.routeNotification(
+                NotificationPayload(
+                    title = "새 알림",
+                    body = "확인해 주세요",
+                    deepLink = "https://app.imirae-incheon.com/clients/client-1",
+                ),
+            ),
         )
-        assertEquals("fcm-token", manager.state.value.deviceToken)
-
-        accessToken = "access-token"
-        manager.retryPendingToken()
-        advanceUntilIdle()
-
-        assertEquals(listOf("fcm-token" to "android"), service.registrations)
+        assertEquals(emptyList(), service.operations)
         managerScope.cancel()
     }
 
     @Test
-    fun successfulRegistrationIsDeduplicatedAcrossRetries() = runTest {
+    fun refreshUnreadCountUpdatesState() = runTest {
         val service = RecordingNotificationService()
         val managerScope = CoroutineScope(StandardTestDispatcher(testScheduler))
         val manager = NotificationManager(
             deepLinkRouter = DeepLinkRouter(),
             notificationService = service,
-            tokenStore = InMemoryNotificationTokenStore(),
-            getAccessToken = { "access-token" },
             scope = managerScope,
         )
 
-        manager.registerToken("fcm-token", "android")
-        manager.retryPendingToken()
+        service.unreadResponses.add(ApiResult.Success(3))
+        manager.refreshUnreadCount()
         advanceUntilIdle()
 
-        assertEquals(listOf("fcm-token" to "android"), service.registrations)
+        assertEquals(3, manager.state.value.unreadCount)
+        assertEquals(1, service.unreadCountCalls)
+        assertEquals(listOf("getUnreadCount"), service.operations)
         managerScope.cancel()
     }
 
     @Test
-    fun failedRegistrationKeepsTokenForAnExplicitRetry() = runTest {
-        val service = RecordingNotificationService(
-            responses = ArrayDeque(
-                listOf(
-                    ApiResult.Error(ApiError.Network("offline")),
-                    ApiResult.Success(Unit),
-                )
-            )
-        )
-        val store = InMemoryNotificationTokenStore()
+    fun markingAsReadRefreshesUnreadCount() = runTest {
+        val service = RecordingNotificationService()
         val managerScope = CoroutineScope(StandardTestDispatcher(testScheduler))
         val manager = NotificationManager(
             deepLinkRouter = DeepLinkRouter(),
             notificationService = service,
-            tokenStore = store,
-            getAccessToken = { "access-token" },
             scope = managerScope,
         )
 
-        manager.registerToken("fcm-token", "android")
-        advanceUntilIdle()
-        manager.retryPendingToken()
+        service.unreadResponses.add(ApiResult.Success(2))
+        manager.markAsRead("notification-42")
         advanceUntilIdle()
 
-        assertEquals(
-            listOf("fcm-token" to "android", "fcm-token" to "android"),
-            service.registrations,
-        )
-        assertEquals(StoredNotificationToken("fcm-token", "android"), store.read())
+        assertEquals(listOf("notification-42"), service.markedIds)
+        assertEquals(2, manager.state.value.unreadCount)
+        assertEquals(listOf("markAsRead", "getUnreadCount"), service.operations)
         managerScope.cancel()
     }
 
     @Test
-    fun persistedTokenIsRestoredIntoNotificationState() = runTest {
-        val store = InMemoryNotificationTokenStore(
-            StoredNotificationToken("persisted-token", "android"),
-        )
+    fun decrementUnreadDoesNotGoBelowZero() = runTest {
         val managerScope = CoroutineScope(StandardTestDispatcher(testScheduler))
         val manager = NotificationManager(
             deepLinkRouter = DeepLinkRouter(),
             notificationService = RecordingNotificationService(),
-            tokenStore = store,
-            getAccessToken = { null },
             scope = managerScope,
         )
 
-        assertEquals("persisted-token", manager.state.value.deviceToken)
+        manager.decrementUnread()
+        assertEquals(0, manager.state.value.unreadCount)
+        manager.updatePermissionStatus(granted = true)
+        assertEquals(true, manager.state.value.isPermissionGranted)
         managerScope.cancel()
     }
 
-    private class RecordingNotificationService(
-        private val responses: ArrayDeque<ApiResult<Unit>> = ArrayDeque(),
-    ) : NotificationService {
-        val registrations = mutableListOf<Pair<String, String>>()
+    private class RecordingNotificationService : NotificationService {
+        val unreadResponses = ArrayDeque<ApiResult<Int>>()
+        val markedIds = mutableListOf<String>()
+        val operations = mutableListOf<String>()
+        var unreadCountCalls = 0
 
         override suspend fun getNotifications(): ApiResult<List<Notification>> = ApiResult.Success(emptyList())
 
-        override suspend fun markAsRead(id: String): ApiResult<Unit> = ApiResult.Success(Unit)
-
-        override suspend fun registerDeviceToken(token: String, platform: String): ApiResult<Unit> {
-            registrations += token to platform
-            return responses.removeFirstOrNull() ?: ApiResult.Success(Unit)
+        override suspend fun markAsRead(id: String): ApiResult<Unit> {
+            operations += "markAsRead"
+            markedIds += id
+            return ApiResult.Success(Unit)
         }
 
-        override suspend fun unregisterDeviceToken(token: String): ApiResult<Unit> = ApiResult.Success(Unit)
-
-        override suspend fun getUnreadCount(): ApiResult<Int> = ApiResult.Success(0)
+        override suspend fun getUnreadCount(): ApiResult<Int> {
+            operations += "getUnreadCount"
+            unreadCountCalls += 1
+            return unreadResponses.removeFirstOrNull() ?: ApiResult.Success(0)
+        }
     }
 }
