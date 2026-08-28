@@ -111,18 +111,16 @@ export class ToolExecutorService {
                 return { success: false, error: validationError };
             }
 
-            if (args["confirmed"] !== true && (!this.isBoundContext(context) || !this.confirmationService)) {
+            if (!this.isBoundContext(context) || !this.confirmationService) {
                 return this.requestConfirmation(toolName, args);
             }
 
-            if (args["confirmed"] !== true) {
-                const intent = await this.confirmationService!.createIntent(
-                    context,
-                    toolName,
-                    sanitizeLegacyChatToolPayload(args),
-                );
-                return this.requestConfirmation(toolName, args, intent);
-            }
+            const intent = await this.confirmationService.createIntent(
+                context,
+                toolName,
+                sanitizeLegacyChatToolPayload(args),
+            );
+            return this.requestConfirmation(toolName, args, intent);
         }
 
         try {
@@ -158,6 +156,9 @@ export class ToolExecutorService {
                 case "listAvailableTemplates":
                     return await this.listAvailableTemplates(context.branchId);
                 case "createAndSendContract":
+                    if (!principal) {
+                        return { success: false, error: "eformsign provider principal is required" };
+                    }
                     return await this.createAndSendContract(branchid, args, principal);
                 case "getContractStatus":
                     return await this.getContractStatus(context.branchId, args);
@@ -247,7 +248,11 @@ export class ToolExecutorService {
                 case "createMessage": return await this.createMessage(context.branchId, sanitizedArgs);
                 case "updateMessage": return await this.updateMessage(context.branchId, sanitizedArgs);
                 case "deleteMessage": return await this.deleteMessage(context.branchId, sanitizedArgs);
-                case "createAndSendContract": return await this.createAndSendContract(context.branchId, sanitizedArgs, principal);
+                case "createAndSendContract":
+                    if (!principal) {
+                        return { success: false, error: "eformsign provider principal is required" };
+                    }
+                    return await this.createAndSendContract(context.branchId, sanitizedArgs, principal);
                 default: return { success: false, error: `Unknown tool: ${toolName}` };
             }
         } catch (error) {

@@ -641,17 +641,27 @@ export class AIChatService {
         return this.confirmationService.consumeAndExecute(
             { userId, branchId, sessionId },
             token,
-            async (intent) => this.toolExecutor.executeAuthorized(
-                {
+            async (intent) => {
+                const executionContext = {
                     userId,
                     branchId,
                     sessionId: intent.sessionId,
-                },
-                intent.toolName,
-                intent.payload,
-                intent,
-                principal,
-            ),
+                };
+                return principal
+                    ? this.toolExecutor.executeAuthorized(
+                        executionContext,
+                        intent.toolName,
+                        intent.payload,
+                        intent,
+                        principal,
+                    )
+                    : this.toolExecutor.executeAuthorized(
+                        executionContext,
+                        intent.toolName,
+                        intent.payload,
+                        intent,
+                    );
+            },
         );
     }
 

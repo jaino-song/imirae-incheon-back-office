@@ -236,7 +236,7 @@ describe("CreateAndSendContractUsecase", () => {
     });
 
     it("does not cross the provider boundary for an uncertain durable intent", async () => {
-        const getAccessToken = jest.fn();
+        const credentialBoundary = createBoundary();
         const createDocument = jest.fn();
         const dispatchBoundary = {
             claim: jest.fn().mockResolvedValue({
@@ -253,7 +253,7 @@ describe("CreateAndSendContractUsecase", () => {
                 startDate: null,
                 endDate: null,
             }) } as never,
-            { execute: getAccessToken } as never,
+            credentialBoundary as never,
             { execute: jest.fn() } as never,
             { assertAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
             dispatchBoundary as never,
@@ -263,12 +263,12 @@ describe("CreateAndSendContractUsecase", () => {
             clientId: 7,
             templateId: "template-1",
             idempotencyKey: "request-1",
-        })).resolves.toEqual(expect.objectContaining({
+        }, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({
             success: false,
             uncertain: true,
         }));
 
-        expect(getAccessToken).not.toHaveBeenCalled();
+        expect(credentialBoundary.withCredentials).not.toHaveBeenCalled();
         expect(createDocument).not.toHaveBeenCalled();
     });
 
@@ -297,7 +297,7 @@ describe("CreateAndSendContractUsecase", () => {
                 startDate: null,
                 endDate: null,
             }) } as never,
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createBoundary() as never,
             { execute: persistDocument } as never,
             { assertAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
             dispatchBoundary as never,
@@ -306,7 +306,7 @@ describe("CreateAndSendContractUsecase", () => {
         await expect(usecase.execute("branch-1", {
             clientId: 7,
             templateId: "template-1",
-        })).resolves.toEqual({ success: true, documentId: "remote-1" });
+        }, TEST_PRINCIPAL)).resolves.toEqual({ success: true, documentId: "remote-1" });
 
         expect(dispatchBoundary.claim).toHaveBeenCalledWith(expect.objectContaining({
             branchId: "branch-1",
@@ -349,7 +349,7 @@ describe("CreateAndSendContractUsecase", () => {
                 startDate: null,
                 endDate: null,
             }) } as never,
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createBoundary() as never,
             { execute: jest.fn() } as never,
             { assertAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
             dispatchBoundary as never,
@@ -358,7 +358,7 @@ describe("CreateAndSendContractUsecase", () => {
         await expect(usecase.execute("branch-1", {
             clientId: 7,
             templateId: "template-1",
-        })).resolves.toEqual(expect.objectContaining({
+        }, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({
             success: false,
             uncertain: true,
         }));

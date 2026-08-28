@@ -1,6 +1,13 @@
 import { FinalizeDocumentHeadlessUsecase } from "application/usecases/eformsign-doc/finalize-document-headless.usecase";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 
+const TEST_PRINCIPAL = {
+    userId: "test-user",
+    branchId: "branch-a",
+    globalRole: "owner",
+    branchRole: "owner",
+} as const;
+
 const document = {
     id: 42,
     documentId: "provider-doc-1",
@@ -20,10 +27,12 @@ function buildUsecase(localDocument: unknown) {
     const headlessService = {
         dispatchFinalize: jest.fn().mockResolvedValue({ ok: true, durationMs: 11 }),
     };
-    const getAccessTokenUsecase = {
-        execute: jest.fn().mockResolvedValue({
-            oauth_token: { access_token: "server-access", refresh_token: "server-refresh" },
-        }),
+    const credentialBoundary = {
+        withCredentials: jest.fn(async (
+            _principal: unknown,
+            _capability: unknown,
+            operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+        ) => operation({ accessToken: "server-access", refreshToken: "server-refresh" })),
     };
     const progressService = { emit: jest.fn() };
     const repository = {
@@ -45,13 +54,13 @@ function buildUsecase(localDocument: unknown) {
     return {
         eformsignService,
         headlessService,
-        getAccessTokenUsecase,
+        credentialBoundary,
         repository,
         dispatchBoundary,
         usecase: new FinalizeDocumentHeadlessUsecase(
             eformsignService as never,
             headlessService as never,
-            getAccessTokenUsecase as never,
+            credentialBoundary as never,
             progressService as never,
             undefined,
             undefined,
@@ -64,17 +73,17 @@ function buildUsecase(localDocument: unknown) {
 
 describe("FinalizeDocumentHeadlessUsecase ownership boundary", () => {
     it("refuses a provider id that has no current branch-owned local row", async () => {
-        const { usecase, getAccessTokenUsecase, headlessService, eformsignService } = buildUsecase(null);
+        const { usecase, credentialBoundary, headlessService, eformsignService } = buildUsecase(null);
 
         await expect(usecase.execute({
             branchId: "branch-a",
             documentId: "provider-doc-1",
-        })).resolves.toMatchObject({
+        }, TEST_PRINCIPAL)).resolves.toMatchObject({
             ok: false,
             reason: "authorization_denied",
             fallbackHint: "manual_check",
         });
-        expect(getAccessTokenUsecase.execute).not.toHaveBeenCalled();
+        expect(credentialBoundary.withCredentials).not.toHaveBeenCalled();
         expect(eformsignService.generateStaffCompletionOptions).not.toHaveBeenCalled();
         expect(headlessService.dispatchFinalize).not.toHaveBeenCalled();
     });
@@ -83,7 +92,7 @@ describe("FinalizeDocumentHeadlessUsecase ownership boundary", () => {
         const {
             usecase,
             repository,
-            getAccessTokenUsecase,
+            credentialBoundary,
             eformsignService,
             headlessService,
             dispatchBoundary,
@@ -92,10 +101,10 @@ describe("FinalizeDocumentHeadlessUsecase ownership boundary", () => {
         await expect(usecase.execute({
             branchId: "branch-a",
             documentId: "provider-doc-1",
-        })).resolves.toMatchObject({ ok: true, completed: true });
+        }, TEST_PRINCIPAL)).resolves.toMatchObject({ ok: true, completed: true });
 
         expect(repository.findByDocumentId).toHaveBeenCalledWith("branch-a", "provider-doc-1");
-        expect(getAccessTokenUsecase.execute).toHaveBeenCalledTimes(1);
+        expect(credentialBoundary.withCredentials).toHaveBeenCalledTimes(1);
         expect(eformsignService.generateStaffCompletionOptions).toHaveBeenCalledWith(
             "provider-doc-1",
             "server-access",
@@ -119,18 +128,18 @@ describe("FinalizeDocumentHeadlessUsecase ownership boundary", () => {
         ["unassigned scheduled row", { clientId: null, employeeScheduleId: 13 }],
         ["unassigned row", { clientId: null, employeeScheduleId: null }],
     ])("refuses a %s lifecycle target before provider access", async (_label, overrides) => {
-        const { usecase, getAccessTokenUsecase, headlessService, eformsignService, dispatchBoundary } =
+        const { usecase, credentialBoundary, headlessService, eformsignService, dispatchBoundary } =
             buildUsecase({ ...document, ...overrides });
 
         await expect(usecase.execute({
             branchId: "branch-a",
             documentId: "provider-doc-1",
-        })).resolves.toMatchObject({
+        }, TEST_PRINCIPAL)).resolves.toMatchObject({
             ok: false,
             reason: "authorization_denied",
             fallbackHint: "manual_check",
         });
-        expect(getAccessTokenUsecase.execute).not.toHaveBeenCalled();
+        expect(credentialBoundary.withCredentials).not.toHaveBeenCalled();
         expect(eformsignService.generateStaffCompletionOptions).not.toHaveBeenCalled();
         expect(headlessService.dispatchFinalize).not.toHaveBeenCalled();
         expect(dispatchBoundary.claim).not.toHaveBeenCalled();

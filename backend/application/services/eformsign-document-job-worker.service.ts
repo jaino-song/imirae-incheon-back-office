@@ -235,14 +235,15 @@ export class EformsignDocumentJobWorkerService {
         for (let step = 0; step < MAX_CONSECUTIVE_FINALIZE_STEPS; step += 1) {
             const result = await this.finalizeUsecase.execute(
                 {
-                branchId: job.branchId,
-                documentId,
-                prefillEndDate: payload.prefillEndDate,
-                progressId: payload.progressId,
-                onProgress: async (progressStep) => {
-                    latestProgressStep = progressStep;
-                    onProgressStep?.(progressStep);
-                    await this.recordProgress(job.id, leaseToken, progressStep);
+                    branchId: job.branchId,
+                    documentId,
+                    prefillEndDate: payload.prefillEndDate,
+                    progressId: payload.progressId,
+                    onProgress: async (progressStep) => {
+                        latestProgressStep = progressStep;
+                        onProgressStep?.(progressStep);
+                        await this.recordProgress(job.id, leaseToken, progressStep);
+                    },
                 },
                 createEformsignWorkerPrincipal(job.branchId),
             );
