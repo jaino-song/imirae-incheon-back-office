@@ -445,25 +445,36 @@ test("database patch jobs apply every schema migration introduced after the leas
     const fileName = "database-patches.yml";
     const workflow = await readWorkflow(fileName);
     const leasePath = "prisma/migrations/20260827090000_add_call_processing_claim_lease/migration.sql";
-    const postLeaseMigrations = [
-        "prisma/migrations/20260828150000_add_admin_audit_events/migration.sql",
-        "prisma/migrations/20260829000000_add_sms_provider_acceptance_boundary/migration.sql",
-        "prisma/migrations/20260829000000_harden_service_record_phone_challenge/migration.sql",
-        "prisma/migrations/20260829090000_harden_legacy_chat_boundary/migration.sql",
-        "prisma/migrations/20260829120000_add_eformsign_dispatch_intents/migration.sql",
-    ];
+    const migrationRoot = resolve(WORKSPACE_ROOT, "backend/prisma/migrations");
+    const migrationEntries = await readdir(migrationRoot, { withFileTypes: true });
+    const migrationNames = migrationEntries
+        .filter((entry) => entry.isDirectory() && /^\d+_/.test(entry.name))
+        .map((entry) => entry.name)
+        .sort();
+    const leaseName = "20260827090000_add_call_processing_claim_lease";
+    const leaseNameIndex = migrationNames.indexOf(leaseName);
+    assert.notEqual(leaseNameIndex, -1, `${fileName} must retain the lease migration directory`);
+    const postLeaseMigrations = migrationNames
+        .slice(leaseNameIndex + 1)
+        .map((name) => `prisma/migrations/${name}/migration.sql`);
+    assert.ok(postLeaseMigrations.length > 0, `${fileName} must have post-lease migrations to verify`);
 
     for (const jobId of ["apply-dev", "apply-preview", "apply-production"]) {
         const job = jobBlock(workflow, jobId, fileName);
         const steps = stepBlocks(job, jobId, fileName);
         const leaseIndex = steps.findIndex((step) => step.join("\n").includes(leasePath));
         assert.notEqual(leaseIndex, -1, `${fileName} ${jobId} must apply the lease migration before post-lease migrations`);
+        const jobText = job.join("\n");
+        let previousMigrationOffset = jobText.indexOf(leasePath);
 
         for (const migrationPath of postLeaseMigrations) {
             const migrationSteps = steps.filter((step) => step.join("\n").includes(migrationPath));
             assert.equal(migrationSteps.length, 1, `${fileName} ${jobId} must apply ${migrationPath} exactly once`);
             const migrationIndex = steps.indexOf(migrationSteps[0]);
             assert.ok(migrationIndex > leaseIndex, `${fileName} ${jobId} must apply ${migrationPath} after the lease migration`);
+            const migrationOffset = jobText.indexOf(migrationPath);
+            assert.ok(migrationOffset > previousMigrationOffset, `${fileName} ${jobId} must apply ${migrationPath} in migration order`);
+            previousMigrationOffset = migrationOffset;
             const migrationText = migrationSteps[0].join("\n");
             assert.match(migrationText, /working-directory: backend/);
             assert.match(migrationText, /run: \|/);

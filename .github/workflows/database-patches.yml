@@ -369,6 +369,9 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829000000_harden_service_record_phone_challenge/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829090000_harden_legacy_chat_boundary/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829120000_add_eformsign_dispatch_intents/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829130000_add_auth_email_provider_boundary/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829130000_add_canonical_phone_identity/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829140000_add_message_trigger_job_claim_token/migration.sql
   apply-preview:
     name: apply preview database patches
     if: >-
@@ -879,6 +882,9 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829000000_harden_service_record_phone_challenge/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829090000_harden_legacy_chat_boundary/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829120000_add_eformsign_dispatch_intents/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829130000_add_auth_email_provider_boundary/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829130000_add_canonical_phone_identity/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829140000_add_message_trigger_job_claim_token/migration.sql
 
   apply-production:
     name: apply production database patches
@@ -1358,3 +1364,6 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829000000_harden_service_record_phone_challenge/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829090000_harden_legacy_chat_boundary/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829120000_add_eformsign_dispatch_intents/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829130000_add_auth_email_provider_boundary/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829130000_add_canonical_phone_identity/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829140000_add_message_trigger_job_claim_token/migration.sql
