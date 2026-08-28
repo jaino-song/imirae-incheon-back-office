@@ -148,7 +148,7 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
 
     getCapabilities(): CapabilityDefinition[] {
         const common = {
-            domain: "employees", version: "1.0.0", requiredRoles: ["owner", "admin", "manager"],
+            domain: "employees", version: "1.0.0", requiredRoles: ["owner", "admin"],
             risk: "reversible-write" as const, sideEffect: true, renderer: "action-proposal" as const,
             approvalPolicy: "structured" as const, idempotencyPolicy: "action-id" as const,
         };

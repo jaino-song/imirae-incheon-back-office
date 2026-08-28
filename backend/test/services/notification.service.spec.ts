@@ -1,4 +1,4 @@
-import { Logger } from "@nestjs/common";
+import { ForbiddenException, Logger } from "@nestjs/common";
 import { DailyDigestSection, NotificationService } from "application/services/notification.service";
 import { NotificationEntity } from "domain/entities/notification.entity";
 import { UserEntity } from "domain/entities/user.entity";
@@ -29,6 +29,7 @@ describe("NotificationService", () => {
     const getVapidKeyUsecase = { execute: jest.fn() };
     const userRepository = {
         findById: jest.fn(),
+        findByIdInBranch: jest.fn(),
         findByKakaoId: jest.fn(),
         findByEmail: jest.fn(),
         findByRoles: jest.fn(),
@@ -66,6 +67,7 @@ describe("NotificationService", () => {
         );
 
         userRepository.findById.mockResolvedValue(null);
+        userRepository.findByIdInBranch.mockImplementation(async (userId: string) => createUser(userId));
         userRepository.findNotificationRecipientsByBranchId.mockResolvedValue([
             createUser("user-1"),
             createUser("user-2"),
@@ -120,6 +122,35 @@ describe("NotificationService", () => {
 
         expect(emailPort.send).not.toHaveBeenCalled();
         expect(systemSettingService.getUserEmailNotificationsEnabled).not.toHaveBeenCalled();
+    });
+
+    it("should reject notification targets outside the selected branch before push or email", async () => {
+        userRepository.findByIdInBranch.mockResolvedValue(null);
+
+        await expect(
+            service.sendNotification(branchId, "foreign-user", "title", "body"),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+
+        expect(sendNotificationUsecase.execute).not.toHaveBeenCalled();
+        expect(emailPort.send).not.toHaveBeenCalled();
+    });
+
+    it("should broadcast only to active recipients resolved from the selected branch", async () => {
+        await expect(
+            service.broadcastNotification(branchId, "branch title", "branch body"),
+        ).resolves.toEqual({ sent: 2, failed: 0 });
+
+        expect(userRepository.findNotificationRecipientsByBranchId).toHaveBeenCalledWith(branchId);
+        expect(userRepository.findByRoles).not.toHaveBeenCalled();
+        expect(sendNotificationUsecase.execute).toHaveBeenCalledTimes(2);
+        expect(sendNotificationUsecase.execute).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({ userId: "user-1" }),
+        );
+        expect(sendNotificationUsecase.execute).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({ userId: "user-2" }),
+        );
     });
 
     it("should send a plain notification email with escaped HTML content", async () => {

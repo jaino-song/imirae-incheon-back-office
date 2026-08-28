@@ -1,13 +1,22 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { ExecutionContext, INestApplication, ValidationPipe } from "@nestjs/common";
+import { GUARDS_METADATA } from "@nestjs/common/constants";
 import request from "supertest";
 import { EmployeeScheduleController } from "interface/controllers/employee-schedule.controller";
 import { EmployeeScheduleService } from "application/services/employee-schedule.service";
 import { EmployeeScheduleEntity } from "domain/entities/employee-schedule.entity";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { TenantGuard } from "infrastructure/tenant/tenant.guard";
+import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 
 describe("EmployeeScheduleController (Integration)", () => {
+    it.each(["create", "update", "delete"])("requires owner/admin authority for %s", (methodName) => {
+        const guards = Reflect.getMetadata(
+            GUARDS_METADATA,
+            EmployeeScheduleController.prototype[methodName as keyof typeof EmployeeScheduleController.prototype],
+        ) ?? [];
+        expect(guards).toContain(OwnerOrAdminGuard);
+    });
     // ============================================
     // Test Fixtures & Setup
     // ============================================

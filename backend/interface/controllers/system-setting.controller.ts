@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Put, Request, UseGuards } from "@nestjs/common";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { OwnerGuard } from "infrastructure/auth/owner.guard";
+import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 import { SystemSettingService } from "application/services/system-setting.service";
 import {
     UpdateNotificationPreferencesDto,
@@ -93,7 +94,7 @@ export class SystemSettingController {
     }
 
     @Put("message-automation-policies/past-trigger")
-    @UseGuards(TenantGuard)
+    @UseGuards(TenantGuard, OwnerOrAdminGuard)
     async updateMessageAutomationPastTriggerConfig(
         @CurrentTenant() tenant: SettingsTenant,
         @Body() dto: UpdateMessageAutomationPastTriggerConfigDto,
@@ -127,7 +128,7 @@ export class SystemSettingController {
     }
 
     @Put("client-registration-policy")
-    @UseGuards(TenantGuard)
+    @UseGuards(TenantGuard, OwnerOrAdminGuard)
     async updateClientRegistrationPolicy(
         @CurrentTenant() tenant: SettingsTenant,
         @Request() request: { user?: { userId?: string; role?: string; branchRole?: string } },

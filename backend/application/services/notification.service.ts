@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger } from "@nestjs/common";
+import { ForbiddenException, Injectable, Inject, Logger } from "@nestjs/common";
 import {
     SubscribePushUsecase,
     UnsubscribePushUsecase,
@@ -84,12 +84,13 @@ export class NotificationService {
         userId: string,
         title: string,
         body: string,
+        userOverride?: UserEntity,
     ) {
         if (!isNotificationEmailEnabled()) {
             return;
         }
 
-        const user = await this.userRepository.findById(userId);
+        const user = userOverride ?? await this.userRepository.findById(userId);
         if (!user?.email) {
             return;
         }
@@ -124,16 +125,6 @@ export class NotificationService {
                 `Failed to send notification email to user ${user.id}`,
                 error instanceof Error ? error.stack : String(error),
             );
-        }
-    }
-
-    private async sendEmailNotificationsToUsers(
-        userIds: string[],
-        title: string,
-        body: string,
-    ) {
-        for (const userId of userIds) {
-            await this.sendEmailNotificationToUser(userId, title, body);
         }
     }
 
@@ -184,17 +175,20 @@ export class NotificationService {
     }
 
     // Push Subscription
-    subscribePush(
+    async subscribePush(
+        branchId: string,
         userId: string,
         endpoint: string,
         p256dhKey: string,
         authKey: string,
         userAgent?: string,
     ): Promise<PushSubscriptionEntity> {
+        await this.requireBranchUser(branchId, userId);
         return this.subscribePushUsecase.execute(userId, endpoint, p256dhKey, authKey, userAgent);
     }
 
-    unsubscribePush(userId: string, endpoint: string): Promise<void> {
+    async unsubscribePush(branchId: string, userId: string, endpoint: string): Promise<void> {
+        await this.requireBranchUser(branchId, userId);
         return this.unsubscribePushUsecase.execute(userId, endpoint);
     }
 
@@ -206,20 +200,52 @@ export class NotificationService {
         body: string,
         data?: Record<string, unknown>,
     ): Promise<NotificationEntity> {
+        const user = await this.requireBranchUser(branchid, userId);
         const notification = await this.sendNotificationUsecase.execute(branchid, { userId, title, body, data });
-        await this.sendEmailNotificationToUser(userId, title, body);
+        await this.sendEmailNotificationToUser(userId, title, body, user);
         return notification;
     }
 
     async broadcastNotification(
+        branchId: string,
         title: string,
         body: string,
         data?: Record<string, unknown>,
     ): Promise<{ sent: number; failed: number }> {
-        const result = await this.sendNotificationUsecase.broadcast({ title, body, data });
-        const users = await this.userRepository.findByRoles(["owner", "admin", "manager", "user"]);
-        await this.sendEmailNotificationsToUsers(users.map((user) => user.id), title, body);
-        return result;
+        const users = await this.userRepository.findNotificationRecipientsByBranchId(branchId);
+        const uniqueUsers = Array.from(new Map(users.map((user) => [user.id, user])).values());
+        if (uniqueUsers.length === 0) {
+            return { sent: 0, failed: 0 };
+        }
+
+        const results = await Promise.allSettled(uniqueUsers.map(async (user) => {
+            const notification = await this.requireBranchUser(branchId, user.id);
+            await this.sendNotificationUsecase.execute(branchId, { userId: user.id, title, body, data });
+            await this.sendEmailNotificationToUser(user.id, title, body, notification);
+        }));
+
+        let sent = 0;
+        let failed = 0;
+        for (const result of results) {
+            if (result.status === "fulfilled") {
+                sent++;
+            } else {
+                failed++;
+                this.logger.error(
+                    `Failed to broadcast notification for branch ${branchId}`,
+                    result.reason instanceof Error ? result.reason.stack : String(result.reason),
+                );
+            }
+        }
+        return { sent, failed };
+    }
+
+    private async requireBranchUser(branchId: string, userId: string): Promise<UserEntity> {
+        const user = await this.userRepository.findByIdInBranch(userId, branchId);
+        if (!user) {
+            throw new ForbiddenException("Notification target is outside the current branch");
+        }
+        return user;
     }
 
     // Get Notifications

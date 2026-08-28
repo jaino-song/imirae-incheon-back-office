@@ -89,6 +89,16 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             },
             message_trigger_rule: { upsert: jest.fn().mockResolvedValue(undefined) },
             message_trigger_job: { findFirst: jest.fn().mockResolvedValue(null) },
+            client: {
+                findFirst: jest.fn().mockImplementation(async ({ where }: { where: { phone?: string } }) => ({
+                    id: 1,
+                    name: "테스트 고객",
+                    phone: where.phone ?? "01012345678",
+                })),
+            },
+            employee: {
+                findFirst: jest.fn().mockResolvedValue(null),
+            },
         };
         prisma.$transaction.mockImplementation(async (operation: (tx: typeof prisma) => Promise<unknown>) => operation(prisma));
         const aligoService = {
@@ -133,6 +143,14 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         const time = soon.toLocaleTimeString("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit" });
 
         expect(schedule.inputSchema.safeParse({ receiver: "01012345678", message: "안내", scheduledDate: date, scheduledTime: time }).success).toBe(false);
+    });
+
+    it("requires owner/admin authority for SMS side-effect capabilities", () => {
+        const { capabilities } = setup();
+        for (const name of ["messages.sendSms", "messages.scheduleSms", "messages.retrySms"]) {
+            const capability = capabilities.find((entry) => entry.meta.name === name)!;
+            expect(capability.meta.requiredRoles).toEqual(["owner", "admin"]);
+        }
     });
 
     it("rejects impossible calendar dates and normalized out-of-range times", () => {
@@ -183,6 +201,19 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         await expect(preview.execute(context, input)).resolves.toEqual({ status: "preview", msgType: "LMS" });
         await expect(send.inspect!(context, input)).resolves.toEqual(expect.objectContaining({ estimatedCost: "LMS 요금제 기준" }));
         await expect(send.execute(context, input)).resolves.toEqual(expect.objectContaining({ status: "sent", msgType: "LMS" }));
+    });
+
+    it("rejects an arbitrary agent SMS recipient before creating a rule or job", async () => {
+        const { capabilities, repository, prisma, delivery } = setup();
+        prisma.client.findFirst.mockResolvedValue(null);
+        prisma.employee.findFirst.mockResolvedValue(null);
+        const send = capabilities.find((entry) => entry.meta.name === "messages.sendSms")!;
+
+        await expect(send.execute(context, { receiver: "01099998888", message: "임의 번호" }))
+            .rejects.toMatchObject({ name: "AgentActionCertainFailureError" });
+        expect(prisma.message_trigger_rule.upsert).not.toHaveBeenCalled();
+        expect(repository.upsertPending).not.toHaveBeenCalled();
+        expect(delivery.dispatchPendingJobNow).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -421,8 +452,16 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
                 ) => work(transaction)),
             } as never,
         );
+        const recipientPrisma = {
+            client: {
+                findFirst: jest.fn().mockResolvedValue({ id: 1, name: "테스트 고객", phone: "01012345678" }),
+            },
+            employee: {
+                findFirst: jest.fn().mockResolvedValue(null),
+            },
+        };
         const provider = new MessageExternalAgentCapabilitiesProvider(
-            {} as never,
+            recipientPrisma as never,
             triggerService,
             repository as never,
             smsDelivery,

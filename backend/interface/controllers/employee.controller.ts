@@ -9,6 +9,7 @@ import {
 } from "interface/dto/employee.dto";
 import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
+import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 import { parseBooleanQuery } from "interface/parse-boolean";
 import { parseInteger } from "interface/parse-integer";
 
@@ -18,6 +19,7 @@ export class EmployeeController {
     constructor(private readonly employeeService: EmployeeService) {}
 
     @Post()
+    @UseGuards(OwnerOrAdminGuard)
     create(@CurrentTenant() tenant: { branchId?: string }, @Body() dto: CreateEmployeeDto) {
         return this.employeeService.create(tenant.branchId ?? "", dto);
     }
@@ -111,6 +113,7 @@ export class EmployeeController {
     }
 
     @Patch("open-status")
+    @UseGuards(OwnerOrAdminGuard)
     changeOpenStatus(
         @CurrentTenant() tenant: { branchId?: string },
         @Query("id") id: string,
@@ -124,6 +127,7 @@ export class EmployeeController {
     }
 
     @Patch()
+    @UseGuards(OwnerOrAdminGuard)
     update(
         @CurrentTenant() tenant: { branchId?: string },
         @Query("id") id: string,
@@ -133,6 +137,7 @@ export class EmployeeController {
     }
 
     @Delete()
+    @UseGuards(OwnerOrAdminGuard)
     delete(@CurrentTenant() tenant: { branchId?: string }, @Query("id") id: string) {
         return this.employeeService.delete(tenant.branchId ?? "", parseInteger(id, "id", { min: 1 }));
     }

@@ -14,11 +14,13 @@ import {
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
+import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 import { AligoService } from "application/services/aligo.service";
 import { SendSmsMessageDto } from "interface/dto/message-delivery.dto";
 import { MessageSenderApprovalService } from "application/services/message-sender-approval.service";
 import { parseKstSchedule } from "application/utils/kst-schedule";
+import { normalizePhone } from "application/utils/normalize-phone";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { SMS_DELIVERY_RETRY_DELAY_MS } from "domain/entities/message-log.entity";
 import {
@@ -38,7 +40,7 @@ interface SmsMessageLogRecord {
 }
 
 @Controller("message-deliveries")
-@UseGuards(JwtGuard, TenantGuard)
+@UseGuards(JwtGuard, TenantGuard, OwnerOrAdminGuard)
 export class MessageDeliveryController {
     private readonly logger = new Logger(MessageDeliveryController.name);
 
@@ -56,9 +58,9 @@ export class MessageDeliveryController {
     ) {
         const triggerType = dto.triggerType ?? "immediate";
         const branchId = tenant.branchId ?? "";
-        await this.assertClientBelongsToBranch(branchId, dto.clientId);
+        const resolvedDto = await this.resolveSmsRecipients(branchId, dto);
         this.logger.log(
-            `[SMS] Request received: branchId=${branchId || "unknown"}, triggerType=${triggerType}, recipientCount=${this.countSmsRecipients(dto.receiver)}`,
+            `[SMS] Request received: branchId=${branchId || "unknown"}, triggerType=${triggerType}, recipientCount=${this.countSmsRecipients(resolvedDto.receiver)}`,
         );
 
         try {
@@ -85,7 +87,7 @@ export class MessageDeliveryController {
             : undefined;
         const pendingLog = await this.createPendingSmsLog(
             branchId,
-            dto,
+            resolvedDto,
             triggerType,
             scheduledDate,
             scheduledTime,
@@ -115,11 +117,11 @@ export class MessageDeliveryController {
         await this.markProviderCallStarted(pendingLog.row);
 
         const result = await this.aligoService.sendSms({
-            receiver: dto.receiver,
-            message: dto.message,
-            recipientName: dto.recipientName,
-            title: dto.title,
-            msgType: dto.msgType,
+            receiver: resolvedDto.receiver,
+            message: resolvedDto.message,
+            recipientName: resolvedDto.recipientName,
+            title: resolvedDto.title,
+            msgType: resolvedDto.msgType,
             scheduledDate,
             scheduledTime,
             testMode: dto.testMode,
@@ -209,6 +211,7 @@ export class MessageDeliveryController {
             recipientName: dto.recipientName ?? null,
             title: dto.title?.trim() || null,
             clientId: dto.clientId ?? null,
+            employeeId: dto.employeeId ?? null,
             msgType: dto.msgType ?? "AUTO",
             triggerType,
             scheduledDate: scheduledDate ?? null,
@@ -242,6 +245,7 @@ export class MessageDeliveryController {
                     title: dto.title ?? null,
                     triggerType,
                     msgType: dto.msgType ?? null,
+                    employeeId: dto.employeeId ?? null,
                     scheduledDate: scheduledDate ?? null,
                     scheduledTime: scheduledTime ?? null,
                     testMode: dto.testMode ? "true" : "false",
@@ -309,19 +313,127 @@ export class MessageDeliveryController {
         row.providerCallStartedAt = startedAt;
     }
 
-    private async assertClientBelongsToBranch(
+    private async resolveSmsRecipients(
         branchId: string,
-        clientId?: number | null,
-    ): Promise<void> {
-        if (clientId == null) return;
-
-        const client = await this.prisma.client.findFirst({
-            where: { id: clientId, branchId },
-            select: { id: true },
-        });
-        if (!client) {
-            throw new NotFoundException("Client not found for branch");
+        dto: SendSmsMessageDto,
+    ): Promise<SendSmsMessageDto> {
+        if (!branchId) {
+            throw new BadRequestException("A branch is required before sending SMS");
         }
+        if (dto.clientId != null && dto.employeeId != null) {
+            throw new BadRequestException("SMS recipient cannot be both a client and an employee");
+        }
+
+        const rawReceivers = dto.receiver
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean);
+        const normalizedRawReceivers = rawReceivers.map((value) => normalizePhone(value));
+        if (normalizedRawReceivers.length === 0 || normalizedRawReceivers.some((value) => !value)) {
+            throw new BadRequestException("SMS recipients must be valid branch-owned client or employee phone numbers");
+        }
+        const normalizedReceivers = Array.from(new Set(normalizedRawReceivers.filter((value): value is string => Boolean(value))));
+
+        type Recipient = { id: number; name: string | null; phone: string; kind: "client" | "employee" };
+        const recipients: Recipient[] = [];
+
+        if (dto.clientId != null) {
+            if (normalizedReceivers.length !== 1) {
+                throw new BadRequestException("A client-associated SMS must contain exactly one recipient");
+            }
+            const client = await this.prisma.client.findFirst({
+                where: { id: dto.clientId, branchId },
+                select: { id: true, name: true, phone: true },
+            });
+            if (!client) {
+                throw new NotFoundException("Client not found for branch");
+            }
+            const phone = normalizePhone(client.phone);
+            if (!phone || phone !== normalizedReceivers[0]) {
+                throw new BadRequestException("SMS recipient does not match the selected client");
+            }
+            recipients.push({ id: client.id, name: client.name, phone, kind: "client" });
+        } else if (dto.employeeId != null) {
+            if (normalizedReceivers.length !== 1) {
+                throw new BadRequestException("An employee-associated SMS must contain exactly one recipient");
+            }
+            const employeeModel = (this.prisma as PrismaService & { employee?: PrismaService["employee"] }).employee;
+            const employee = employeeModel && await employeeModel.findFirst({
+                where: { id: dto.employeeId, branchId, deletedAt: null },
+                select: { id: true, name: true, phone: true },
+            });
+            if (!employee) {
+                throw new NotFoundException("Employee not found for branch");
+            }
+            const phone = normalizePhone(employee.phone);
+            if (!phone || phone !== normalizedReceivers[0]) {
+                throw new BadRequestException("SMS recipient does not match the selected employee");
+            }
+            recipients.push({ id: employee.id, name: employee.name, phone, kind: "employee" });
+        } else {
+            for (const phone of normalizedReceivers) {
+                const client = await this.findClientByPhone(branchId, phone);
+                const employee = await this.findEmployeeByPhone(branchId, phone);
+                if (client && employee) {
+                    throw new BadRequestException("SMS recipient matches more than one branch record");
+                }
+                if (!client && !employee) {
+                    throw new NotFoundException("SMS recipient not found for branch");
+                }
+                if (client) {
+                    recipients.push({ id: client.id, name: client.name, phone, kind: "client" });
+                } else if (employee) {
+                    recipients.push({ id: employee.id, name: employee.name, phone, kind: "employee" });
+                }
+            }
+        }
+
+        const canonicalName = recipients.length === 1 ? recipients[0]?.name ?? undefined : undefined;
+        const clientId = recipients.length === 1 && recipients[0]?.kind === "client" ? recipients[0].id : null;
+        const employeeId = recipients.length === 1 && recipients[0]?.kind === "employee" ? recipients[0].id : null;
+        return {
+            ...dto,
+            receiver: recipients.map((recipient) => recipient.phone).join(","),
+            recipientName: canonicalName,
+            clientId,
+            employeeId,
+        };
+    }
+
+    private async findClientByPhone(branchId: string, phone: string): Promise<{ id: number; name: string | null } | null> {
+        const client = await this.prisma.client.findFirst({
+            where: { branchId, phone },
+            select: { id: true, name: true, phone: true },
+        });
+        if (client && normalizePhone(client.phone) === phone) {
+            return { id: client.id, name: client.name };
+        }
+        const clientModel = this.prisma.client as typeof this.prisma.client & {
+            findMany?: (args: { where: { branchId: string }; select: { id: true; name: true; phone: true } }) => Promise<Array<{ id: number; name: string | null; phone: string | null }>>;
+        };
+        if (typeof clientModel.findMany !== "function") return null;
+        const matches = await clientModel.findMany({ where: { branchId }, select: { id: true, name: true, phone: true } });
+        const match = matches.find((candidate) => normalizePhone(candidate.phone) === phone);
+        return match ? { id: match.id, name: match.name } : null;
+    }
+
+    private async findEmployeeByPhone(branchId: string, phone: string): Promise<{ id: number; name: string | null } | null> {
+        const employeeModel = (this.prisma as PrismaService & { employee?: PrismaService["employee"] }).employee;
+        if (!employeeModel) return null;
+        const employee = await employeeModel.findFirst({
+            where: { branchId, phone, deletedAt: null },
+            select: { id: true, name: true, phone: true },
+        });
+        if (employee && normalizePhone(employee.phone) === phone) {
+            return { id: employee.id, name: employee.name };
+        }
+        const employeeModelWithFindMany = employeeModel as typeof employeeModel & {
+            findMany?: (args: { where: { branchId: string; deletedAt: null }; select: { id: true; name: true; phone: true } }) => Promise<Array<{ id: number; name: string | null; phone: string | null }>>;
+        };
+        if (typeof employeeModelWithFindMany.findMany !== "function") return null;
+        const matches = await employeeModelWithFindMany.findMany({ where: { branchId, deletedAt: null }, select: { id: true, name: true, phone: true } });
+        const match = matches.find((candidate) => normalizePhone(candidate.phone) === phone);
+        return match ? { id: match.id, name: match.name } : null;
     }
 
     private async updateSmsLogFromResult(

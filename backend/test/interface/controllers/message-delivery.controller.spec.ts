@@ -14,7 +14,8 @@ describe("MessageDeliveryController", () => {
     let aligoService: jest.Mocked<Pick<AligoService, "sendSms">>;
     let messageSenderApprovalService: jest.Mocked<Pick<MessageSenderApprovalService, "ensureApproved">>;
     let prismaService: {
-        client: { findFirst: jest.Mock };
+        client: { findFirst: jest.Mock; findMany?: jest.Mock };
+        employee?: { findFirst: jest.Mock; findMany?: jest.Mock };
         message_log: { create: jest.Mock; update: jest.Mock };
     };
 
@@ -27,7 +28,14 @@ describe("MessageDeliveryController", () => {
         };
         prismaService = {
             client: {
-                findFirst: jest.fn(),
+                findFirst: jest.fn().mockImplementation(async ({ where }: { where: { id?: number; phone?: string } }) => ({
+                    id: where.id ?? 1,
+                    name: "테스트 수신자",
+                    phone: where.phone ?? "01012345678",
+                })),
+            },
+            employee: {
+                findFirst: jest.fn().mockResolvedValue(null),
             },
             message_log: {
                 create: jest.fn().mockResolvedValue({
@@ -148,9 +156,9 @@ describe("MessageDeliveryController", () => {
         );
 
         expect(aligoService.sendSms).toHaveBeenCalledWith({
-            receiver: "010-1234-5678",
+            receiver: "01012345678",
             message: "장문 테스트 메시지",
-            recipientName: "김산모",
+            recipientName: "테스트 수신자",
             title: "안내",
             msgType: undefined,
             scheduledDate: "20260309",
@@ -181,7 +189,7 @@ describe("MessageDeliveryController", () => {
                 branchId: "org-1",
                 provider: "aligo_sms",
                 templateKey: "안내",
-                receiver: "010-1234-5678",
+                receiver: "01012345678",
                 status: "pending",
                 attempts: 0,
             }),
@@ -242,13 +250,13 @@ describe("MessageDeliveryController", () => {
                 errorMessage: null,
             }),
         });
-        expect(prismaService.client.findFirst).not.toHaveBeenCalled();
+        expect(prismaService.client.findFirst).toHaveBeenCalled();
     });
 
     it.each([
         { description: "an omitted client ID", clientId: undefined },
         { description: "an explicit null client ID", clientId: null },
-    ])("should treat $description as an unassociated SMS", async ({ clientId }) => {
+    ])("should resolve $description through a branch-owned recipient", async ({ clientId }) => {
         aligoService.sendSms.mockResolvedValue({
             request: {
                 senderPhone: "0212345678",
@@ -277,11 +285,11 @@ describe("MessageDeliveryController", () => {
             ),
         ).resolves.toMatchObject({ provider: "aligo_sms" });
 
-        expect(prismaService.client.findFirst).not.toHaveBeenCalled();
+        expect(prismaService.client.findFirst).toHaveBeenCalled();
         expect(prismaService.message_log.create).toHaveBeenCalledWith({
             data: expect.objectContaining({
                 branchId: "branch-a",
-                clientId: null,
+                clientId: 1,
             }),
         });
     });
@@ -302,7 +310,7 @@ describe("MessageDeliveryController", () => {
 
         expect(prismaService.client.findFirst).toHaveBeenCalledWith({
             where: { id: 7, branchId: "branch-a" },
-            select: { id: true },
+            select: { id: true, name: true, phone: true },
         });
         expect(messageSenderApprovalService.ensureApproved).not.toHaveBeenCalled();
         expect(prismaService.message_log.create).not.toHaveBeenCalled();
@@ -311,7 +319,7 @@ describe("MessageDeliveryController", () => {
     });
 
     it("should preserve the client association for a same-branch manual SMS", async () => {
-        prismaService.client.findFirst.mockResolvedValue({ id: 7 });
+        prismaService.client.findFirst.mockResolvedValue({ id: 7, name: "지점 고객", phone: "01012345678" });
         aligoService.sendSms.mockResolvedValue({
             request: {
                 senderPhone: "0212345678",
@@ -342,12 +350,81 @@ describe("MessageDeliveryController", () => {
 
         expect(prismaService.client.findFirst).toHaveBeenCalledWith({
             where: { id: 7, branchId: "branch-a" },
-            select: { id: true },
+            select: { id: true, name: true, phone: true },
         });
         expect(prismaService.message_log.create).toHaveBeenCalledWith({
             data: expect.objectContaining({ branchId: "branch-a", clientId: 7 }),
         });
         expect(aligoService.sendSms).toHaveBeenCalledTimes(1);
+    });
+
+    it("should reject a free-form recipient before approval, history, or provider side effects", async () => {
+        prismaService.client.findFirst.mockResolvedValue(null);
+        prismaService.employee?.findFirst.mockResolvedValue(null);
+
+        await expect(
+            controller.sendSms(
+                { branchId: "branch-a" },
+                {
+                    receiver: "01099998888",
+                    message: "임의 번호 발송 시도",
+                },
+            ),
+        ).rejects.toThrow("SMS recipient not found for branch");
+
+        expect(messageSenderApprovalService.ensureApproved).not.toHaveBeenCalled();
+        expect(prismaService.message_log.create).not.toHaveBeenCalled();
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+    });
+
+    it("should bind an employee-associated SMS to an active employee in the selected branch", async () => {
+        prismaService.client.findFirst.mockResolvedValue(null);
+        prismaService.employee?.findFirst.mockResolvedValue({
+            id: 12,
+            name: "지점 직원",
+            phone: "010-1234-5678",
+        });
+        aligoService.sendSms.mockResolvedValue({
+            request: {
+                senderPhone: "0212345678",
+                receiver: "01012345678",
+                msgType: "SMS",
+                testModeYn: "N",
+            },
+            response: {
+                result_code: 1,
+                message: "success",
+                msg_id: 124,
+                success_cnt: 1,
+                error_cnt: 0,
+                msg_type: "SMS",
+            },
+        });
+
+        await expect(
+            controller.sendSms(
+                { branchId: "branch-a" },
+                {
+                    receiver: "01012345678",
+                    employeeId: 12,
+                    recipientName: "caller-controlled",
+                    message: "직원 안내",
+                },
+            ),
+        ).resolves.toMatchObject({ provider: "aligo_sms" });
+
+        expect(prismaService.employee?.findFirst).toHaveBeenCalledWith({
+            where: { id: 12, branchId: "branch-a", deletedAt: null },
+            select: { id: true, name: true, phone: true },
+        });
+        expect(prismaService.message_log.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({
+                branchId: "branch-a",
+                clientId: null,
+                recipientName: "지점 직원",
+                variables: expect.objectContaining({ employeeId: 12 }),
+            }),
+        });
     });
 
     it("should record failed logs and reject when Aligo does not accept the SMS request", async () => {

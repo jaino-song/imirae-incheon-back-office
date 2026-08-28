@@ -35,7 +35,7 @@ describe("NotificationController", () => {
             configService as unknown as ConfigService,
         );
 
-        await expect(controller.testBroadcast()).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(controller.testBroadcast({ branchId: "branch-a" })).rejects.toBeInstanceOf(ForbiddenException);
         expect(notificationService.broadcastNotification).not.toHaveBeenCalled();
     });
 
@@ -49,10 +49,12 @@ describe("NotificationController", () => {
         );
 
         await expect(controller.unsubscribe(
+            { branchId: "branch-a" },
             { user: { userId: "user-b", role: "user" } },
             { endpoint: "https://push.example/shared-endpoint" },
         )).resolves.toEqual({ success: true });
         expect(notificationService.unsubscribePush).toHaveBeenCalledWith(
+            "branch-a",
             "user-b",
             "https://push.example/shared-endpoint",
         );
@@ -68,6 +70,7 @@ describe("NotificationController", () => {
         );
 
         await expect(controller.subscribe(
+            { branchId: "branch-a" },
             { user: { userId: "user-b", role: "user" } },
             {
                 endpoint: "https://push.example/shared-endpoint",
@@ -77,6 +80,7 @@ describe("NotificationController", () => {
             },
         )).resolves.toEqual({ success: true });
         expect(notificationService.subscribePush).toHaveBeenCalledWith(
+            "branch-a",
             "user-b",
             "https://push.example/shared-endpoint",
             "p256dh-b",

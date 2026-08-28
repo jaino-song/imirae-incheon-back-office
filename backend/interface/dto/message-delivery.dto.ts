@@ -35,8 +35,13 @@ export class SendSmsMessageDto {
 
     @IsOptional()
     @IsInt()
-    /** Null/omitted means the message is not associated with a client. */
+    /** Optional client association; the backend resolves and verifies the branch-owned recipient. */
     clientId?: number | null;
+
+    @IsOptional()
+    @IsInt()
+    /** Optional employee association; the employee must be active in the selected branch. */
+    employeeId?: number | null;
 
     @IsOptional()
     @IsIn(["AUTO", "SMS", "LMS"])

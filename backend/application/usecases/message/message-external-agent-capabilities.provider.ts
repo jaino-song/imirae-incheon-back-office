@@ -25,6 +25,7 @@ import {
 import type { MessageTriggerRuleEntity } from "domain/entities/message-trigger-rule.entity";
 import { MESSAGE_TRIGGER_JOB_REPOSITORY, type IMessageTriggerJobRepository } from "domain/repositories/message-trigger-job.repository.interface";
 import { PhoneNumber } from "domain/value-objects/phone-number.vo";
+import { normalizePhone } from "application/utils/normalize-phone";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { createHash } from "node:crypto";
 import { readAgentActionEffect, recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
@@ -178,6 +179,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
 
     getCapabilities(): CapabilityDefinition[] {
         const common = { domain: "messages", version: "1.0.0", requiredRoles: ["owner", "admin", "manager"], sideEffect: true, approvalPolicy: "strong" as const, idempotencyPolicy: "action-id" as const };
+        const smsCommon = { ...common, requiredRoles: ["owner", "admin"] };
         return [
             {
                 meta: { domain: "messages", version: "1.0.0", requiredRoles: ["owner", "admin", "manager", "user"], sideEffect: false, name: "messages.previewSms", description: "Preview SMS content and cost category", risk: "read" as const, renderer: "activity" as const, flagKey: "agent.capability.messages.previewSms" },
@@ -221,7 +223,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 },
             },
             {
-                meta: { ...common, name: "messages.sendSms", description: "Send an SMS after strong approval", risk: "external-side-effect" as const, renderer: "action-proposal" as const, flagKey: "agent.capability.messages.sendSms" },
+                meta: { ...smsCommon, name: "messages.sendSms", description: "Send an SMS after strong approval", risk: "external-side-effect" as const, renderer: "action-proposal" as const, flagKey: "agent.capability.messages.sendSms" },
                 inputSchema: SendSmsSchema, outputSchema: SmsOutputSchema,
                 classifyOutcome: (rawOutput) => {
                     const status = SmsOutputSchema.parse(rawOutput).status;
@@ -261,7 +263,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 reconcile: async (context, _rawInput, uncertainty) => this.reconcileSmsJob(context, uncertainty),
             },
             {
-                meta: { ...common, name: "messages.scheduleSms", description: "Schedule an SMS after strong approval", risk: "external-side-effect" as const, renderer: "action-proposal" as const, flagKey: "agent.capability.messages.scheduleSms" },
+                meta: { ...smsCommon, name: "messages.scheduleSms", description: "Schedule an SMS after strong approval", risk: "external-side-effect" as const, renderer: "action-proposal" as const, flagKey: "agent.capability.messages.scheduleSms" },
                 inputSchema: ScheduledSmsSchema, outputSchema: SmsOutputSchema,
                 formFields: SCHEDULED_SMS_FIELDS,
                 inspect: async (context, rawInput) => {
@@ -296,7 +298,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 },
             },
             {
-                meta: { ...common, name: "messages.retrySms", description: "Retry a provider-rejected SMS after strong approval", risk: "external-side-effect" as const, renderer: "action-proposal" as const, flagKey: "agent.capability.messages.retrySms" },
+                meta: { ...smsCommon, name: "messages.retrySms", description: "Retry a provider-rejected SMS after strong approval", risk: "external-side-effect" as const, renderer: "action-proposal" as const, flagKey: "agent.capability.messages.retrySms" },
                 inputSchema: RetrySmsSchema,
                 outputSchema: SmsOutputSchema,
                 classifyOutcome: (rawOutput) => {
@@ -552,6 +554,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
         ruleName: string,
     ): Promise<MessageTriggerJobEntity> {
         if (!context.actionId) throw new AgentActionUncertainError("SMS action identity is missing");
+        const recipient = await this.resolveSmsRecipient(context.principal.branchId, input.receiver);
         await this.ensureSmsApprovedForExecution(context.principal.branchId);
         const ruleId = `${AGENT_SMS_RULE_ID_PREFIX}${context.principal.branchId}`;
         await this.prisma.message_trigger_rule.upsert({
@@ -577,13 +580,13 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
             ruleId,
             scheduledFor,
             recipientType: MessageTriggerRecipientType.CLIENT,
-            recipientPhone: input.receiver,
+            recipientPhone: recipient.phone,
             templateKey: MessageTriggerTemplateKey.INFO,
             dedupeKey: `agent-sms:${context.actionId}`,
             payload: {
                 memberId: `agent-action:${context.actionId}`,
-                recipientName: "수신자",
-                recipientPhone: input.receiver,
+                recipientName: recipient.name ?? "수신자",
+                recipientPhone: recipient.phone,
                 messageBody: input.message,
                 templateVariables: {
                     triggerType: "agent_scheduled",
@@ -592,6 +595,36 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 },
             },
         }));
+    }
+
+    private async resolveSmsRecipient(
+        branchId: string,
+        rawReceiver: string,
+    ): Promise<{ phone: string; name: string | null }> {
+        const phone = normalizePhone(rawReceiver);
+        if (!phone) {
+            throw new AgentActionCertainFailureError("SMS recipient must be a valid phone number");
+        }
+
+        const clientModel = (this.prisma as PrismaService & { client?: PrismaService["client"] }).client;
+        const client = clientModel && await clientModel.findFirst({
+            where: { branchId, phone },
+            select: { id: true, name: true, phone: true },
+        });
+        if (client && normalizePhone(client.phone) === phone) {
+            return { phone, name: client.name };
+        }
+
+        const employeeModel = (this.prisma as PrismaService & { employee?: PrismaService["employee"] }).employee;
+        const employee = employeeModel && await employeeModel.findFirst({
+            where: { branchId, phone, deletedAt: null },
+            select: { id: true, name: true, phone: true },
+        });
+        if (employee && normalizePhone(employee.phone) === phone) {
+            return { phone, name: employee.name };
+        }
+
+        throw new AgentActionCertainFailureError("SMS recipient is not an active client or employee in this branch");
     }
 
     private async executeRetrySms(
@@ -621,6 +654,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
         } catch {
             throw new AgentActionCertainFailureError("SMS approval snapshot no longer matches the provider-bound target");
         }
+        await this.resolveSmsRecipient(context.principal.branchId, source.recipientPhone ?? snapshot.receiver);
         const retryCandidate = MessageTriggerJobEntity.create({
             branchId: context.principal.branchId,
             ruleId: source.ruleId,
