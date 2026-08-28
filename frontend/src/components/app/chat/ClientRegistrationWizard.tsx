@@ -76,6 +76,7 @@ export function ClientRegistrationWizard({
 
     const [isRegisteringEmployee, setIsRegisteringEmployee] = useState(false);
     const [employeeName, setEmployeeName] = useState(initialDraft?.employeeName ?? "");
+    const [createdEmployeeId, setCreatedEmployeeId] = useState<number | null>(null);
     const [employeePhone, setEmployeePhone] = useState("");
     const [employeeGrade, setEmployeeGrade] = useState("스탠다드");
     const [employeeWorkArea, setEmployeeWorkArea] = useState<string>(WORK_AREAS[0]);
@@ -114,8 +115,16 @@ export function ClientRegistrationWizard({
         grant.trim().length > 0 &&
         actualPrice.trim().length > 0;
 
-    const matchedEmployee = employees.find((candidate: Employee) => candidate.name === employeeName.trim());
-    const needsEmployeeRegistration = Boolean(employeeName) && !matchedEmployee;
+    const matchingEmployees = employees.filter(
+        (candidate: Employee) => candidate.name === employeeName.trim(),
+    );
+    const matchedEmployee = matchingEmployees.length === 1 ? matchingEmployees[0] : undefined;
+    const needsEmployeeRegistration = Boolean(employeeName)
+        && matchingEmployees.length === 0
+        && createdEmployeeId === null;
+    const canRegisterEmployee = employeeName.trim().length >= 2
+        && employeePhone.replace(/\D/g, "").length === 11
+        && Boolean(employeeWorkArea);
 
     const canGoNext = useMemo(() => {
         if (activeStep === 0) {
@@ -211,7 +220,7 @@ export function ClientRegistrationWizard({
 
             const created = await createClientMutation.mutateAsync({
                 ...payload,
-                primaryEmployeeId: employees.find((employee: Employee) => employee.name === employeeName)?.id ?? null,
+                primaryEmployeeId: createdEmployeeId ?? matchedEmployee?.id ?? null,
             } as CreateClientDto);
             onCreated?.(created);
         } catch (e) {
@@ -223,18 +232,20 @@ export function ClientRegistrationWizard({
     };
 
     const handleEmployeeSubmit = async () => {
-        if (employeeName.trim().length < 2 || employeePhone.replace(/\D/g, "").length !== 11 || !employeeWorkArea) return;
+        if (!canRegisterEmployee) return;
 
         setIsSubmitting(true);
         try {
-            await createEmployeeMutation.mutateAsync({
+            const createdEmployee = await createEmployeeMutation.mutateAsync({
                 name: employeeName.trim(),
                 workArea: [employeeWorkArea],
                 phone: employeePhone.replace(/\D/g, ""),
                 grade: normalizeEmployeeGrade(employeeGrade),
                 openToNextWork: true,
             } satisfies CreateEmployeeDto);
+            setCreatedEmployeeId(createdEmployee.id);
             setIsRegisteringEmployee(false);
+            handleNext();
         } catch (e) {
             const msg = e instanceof Error ? e.message : "제공인력 등록에 실패했습니다.";
             setSubmitError(msg);
@@ -514,8 +525,14 @@ export function ClientRegistrationWizard({
             <div data-component="desktop_chat_page_wizard-registration_actions" className="flex justify-between mt-4">
                 <Button
                     variant="outline"
-                    onClick={handleBack}
-                    disabled={activeStep === 0 || isSubmitting}
+                    onClick={() => {
+                        if (isRegisteringEmployee) {
+                            setIsRegisteringEmployee(false);
+                            return;
+                        }
+                        handleBack();
+                    }}
+                    disabled={(!isRegisteringEmployee && activeStep === 0) || isSubmitting}
                 >
                     이전
                 </Button>
@@ -533,7 +550,9 @@ export function ClientRegistrationWizard({
                             }
                             handleNext();
                         }}
-                        disabled={isRegisteringEmployee || !canGoNext || isSubmitting}
+                        disabled={isRegisteringEmployee
+                            ? !canRegisterEmployee || isSubmitting
+                            : !canGoNext || isSubmitting}
                     >
                         {isRegisteringEmployee ? "제공인력 등록" : "다음"}
                     </Button>

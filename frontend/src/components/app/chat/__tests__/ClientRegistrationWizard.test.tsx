@@ -2,6 +2,8 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ClientRegistrationWizard } from "../ClientRegistrationWizard";
 
 const mockCreateClientMutateAsync = jest.fn();
+const mockCreateEmployeeMutateAsync = jest.fn();
+let mockEmployees: Array<{ id: number; name: string }> = [];
 
 jest.mock("@/hooks/useVoucherData", () => ({
     useAvailableClientAreas: () => ({ data: [], isLoading: false }),
@@ -35,13 +37,18 @@ jest.mock("@/hooks/useClients", () => ({
 }));
 
 jest.mock("@/hooks/useEmployees", () => ({
-    useCreateEmployee: () => ({ mutateAsync: jest.fn(), isPending: false }),
-    useEmployees: () => ({ data: [] }),
+    useCreateEmployee: () => ({
+        mutateAsync: (...args: unknown[]) => mockCreateEmployeeMutateAsync(...args),
+        isPending: false,
+    }),
+    useEmployees: () => ({ data: mockEmployees }),
 }));
 
 describe("ClientRegistrationWizard", () => {
     beforeEach(() => {
         mockCreateClientMutateAsync.mockReset();
+        mockCreateEmployeeMutateAsync.mockReset();
+        mockEmployees = [];
     });
 
     test("submits minimal required payload to /api/clients", async () => {
@@ -142,6 +149,97 @@ describe("ClientRegistrationWizard", () => {
         fireEvent.click(screen.getByRole("button", { name: "다음" }));
 
         expect(await screen.findByLabelText("제공인력 이름")).toHaveValue("김제공");
+    });
+
+    test("enables and submits inline employee registration after required fields are complete", async () => {
+        mockCreateEmployeeMutateAsync.mockResolvedValue({ id: 9, name: "김제공" });
+        render(
+            <ClientRegistrationWizard
+                initialDraft={{
+                    name: "홍길동",
+                    phone: "01012345678",
+                    birthday: "900101",
+                    address: "인천 연수구",
+                    dueDate: "260201",
+                    employeeName: "김제공",
+                }}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        const registerButton = await screen.findByRole("button", { name: "제공인력 등록" });
+        expect(registerButton).toBeDisabled();
+
+        fireEvent.change(screen.getByLabelText("연락처"), {
+            target: { value: "01012345678" },
+        });
+        expect(registerButton).not.toBeDisabled();
+        fireEvent.click(registerButton);
+
+        await waitFor(() => {
+            expect(mockCreateEmployeeMutateAsync).toHaveBeenCalledTimes(1);
+        });
+        expect(await screen.findByRole("checkbox", { name: "바우처 대상" }))
+            .toBeInTheDocument();
+    });
+
+    test("does not auto-bind an employee when multiple employees share the extracted name", async () => {
+        mockEmployees = [
+            { id: 10, name: "김제공" },
+            { id: 11, name: "김제공" },
+        ];
+        mockCreateClientMutateAsync.mockResolvedValue({ id: 123, name: "홍길동" });
+        render(
+            <ClientRegistrationWizard
+                initialDraft={{
+                    name: "홍길동",
+                    phone: "01012345678",
+                    birthday: "900101",
+                    address: "인천 연수구",
+                    dueDate: "260201",
+                    employeeName: "김제공",
+                }}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        fireEvent.click(await screen.findByRole("checkbox", { name: "바우처 대상" }));
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        fireEvent.click(screen.getByRole("button", { name: "제출" }));
+
+        await waitFor(() => {
+            expect(mockCreateClientMutateAsync).toHaveBeenCalledWith(
+                expect.objectContaining({ primaryEmployeeId: null }),
+            );
+        });
+    });
+
+    test("auto-binds an extracted employee name only when the match is unique", async () => {
+        mockEmployees = [{ id: 10, name: "김제공" }];
+        mockCreateClientMutateAsync.mockResolvedValue({ id: 123, name: "홍길동" });
+        render(
+            <ClientRegistrationWizard
+                initialDraft={{
+                    name: "홍길동",
+                    phone: "01012345678",
+                    birthday: "900101",
+                    address: "인천 연수구",
+                    dueDate: "260201",
+                    employeeName: "김제공",
+                }}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        fireEvent.click(await screen.findByRole("checkbox", { name: "바우처 대상" }));
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        fireEvent.click(screen.getByRole("button", { name: "제출" }));
+
+        await waitFor(() => {
+            expect(mockCreateClientMutateAsync).toHaveBeenCalledWith(
+                expect.objectContaining({ primaryEmployeeId: 10 }),
+            );
+        });
     });
 
     test("shows inline error on API failure", async () => {

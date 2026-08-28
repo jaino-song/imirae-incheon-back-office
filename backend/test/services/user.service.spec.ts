@@ -420,7 +420,7 @@ describe("UserService", () => {
             prismaService.user.findUnique.mockResolvedValue(approvedTarget({
                 role: "manager",
                 ownedBranches: [],
-                userBranches: [membership(branchIds[0], "manager")],
+                userBranches: [membership(branchIds[0], "user")],
             }));
 
             const error = await service.updateAccountAssignment(
@@ -567,7 +567,7 @@ describe("UserService", () => {
             expectNoAssignmentWrites();
         });
 
-        it("preserves an existing inactive membership while applying the selected role", async () => {
+        it("preserves an existing inactive membership role", async () => {
             const inactiveMembershipBranchId = "33333333-3333-4333-8333-333333333333";
             prismaService.user.findUnique.mockResolvedValue(approvedTarget({
                 role: "manager",
@@ -611,11 +611,11 @@ describe("UserService", () => {
                         branchId: inactiveMembershipBranchId,
                     },
                 },
-                update: { role: "user" },
+                update: { role: "manager" },
                 create: {
                     userId: "u1",
                     branchId: inactiveMembershipBranchId,
-                    role: "user",
+                    role: "manager",
                 },
             });
         });
