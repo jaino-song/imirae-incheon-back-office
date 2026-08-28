@@ -390,22 +390,39 @@ describe("EmployeeWriteAgentCapabilitiesProvider", () => {
             .resolves.toEqual({ id: 7, name: "김길동", status: "updated" });
     });
 
-    it.each([
-        ["unrelated field", { grade: "프리미엄" }],
-        ["same name", { name: "홍길동" }],
-        ["same normalized phone", { phone: "010-1234-5678" }],
-    ])("does not refresh assignment jobs for %s on a direct employee update", async (_label, input) => {
+    it("does not refresh assignment jobs when name and phone are omitted", async () => {
         const existing = EmployeeEntity.reconstitute(7, "홍길동", ["서울"], "01012345678", "A", true, new Date());
         const { updateEmployee, triggerService, capabilities } = setup(existing);
         updateEmployee.execute.mockResolvedValue(existing);
         const update = capabilities.find((entry) => entry.meta.name === "employees.update")!;
 
-        await update.execute(context, { id: 7, ...input });
+        await update.execute(context, { id: 7, grade: "프리미엄" });
 
         expect(triggerService.syncEmployeeAssignmentRulesForEmployee).not.toHaveBeenCalled();
     });
 
-    it("does not duplicate assignment refreshes across repeated identical direct updates", async () => {
+    it.each([
+        ["direct update", "execute"],
+        ["approval-bound update", "executeApprovedTarget"],
+    ])("refreshes assignment jobs when a supplied profile field matches the stale snapshot on the %s path", async (_label, method) => {
+        const existing = EmployeeEntity.reconstitute(7, "홍길동", ["서울"], "01012345678", "A", true, new Date());
+        const { updateEmployee, triggerService, capabilities } = setup(existing);
+        updateEmployee.execute.mockResolvedValue(existing);
+        updateEmployee.executeApprovedTarget.mockResolvedValue(existing);
+        const update = capabilities.find((entry) => entry.meta.name === "employees.update")!;
+        const input = { id: 7, name: "홍길동" };
+
+        if (method === "execute") {
+            await update.execute(context, input);
+        } else {
+            await update.executeApprovedTarget!(context, input, "approved-target");
+        }
+
+        expect(triggerService.syncEmployeeAssignmentRulesForEmployee).toHaveBeenCalledTimes(1);
+        expect(triggerService.syncEmployeeAssignmentRulesForEmployee).toHaveBeenCalledWith("branch-a", 7);
+    });
+
+    it("refreshes assignment jobs after each repeated supplied profile update", async () => {
         const existing = EmployeeEntity.reconstitute(7, "홍길동", ["서울"], "01012345678", "A", true, new Date());
         const updated = EmployeeEntity.reconstitute(7, "김길동", ["서울"], "01012345678", "A", true, new Date());
         const { findEmployee, updateEmployee, triggerService, capabilities } = setup(existing);
@@ -416,7 +433,7 @@ describe("EmployeeWriteAgentCapabilitiesProvider", () => {
         await update.execute(context, { id: 7, name: "김길동" });
         await update.execute(context, { id: 7, name: "김길동" });
 
-        expect(triggerService.syncEmployeeAssignmentRulesForEmployee).toHaveBeenCalledTimes(1);
+        expect(triggerService.syncEmployeeAssignmentRulesForEmployee).toHaveBeenCalledTimes(2);
     });
 
     it.each([

@@ -13,7 +13,6 @@ import { readAgentActionEffect, recordAgentActionEffect } from "application/agen
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { AgentActionCertainFailureError } from "application/agent/action-coordinator.service";
 import { employeeAgentTargetVersion } from "domain/entities/employee-agent-target";
-import { EmployeeEntity } from "domain/entities/employee.entity";
 import { EMPLOYEE_GRADES, normalizeEmployeeGrade } from "domain/constants/employee-grade.constants";
 import { normalizePhone } from "application/utils/normalize-phone";
 import { EMPLOYEE_REPOSITORY, IEmployeeRepository } from "domain/repositories/employee.repository.interface";
@@ -190,7 +189,7 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                 execute: async (context, rawInput) => {
                     const input = UpdateEmployeeSchema.parse(rawInput);
                     const normalizedPhone = input.phone === undefined ? undefined : normalizeEmployeePhone(input.phone);
-                    const existing = await this.requireActiveEmployee(context.principal.branchId, input.id);
+                    await this.requireActiveEmployee(context.principal.branchId, input.id);
                     const { id, ...updates } = input;
                     try {
                         await ensureEmployeePhoneAvailable(this.employeeRepository, context.principal.branchId, normalizedPhone, id);
@@ -202,7 +201,6 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                         await this.refreshEmployeeAssignmentJobsAfterProfileChange(
                             context.principal.branchId,
                             employee.id,
-                            existing,
                             input.name,
                             normalizedPhone,
                         );
@@ -217,9 +215,6 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                 executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
                     const input = UpdateEmployeeSchema.parse(rawInput);
                     const normalizedPhone = input.phone === undefined ? undefined : normalizeEmployeePhone(input.phone);
-                    const existing = input.name === undefined && normalizedPhone === undefined
-                        ? null
-                        : await this.findEmployee.execute(context.principal.branchId, input.id);
                     const { id, ...updates } = input;
                     try {
                         await ensureEmployeePhoneAvailable(this.employeeRepository, context.principal.branchId, normalizedPhone, id);
@@ -232,7 +227,6 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                         await this.refreshEmployeeAssignmentJobsAfterProfileChange(
                             context.principal.branchId,
                             employee.id,
-                            existing,
                             input.name,
                             normalizedPhone,
                         );
@@ -293,15 +287,13 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
     private async refreshEmployeeAssignmentJobsAfterProfileChange(
         branchId: string,
         employeeId: number,
-        previousEmployee: EmployeeEntity | null,
         updatedName: string | undefined,
         updatedPhone: string | undefined,
     ): Promise<void> {
-        if (!this.triggerService || !previousEmployee) return;
+        if (!this.triggerService) return;
 
-        const profileChanged = (updatedName !== undefined && updatedName !== previousEmployee.name)
-            || (updatedPhone !== undefined && updatedPhone !== previousEmployee.phone);
-        if (!profileChanged) return;
+        const profileSupplied = updatedName !== undefined || updatedPhone !== undefined;
+        if (!profileSupplied) return;
 
         try {
             const refreshed = this.triggerService

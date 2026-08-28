@@ -100,13 +100,7 @@ export class EmployeeService {
     }
 
     async update(branchid: string, id: number, params: EmployeeUpdateParams): Promise<EmployeeEntity> {
-        const existingEmployee = params.name !== undefined || params.phone !== undefined
-            ? (await this.findEmployeeByIdUsecase.execute(branchid, id) ?? null)
-            : null;
-        const profileChanged = existingEmployee !== null && (
-            (params.name !== undefined && params.name !== existingEmployee.name)
-            || (params.phone !== undefined && params.phone !== existingEmployee.phone)
-        );
+        const profileSupplied = params.name !== undefined || params.phone !== undefined;
 
         let updatedEmployee: EmployeeEntity;
         try {
@@ -118,7 +112,7 @@ export class EmployeeService {
             this.rethrowPhoneConflict(error);
         }
 
-        if (profileChanged) await this.refreshEmployeeAssignmentJobs(branchid, id);
+        if (profileSupplied) await this.refreshEmployeeAssignmentJobs(branchid, id);
 
         return updatedEmployee;
     }

@@ -374,7 +374,7 @@ describe("EmployeeService", () => {
                 .resolves.toBe(updatedEmployee);
         });
 
-        it("should not refresh assignment jobs for an unrelated profile field", async () => {
+        it("should not refresh assignment jobs when name and phone are omitted", async () => {
             const existingEmployee = EmployeeFactory.create({ id: 3 });
             findByIdUsecase.execute.mockResolvedValue(existingEmployee);
             updateUsecase.execute.mockResolvedValue(EmployeeFactory.create({ id: 3, grade: "스탠다드" }));
@@ -387,14 +387,18 @@ describe("EmployeeService", () => {
         it.each([
             ["name", { name: "Test Employee" }],
             ["phone", { phone: "010-9876-5432" }],
-        ])("should not refresh assignment jobs when %s is unchanged", async (_field, updateParams) => {
+        ])("should refresh assignment jobs when %s matches the stale snapshot", async (_field, updateParams) => {
             const existingEmployee = EmployeeFactory.create({ id: 3 });
             findByIdUsecase.execute.mockResolvedValue(existingEmployee);
             updateUsecase.execute.mockResolvedValue(existingEmployee);
 
             await service.update(branchId, existingEmployee.id, updateParams);
 
-            expect(triggerService.syncEmployeeAssignmentRulesForEmployee).not.toHaveBeenCalled();
+            expect(triggerService.syncEmployeeAssignmentRulesForEmployee).toHaveBeenCalledTimes(1);
+            expect(triggerService.syncEmployeeAssignmentRulesForEmployee).toHaveBeenCalledWith(
+                branchId,
+                existingEmployee.id,
+            );
         });
 
         it("should handle partial update params", async () => {

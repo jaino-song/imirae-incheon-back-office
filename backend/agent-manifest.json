@@ -458,7 +458,7 @@
       "approvalPolicy": "structured",
       "idempotencyPolicy": "action-id",
       "sourceFile": "application/usecases/employee/employee-write-agent-capabilities.provider.ts",
-      "sourceDigest": "70923c19d45308da86bb07c660cda1172b2e862c609ae5d3d8a6f5c9dd52182a"
+      "sourceDigest": "e71fab68f8a34368c148ed206723148882162f3744ea4e66db0a3ed59f212ac9"
     },
     {
       "name": "employees.create",
@@ -477,7 +477,7 @@
       "approvalPolicy": "structured",
       "idempotencyPolicy": "action-id",
       "sourceFile": "application/usecases/employee/employee-write-agent-capabilities.provider.ts",
-      "sourceDigest": "70923c19d45308da86bb07c660cda1172b2e862c609ae5d3d8a6f5c9dd52182a"
+      "sourceDigest": "e71fab68f8a34368c148ed206723148882162f3744ea4e66db0a3ed59f212ac9"
     },
     {
       "name": "employees.get",
@@ -532,7 +532,7 @@
       "approvalPolicy": "structured",
       "idempotencyPolicy": "action-id",
       "sourceFile": "application/usecases/employee/employee-write-agent-capabilities.provider.ts",
-      "sourceDigest": "70923c19d45308da86bb07c660cda1172b2e862c609ae5d3d8a6f5c9dd52182a"
+      "sourceDigest": "e71fab68f8a34368c148ed206723148882162f3744ea4e66db0a3ed59f212ac9"
     },
     {
       "name": "files.delete",
