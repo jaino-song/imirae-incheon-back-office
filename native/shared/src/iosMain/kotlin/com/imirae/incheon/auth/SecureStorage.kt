@@ -47,8 +47,9 @@ import platform.Security.kSecValueData
 /**
  * iOS secure storage backed by the system Keychain.
  *
- * The named defaults suite is read only for the one-time migration of values
- * written by older releases. New reads and writes never fall back to it.
+ * The named defaults suite's persistent domain is read only for the one-time
+ * migration of values written by older releases. New reads and writes never
+ * fall back to it.
  */
 actual class SecureStorage {
     private val legacyDefaults = NSUserDefaults(suiteName = KEYCHAIN_SERVICE)
@@ -92,18 +93,9 @@ actual class SecureStorage {
     }
 
     private fun legacyStringEntries(): Map<String, String> {
-        val entries = linkedMapOf<String, String>()
-        val dictionary = legacyDefaults.dictionaryRepresentation()
-
-        dictionary.keys.forEach { rawKey ->
-            val key = rawKey as? String
-                ?: throw IllegalStateException("Legacy secure storage has an invalid key")
-            val value = dictionary[key] as? String
-                ?: throw IllegalStateException("Legacy secure storage has an invalid value")
-            entries[key] = value
-        }
-
-        return entries
+        val persistentDomain = legacyDefaults.persistentDomainForName(KEYCHAIN_SERVICE)
+            ?: return emptyMap()
+        return filterLegacySecureStorageEntries(persistentDomain)
     }
 
     private fun removeLegacyValue(key: String) {
