@@ -35,6 +35,9 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         const triggerService = {
             syncEmployeeAssignmentRulesForClient: jest.fn().mockResolvedValue(undefined),
         };
+        const messageAutomationIntentService = {
+            persistScheduleIntent: jest.fn().mockResolvedValue(undefined),
+        };
         const voucherServiceSelection = {
             execute: jest.fn().mockResolvedValue({
                 type: "A통합1형",
@@ -48,6 +51,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
             $transaction: jest.fn(async (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)),
             agent_action: transaction.agent_action,
             area: { findFirst: jest.fn().mockResolvedValue({ id: "global" }) },
+            employee_schedule: { findMany: jest.fn().mockResolvedValue([]) },
         };
         const provider = new ClientWriteAgentCapabilitiesProvider(
             createClient as never,
@@ -58,6 +62,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
             serviceRecordLifecycle as never,
             voucherServiceSelection as never,
             triggerService as never,
+            messageAutomationIntentService as never,
         );
         return {
             createClient,
@@ -70,6 +75,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
             serviceRecordLifecycle,
             voucherServiceSelection,
             triggerService,
+            messageAutomationIntentService,
             capabilities: provider.getCapabilities(),
         };
     }
@@ -376,10 +382,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledWith("branch-a", existingClient.id);
     });
 
-    it.each([
-        ["unrelated field", { address: "새 주소" }],
-        ["same name", { name: "홍길동" }],
-    ])("does not refresh assignment jobs for %s on a direct client update", async (_label, updates) => {
+    it("does not refresh assignment jobs for an unrelated direct client update", async () => {
         const { capabilities, triggerService } = setup();
         const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
         const context = {
@@ -387,7 +390,36 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
             sessionId: "session-a", traceId: "trace-a", locale: "ko",
         } as const;
 
-        await capability.execute!(context, { id: 1, ...updates });
+        await capability.execute!(context, { id: 1, address: "새 주소" });
+
+        expect(triggerService.syncEmployeeAssignmentRulesForClient).not.toHaveBeenCalled();
+    });
+
+    it("refreshes assignment jobs when a direct supplied name matches the stale snapshot", async () => {
+        const { capabilities, updateClient, triggerService, existingClient } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko",
+        } as const;
+        updateClient.execute.mockResolvedValue({ ...existingClient, name: "최종 이름" });
+
+        await capability.execute!(context, { id: existingClient.id, name: existingClient.name });
+
+        expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledTimes(1);
+        expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledWith("branch-a", existingClient.id);
+    });
+
+    it("does not refresh assignment jobs when a direct update omits name", async () => {
+        const { capabilities, updateClient, triggerService, existingClient } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko",
+        } as const;
+        updateClient.execute.mockResolvedValue({ ...existingClient, name: "동시 변경 이름" });
+
+        await capability.execute!(context, { id: existingClient.id, address: "새 주소" });
 
         expect(triggerService.syncEmployeeAssignmentRulesForClient).not.toHaveBeenCalled();
     });
@@ -405,6 +437,111 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
 
         expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledTimes(1);
         expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledWith("branch-a", existingClient.id);
+    });
+
+    it.each([
+        ["false", false],
+        ["throw", new Error("assignment refresh unavailable")],
+    ])("persists deduped active schedule retry intents when the direct agent refresh is %s", async (_label, outcome) => {
+        const {
+            capabilities,
+            updateClient,
+            triggerService,
+            existingClient,
+            prisma,
+            transaction,
+            messageAutomationIntentService,
+        } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko",
+        } as const;
+        updateClient.execute.mockResolvedValue({ ...existingClient, name: "최종 이름" });
+        if (outcome === false) {
+            triggerService.syncEmployeeAssignmentRulesForClient.mockResolvedValue(false);
+        } else {
+            triggerService.syncEmployeeAssignmentRulesForClient.mockRejectedValue(outcome);
+        }
+        prisma.employee_schedule.findMany.mockResolvedValue([{ id: 12 }, { id: 9 }, { id: 12 }]);
+
+        await capability.execute!(context, { id: existingClient.id, name: existingClient.name });
+
+        expect(prisma.employee_schedule.findMany).toHaveBeenCalledWith({
+            where: { branchId: "branch-a", clientId: existingClient.id, replaced: false },
+            select: { id: true },
+            orderBy: { id: "asc" },
+        });
+        expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenCalledTimes(2);
+        expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenNthCalledWith(
+            1,
+            transaction,
+            expect.objectContaining({
+                branchId: "branch-a",
+                clientId: existingClient.id,
+                scheduleId: 9,
+                includePast: true,
+                intentAt: expect.any(Date),
+                replaceExisting: true,
+            }),
+        );
+        expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenNthCalledWith(
+            2,
+            transaction,
+            expect.objectContaining({
+                branchId: "branch-a",
+                clientId: existingClient.id,
+                scheduleId: 12,
+                includePast: true,
+                intentAt: expect.any(Date),
+                replaceExisting: true,
+            }),
+        );
+    });
+
+    it("keeps a direct agent client name update successful when retry intent persistence fails", async () => {
+        const { capabilities, updateClient, triggerService, existingClient, prisma, messageAutomationIntentService } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko",
+        } as const;
+        updateClient.execute.mockResolvedValue({ ...existingClient, name: "최종 이름" });
+        triggerService.syncEmployeeAssignmentRulesForClient.mockResolvedValue(false);
+        prisma.employee_schedule.findMany.mockResolvedValue([{ id: 12 }]);
+        messageAutomationIntentService.persistScheduleIntent.mockRejectedValue(new Error("intent store unavailable"));
+
+        await expect(capability.execute!(context, { id: existingClient.id, name: existingClient.name }))
+            .resolves.toEqual({ id: existingClient.id, name: "최종 이름", status: "updated" });
+    });
+
+    it("refreshes assignment jobs after an approval-bound supplied name even when the snapshot is stale", async () => {
+        const { capabilities, updateClient, triggerService, existingClient } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+        updateClient.executeApprovedTarget.mockResolvedValue({ ...existingClient, name: "최종 이름" });
+
+        await capability.executeApprovedTarget!(context, { id: existingClient.id, name: existingClient.name }, "approved-target");
+
+        expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledTimes(1);
+        expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledWith("branch-a", existingClient.id);
+    });
+
+    it("does not refresh assignment jobs after an approval-bound update omits name", async () => {
+        const { capabilities, updateClient, triggerService, existingClient } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin", },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+        updateClient.executeApprovedTarget.mockResolvedValue({ ...existingClient, name: "동시 변경 이름" });
+
+        await capability.executeApprovedTarget!(context, { id: existingClient.id, address: "새 주소" }, "approved-target");
+
+        expect(triggerService.syncEmployeeAssignmentRulesForClient).not.toHaveBeenCalled();
     });
 
     it("does not manufacture a birthDate clear when an update omits birthDate", async () => {

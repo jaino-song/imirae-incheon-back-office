@@ -1537,7 +1537,7 @@ export class ClientService {
 
         // Check if employee assignment is being changed
         const employeeChanged = params.primaryEmployeeId !== undefined || params.secondaryEmployeeId !== undefined;
-        const clientNameChanged = params.name !== undefined && params.name !== existingClient.name;
+        const clientNameSupplied = params.name !== undefined;
 
         let createdScheduleId: number | null = null;
         let replacedScheduleId: number | null = null;
@@ -1640,7 +1640,7 @@ export class ClientService {
             await this.triggerService.syncClientRulesForClient(branchid, id, false).catch((error) => {
                 this.logger.error(`Failed to sync client trigger rules: ${error}`);
             });
-            if (clientNameChanged) {
+            if (clientNameSupplied) {
                 try {
                     const refreshed = await this.triggerService.syncEmployeeAssignmentRulesForClient(branchid, id);
                     if (refreshed === false) {
@@ -1653,7 +1653,7 @@ export class ClientService {
             }
         }
         if (createdScheduleId !== null) {
-            if (!clientNameChanged) {
+            if (!clientNameSupplied) {
                 await this.triggerService
                     ?.syncEmployeeAssignmentRulesForSchedule(branchid, createdScheduleId, true)
                     ?.catch((error) => {

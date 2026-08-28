@@ -28,6 +28,7 @@ import {
     ResolveVoucherServiceSelectionUsecase,
 } from "application/usecases/voucher-price-info/resolve-voucher-service-selection.usecase";
 import { MessageTriggerService } from "application/services/message-trigger.service";
+import { MessageAutomationIntentService } from "application/services/message-automation-intent.service";
 
 const DateOnlyInput = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
     const parsed = new Date(`${value}T00:00:00Z`);
@@ -246,6 +247,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
         private readonly serviceRecordLifecycleService: ServiceRecordLifecycleService,
         @Optional() private readonly voucherServiceSelection?: ResolveVoucherServiceSelectionUsecase,
         @Optional() private readonly triggerService?: MessageTriggerService,
+        @Optional() private readonly messageAutomationIntentService?: MessageAutomationIntentService,
     ) {}
 
     getCapabilities(): CapabilityDefinition[] {
@@ -448,8 +450,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         await this.refreshEmployeeAssignmentJobsAfterProfileChange(
                             context.principal.branchId,
                             client.id,
-                            existing.name,
-                            client.name,
+                            input.name !== undefined,
                         );
                         return { id: client.id, name: client.name, status: "updated" };
                     } catch (error) {
@@ -495,8 +496,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         await this.refreshEmployeeAssignmentJobsAfterProfileChange(
                             context.principal.branchId,
                             existing.id,
-                            existing.name,
-                            input.name,
+                            input.name !== undefined,
                         );
                         return result;
                     } catch (error) {
@@ -530,16 +530,65 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
     private async refreshEmployeeAssignmentJobsAfterProfileChange(
         branchId: string,
         clientId: number,
-        previousName: string,
-        updatedName: string | undefined,
+        nameSupplied: boolean,
     ): Promise<void> {
-        if (!this.triggerService || updatedName === undefined || updatedName === previousName) return;
+        if (!this.triggerService || !nameSupplied) return;
 
         try {
-            await this.triggerService.syncEmployeeAssignmentRulesForClient(branchId, clientId);
+            const refreshed = await this.triggerService.syncEmployeeAssignmentRulesForClient(branchId, clientId);
+            if (refreshed === false) {
+                await this.persistEmployeeAssignmentRefreshIntents(branchId, clientId);
+            }
         } catch (error) {
             this.logger.error(
                 `Failed to sync employee assignment triggers for client ${clientId}: ${error}`,
+            );
+            await this.persistEmployeeAssignmentRefreshIntents(branchId, clientId);
+        }
+    }
+
+    /**
+     * Keep client-name assignment refreshes durable when the immediate rebuild
+     * cannot complete. The intent writer owns branch/schedule deduplication;
+     * this helper only selects active schedules in the caller's branch and
+     * persists their existing schedule intents in one transaction.
+     */
+    private async persistEmployeeAssignmentRefreshIntents(
+        branchId: string,
+        clientId: number,
+    ): Promise<void> {
+        if (!this.messageAutomationIntentService) {
+            this.logger.error(`Client assignment refresh retry service is unavailable for client ${clientId}`);
+            return;
+        }
+
+        try {
+            const activeSchedules = await this.prisma.employee_schedule.findMany({
+                where: { branchId, clientId, replaced: false },
+                select: { id: true },
+                orderBy: { id: "asc" },
+            });
+            const scheduleIds = [...new Set(activeSchedules.map(({ id }) => id))]
+                .sort((left, right) => left - right);
+            if (scheduleIds.length === 0) return;
+
+            const intentAt = new Date();
+            await this.prisma.$transaction(async (transaction) => {
+                for (const scheduleId of scheduleIds) {
+                    await this.messageAutomationIntentService?.persistScheduleIntent(transaction, {
+                        branchId,
+                        clientId,
+                        scheduleId,
+                        includePast: true,
+                        intentAt,
+                        replaceExisting: true,
+                    });
+                }
+            });
+        } catch (error) {
+            this.logger.error(
+                `Failed to persist employee assignment refresh retries for client ${clientId}: ` +
+                `${error instanceof Error ? error.message : String(error)}`,
             );
         }
     }

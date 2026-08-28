@@ -1513,7 +1513,29 @@ describe("ClientService", () => {
 
                 await service.update(branchId, existingClient.id, { name: existingClient.name });
 
-                expect(triggerService.syncEmployeeAssignmentRulesForClient).not.toHaveBeenCalled();
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledTimes(1);
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledWith(
+                    branchId,
+                    existingClient.id,
+                );
+            });
+
+            it("refreshes assignment jobs when a supplied name matches the stale pre-write snapshot", async () => {
+                const staleClient = createClientEntity();
+                const committedClient = createClientEntity();
+                staleClient.name = "이전 이름";
+                committedClient.name = "최종 이름";
+                findClientByIdUsecase.execute
+                    .mockResolvedValueOnce(staleClient)
+                    .mockResolvedValueOnce(committedClient);
+
+                await service.update(branchId, staleClient.id, { name: staleClient.name });
+
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledTimes(1);
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledWith(
+                    branchId,
+                    staleClient.id,
+                );
             });
 
             it("clears birthDate when the caller explicitly sends null (tri-state, mirrors areaId)", async () => {
