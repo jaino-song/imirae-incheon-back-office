@@ -36,6 +36,20 @@ assert_not_contains() {
     fi
 }
 
+assert_ordered_contains() {
+    local file="$1"
+    local first_pattern="$2"
+    local second_pattern="$3"
+    local description="$4"
+    local first_line
+    local second_line
+
+    first_line="$(grep -n -m1 -E -- "$first_pattern" "$file" | cut -d: -f1 || true)"
+    second_line="$(grep -n -m1 -E -- "$second_pattern" "$file" | cut -d: -f1 || true)"
+    [[ -n "$first_line" && -n "$second_line" && "$first_line" -lt "$second_line" ]] \
+        || fail "$description"
+}
+
 assert_text_contains() {
     local text="$1"
     local pattern="$2"
@@ -186,6 +200,8 @@ assert_not_contains "$EDGE_SCRIPT" 'docker|compose|Caddyfile|REPOSITORY_ROOT|git
 assert_not_contains "$DEPLOY_SCRIPT" 'REPOSITORY_ROOT' "deployment must not derive a Compose file from the repository"
 assert_not_contains "$ROLLBACK_SCRIPT" 'REPOSITORY_ROOT' "rollback must not derive a Compose file from the repository"
 assert_not_contains "$DEPLOY_SCRIPT" 'compose[^[:space:]]*[[:space:]].*build' "protected deployment must not build from a relative Compose context"
+assert_ordered_contains "$DEPLOY_SCRIPT" 'up -d --no-build --remove-orphans' 'up -d --no-build --no-deps --force-recreate api' "protected deployment must start dependencies before recreating the API service"
+assert_ordered_contains "$ROLLBACK_SCRIPT" 'up -d --no-build --remove-orphans' 'up -d --no-build --no-deps --force-recreate api' "protected rollback must start dependencies before recreating the API service"
 assert_contains "$DEPLOY_SCRIPT" 'up -d --no-build --no-deps --force-recreate api' "protected deployment retries must recreate only the API service"
 assert_contains "$ROLLBACK_SCRIPT" 'up -d --no-build --no-deps --force-recreate api' "protected rollback must recreate only the API service"
 assert_contains "$DEPLOY_SCRIPT" 'requires BACKEND_BUILD_IMAGE=false and a preloaded image' "protected deployment must require a preloaded image"
