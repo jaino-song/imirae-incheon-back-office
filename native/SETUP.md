@@ -162,7 +162,7 @@ cd native
 ./gradlew :shared:allTests
 ```
 
-At the time this guide was refreshed, that aggregate command compiled the shared iOS simulator sources but failed at `:shared:iosSimulatorArm64Test` because test sources were present and no tests were discovered. This is a current test-configuration limitation, not evidence that the shared test suite passes.
+The hosted iOS workflow currently passes `:shared:allTests` (run `33166620466`, job `98833456351`). The job executes the configured iOS simulator target and records host-incompatible targets as normal Gradle skips; a local result remains host-dependent and must be judged from the observed output.
 
 To remove generated Gradle outputs:
 
@@ -200,8 +200,8 @@ The test first checks the current tree, then creates a temporary copy with a del
 
 ## Known unverified limitations
 
-- No successful Android build, emulator installation, physical-device run, or backend login is claimed by this document.
-- The current `:shared:allTests` aggregate fails at the iOS simulator test task when no tests are discovered, as described above.
+- No successful local Android build, emulator installation, physical-device run, or backend login is claimed by this document; local Android SDK/host limitations remain separate from the hosted iOS shared-test result.
+- Hosted iOS CI currently passes `:shared:allTests` (run `33166620466`, job `98833456351`), with configured iOS simulator execution and normal host-incompatible target skips.
 - No committed iOS Xcode project or workspace exists, so iOS packaging, signing, framework integration, and simulator/device execution are not currently available from this checkout.
 - No iOS deployment target, concrete bundle identifier, scheme, signing team, or framework search path is declared in committed Xcode configuration.
 - Firebase push delivery, Kakao OAuth, APNs, and live provider accounts are not verified here.
