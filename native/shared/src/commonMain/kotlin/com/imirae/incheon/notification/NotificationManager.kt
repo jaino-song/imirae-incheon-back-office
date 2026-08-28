@@ -72,7 +72,8 @@ class NotificationManager(
      */
     fun markAsRead(notificationId: String) {
         scope.launch {
-            notificationService.markAsRead(notificationId)
+            val id = notificationId.toIntOrNull() ?: return@launch
+            notificationService.markAsRead(id)
             refreshUnreadCount()
         }
     }

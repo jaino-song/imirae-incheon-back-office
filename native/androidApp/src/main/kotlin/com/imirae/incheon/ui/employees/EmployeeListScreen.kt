@@ -20,7 +20,7 @@ import com.imirae.incheon.viewmodel.EmployeeListViewModel
 @Composable
 fun EmployeeListScreen(
     viewModel: EmployeeListViewModel,
-    onNavigateToDetail: (String) -> Unit,
+    onNavigateToDetail: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -33,7 +33,7 @@ fun EmployeeListScreen(
         AppSearchBar(query = uiState.searchQuery, onQueryChange = { viewModel.search(it) }, placeholder = "직원 검색...")
         Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm.dp))
         FilterChipRow(
-            filters = listOf(null to "전체", "active" to "활성", "inactive" to "비활성"),
+            filters = listOf(null to "전체", "available" to "가능", "working" to "근무 중", "unavailable" to "불가"),
             selectedFilter = uiState.statusFilter,
             onFilterSelected = { viewModel.filterByStatus(it) }
         )
@@ -51,9 +51,16 @@ fun EmployeeListScreen(
                         DataListItem(item = emp, onClick = { onNavigateToDetail(emp.id) }, testTag = "employee-item-${emp.id}") {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(it.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                                Text(it.role, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    listOf(it.grade, it.workArea.joinToString(" · "))
+                                        .filter { value -> value.isNotBlank() }
+                                        .joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
-                            StatusBadge(status = it.status, label = StatusCodes.getStatusLabel(it.status))
+                            val status = it.status ?: "unavailable"
+                            StatusBadge(status = status, label = StatusCodes.getStatusLabel(status))
                             Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }

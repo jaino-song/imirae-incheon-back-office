@@ -92,10 +92,10 @@ class NotificationManagerTest {
         )
 
         service.unreadResponses.add(ApiResult.Success(2))
-        manager.markAsRead("notification-42")
+        manager.markAsRead("42")
         advanceUntilIdle()
 
-        assertEquals(listOf("notification-42"), service.markedIds)
+        assertEquals(listOf(42), service.markedIds)
         assertEquals(2, manager.state.value.unreadCount)
         assertEquals(listOf("markAsRead", "getUnreadCount"), service.operations)
         managerScope.cancel()
@@ -119,16 +119,24 @@ class NotificationManagerTest {
 
     private class RecordingNotificationService : NotificationService {
         val unreadResponses = ArrayDeque<ApiResult<Int>>()
-        val markedIds = mutableListOf<String>()
+        val markedIds = mutableListOf<Int>()
         val operations = mutableListOf<String>()
         var unreadCountCalls = 0
 
         override suspend fun getNotifications(): ApiResult<List<Notification>> = ApiResult.Success(emptyList())
 
-        override suspend fun markAsRead(id: String): ApiResult<Unit> {
+        override suspend fun markAsRead(id: Int): ApiResult<Notification> {
             operations += "markAsRead"
             markedIds += id
-            return ApiResult.Success(Unit)
+            return ApiResult.Success(
+                Notification(
+                    id = id,
+                    title = "알림",
+                    body = "확인해 주세요",
+                    sentAt = "2026-01-01T00:00:00Z",
+                    isRead = true,
+                ),
+            )
         }
 
         override suspend fun getUnreadCount(): ApiResult<Int> {

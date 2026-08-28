@@ -1,12 +1,15 @@
 import SwiftUI
 import shared
 
-struct ClientDetailView: View {
-    let clientId: Int32
-    @StateObject private var viewModel = ClientDetailViewModelWrapper()
+struct EmployeeDetailView: View {
+    let employeeId: Int32
+    @StateObject private var viewModel = EmployeeDetailViewModelWrapper()
     @State private var editName = ""
     @State private var editPhone = ""
-    @State private var editAddress = ""
+    @State private var editGrade = ""
+    @State private var editWorkArea = ""
+    @State private var editBirthday = ""
+    @State private var editOpenToNextWork = false
 
     var onNavigateBack: () -> Void = {}
 
@@ -17,34 +20,34 @@ struct ClientDetailView: View {
                     Button(action: onNavigateBack) {
                         Image(systemName: "chevron.left").font(.appHeading5)
                     }
-                    .accessibilityIdentifier("client-detail-back")
-                    Text(viewModel.client?.name ?? "고객 상세")
+                    .accessibilityIdentifier("employee-detail-back")
+                    Text(viewModel.employee?.name ?? "직원 상세")
                         .font(.appHeading2)
                         .fontWeight(.bold)
-                        .accessibilityIdentifier("client-detail-name")
+                        .accessibilityIdentifier("employee-detail-name")
                     Spacer()
                 }
 
-                if viewModel.isLoading && viewModel.client == nil {
+                if viewModel.isLoading && viewModel.employee == nil {
                     LoadingView()
                         .frame(minHeight: 200)
-                } else if let errorMessage = viewModel.errorMessage, viewModel.client == nil {
+                } else if let errorMessage = viewModel.errorMessage, viewModel.employee == nil {
                     ErrorView(message: errorMessage) {
-                        viewModel.loadClient(id: clientId)
+                        viewModel.loadEmployee(id: employeeId)
                     }
                     .frame(minHeight: 200)
-                } else if let client = viewModel.client {
+                } else if let employee = viewModel.employee {
                     if viewModel.isEditing {
-                        editCard(client: client)
+                        editCard(employee: employee)
                     } else {
-                        detailCard(client: client)
+                        detailCard(employee: employee)
                     }
 
                     if let errorMessage = viewModel.errorMessage {
                         Text(errorMessage)
                             .font(.appBodySmall)
                             .foregroundColor(.appDestructive)
-                            .accessibilityIdentifier("client-detail-error")
+                            .accessibilityIdentifier("employee-detail-error")
                     }
 
                     HStack(spacing: AppTheme.Spacing.sm) {
@@ -56,9 +59,9 @@ struct ClientDetailView: View {
                         .buttonStyle(.bordered)
                         .tint(.appPrimary)
                         .disabled(viewModel.isSaving || viewModel.isDeleting)
-                        .accessibilityIdentifier("client-detail-edit-button")
+                        .accessibilityIdentifier("employee-detail-edit-button")
 
-                        Button(action: deleteClient) {
+                        Button(action: deleteEmployee) {
                             Label(viewModel.isDeleting ? "삭제 중..." : "삭제", systemImage: "trash")
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, AppTheme.Spacing.sm)
@@ -66,38 +69,36 @@ struct ClientDetailView: View {
                         .buttonStyle(.bordered)
                         .tint(.appDestructive)
                         .disabled(viewModel.isSaving || viewModel.isDeleting)
-                        .accessibilityIdentifier("client-detail-delete-button")
+                        .accessibilityIdentifier("employee-detail-delete-button")
                     }
                 } else {
-                    EmptyView_(message: "고객을 찾을 수 없습니다")
+                    EmptyView_(message: "직원을 찾을 수 없습니다")
                 }
             }
             .padding(AppTheme.Spacing.lg)
         }
         .background(Color.appBackground)
         .onAppear {
-            viewModel.loadClient(id: clientId)
+            viewModel.loadEmployee(id: employeeId)
         }
         .onChange(of: viewModel.deleteSuccess) { _, success in
             if success { onNavigateBack() }
         }
-        .accessibilityIdentifier("client-detail-screen")
+        .accessibilityIdentifier("employee-detail-screen")
     }
 
-    private func detailCard(client: Client) -> some View {
+    private func detailCard(employee: Employee) -> some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
-            Text("기본 정보")
+            Text("직원 정보")
                 .font(.appHeading4)
                 .fontWeight(.semibold)
-            InfoRow(label: "전화번호", value: client.phone ?? "-")
-            InfoRow(label: "주소", value: client.address ?? "-")
-            InfoRow(label: "상태", value: statusLabel(client.serviceStatus))
-            InfoRow(label: "바우처 고객", value: client.voucherClient ? "예" : "아니오")
-            InfoRow(label: "유축기", value: client.breastPump ? "예" : "아니오")
-            InfoRow(label: "출산 예정일", value: client.dueDate ?? "-")
-            if let employee = client.primaryEmployee {
-                InfoRow(label: "담당 직원", value: employee.name)
-            }
+            InfoRow(label: "전화번호", value: employee.phone)
+            InfoRow(label: "직급", value: employee.grade)
+            InfoRow(label: "근무 지역", value: employee.workArea.joined(separator: " · ").nilIfBlank ?? "-")
+            InfoRow(label: "생년월일", value: employee.birthday ?? "-")
+            InfoRow(label: "등록일", value: employee.registeredDate ?? "-")
+            InfoRow(label: "다음 업무 가능", value: employee.openToNextWork ? "예" : "아니오")
+            InfoRow(label: "상태", value: statusLabel(employee.status, openToNextWork: employee.openToNextWork))
         }
         .padding(AppTheme.Spacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -109,19 +110,22 @@ struct ClientDetailView: View {
         .cornerRadius(AppTheme.Radius.lg)
     }
 
-    private func editCard(client: Client) -> some View {
+    private func editCard(employee: Employee) -> some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
-            Text("고객 정보 수정")
+            Text("직원 정보 수정")
                 .font(.appHeading4)
                 .fontWeight(.semibold)
-            AppFormField(label: "이름", text: $editName, identifier: "client-detail-edit-name")
-            AppFormField(label: "전화번호", text: $editPhone, keyboardType: .phonePad, identifier: "client-detail-edit-phone")
-            AppFormField(label: "주소", text: $editAddress, identifier: "client-detail-edit-address")
+            AppFormField(label: "이름", text: $editName, identifier: "employee-detail-edit-name")
+            AppFormField(label: "전화번호", text: $editPhone, keyboardType: .phonePad, identifier: "employee-detail-edit-phone")
+            AppFormField(label: "직급", text: $editGrade, identifier: "employee-detail-edit-grade")
+            AppFormField(label: "근무 지역 (쉼표로 구분)", text: $editWorkArea, identifier: "employee-detail-edit-work-area")
+            AppFormField(label: "생년월일", text: $editBirthday, identifier: "employee-detail-edit-birthday")
+            Toggle("다음 업무 가능", isOn: $editOpenToNextWork)
             HStack(spacing: AppTheme.Spacing.sm) {
                 Button("취소", action: { viewModel.cancelEditing() })
                     .buttonStyle(.bordered)
                     .frame(maxWidth: .infinity)
-                Button(action: saveClient) {
+                Button(action: saveEmployee) {
                     HStack {
                         if viewModel.isSaving { ProgressView() }
                         Text(viewModel.isSaving ? "저장 중..." : "저장")
@@ -130,8 +134,8 @@ struct ClientDetailView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.appPrimary)
-                .disabled(viewModel.isSaving)
-                .accessibilityIdentifier("client-detail-save-button")
+                .disabled(viewModel.isSaving || editName.nilIfBlank == nil || editPhone.nilIfBlank == nil)
+                .accessibilityIdentifier("employee-detail-save-button")
             }
         }
         .padding(AppTheme.Spacing.lg)
@@ -144,53 +148,43 @@ struct ClientDetailView: View {
     }
 
     private func beginEditing() {
-        guard let client = viewModel.client else { return }
-        editName = client.name
-        editPhone = client.phone ?? ""
-        editAddress = client.address ?? ""
+        guard let employee = viewModel.employee else { return }
+        editName = employee.name
+        editPhone = employee.phone
+        editGrade = employee.grade
+        editWorkArea = employee.workArea.joined(separator: ", ")
+        editBirthday = employee.birthday ?? ""
+        editOpenToNextWork = employee.openToNextWork
         viewModel.startEditing()
     }
 
-    private func saveClient() {
-        viewModel.updateClient(
-            id: clientId,
-            request: UpdateClientRequest(
-                name: editName.trimmingCharacters(in: .whitespacesAndNewlines),
-                primaryEmployeeId: nil,
-                secondaryEmployeeId: nil,
-                address: editAddress.nilIfBlank,
+    private func saveEmployee() {
+        viewModel.updateEmployee(
+            id: employeeId,
+            request: UpdateEmployeeRequest(
+                name: editName.nilIfBlank,
+                workArea: editWorkArea
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty },
                 phone: editPhone.nilIfBlank,
-                type: nil,
-                duration: nil,
-                fullPrice: nil,
-                grant: nil,
-                actualPrice: nil,
-                startDate: nil,
-                endDate: nil,
-                careCenter: nil,
-                voucherClient: nil,
-                birthday: nil,
-                dueDate: nil,
-                birthDate: nil,
-                serviceStatus: nil,
-                breastPump: nil,
-                eDocId: nil,
-                areaId: nil
+                grade: editGrade.nilIfBlank,
+                openToNextWork: KotlinBoolean(bool: editOpenToNextWork),
+                birthday: editBirthday.nilIfBlank
             )
         )
     }
 
-    private func deleteClient() {
-        viewModel.deleteClient(id: clientId)
+    private func deleteEmployee() {
+        viewModel.deleteEmployee(id: employeeId)
     }
 
-    private func statusLabel(_ status: String?) -> String {
+    private func statusLabel(_ status: String?, openToNextWork: Bool) -> String {
         switch status {
-        case "pre_booking": return "예약 전"
-        case "waiting": return "대기"
-        case "active": return "진행 중"
-        case "completed": return "완료"
-        default: return status ?? "상태 없음"
+        case "available": return "가능"
+        case "working": return "근무 중"
+        case "unavailable": return "불가"
+        default: return openToNextWork ? "가능" : "불가"
         }
     }
 }
@@ -214,19 +208,19 @@ private struct InfoRow: View {
 }
 
 @MainActor
-final class ClientDetailViewModelWrapper: ObservableObject {
-    private let viewModel: ClientDetailViewModel
+final class EmployeeDetailViewModelWrapper: ObservableObject {
+    private let viewModel: EmployeeDetailViewModel
     private var stateCollector: IOSStateFlowCollector?
 
     @Published var isLoading: Bool = true
-    @Published var client: Client?
+    @Published var employee: Employee?
     @Published var errorMessage: String?
     @Published var isEditing: Bool = false
     @Published var isSaving: Bool = false
     @Published var isDeleting: Bool = false
     @Published var deleteSuccess: Bool = false
 
-    init(viewModel: ClientDetailViewModel = KoinHelper.shared.clientDetailViewModel()) {
+    init(viewModel: EmployeeDetailViewModel = KoinHelper.shared.employeeDetailViewModel()) {
         self.viewModel = viewModel
         observeUiState()
     }
@@ -237,11 +231,11 @@ final class ClientDetailViewModelWrapper: ObservableObject {
 
     private func observeUiState() {
         let collector = IOSStateFlowCollector { [weak self] value in
-            guard let state = value as? ClientDetailUiState else { return }
+            guard let state = value as? EmployeeDetailUiState else { return }
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isLoading = state.isLoading
-                self.client = state.client
+                self.employee = state.employee
                 self.errorMessage = state.error
                 self.isEditing = state.isEditing
                 self.isSaving = state.isSaving
@@ -257,8 +251,8 @@ final class ClientDetailViewModelWrapper: ObservableObject {
         }
     }
 
-    func loadClient(id: Int32) {
-        viewModel.loadClient(clientId: id)
+    func loadEmployee(id: Int32) {
+        viewModel.loadEmployee(employeeId: id)
     }
 
     func startEditing() {
@@ -269,12 +263,12 @@ final class ClientDetailViewModelWrapper: ObservableObject {
         viewModel.cancelEditing()
     }
 
-    func updateClient(id: Int32, request: UpdateClientRequest) {
-        viewModel.updateClient(clientId: id, request: request)
+    func updateEmployee(id: Int32, request: UpdateEmployeeRequest) {
+        viewModel.updateEmployee(employeeId: id, request: request)
     }
 
-    func deleteClient(id: Int32) {
-        viewModel.deleteClient(clientId: id)
+    func deleteEmployee(id: Int32) {
+        viewModel.deleteEmployee(employeeId: id)
     }
 }
 

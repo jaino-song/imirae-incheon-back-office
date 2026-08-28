@@ -100,17 +100,12 @@ object NotificationNavigation {
         NavigationIntent.Unknown -> null
     }
 
-    /**
-     * Convert a validated shared navigation intent to a route in the Android
-     * navigation graph.  Employee and contract detail screens do not exist in
-     * the current native graph, so those allowlisted links safely land on the
-     * corresponding list until the detail screens are implemented.
-     */
+    /** Convert a validated shared navigation intent to a route in the Android navigation graph. */
     fun routeFor(intent: NavigationIntent): String? = when (intent) {
         NavigationIntent.Dashboard -> Routes.DASHBOARD
-        is NavigationIntent.ClientDetail -> Routes.clientDetail(intent.clientId)
-        is NavigationIntent.EmployeeDetail -> Routes.EMPLOYEE_LIST
-        is NavigationIntent.ContractDetail -> Routes.CONTRACT_LIST
+        is NavigationIntent.ClientDetail -> intent.clientId.toIntOrNull()?.let(Routes::clientDetail)
+        is NavigationIntent.EmployeeDetail -> intent.employeeId.toIntOrNull()?.let(Routes::employeeDetail)
+        is NavigationIntent.ContractDetail -> Routes.contractDetail(intent.contractId)
         is NavigationIntent.MessageTemplateDetail -> Routes.messageEdit(intent.templateId)
         NavigationIntent.Chat -> Routes.CHAT
         NavigationIntent.ClientList -> Routes.CLIENT_LIST

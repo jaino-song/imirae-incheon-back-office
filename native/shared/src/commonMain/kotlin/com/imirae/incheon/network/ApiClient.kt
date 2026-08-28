@@ -109,6 +109,18 @@ class ApiClient(
         }
     }
 
+    /** Read a non-JSON response body while retaining auth, retry, and error mapping. */
+    suspend fun postText(
+        path: String,
+        endpointCategory: EndpointCategory = EndpointCategory.MUTATION,
+        block: HttpRequestBuilder.() -> Unit = {},
+    ): ApiResult<String> = request(endpointCategory = endpointCategory) {
+        httpClient.post(path) {
+            addAuth()
+            block()
+        }
+    }
+
     suspend inline fun <reified T> delete(
         path: String,
         endpointCategory: EndpointCategory = if (path.startsWith("/auth")) EndpointCategory.AUTH else EndpointCategory.MUTATION,

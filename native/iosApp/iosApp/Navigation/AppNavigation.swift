@@ -11,10 +11,12 @@ enum AppRoute: Hashable {
     case selectBranch
     case dashboard
     case clientList
-    case clientDetail(id: String)
+    case clientDetail(id: Int32)
     case clientNew
     case employeeList
+    case employeeDetail(id: Int32)
     case contractList
+    case contractDetail(id: String)
     case contractCreate
     // Phase 5 routes
     case messages
@@ -83,9 +85,18 @@ struct AppNavigation: View {
                 case .clientNew:
                     ClientNewView(onNavigateBack: { path.removeLast() })
                 case .employeeList:
-                    EmployeeListView()
+                    EmployeeListView(
+                        onNavigateToDetail: { id in path.append(AppRoute.employeeDetail(id: id)) }
+                    )
+                case .employeeDetail(let id):
+                    EmployeeDetailView(employeeId: id, onNavigateBack: { path.removeLast() })
                 case .contractList:
-                    ContractListView(onNavigateToCreate: { path.append(AppRoute.contractCreate) })
+                    ContractListView(
+                        onNavigateToDetail: { id in path.append(AppRoute.contractDetail(id: id)) },
+                        onNavigateToCreate: { path.append(AppRoute.contractCreate) }
+                    )
+                case .contractDetail(let id):
+                    ContractDetailView(documentId: id, onNavigateBack: { path.removeLast() })
                 case .contractCreate:
                     ContractCreationView(onNavigateBack: { path.removeLast() })
                 // Phase 5 routes
@@ -237,15 +248,23 @@ struct AppNavigation: View {
             if segments.count == 1 {
                 return .clientList
             }
-            return segments.count == 2 ? .clientDetail(id: segments[1]) : nil
+            guard segments.count == 2, let id = Int32(segments[1]) else {
+                return nil
+            }
+            return .clientDetail(id: id)
         case "employees":
-            // The current iOS surface exposes the employee list; detail links
-            // safely land there until a detail screen is available.
-            return segments.count == 1 || segments.count == 2 ? .employeeList : nil
+            if segments.count == 1 {
+                return .employeeList
+            }
+            guard segments.count == 2, let id = Int32(segments[1]) else {
+                return nil
+            }
+            return .employeeDetail(id: id)
         case "contracts":
-            // The current iOS surface exposes the contract list; detail links
-            // safely land there until a detail screen is available.
-            return segments.count == 1 || segments.count == 2 ? .contractList : nil
+            if segments.count == 1 {
+                return .contractList
+            }
+            return segments.count == 2 ? .contractDetail(id: segments[1]) : nil
         case "messages":
             if segments.count == 1 {
                 return .messages

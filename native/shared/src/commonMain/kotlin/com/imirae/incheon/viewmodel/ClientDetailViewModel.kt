@@ -2,7 +2,6 @@ package com.imirae.incheon.viewmodel
 
 import com.imirae.incheon.data.remote.ClientService
 import com.imirae.incheon.domain.models.Client
-import com.imirae.incheon.domain.models.Contract
 import com.imirae.incheon.domain.models.UpdateClientRequest
 import com.imirae.incheon.network.ApiResult
 import kotlinx.coroutines.CoroutineScope
@@ -16,8 +15,6 @@ import kotlinx.coroutines.launch
 data class ClientDetailUiState(
     val isLoading: Boolean = true,
     val client: Client? = null,
-    /** Contract routes remain unsupported until the canonical contract API lands. */
-    val contracts: List<Contract> = emptyList(),
     val error: String? = null,
     val isEditing: Boolean = false,
     val isSaving: Boolean = false,

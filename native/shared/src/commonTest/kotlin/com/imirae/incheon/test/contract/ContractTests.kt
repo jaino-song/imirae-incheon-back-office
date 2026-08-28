@@ -1,15 +1,18 @@
 package com.imirae.incheon.test.contract
 
 /**
- * Contract test stubs for all 59 API endpoints.
- * Tests verify that the mobile app's API expectations match the backend contract.
+ * Contract test stubs for the native API inventory.
+ * The executable parity assertions live in ApiContractMatrixTest; this file
+ * retains the broader role/RBAC inventory for suites that implement those
+ * scenarios.
  *
  * Test categories:
  * - Auth: 8 endpoints (login, register, verify, reset, refresh, logout, kakao, profile)
  * - Clients: 8 endpoints (CRUD + search + status + notes + history)
  * - Employees: 6 endpoints (CRUD + search + schedule)
- * - Contracts: 7 endpoints (CRUD + search + status + voucher)
- * - Documents: 5 endpoints (CRUD + search)
+ * - Contract documents: the `/documents` CRUD surface (the app's contract
+ *   presentation route; there is no `/contracts` backend family)
+ * - Documents: the same canonical `/documents` resource
  * - Templates: 6 endpoints (message CRUD + system list + render)
  * - Chat: 4 endpoints (history + send + stream + clear)
  * - Notifications: 3 native endpoints (list + read + unread-count); native push subscription is intentionally unsupported pending CR-PUSH
@@ -76,15 +79,13 @@ class EmployeeContractTests {
     fun testGetEmployeeSchedule_Success() { /* TODO */ }
 }
 
-// Contract Service Contract Tests (7 endpoints)
-class ContractContractTests {
-    fun testGetContracts_Success() { /* TODO */ }
-    fun testGetContract_Success() { /* TODO */ }
-    fun testCreateContract_Success() { /* TODO */ }
-    fun testUpdateContract_Success() { /* TODO */ }
-    fun testDeleteContract_Success() { /* TODO */ }
-    fun testSearchContracts_Success() { /* TODO */ }
-    fun testGetVoucherInfo_Success() { /* TODO */ }
+// Contract-document presentation tests (backed by DocumentService)
+class ContractDocumentRouteTests {
+    fun testGetContractDocuments_Success() { /* TODO */ }
+    fun testGetContractDocument_Success() { /* TODO */ }
+    fun testUpdateContractDocument_Success() { /* TODO */ }
+    fun testDeleteContractDocument_Success() { /* TODO */ }
+    fun testUploadContractDocument_UnsupportedWithoutPicker() { /* TODO */ }
 }
 
 // Document Service Contract Tests (5 endpoints)
@@ -147,11 +148,11 @@ class RBACContractTests {
     fun testAdminEndpoint_AsAdmin_200() { /* TODO */ }
     fun testDeleteClient_AsViewer_403() { /* TODO */ }
     fun testCreateEmployee_AsViewer_403() { /* TODO */ }
-    fun testUpdateContract_AsViewer_403() { /* TODO */ }
+    fun testUpdateContractDocument_AsViewer_403() { /* TODO */ }
     fun testDeleteDocument_AsViewer_403() { /* TODO */ }
     fun testUpdateSettings_AsViewer_403() { /* TODO */ }
     fun testDeleteFile_AsViewer_403() { /* TODO */ }
-    fun testClearChat_AsViewer_403() { /* TODO */ }
+    fun testClearChat_Unsupported_AsViewer() { /* TODO */ }
     fun testAdminFeedback_AsUser_403() { /* TODO */ }
     fun testExpiredToken_AnyEndpoint_401() { /* TODO */ }
     fun testMalformedToken_AnyEndpoint_401() { /* TODO */ }

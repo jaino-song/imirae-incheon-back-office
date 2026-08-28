@@ -17,6 +17,7 @@ import com.imirae.incheon.ui.auth.*
 import com.imirae.incheon.ui.clients.*
 import com.imirae.incheon.ui.contracts.*
 import com.imirae.incheon.ui.dashboard.DashboardScreen
+import com.imirae.incheon.ui.employees.EmployeeDetailScreen
 import com.imirae.incheon.ui.employees.EmployeeListScreen
 import com.imirae.incheon.ui.messages.*
 import com.imirae.incheon.ui.chat.ChatScreen
@@ -38,8 +39,10 @@ object Routes {
     const val CLIENT_DETAIL = "clients/{clientId}"
     const val CLIENT_NEW = "clients/new"
     const val EMPLOYEE_LIST = "employees"
+    const val EMPLOYEE_DETAIL = "employees/{employeeId}"
     const val CONTRACT_LIST = "contracts"
     const val CONTRACT_CREATE = "contracts/create"
+    const val CONTRACT_DETAIL = "contracts/{documentId}"
     const val MESSAGES = "messages"
     const val MESSAGE_NEW = "messages/new"
     const val MESSAGE_EDIT = "messages/{templateId}/edit"
@@ -49,7 +52,9 @@ object Routes {
     const val VOUCHER_PRICES = "settings/voucher-prices"
     const val ADMIN = "admin"
 
-    fun clientDetail(clientId: String): String = "clients/$clientId"
+    fun clientDetail(clientId: Int): String = "clients/$clientId"
+    fun employeeDetail(employeeId: Int): String = "employees/$employeeId"
+    fun contractDetail(documentId: String): String = "contracts/$documentId"
     fun messageEdit(templateId: String): String = "messages/$templateId/edit"
 }
 
@@ -61,6 +66,7 @@ fun AppNavGraph(
     clientListViewModel: ClientListViewModel,
     clientDetailViewModel: ClientDetailViewModel,
     employeeListViewModel: EmployeeListViewModel,
+    employeeDetailViewModel: EmployeeDetailViewModel,
     contractListViewModel: ContractListViewModel,
     messageTemplateViewModel: MessageTemplateViewModel,
     chatViewModel: ChatViewModel,
@@ -132,21 +138,51 @@ fun AppNavGraph(
                 onNavigateToNew = { navController.navigate(Routes.CLIENT_NEW) }
             )
         }
-        composable(Routes.CLIENT_DETAIL, arguments = listOf(navArgument("clientId") { type = NavType.StringType })) { backStackEntry ->
-            val clientId = backStackEntry.arguments?.getString("clientId") ?: ""
+        composable(Routes.CLIENT_DETAIL, arguments = listOf(navArgument("clientId") { type = NavType.IntType })) { backStackEntry ->
+            val arguments = backStackEntry.arguments
+            if (arguments == null || !arguments.containsKey("clientId")) return@composable
+            val clientId = arguments.getInt("clientId")
+            if (clientId <= 0) return@composable
             ClientDetailScreen(viewModel = clientDetailViewModel, clientId = clientId, onNavigateBack = { navController.popBackStack() })
         }
         composable(Routes.CLIENT_NEW) {
             ClientNewScreen(viewModel = clientListViewModel, onNavigateBack = { navController.popBackStack() })
         }
         composable(Routes.EMPLOYEE_LIST) {
-            EmployeeListScreen(viewModel = employeeListViewModel, onNavigateToDetail = { /* TODO: Employee detail */ })
+            EmployeeListScreen(
+                viewModel = employeeListViewModel,
+                onNavigateToDetail = { id -> navController.navigate(Routes.employeeDetail(id)) },
+            )
+        }
+        composable(
+            Routes.EMPLOYEE_DETAIL,
+            arguments = listOf(navArgument("employeeId") { type = NavType.IntType }),
+        ) { backStackEntry ->
+            val employeeId = backStackEntry.arguments?.getInt("employeeId") ?: return@composable
+            if (employeeId <= 0) return@composable
+            EmployeeDetailScreen(
+                viewModel = employeeDetailViewModel,
+                employeeId = employeeId,
+                onNavigateBack = { navController.popBackStack() },
+            )
         }
         composable(Routes.CONTRACT_LIST) {
             ContractListScreen(
                 viewModel = contractListViewModel,
-                onNavigateToDetail = { /* TODO: Contract detail */ },
+                onNavigateToDetail = { id -> navController.navigate(Routes.contractDetail(id)) },
                 onNavigateToCreate = { navController.navigate(Routes.CONTRACT_CREATE) }
+            )
+        }
+        composable(
+            Routes.CONTRACT_DETAIL,
+            arguments = listOf(navArgument("documentId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val documentId = backStackEntry.arguments?.getString("documentId")?.trim().orEmpty()
+            if (documentId.isEmpty()) return@composable
+            ContractDetailScreen(
+                viewModel = contractListViewModel,
+                documentId = documentId,
+                onNavigateBack = { navController.popBackStack() },
             )
         }
         composable(Routes.CONTRACT_CREATE) {

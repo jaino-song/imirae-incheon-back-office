@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
                     clientListViewModel = get(),
                     clientDetailViewModel = get(),
                     employeeListViewModel = get(),
+                    employeeDetailViewModel = get(),
                     contractListViewModel = get(),
                     messageTemplateViewModel = get(),
                     chatViewModel = get(),

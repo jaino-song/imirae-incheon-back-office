@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         #endif
 
         AppBootstrapper.shared.initializeKoin()
-        configurePushNotifications(for: application)
+        configurePushNotifications()
 
         if let remotePayload = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
             forwardDeepLink(from: remotePayload)
@@ -64,17 +64,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         APNsDelegate.shared.didFailToRegisterForRemoteNotifications(error: error)
     }
 
-    private func configurePushNotifications(for application: UIApplication) {
+    private func configurePushNotifications() {
         UNUserNotificationCenter.current().delegate = APNsDelegate.shared
-
-        APNsDelegate.shared.requestPermission { granted in
-            guard granted else {
-                return
-            }
-            DispatchQueue.main.async {
-                application.registerForRemoteNotifications()
-            }
-        }
+        // Permission and receipt handling remain local-only until the mobile
+        // APNs/FCM token backend contract is implemented. Do not register a
+        // provider token or send one to the browser Web Push endpoint.
+        APNsDelegate.shared.requestPermission { _ in }
     }
 
     private func forwardDeepLink(from payload: [AnyHashable: Any]) {

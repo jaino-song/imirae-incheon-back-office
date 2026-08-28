@@ -18,6 +18,7 @@ import com.imirae.incheon.viewmodel.ClientListViewModel
 import com.imirae.incheon.viewmodel.ContractListViewModel
 import com.imirae.incheon.viewmodel.DashboardViewModel
 import com.imirae.incheon.viewmodel.EmployeeListViewModel
+import com.imirae.incheon.viewmodel.EmployeeDetailViewModel
 import com.imirae.incheon.viewmodel.FileListViewModel
 import com.imirae.incheon.viewmodel.MessageTemplateViewModel
 import com.imirae.incheon.viewmodel.SettingsViewModel
@@ -31,6 +32,7 @@ private val phaseFiveAndSixModule = module {
     single { ClientListViewModel(get()) }
     single { ClientDetailViewModel(get()) }
     single { EmployeeListViewModel(get()) }
+    single { EmployeeDetailViewModel(get()) }
     single { ContractListViewModel(get()) }
 
     single { MessageTemplateViewModel(get()) }

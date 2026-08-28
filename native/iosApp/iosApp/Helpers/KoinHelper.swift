@@ -7,6 +7,7 @@ struct SharedViewModels {
     let clientList: ClientListViewModel
     let clientDetail: ClientDetailViewModel
     let employeeList: EmployeeListViewModel
+    let employeeDetail: EmployeeDetailViewModel
     let contractList: ContractListViewModel
     let messageTemplate: MessageTemplateViewModel
     let chat: ChatViewModel
@@ -31,9 +32,9 @@ class KoinHelper {
     )
     private lazy var authenticatedApiClient: ApiClient = ApiClient(baseUrl: apiBaseURL, tokenProvider: authManager)
 
-    private lazy var clientService: ClientServiceImpl = ClientServiceImpl(apiClient: authenticatedApiClient)
-    private lazy var employeeService: EmployeeServiceImpl = EmployeeServiceImpl(apiClient: authenticatedApiClient)
-    private lazy var documentService: DocumentServiceImpl = DocumentServiceImpl(apiClient: authenticatedApiClient)
+    private lazy var clientService: ClientServiceImpl = ClientServiceImpl(client: authenticatedApiClient)
+    private lazy var employeeService: EmployeeServiceImpl = EmployeeServiceImpl(client: authenticatedApiClient)
+    private lazy var documentService: DocumentServiceImpl = DocumentServiceImpl(client: authenticatedApiClient)
 
     func authViewModel() -> AuthViewModel {
         AuthViewModel(authManager: authManager)
@@ -52,11 +53,15 @@ class KoinHelper {
     }
 
     func clientDetailViewModel() -> ClientDetailViewModel {
-        ClientDetailViewModel(clientService: clientService, documentService: documentService)
+        ClientDetailViewModel(clientService: clientService)
     }
 
     func employeeListViewModel() -> EmployeeListViewModel {
         EmployeeListViewModel(employeeService: employeeService)
+    }
+
+    func employeeDetailViewModel() -> EmployeeDetailViewModel {
+        EmployeeDetailViewModel(employeeService: employeeService)
     }
 
     func contractListViewModel() -> ContractListViewModel {
@@ -70,6 +75,7 @@ class KoinHelper {
             clientList: clientListViewModel(),
             clientDetail: clientDetailViewModel(),
             employeeList: employeeListViewModel(),
+            employeeDetail: employeeDetailViewModel(),
             contractList: contractListViewModel(),
             messageTemplate: messageTemplateViewModel(),
             chat: chatViewModel(),

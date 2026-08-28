@@ -28,11 +28,10 @@ fun ClientNewScreen(
     val uiState by viewModel.uiState.collectAsState()
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
     var address by remember { mutableStateOf("") }
-    var memo by remember { mutableStateOf("") }
-    var babyName by remember { mutableStateOf("") }
     var dueDate by remember { mutableStateOf("") }
+    var voucherClient by remember { mutableStateOf(false) }
+    var breastPump by remember { mutableStateOf(false) }
     var nameError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(uiState.createSuccess) { if (uiState.createSuccess) onNavigateBack() }
@@ -50,18 +49,32 @@ fun ClientNewScreen(
             Column(modifier = Modifier.padding(DesignTokens.Spacing.lg.dp), verticalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.md.dp)) {
                 AppTextField(value = name, onValueChange = { name = it; nameError = null }, label = "이름 *", error = nameError, testTag = "client-new-name")
                 AppTextField(value = phone, onValueChange = { phone = it }, label = "전화번호", keyboardType = KeyboardType.Phone, testTag = "client-new-phone")
-                AppTextField(value = email, onValueChange = { email = it }, label = "이메일", keyboardType = KeyboardType.Email, testTag = "client-new-email")
                 AppTextField(value = address, onValueChange = { address = it }, label = "주소", testTag = "client-new-address")
-                AppTextField(value = babyName, onValueChange = { babyName = it }, label = "아기 이름", testTag = "client-new-baby-name")
                 AppTextField(value = dueDate, onValueChange = { dueDate = it }, label = "출산 예정일 (YYYY-MM-DD)", testTag = "client-new-due-date")
-                AppTextField(value = memo, onValueChange = { memo = it }, label = "메모", singleLine = false, testTag = "client-new-memo")
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("바우처 고객", style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = voucherClient, onCheckedChange = { voucherClient = it }, modifier = Modifier.testTag("client-new-voucher-client"))
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("유축기", style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = breastPump, onCheckedChange = { breastPump = it }, modifier = Modifier.testTag("client-new-breast-pump"))
+                }
             }
         }
 
         Button(
             onClick = {
                 if (name.isBlank()) { nameError = "이름을 입력해 주세요"; return@Button }
-                viewModel.createClient(CreateClientRequest(name = name, phone = phone.ifBlank { null }, email = email.ifBlank { null }, address = address.ifBlank { null }, memo = memo.ifBlank { null }, babyName = babyName.ifBlank { null }, dueDate = dueDate.ifBlank { null }))
+                viewModel.createClient(
+                    CreateClientRequest(
+                        name = name.trim(),
+                        voucherClient = voucherClient,
+                        breastPump = breastPump,
+                        phone = phone.ifBlank { null },
+                        address = address.ifBlank { null },
+                        dueDate = dueDate.ifBlank { null },
+                    ),
+                )
             },
             enabled = !uiState.isCreating,
             modifier = Modifier.fillMaxWidth().height(48.dp).testTag("client-new-submit"),

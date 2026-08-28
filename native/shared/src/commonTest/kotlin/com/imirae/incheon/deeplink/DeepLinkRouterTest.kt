@@ -20,6 +20,18 @@ class DeepLinkRouterTest {
     }
 
     @Test
+    fun mapsEmployeeAndContractPresentationRoutesToTypedDetails() {
+        assertEquals(
+            NavigationIntent.EmployeeDetail("employee-3"),
+            router.route("https://app.imirae-incheon.com/employees/employee-3"),
+        )
+        assertEquals(
+            NavigationIntent.ContractDetail("document-7"),
+            router.route("imirae://app/contracts/document-7"),
+        )
+    }
+
+    @Test
     fun rejectsUntrustedHostsAndSchemes() {
         assertEquals(
             NavigationIntent.Unknown,

@@ -15,3 +15,14 @@ data class Employee(
     val birthday: String? = null,
     val status: String? = null,
 )
+
+/** Optional fields accepted by PATCH /employees?id={id}. */
+@Serializable
+data class UpdateEmployeeRequest(
+    val name: String? = null,
+    val workArea: List<String>? = null,
+    val phone: String? = null,
+    val grade: String? = null,
+    val openToNextWork: Boolean? = null,
+    val birthday: String? = null,
+)

@@ -15,8 +15,12 @@ interface TemplateService {
 class TemplateServiceImpl(private val client: ApiClient) : TemplateService {
     override suspend fun getMessageTemplates() = client.get<List<MessageTemplate>>("/message-templates")
     override suspend fun getMessageTemplate(id: String) = client.get<MessageTemplate>("/message-templates/$id")
-    override suspend fun createMessageTemplate(title: String, content: String, category: String?) = client.post<MessageTemplate>("/message-templates") { setBody(mapOf("title" to title, "content" to content, "category" to category)) }
-    override suspend fun updateMessageTemplate(id: String, title: String, content: String, category: String?) = client.put<MessageTemplate>("/message-templates/$id") { setBody(mapOf("title" to title, "content" to content, "category" to category)) }
+    override suspend fun createMessageTemplate(title: String, content: String, category: String?) = client.post<MessageTemplate>("/message-templates") {
+        setBody(MessageTemplateRequest(name = title, content = content))
+    }
+    override suspend fun updateMessageTemplate(id: String, title: String, content: String, category: String?) = client.patch<MessageTemplate>("/message-templates/$id") {
+        setBody(MessageTemplateRequest(name = title, content = content))
+    }
     override suspend fun deleteMessageTemplate(id: String) = client.delete<Unit>("/message-templates/$id")
     override suspend fun getSystemTemplates() = client.get<List<SystemTemplate>>("/system-templates")
 }

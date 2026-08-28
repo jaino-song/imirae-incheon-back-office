@@ -10,12 +10,15 @@ import com.imirae.incheon.network.*
  */
 interface NotificationService {
     suspend fun getNotifications(): ApiResult<List<Notification>>
-    suspend fun markAsRead(id: String): ApiResult<Unit>
+    suspend fun markAsRead(id: Int): ApiResult<Notification>
     suspend fun getUnreadCount(): ApiResult<Int>
 }
 
 class NotificationServiceImpl(private val client: ApiClient) : NotificationService {
     override suspend fun getNotifications() = client.get<List<Notification>>("/notifications")
-    override suspend fun markAsRead(id: String) = client.put<Unit>("/notifications/$id/read")
-    override suspend fun getUnreadCount() = client.get<Int>("/notifications/unread-count")
+    override suspend fun markAsRead(id: Int) = client.patch<Notification>("/notifications/$id/read")
+    override suspend fun getUnreadCount(): ApiResult<Int> = when (val result = client.get<UnreadCountResponse>("/notifications/unread/count")) {
+        is ApiResult.Success -> ApiResult.Success(result.data.count)
+        is ApiResult.Error -> result
+    }
 }

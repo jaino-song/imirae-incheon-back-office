@@ -1,6 +1,7 @@
 import SwiftUI
 import shared
 
+@MainActor
 struct LoginView: View {
     @ObservedObject var viewModel: AuthViewModelWrapper
     @State private var email = ""
@@ -16,8 +17,9 @@ struct LoginView: View {
     var onNavigateToSelectBranch: () -> Void = {}
     var shouldNavigateToDashboard: () -> Bool = { true }
 
+    @MainActor
     init(
-        viewModel: AuthViewModelWrapper = AuthViewModelWrapper(),
+        viewModel: AuthViewModelWrapper,
         onNavigateToRegister: @escaping () -> Void = {},
         onNavigateToForgotPassword: @escaping () -> Void = {},
         onNavigateToVerifyEmail: @escaping () -> Void = {},
