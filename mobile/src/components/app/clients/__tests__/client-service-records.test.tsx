@@ -12,6 +12,12 @@ import type {
 const mockMutateAsync = jest.fn();
 const TEST_COMPONENT =
     "mobile_clients_detail-sheet_stack_detail-page_content_tab-panel_service-records_content";
+const TEST_START_DATE = "2026-07-16T00:00:00+09:00";
+const TEST_END_DATE = "2026-07-30T00:00:00+09:00";
+const TEST_SCHEDULED_FOR = "2026-07-16T15:00:00+09:00";
+const TEST_LAST_SENT_AT = "2026-07-16T15:02:00+09:00";
+const TEST_VERIFIED_AT = "2026-07-16T15:10:00+09:00";
+const TEST_EXPIRY = "2026-07-30T20:00:00+09:00";
 
 jest.mock("@/hooks/useServiceRecords", () => ({
     useSendServiceRecordLink: () => ({
@@ -36,8 +42,8 @@ function createAssignment(
 ): ServiceRecordAssignment {
     return {
         scheduleId,
-        startDate: "2099-07-16T00:00:00+09:00",
-        endDate: "2099-07-30T00:00:00+09:00",
+        startDate: TEST_START_DATE,
+        endDate: TEST_END_DATE,
         replaced: false,
         employee: {
             id: scheduleId,
@@ -46,13 +52,13 @@ function createAssignment(
         },
         link: {
             status,
-            scheduledFor: status === "scheduled" ? "2099-07-16T15:00:00+09:00" : null,
+            scheduledFor: status === "scheduled" ? TEST_SCHEDULED_FOR : null,
             sentCount: status === "none" ? 0 : 1,
-            lastSentAt: status === "sent" ? "2099-07-16T15:02:00+09:00" : null,
+            lastSentAt: status === "sent" ? TEST_LAST_SENT_AT : null,
             token: status === "none" ? null : {
-                issuedAt: "2099-07-16T15:00:00+09:00",
-                verifiedAt: status === "sent" ? "2099-07-16T15:10:00+09:00" : null,
-                expiresAt: "2099-07-30T20:00:00+09:00",
+                issuedAt: TEST_SCHEDULED_FOR,
+                verifiedAt: status === "sent" ? TEST_VERIFIED_AT : null,
+                expiresAt: TEST_EXPIRY,
                 state: "active",
             },
         },
@@ -67,13 +73,13 @@ function createRecord(status: string): ServiceRecordCase {
     return {
         id: "record-1",
         status,
-        startDate: "2099-07-16T00:00:00+09:00",
-        endDate: "2099-07-30T00:00:00+09:00",
+        startDate: TEST_START_DATE,
+        endDate: TEST_END_DATE,
         totalSessions: 1,
-        completedAt: "2099-07-30T18:00:00+09:00",
+        completedAt: "2026-07-30T18:00:00+09:00",
         finalizationDueAt: null,
-        finalizedAt: "2099-07-30T18:30:00+09:00",
-        documentsCompletedAt: "2099-07-30T19:00:00+09:00",
+        finalizedAt: "2026-07-30T18:30:00+09:00",
+        documentsCompletedAt: "2026-07-30T19:00:00+09:00",
         lastError: null,
         header: null,
         sessions: [],
@@ -164,8 +170,8 @@ describe("ClientServiceRecords", () => {
             documentId: "service-record-document-1",
             statusDetail: "COMPLETED",
             stepName: "완료",
-            createdDate: "2099-07-30T18:30:00+09:00",
-            updatedDate: "2099-07-30T19:00:00+09:00",
+            createdDate: "2026-07-30T18:30:00+09:00",
+            updatedDate: "2026-07-30T19:00:00+09:00",
             snapshotChunkIndex: 1,
         }];
 
@@ -189,8 +195,8 @@ describe("ClientServiceRecords", () => {
             documentId: "service-record-document-uppercase",
             statusDetail: "COMPLETED",
             stepName: "완료",
-            createdDate: "2099-07-30T18:30:00+09:00",
-            updatedDate: "2099-07-30T19:00:00+09:00",
+            createdDate: "2026-07-30T18:30:00+09:00",
+            updatedDate: "2026-07-30T19:00:00+09:00",
             snapshotChunkIndex: 1,
         }];
 
@@ -260,10 +266,10 @@ describe("ClientServiceRecords", () => {
                 createAssignment(1, "sent", [
                     {
                         sessionIndex: 1,
-                        serviceDate: "2099-07-16T00:00:00+09:00",
+                        serviceDate: TEST_START_DATE,
                         locked: true,
-                        submittedAt: "2099-07-16T18:42:00+09:00",
-                        updatedAt: "2099-07-16T18:42:00+09:00",
+                        submittedAt: "2026-07-16T18:42:00+09:00",
+                        updatedAt: "2026-07-16T18:42:00+09:00",
                         answers: {
                             perineum: ["열상"],
                             breast: ["이상없음"],
