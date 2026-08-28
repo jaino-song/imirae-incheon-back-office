@@ -88,6 +88,9 @@ export class SendNotificationUsecase {
 
         // Push 알림 전송
         const payload = savedNotification.toWebPushPayload();
+        const subscriptionsByEndpoint = new Map(
+            subscriptions.map((subscription) => [subscription.endpoint, subscription]),
+        );
         let results: Map<string, boolean>;
         try {
             results = await this.webPushPort.sendNotificationToMany(subscriptions, payload);
@@ -102,7 +105,12 @@ export class SendNotificationUsecase {
             if (success) delivered += 1;
             if (!success) {
                 failed += 1;
-                await this.pushSubscriptionRepository.deleteByEndpoint(endpoint);
+                const snapshot = subscriptionsByEndpoint.get(endpoint);
+                if (!snapshot) {
+                    this.logger.warn(`Skipped cleanup for an endpoint outside the delivery snapshot: ${endpoint.substring(0, 50)}...`);
+                    continue;
+                }
+                await this.pushSubscriptionRepository.deleteByEndpointIfMatches(snapshot);
                 this.logger.log(`Removed invalid subscription: ${endpoint.substring(0, 50)}...`);
             }
         }
@@ -155,6 +163,9 @@ export class SendNotificationUsecase {
 
         // Push 알림 전송
         const results = await this.webPushPort.sendNotificationToMany(subscriptions, payload);
+        const subscriptionsByEndpoint = new Map(
+            subscriptions.map((subscription) => [subscription.endpoint, subscription]),
+        );
 
         // 실패한 구독 정리
         let sent = 0;
@@ -164,7 +175,12 @@ export class SendNotificationUsecase {
                 sent++;
             } else {
                 failed++;
-                await this.pushSubscriptionRepository.deleteByEndpoint(endpoint);
+                const snapshot = subscriptionsByEndpoint.get(endpoint);
+                if (!snapshot) {
+                    this.logger.warn(`Skipped cleanup for an endpoint outside the broadcast snapshot: ${endpoint.substring(0, 50)}...`);
+                    continue;
+                }
+                await this.pushSubscriptionRepository.deleteByEndpointIfMatches(snapshot);
             }
         }
 

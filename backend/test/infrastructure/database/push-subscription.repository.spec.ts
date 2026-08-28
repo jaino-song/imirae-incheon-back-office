@@ -69,4 +69,34 @@ describe("SbPushSubscriptionRepository", () => {
             },
         });
     });
+
+    it("scopes failed-delivery cleanup to the complete send snapshot", async () => {
+        const prisma = {
+            push_subscription: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+        };
+        const repository = new SbPushSubscriptionRepository(prisma as unknown as PrismaService);
+        const snapshot = PushSubscriptionEntity.reconstitute(
+            7,
+            "user-a",
+            "https://push.example/shared-endpoint",
+            "p256dh-a",
+            "auth-a",
+            "test-agent",
+            new Date("2026-08-29T00:00:00.000Z"),
+        );
+
+        await repository.deleteByEndpointIfMatches(snapshot);
+
+        expect(prisma.push_subscription.deleteMany).toHaveBeenCalledWith({
+            where: {
+                id: 7,
+                endpoint: snapshot.endpoint,
+                userId: "user-a",
+                p256dhKey: "p256dh-a",
+                authKey: "auth-a",
+            },
+        });
+    });
 });

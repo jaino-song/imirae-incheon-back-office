@@ -16,6 +16,7 @@ describe("UnsubscribePushUsecase", () => {
                     owners.delete(requestedEndpoint);
                 }
             }),
+            deleteByEndpointIfMatches: jest.fn(),
             deleteByUserId: jest.fn(),
             findAll: jest.fn(),
         };
@@ -45,6 +46,7 @@ describe("UnsubscribePushUsecase", () => {
                     owners.delete(requestedEndpoint);
                 }
             }),
+            deleteByEndpointIfMatches: jest.fn(),
             deleteByUserId: jest.fn(),
             findAll: jest.fn(),
         };

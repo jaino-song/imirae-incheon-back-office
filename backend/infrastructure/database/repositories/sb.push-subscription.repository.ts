@@ -62,6 +62,23 @@ export class SbPushSubscriptionRepository implements IPushSubscriptionRepository
         });
     }
 
+    async deleteByEndpointIfMatches(
+        subscription: Pick<PushSubscriptionEntity, "id" | "userId" | "endpoint" | "p256dhKey" | "authKey">,
+    ): Promise<void> {
+        // Failed delivery results can arrive after an endpoint has been
+        // rebound.  Keep cleanup conditional on the complete send snapshot so
+        // a stale result cannot delete the replacement subscription.
+        await this.prismaService.push_subscription.deleteMany({
+            where: {
+                id: subscription.id,
+                endpoint: subscription.endpoint,
+                userId: subscription.userId,
+                p256dhKey: subscription.p256dhKey,
+                authKey: subscription.authKey,
+            },
+        });
+    }
+
     async deleteByUserId(userId: string): Promise<void> {
         await this.prismaService.push_subscription.deleteMany({
             where: { userId: userId },

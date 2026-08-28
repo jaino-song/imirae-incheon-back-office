@@ -34,6 +34,14 @@ export interface IPushSubscriptionRepository {
     deleteByEndpointForUser(endpoint: string, userId: string): Promise<void>;
 
     /**
+     * Delete a failed delivery only when the endpoint still has the exact
+     * owner and encryption-key snapshot used for that send.
+     */
+    deleteByEndpointIfMatches(
+        subscription: Pick<PushSubscriptionEntity, "id" | "userId" | "endpoint" | "p256dhKey" | "authKey">,
+    ): Promise<void>;
+
+    /**
      * Delete all subscriptions for a user
      */
     deleteByUserId(userId: string): Promise<void>;

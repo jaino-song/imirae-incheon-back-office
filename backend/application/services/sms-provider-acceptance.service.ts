@@ -141,7 +141,7 @@ export class SmsProviderAcceptanceService {
             if (existingOutcome === input.outcome) return source;
             throw new ConflictException("SMS provider reconciliation is immutable");
         }
-        if (!source.isProviderOutcomeUncertain()) {
+        if (!source.canReconcileProviderOutcome()) {
             throw new ConflictException(
                 `SMS provider reconciliation is not allowed from ${source.providerAcceptanceState}`,
             );

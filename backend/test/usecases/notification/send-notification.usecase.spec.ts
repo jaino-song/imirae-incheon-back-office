@@ -14,6 +14,7 @@ describe("SendNotificationUsecase", () => {
         upsert: jest.fn(),
         deleteByEndpoint: jest.fn(),
         deleteByEndpointForUser: jest.fn(),
+        deleteByEndpointIfMatches: jest.fn(),
         deleteByUserId: jest.fn(),
         findAll: jest.fn(),
     });
@@ -78,7 +79,7 @@ describe("SendNotificationUsecase", () => {
         }));
 
         expect(pushSubscriptionRepository.findByUserId).not.toHaveBeenCalled();
-        expect(pushSubscriptionRepository.deleteByEndpoint).not.toHaveBeenCalled();
+        expect(pushSubscriptionRepository.deleteByEndpointIfMatches).not.toHaveBeenCalled();
         expect(webPushPort.sendNotificationToMany).not.toHaveBeenCalled();
         expect(notificationRepository.updateData).toHaveBeenCalledTimes(1);
     });
@@ -89,7 +90,7 @@ describe("SendNotificationUsecase", () => {
         ).resolves.toEqual({ sent: 0, failed: 0 });
 
         expect(pushSubscriptionRepository.findAll).not.toHaveBeenCalled();
-        expect(pushSubscriptionRepository.deleteByEndpoint).not.toHaveBeenCalled();
+        expect(pushSubscriptionRepository.deleteByEndpointIfMatches).not.toHaveBeenCalled();
     });
 
     it("keeps a concurrent mark-read write when provider outcome persistence is deferred", async () => {
@@ -166,8 +167,16 @@ describe("SendNotificationUsecase", () => {
         expect(notificationRepository.updateData).toHaveBeenCalledWith("branch-1", savedNotification.id, expect.objectContaining({
             providerOutcome: { status: "partial", subscriptions: 3, delivered: 2, failed: 1 },
         }));
-        expect(pushSubscriptionRepository.deleteByEndpoint).toHaveBeenCalledTimes(1);
-        expect(pushSubscriptionRepository.deleteByEndpoint).toHaveBeenCalledWith("endpoint-failed");
+        expect(pushSubscriptionRepository.deleteByEndpointIfMatches).toHaveBeenCalledTimes(1);
+        expect(pushSubscriptionRepository.deleteByEndpointIfMatches).toHaveBeenCalledWith(
+            expect.objectContaining({
+                id: 2,
+                userId: "user-1",
+                endpoint: "endpoint-failed",
+                p256dhKey: "p256dh-2",
+                authKey: "auth-2",
+            }),
+        );
     });
 
     it.each([
@@ -193,5 +202,30 @@ describe("SendNotificationUsecase", () => {
         expect(notificationRepository.updateData).toHaveBeenCalledWith("branch-1", savedNotification.id, expect.objectContaining({
             providerOutcome: { status, subscriptions: 2, delivered, failed },
         }));
+    });
+
+    it("uses the broadcast send snapshot for failed subscription cleanup", async () => {
+        webPushPort.isEnabled.mockReturnValue(true);
+        const subscription = PushSubscriptionEntity.reconstitute(
+            9,
+            "user-9",
+            "endpoint-broadcast",
+            "p256dh-9",
+            "auth-9",
+            null,
+            new Date(),
+        );
+        pushSubscriptionRepository.findAll.mockResolvedValue([subscription]);
+        webPushPort.sendNotificationToMany.mockResolvedValue(new Map([
+            [subscription.endpoint, false],
+        ]));
+
+        await expect(usecase.broadcast({ title: "title", body: "body" })).resolves.toEqual({
+            sent: 0,
+            failed: 1,
+        });
+
+        expect(pushSubscriptionRepository.deleteByEndpointIfMatches).toHaveBeenCalledWith(subscription);
+        expect(pushSubscriptionRepository.deleteByEndpoint).not.toHaveBeenCalled();
     });
 });

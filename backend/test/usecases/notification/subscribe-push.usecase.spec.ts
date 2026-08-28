@@ -16,6 +16,7 @@ describe("SubscribePushUsecase", () => {
             }),
             deleteByEndpoint: jest.fn(),
             deleteByEndpointForUser: jest.fn(),
+            deleteByEndpointIfMatches: jest.fn(),
             deleteByUserId: jest.fn(),
             findAll: jest.fn(),
         };
@@ -58,6 +59,7 @@ describe("SubscribePushUsecase", () => {
             }),
             deleteByEndpoint: jest.fn(),
             deleteByEndpointForUser: jest.fn(),
+            deleteByEndpointIfMatches: jest.fn(),
             deleteByUserId: jest.fn(),
             findAll: jest.fn(),
         };

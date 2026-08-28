@@ -106,10 +106,7 @@ export class SbMessageLogRepository implements IMessageLogRepository {
             if (!current) return null;
 
             const currentEntity = MessageLogMapper.toDomain(current);
-            if (
-                currentEntity.providerAcceptanceState !== "started"
-                && currentEntity.providerAcceptanceState !== "uncertain"
-            ) {
+            if (!currentEntity.canReconcileProviderOutcome()) {
                 return null;
             }
 

@@ -264,7 +264,7 @@ export class MessageLogEntity {
         ) {
             throw new Error("SMS provider reconciliation audit fields are too long");
         }
-        if (this.providerAcceptanceState !== "started" && this.providerAcceptanceState !== "uncertain") {
+        if (!this.canReconcileProviderOutcome()) {
             throw new Error(
                 `SMS provider reconciliation is not allowed from ${this.providerAcceptanceState}`,
             );
@@ -302,6 +302,15 @@ export class MessageLogEntity {
 
     isProviderOutcomeUncertain(): boolean {
         return this.providerAcceptanceState === "started" || this.providerAcceptanceState === "uncertain";
+    }
+
+    /**
+     * Operator reconciliation is only safe after the sender fenced a failed
+     * provider call as uncertain.  A started attempt may still be in flight,
+     * so treating it as not-delivered could authorize a duplicate send.
+     */
+    canReconcileProviderOutcome(): boolean {
+        return this.providerAcceptanceState === "uncertain";
     }
 
     isExplicitlyReconciledNotDelivered(): boolean {

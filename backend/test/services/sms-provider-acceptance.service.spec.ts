@@ -149,8 +149,30 @@ describe("SmsProviderAcceptanceService", () => {
         expect(repository.reconcileProviderAttempt).toHaveBeenCalledTimes(1);
     });
 
-    it("marks a delivered reconciliation as terminal and allows an idempotent repeat", async () => {
+    it("rejects reconciliation while the provider call is still started", async () => {
         const attempt = createAttempt("started");
+        const repository = {
+            findByIdInBranch: jest.fn().mockResolvedValue(attempt),
+            reconcileProviderAttempt: jest.fn(),
+        };
+        const service = new SmsProviderAcceptanceService(
+            repository as unknown as IMessageLogRepository,
+        );
+
+        await expect(service.reconcile({
+            branchId,
+            logId: attempt.id,
+            outcome: "delivered",
+            actor: "operator-1",
+            reason: "provider receipt 123 confirmed delivery",
+            providerMessageId: "123",
+        })).rejects.toThrow(ConflictException);
+        expect(attempt.providerAcceptanceState).toBe("started");
+        expect(repository.reconcileProviderAttempt).not.toHaveBeenCalled();
+    });
+
+    it("marks a delivered reconciliation as terminal and allows an idempotent repeat after uncertainty is fenced", async () => {
+        const attempt = createAttempt("uncertain");
         const repository = {
             findByIdInBranch: jest.fn().mockResolvedValue(attempt),
             reconcileProviderAttempt: jest
