@@ -726,8 +726,11 @@ export class UserService {
         table: "branch" | "user",
         id: string,
     ): Promise<void> {
-        if (typeof tx.$queryRawUnsafe !== "function") return;
-        await tx.$queryRawUnsafe(`SELECT "id" FROM "${table}" WHERE "id" = $1 FOR UPDATE`, id);
+        if (typeof tx.$queryRaw !== "function") return;
+        const query = table === "branch"
+            ? Prisma.sql`SELECT "id" FROM "branch" WHERE "id" = ${id}::uuid FOR UPDATE`
+            : Prisma.sql`SELECT "id" FROM "user" WHERE "id" = ${id}::uuid FOR UPDATE`;
+        await tx.$queryRaw(query);
     }
 
     private async appendAudit(

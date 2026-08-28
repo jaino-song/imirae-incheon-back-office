@@ -92,6 +92,13 @@ describe("admin authority invariants and audit ledger", () => {
             globalRole: "owner",
         });
 
+        expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+        for (const [index, ownerId] of ["owner-1", "owner-2"].entries()) {
+            const [lockQuery] = prisma.$queryRaw.mock.calls[index] ?? [];
+            expect(lockQuery.strings.join(" ")).toContain('SELECT "id" FROM "user"');
+            expect(lockQuery.strings.join(" ")).toMatch(/WHERE "id" =\s*::uuid FOR UPDATE/);
+            expect(lockQuery.values).toEqual([ownerId]);
+        }
         expect(audit.append).toHaveBeenCalledWith(
             expect.anything(),
             expect.objectContaining({
@@ -176,10 +183,11 @@ describe("admin authority invariants and audit ledger", () => {
             globalRole: "owner",
         });
 
-        expect(prisma.$queryRawUnsafe).toHaveBeenCalledWith(
-            'SELECT "id" FROM "branch" WHERE "id" = $1 FOR UPDATE',
-            "branch-1",
-        );
+        expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+        const [lockQuery] = prisma.$queryRaw.mock.calls[0] ?? [];
+        expect(lockQuery.strings.join(" ")).toContain('SELECT "id" FROM "branch"');
+        expect(lockQuery.strings.join(" ")).toMatch(/WHERE "id" =\s*::uuid FOR UPDATE/);
+        expect(lockQuery.values).toEqual(["branch-1"]);
         expect(prisma.user_branch.upsert).toHaveBeenCalledWith(expect.objectContaining({
             where: { userId_branchId: { userId: "owner-2", branchId: "branch-1" } },
             update: { role: "admin" },
@@ -233,7 +241,7 @@ function createUserPrisma(options: {
     };
     const prisma: any = {
         user,
-        $queryRawUnsafe: jest.fn().mockResolvedValue([]),
+        $queryRaw: jest.fn().mockResolvedValue([]),
         $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma)),
     };
     return prisma;
@@ -257,7 +265,7 @@ function createMembershipPrisma(options: {
             upsert: jest.fn().mockResolvedValue({}),
             deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
         },
-        $queryRawUnsafe: jest.fn().mockResolvedValue([]),
+        $queryRaw: jest.fn().mockResolvedValue([]),
     };
     prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
     return prisma;
@@ -288,8 +296,8 @@ function createSystemAdminPrisma(branch: any) {
             upsert: jest.fn().mockResolvedValue({}),
             updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         },
-        $queryRawUnsafe: jest.fn().mockResolvedValue([]),
+        $queryRaw: jest.fn().mockResolvedValue([]),
     };
     prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
-    return prisma as unknown as PrismaService & { $queryRawUnsafe: jest.Mock };
+    return prisma as unknown as PrismaService & { $queryRaw: jest.Mock };
 }

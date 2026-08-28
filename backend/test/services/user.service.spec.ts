@@ -36,6 +36,7 @@ describe("UserService", () => {
             auth_session: {
                 updateMany: jest.fn().mockResolvedValue({ count: 1 }),
             },
+            $queryRaw: jest.fn().mockResolvedValue([]),
             $transaction: jest.fn(),
         };
         prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
@@ -361,6 +362,11 @@ describe("UserService", () => {
                 expect.any(Function),
                 { isolationLevel: "Serializable" },
             );
+            expect(prismaService.$queryRaw).toHaveBeenCalledTimes(1);
+            const [lockQuery] = prismaService.$queryRaw.mock.calls[0] ?? [];
+            expect(lockQuery.strings.join(" ")).toContain('SELECT "id" FROM "branch"');
+            expect(lockQuery.strings.join(" ")).toMatch(/WHERE "id" =\s*::uuid FOR UPDATE/);
+            expect(lockQuery.values).toEqual([branchIds[0]]);
             expect(prismaService.branch.findMany).toHaveBeenCalledWith({
                 where: {
                     id: { in: branchIds },
