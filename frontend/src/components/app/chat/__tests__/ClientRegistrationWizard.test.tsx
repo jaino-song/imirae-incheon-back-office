@@ -262,6 +262,34 @@ describe("ClientRegistrationWizard", () => {
         });
     });
 
+    test("returns to provider resolution when a unique match disappears before submit", async () => {
+        mockEmployees = [{ id: 10, name: "김제공" }];
+        const initialDraft = {
+            name: "홍길동",
+            phone: "01012345678",
+            birthday: "900101",
+            address: "인천 연수구",
+            dueDate: "260201",
+            employeeName: "김제공",
+        };
+        const { rerender } = render(
+            <ClientRegistrationWizard initialDraft={initialDraft} />,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        fireEvent.click(await screen.findByRole("checkbox", { name: "바우처 대상" }));
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+
+        mockEmployees = [];
+        rerender(<ClientRegistrationWizard initialDraft={initialDraft} />);
+        fireEvent.click(screen.getByRole("button", { name: "제출" }));
+
+        expect(mockCreateClientMutateAsync).not.toHaveBeenCalled();
+        expect(await screen.findByText("제공인력 정보가 변경되었습니다. 제공인력을 다시 확인해 주세요."))
+            .toBeInTheDocument();
+        expect(screen.getByLabelText("이름")).toHaveValue("홍길동");
+    });
+
     test("waits for employee lookup before deciding whether registration is needed", async () => {
         mockEmployeesLoading = true;
         const { rerender } = render(

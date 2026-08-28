@@ -206,6 +206,12 @@ export function ClientRegistrationWizard({
             return;
         }
 
+        if (employeeName && createdEmployeeId === null && !matchedEmployee) {
+            setSubmitError("제공인력 정보가 변경되었습니다. 제공인력을 다시 확인해 주세요.");
+            setActiveStep(0);
+            return;
+        }
+
         setIsSubmitting(true);
         setSubmitError(null);
 
