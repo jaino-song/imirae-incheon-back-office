@@ -21,6 +21,52 @@ import { currentAdminAuditActor } from "application/services/admin-audit-context
 
 const MAX_ACCOUNT_ASSIGNMENT_TRANSACTION_ATTEMPTS = 3;
 
+type AccountAssignmentRole = "admin" | "manager" | "user";
+
+/** Higher ranks grant every lower branch privilege as well. */
+const ACCOUNT_ASSIGNMENT_ROLE_RANK: Readonly<Record<AccountAssignmentRole, number>> = {
+    user: 0,
+    manager: 1,
+    admin: 2,
+};
+
+function getAccountAssignmentRoleRank(role: string | null | undefined): number | undefined {
+    if (!role) {
+        return undefined;
+    }
+
+    return ACCOUNT_ASSIGNMENT_ROLE_RANK[role as AccountAssignmentRole];
+}
+
+function isAccountAssignmentRoleDemotion(
+    currentGlobalRole: string | null | undefined,
+    selectedGlobalRole: AccountAssignmentRole,
+): boolean {
+    const currentGlobalRoleRank = getAccountAssignmentRoleRank(currentGlobalRole);
+    return currentGlobalRoleRank !== undefined
+        && ACCOUNT_ASSIGNMENT_ROLE_RANK[selectedGlobalRole] < currentGlobalRoleRank;
+}
+
+function getRetainedMembershipRole(
+    currentRole: string | null | undefined,
+    currentGlobalRole: string | null | undefined,
+    selectedGlobalRole: AccountAssignmentRole,
+): string {
+    // A role ceiling applies only when the owner explicitly lowers the global
+    // role. Same-role edits and promotions preserve deliberate branch roles.
+    if (isAccountAssignmentRoleDemotion(currentGlobalRole, selectedGlobalRole)) {
+        const currentRoleRank = getAccountAssignmentRoleRank(currentRole);
+        if (
+            currentRoleRank === undefined
+            || currentRoleRank > ACCOUNT_ASSIGNMENT_ROLE_RANK[selectedGlobalRole]
+        ) {
+            return selectedGlobalRole;
+        }
+    }
+
+    return currentRole ?? selectedGlobalRole;
+}
+
 export interface UserDirectoryBranch {
     id: string;
     name: string;
@@ -170,6 +216,11 @@ export class UserService {
             if (target.approvalStatus !== "approved") {
                 throw new BadRequestException("승인된 계정만 수정할 수 있습니다.");
             }
+            if (getAccountAssignmentRoleRank(target.role) === undefined) {
+                throw new ConflictException(
+                    "계정 정보가 변경되었습니다. 새로고침 후 다시 시도해 주세요.",
+                );
+            }
 
             const currentBranchIds = target.userBranches.map(
                 (membership) => membership.branchId,
@@ -254,9 +305,15 @@ export class UserService {
                 && currentBranchIds.every(
                     (branchId) => effectiveBranchIdSet.has(branchId),
                 );
+            const membershipRolesMatch = !isAccountAssignmentRoleDemotion(target.role, params.role)
+                || target.userBranches.every((membership) =>
+                    getRetainedMembershipRole(membership.role, target.role, params.role)
+                    === membership.role,
+                );
             if (
                 target.role === params.role
                 && membershipSetMatches
+                && membershipRolesMatch
             ) {
                 return {
                     id: target.id,
@@ -304,9 +361,14 @@ export class UserService {
                 },
             });
             for (const branchId of effectiveBranchIds) {
-                const membershipRole = ownedBranchIdSet.has(branchId)
+                const currentMembershipRole = currentMembershipRoleByBranchId.get(branchId);
+                const membershipRole = params.role === "admin" && ownedBranchIdSet.has(branchId)
                     ? "admin"
-                    : currentMembershipRoleByBranchId.get(branchId) ?? params.role;
+                    : getRetainedMembershipRole(
+                        currentMembershipRole,
+                        target.role,
+                        params.role,
+                    );
                 await tx.user_branch.upsert({
                     where: {
                         userId_branchId: { userId: id, branchId },

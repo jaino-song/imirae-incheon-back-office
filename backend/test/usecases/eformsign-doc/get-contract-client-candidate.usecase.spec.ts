@@ -4,11 +4,12 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 describe("GetContractClientCandidateUsecase", () => {
     const findUnique = jest.fn();
     const findEmployees = jest.fn();
+    const findEmployee = jest.fn();
     const findVoucherPrices = jest.fn();
     const createEmployee = { execute: jest.fn() };
     const prisma = {
         eformsign_doc: { findUnique },
-        employee: { findMany: findEmployees, findFirst: jest.fn() },
+        employee: { findMany: findEmployees, findFirst: findEmployee },
         voucher_price_info: { findMany: findVoucherPrices },
     } as unknown as PrismaService;
 
@@ -16,6 +17,7 @@ describe("GetContractClientCandidateUsecase", () => {
 
     beforeEach(() => {
         findEmployees.mockResolvedValue([]);
+        findEmployee.mockResolvedValue(null);
         findVoucherPrices.mockResolvedValue([]);
         createEmployee.execute.mockReset();
         usecase = new GetContractClientCandidateUsecase(prisma, createEmployee as never);
@@ -189,6 +191,37 @@ describe("GetContractClientCandidateUsecase", () => {
             "스탠다드",
             true,
         );
+    });
+
+    it("recovers a concurrent provider create using the stored formatted phone", async () => {
+        findUnique.mockResolvedValue({
+            documentId: "doc-racing-provider",
+            customerName: null,
+            customerPhone: null,
+            detailPayload: {
+                fields: [
+                    { id: "이용자 성명", value: "황정원" },
+                    { id: "제공인력 1 성명", value: "김맹화" },
+                    { id: "제공인력 1 연락처", value: "01025577430" },
+                ],
+            },
+        });
+        createEmployee.execute.mockRejectedValue(
+            Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+        );
+        findEmployee.mockResolvedValue({ id: 31 });
+
+        await expect(usecase.execute("doc-racing-provider", "branch-1")).resolves.toEqual(
+            expect.objectContaining({ primaryEmployeeId: 31 }),
+        );
+        expect(findEmployee).toHaveBeenCalledWith({
+            where: {
+                branchId: "branch-1",
+                phone: "010-2557-7430",
+                deletedAt: null,
+            },
+            select: { id: true },
+        });
     });
 
     it("동일 요금 행이 둘 이상이면 바우처 유형과 기간을 추측하지 않는다", async () => {

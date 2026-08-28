@@ -87,6 +87,20 @@ Environment-branch automation is documented in
 uses short-lived GitHub OIDC credentials to invoke fixed AWS Systems Manager
 documents, and keeps production behind a GitHub environment approval gate.
 
+For an authenticated local retry or status check, use the GitHub-backed helper;
+it does not require local AWS credentials:
+
+```bash
+backend/deploy/lightsail/lightsail-cli.sh status preview
+backend/deploy/lightsail/lightsail-cli.sh deploy preview
+backend/deploy/lightsail/lightsail-cli.sh status production
+backend/deploy/lightsail/lightsail-cli.sh deploy production
+backend/deploy/lightsail/lightsail-cli.sh operator-upgrade
+```
+
+Production operations and the shared host-operator upgrade retain the GitHub
+`production` environment reviewer gate.
+
 The former ubuntu/Docker-group preview operator is retired. Do not install or
 use `install-operator.sh`; its install and check commands fail closed, and its
 uninstall command only removes stale legacy files. There is no alternate SSH

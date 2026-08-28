@@ -1,0 +1,189 @@
+name: Lightsail operations
+run-name: "Lightsail ${{ inputs.operation }} ${{ inputs.environment }} · ${{ inputs.request_id }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Fixed Lightsail operation
+        required: true
+        type: choice
+        options:
+          - status
+          - deploy
+          - operator-upgrade
+      environment:
+        description: Runtime environment
+        required: true
+        type: choice
+        options:
+          - preview
+          - production
+      request_id:
+        description: Unique local request identifier
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  approve-production:
+    name: approve production operation
+    if: inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    steps:
+      - name: Record approval
+        run: echo "Production Lightsail operation approved."
+
+  operate:
+    name: ${{ inputs.operation }} ${{ inputs.environment }}
+    needs: approve-production
+    if: >-
+      always() &&
+      (inputs.environment == 'preview' || needs.approve-production.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+    concurrency:
+      group: lightsail-operation-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      AWS_REGION: ap-northeast-2
+      LIGHTSAIL_SSM_TARGET_TAG: ${{ vars.LIGHTSAIL_SSM_TARGET_TAG }}
+      AWS_OPERATION_ROLE_ARN: ${{ inputs.environment == 'production' && vars.AWS_PRODUCTION_DEPLOY_ROLE_ARN || vars.AWS_PREVIEW_DEPLOY_ROLE_ARN }}
+      AWS_OPERATION_DOCUMENT_NAME: ${{ inputs.operation == 'operator-upgrade' && vars.AWS_OPERATOR_UPGRADE_DOCUMENT_NAME || inputs.operation == 'deploy' && (inputs.environment == 'production' && vars.AWS_PRODUCTION_DEPLOY_DOCUMENT_NAME || vars.AWS_PREVIEW_DEPLOY_DOCUMENT_NAME) || (inputs.environment == 'production' && vars.AWS_PRODUCTION_STATUS_DOCUMENT_NAME || vars.AWS_PREVIEW_STATUS_DOCUMENT_NAME) }}
+      EXPECTED_SCHEDULERS_ENABLED: ${{ inputs.environment == 'production' && 'true' || 'false' }}
+      IMAGE_REFERENCE: ghcr.io/jaino-song/babyjamjam-admin-backend:${{ github.sha }}
+
+    steps:
+      - name: Validate fixed operation boundary
+        env:
+          OPERATION: ${{ inputs.operation }}
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+          REQUEST_ID: ${{ inputs.request_id }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUEST_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$AWS_OPERATION_DOCUMENT_NAME" =~ ^[A-Za-z0-9_.-]{1,128}$ ]]
+          [[ "$AWS_OPERATION_ROLE_ARN" =~ ^arn:[a-z0-9-]+:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$ ]]
+          [[ "$LIGHTSAIL_SSM_TARGET_TAG" =~ ^[A-Za-z0-9._:/=+@-]{1,128}$ ]]
+          case "$DEPLOY_ENVIRONMENT:$GITHUB_REF_NAME" in
+            preview:preview|production:main) ;;
+            *) echo "Operation ref does not match its protected environment branch." >&2; exit 1 ;;
+          esac
+          if [[ "$OPERATION" == "operator-upgrade" && "$DEPLOY_ENVIRONMENT" != "production" ]]; then
+            echo "The shared host operator may be upgraded only through the production-approved main path." >&2
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx for immutable image lookup
+        if: inputs.operation == 'deploy'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Resolve published image digest
+        if: inputs.operation == 'deploy'
+        id: image
+        run: |
+          set -euo pipefail
+          image_digest="$(docker buildx imagetools inspect "$IMAGE_REFERENCE" --format '{{json .Manifest}}' | jq -r '.digest')"
+          [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'digest=%s\n' "$image_digest" >>"$GITHUB_OUTPUT"
+
+      - name: Authenticate with short-lived GitHub OIDC credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ env.AWS_OPERATION_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Run fixed Systems Manager operation
+        env:
+          OPERATION: ${{ inputs.operation }}
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+
+          case "$OPERATION" in
+            status) parameters='{}' ;;
+            deploy)
+              [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+              parameters="$(jq -cn --arg sha "$GITHUB_SHA" --arg digest "$IMAGE_DIGEST" '{CommitSha:[$sha],ImageDigest:[$digest]}')"
+              ;;
+            operator-upgrade)
+              parameters="$(jq -cn --arg sha "$GITHUB_SHA" '{CommitSha:[$sha]}')"
+              ;;
+            *) exit 1 ;;
+          esac
+
+          managed_nodes="$(aws ssm describe-instance-information \
+            --filters "Key=tag:DeploymentTarget,Values=$LIGHTSAIL_SSM_TARGET_TAG" \
+            --output json)"
+          [[ "$(jq '.InstanceInformationList | length' <<<"$managed_nodes")" -eq 1 ]]
+          [[ "$(jq '[.InstanceInformationList[] | select(.PingStatus == "Online")] | length' <<<"$managed_nodes")" -eq 1 ]]
+          expected_node_id="$(jq -r '.InstanceInformationList[0].InstanceId' <<<"$managed_nodes")"
+          targets="$(jq -cn --arg value "$LIGHTSAIL_SSM_TARGET_TAG" '[{Key:"tag:DeploymentTarget",Values:[$value]}]')"
+
+          command_id="$(aws ssm send-command \
+            --document-name "$AWS_OPERATION_DOCUMENT_NAME" \
+            --parameters "$parameters" \
+            --targets "$targets" \
+            --max-concurrency 1 \
+            --max-errors 0 \
+            --timeout-seconds 1800 \
+            --comment "GitHub ${GITHUB_REPOSITORY}@${GITHUB_SHA} ${OPERATION}" \
+            --query 'Command.CommandId' \
+            --output text)"
+          [[ "$command_id" =~ ^[0-9a-f-]{36}$ ]]
+
+          managed_node_id=""
+          final_status="TimedOut"
+          for _attempt in $(seq 1 360); do
+            invocation="$(aws ssm list-command-invocations --command-id "$command_id" --details --output json)"
+            count="$(jq '.CommandInvocations | length' <<<"$invocation")"
+            [[ "$count" -le 1 ]]
+            if [[ "$count" -eq 0 ]]; then sleep 5; continue; fi
+            managed_node_id="$(jq -r '.CommandInvocations[0].InstanceId' <<<"$invocation")"
+            final_status="$(jq -r '.CommandInvocations[0].Status' <<<"$invocation")"
+            case "$final_status" in Pending|InProgress|Delayed) sleep 5 ;; *) break ;; esac
+          done
+
+          [[ "$managed_node_id" == "$expected_node_id" ]]
+          if [[ "$final_status" != "Success" ]]; then
+            echo "Systems Manager operation failed with status: $final_status" >&2
+            exit 1
+          fi
+          output="$(aws ssm get-command-invocation \
+            --command-id "$command_id" \
+            --instance-id "$managed_node_id" \
+            --query 'StandardOutputContent' \
+            --output text)"
+
+          if [[ "$OPERATION" == "operator-upgrade" ]]; then
+            grep -Fxq 'operator_upgrade=ok' <<<"$output"
+            printf '%s\n' "$output"
+            exit 0
+          fi
+
+          read_value() { awk -F= -v key="$1" '$1 == key { print substr($0, length($1) + 2) }' <<<"$output"; }
+          [[ "$(read_value environment)" == "$DEPLOY_ENVIRONMENT" ]]
+          [[ "$(read_value current_tag)" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(read_value current_digest)" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$(read_value container_health)" == "healthy" ]]
+          [[ "$(read_value restart_count)" == "0" ]]
+          [[ "$(read_value schedulers_enabled)" == "$EXPECTED_SCHEDULERS_ENABLED" ]]
+          [[ "$(read_value public_health)" == "ok" ]]
+          [[ "$(read_value db_route)" == "$(read_value runtime_route)" ]]
+          [[ "$(read_value db_readiness)" == "ok" ]]
+          if [[ "$OPERATION" == "deploy" ]]; then
+            [[ "$(read_value current_tag)" == "$GITHUB_SHA" ]]
+            [[ "$(read_value current_digest)" == "$IMAGE_DIGEST" ]]
+          fi
+          printf '%s\n' "$output"
