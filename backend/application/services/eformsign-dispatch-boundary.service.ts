@@ -89,6 +89,7 @@ export class EformsignDispatchBoundaryService {
         return this.repository.markAccepted(
             intent.id,
             intent.branchId,
+            intent.attemptCount,
             providerDocumentId,
             providerReceipt,
         );
@@ -99,14 +100,25 @@ export class EformsignDispatchBoundaryService {
         reason: string,
         providerDocumentId?: string | null,
     ): Promise<EformsignDispatchIntentEntity | null> {
-        return this.repository.markUncertain(intent.id, intent.branchId, reason, providerDocumentId);
+        return this.repository.markUncertain(
+            intent.id,
+            intent.branchId,
+            intent.attemptCount,
+            reason,
+            providerDocumentId,
+        );
     }
 
     async releaseBeforeSend(
         intent: EformsignDispatchIntentEntity,
         reason: string,
     ): Promise<EformsignDispatchIntentEntity | null> {
-        return this.repository.releaseBeforeSend(intent.id, intent.branchId, reason);
+        return this.repository.releaseBeforeSend(
+            intent.id,
+            intent.branchId,
+            intent.attemptCount,
+            reason,
+        );
     }
 
     async reconcile(input: ReconcileEformsignDispatchIntentInput): Promise<EformsignDispatchIntentEntity> {

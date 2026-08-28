@@ -368,8 +368,10 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
             expect(progressService.emit).not.toHaveBeenCalledWith("p-1", "sent");
         });
 
-        it("asks for the iframe only when eformsign confirms the step is unfinished", async () => {
-            // 070 = doc_request_reviewer: still awaiting provider review.
+        it("requires a manual check when a send was attempted but the step remains pending", async () => {
+            // 070 = doc_request_reviewer: still awaiting provider review. The
+            // send click already happened, so reopening the iframe could send a
+            // duplicate document and is never a safe fallback.
             jest.useFakeTimers();
             const { usecase } = buildUsecase(jest.fn().mockResolvedValue("070"));
 
@@ -377,7 +379,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
             await jest.runAllTimersAsync();
 
             await expect(result).resolves.toEqual(
-                expect.objectContaining({ ok: false, fallbackHint: "iframe" }),
+                expect.objectContaining({ ok: false, fallbackHint: "manual_check" }),
             );
         });
 
@@ -390,6 +392,29 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
 
             await expect(result).resolves.toEqual(
                 expect.objectContaining({ ok: false, fallbackHint: "manual_check" }),
+            );
+        });
+
+        it("keeps a thrown SDK error on manual check after the send callback", async () => {
+            const headlessService = {
+                dispatchFinalize: jest.fn().mockImplementation(async ({ onProgress }) => {
+                    await onProgress?.("creating");
+                    throw new Error("headless SDK disconnected");
+                }),
+            };
+            const usecase = new FinalizeDocumentHeadlessUsecase(
+                { generateStaffCompletionOptions: jest.fn().mockResolvedValue({ mode: { type: "02" } }) } as never,
+                headlessService as never,
+                createCredentialBoundary() as never,
+                { emit: jest.fn() } as never,
+            );
+
+            await expect(usecase.execute({ documentId: "doc-1" }, TEST_PRINCIPAL)).resolves.toEqual(
+                expect.objectContaining({
+                    ok: false,
+                    reason: "headless SDK disconnected",
+                    fallbackHint: "manual_check",
+                }),
             );
         });
 

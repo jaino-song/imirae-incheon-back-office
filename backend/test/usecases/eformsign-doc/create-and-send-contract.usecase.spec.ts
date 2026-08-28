@@ -272,6 +272,109 @@ describe("CreateAndSendContractUsecase", () => {
         expect(createDocument).not.toHaveBeenCalled();
     });
 
+    it("repairs the local mirror and client link before accepting an already-accepted replay", async () => {
+        const credentialBoundary = createBoundary();
+        const createDocument = jest.fn();
+        const repairMirror = jest.fn().mockResolvedValue({ documentId: "remote-existing" });
+        const dispatchBoundary = {
+            claim: jest.fn().mockResolvedValue({
+                disposition: "already_accepted",
+                intent: {
+                    id: "intent-accepted",
+                    providerDocumentId: "remote-existing",
+                },
+            }),
+        };
+        const usecase = new CreateAndSendContractUsecase(
+            { createDocument } as never,
+            { findById: jest.fn().mockResolvedValue({
+                id: 7,
+                name: "김고객",
+                phone: "010-1111-2222",
+                startDate: null,
+                endDate: null,
+            }) } as never,
+            credentialBoundary as never,
+            { execute: repairMirror } as never,
+            { assertAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
+            dispatchBoundary as never,
+        );
+
+        await expect(usecase.execute("branch-1", {
+            clientId: 7,
+            templateId: "template-1",
+            templateName: "표준계약서",
+            idempotencyKey: "request-accepted",
+            clientTargetVersion: "target-accepted",
+        }, TEST_PRINCIPAL)).resolves.toEqual({
+            success: true,
+            documentId: "remote-existing",
+        });
+
+        expect(repairMirror).toHaveBeenCalledWith(
+            "branch-1",
+            expect.objectContaining({
+                documentId: "remote-existing",
+                documentName: "표준계약서 - 김고객",
+                clientId: 7,
+                linkToClient: true,
+                documentKind: "contract",
+                templateId: "template-1",
+                templateName: "표준계약서",
+                customerName: "김고객",
+                clientTargetVersion: "target-accepted",
+                preserveExistingMirrorProjection: true,
+            }),
+        );
+        expect(credentialBoundary.withCredentials).not.toHaveBeenCalled();
+        expect(createDocument).not.toHaveBeenCalled();
+    });
+
+    it("keeps an accepted replay explicitly reconciliation-required when mirror repair warns", async () => {
+        const credentialBoundary = createBoundary();
+        const createDocument = jest.fn();
+        const repairMirror = jest.fn().mockResolvedValue({
+            documentId: "remote-existing",
+            warnings: ["client_link_failed"],
+        });
+        const dispatchBoundary = {
+            claim: jest.fn().mockResolvedValue({
+                disposition: "already_accepted",
+                intent: {
+                    id: "intent-accepted",
+                    providerDocumentId: "remote-existing",
+                },
+            }),
+        };
+        const usecase = new CreateAndSendContractUsecase(
+            { createDocument } as never,
+            { findById: jest.fn().mockResolvedValue({
+                id: 7,
+                name: "김고객",
+                phone: "010-1111-2222",
+                startDate: null,
+                endDate: null,
+            }) } as never,
+            credentialBoundary as never,
+            { execute: repairMirror } as never,
+            { assertAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
+            dispatchBoundary as never,
+        );
+
+        await expect(usecase.execute("branch-1", {
+            clientId: 7,
+            templateId: "template-1",
+            idempotencyKey: "request-accepted",
+        }, TEST_PRINCIPAL)).resolves.toEqual({
+            success: false,
+            error: "계약서 발송 결과 확인이 필요합니다",
+            remoteDocumentId: "remote-existing",
+            uncertain: true,
+        });
+        expect(credentialBoundary.withCredentials).not.toHaveBeenCalled();
+        expect(createDocument).not.toHaveBeenCalled();
+    });
+
     it("persists an accepted durable intent before local mirror persistence", async () => {
         const createDocument = jest.fn().mockResolvedValue({ documentId: "remote-1" });
         const persistDocument = jest.fn().mockResolvedValue({ documentId: "remote-1" });

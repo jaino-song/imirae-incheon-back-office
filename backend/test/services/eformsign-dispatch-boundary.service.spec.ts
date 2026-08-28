@@ -130,6 +130,13 @@ describe("EformsignDispatchBoundaryService", () => {
 
         const first = await service.claim(claimInput);
         await service.markUncertain(first.intent, "crash-after-provider");
+        expect(repository.markUncertain).toHaveBeenCalledWith(
+            "intent-1",
+            "branch-1",
+            1,
+            "crash-after-provider",
+            undefined,
+        );
         await expect(service.claim(claimInput)).resolves.toMatchObject({ disposition: "uncertain" });
 
         await service.reconcile({
@@ -175,6 +182,45 @@ describe("EformsignDispatchBoundaryService", () => {
 
         await expect(service.claim(claimInput)).resolves.toMatchObject({ disposition: "already_accepted" });
         expect(repository.claim).toHaveBeenCalledTimes(1);
+    });
+
+    it("forwards the claimed attempt version to every provider transition", async () => {
+        const intent = makeIntent({
+            status: EFORMSIGN_DISPATCH_INTENT_STATUS.STARTED,
+            attemptCount: 4,
+            startedAt: new Date(),
+        });
+        const repository = {
+            markAccepted: jest.fn().mockResolvedValue(intent),
+            markUncertain: jest.fn().mockResolvedValue(intent),
+            releaseBeforeSend: jest.fn().mockResolvedValue(intent),
+        };
+        const service = new EformsignDispatchBoundaryService(repository as never);
+
+        await service.markAccepted(intent, "provider-4", { source: "sdk" });
+        await service.markUncertain(intent, "provider timeout", "provider-4");
+        await service.releaseBeforeSend(intent, "validation failed");
+
+        expect(repository.markAccepted).toHaveBeenCalledWith(
+            "intent-1",
+            "branch-1",
+            4,
+            "provider-4",
+            { source: "sdk" },
+        );
+        expect(repository.markUncertain).toHaveBeenCalledWith(
+            "intent-1",
+            "branch-1",
+            4,
+            "provider timeout",
+            "provider-4",
+        );
+        expect(repository.releaseBeforeSend).toHaveBeenCalledWith(
+            "intent-1",
+            "branch-1",
+            4,
+            "validation failed",
+        );
     });
 
     it("rejects a changed payload under the same logical identity", async () => {

@@ -21,6 +21,8 @@ export interface PrepareEformsignDispatchIntentInput {
 export interface ReconcileEformsignDispatchIntentInput {
     branchId: string;
     intentId: string;
+    /** Optional attempt token read by the operator; the repository always CASes the observed count. */
+    attemptCount?: number;
     outcome: "delivered" | "not_delivered";
     actorUserId: string;
     reason: string;
@@ -36,18 +38,21 @@ export interface IEformsignDispatchIntentRepository {
     markAccepted(
         intentId: string,
         branchId: string,
+        attemptCount: number,
         providerDocumentId: string,
         providerReceipt?: unknown,
     ): Promise<EformsignDispatchIntentEntity | null>;
     markUncertain(
         intentId: string,
         branchId: string,
+        attemptCount: number,
         reason: string,
         providerDocumentId?: string | null,
     ): Promise<EformsignDispatchIntentEntity | null>;
     releaseBeforeSend(
         intentId: string,
         branchId: string,
+        attemptCount: number,
         reason: string,
     ): Promise<EformsignDispatchIntentEntity | null>;
     reconcile(input: ReconcileEformsignDispatchIntentInput): Promise<EformsignDispatchIntentEntity | null>;

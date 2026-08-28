@@ -74,6 +74,7 @@ describe("SbEformsignDispatchIntentRepository", () => {
             where: expect.objectContaining({
                 id: started.id,
                 branchId: started.branchId,
+                attemptCount: started.attemptCount,
                 status: { in: ["prepared", "reconciled_not_delivered"] },
             }),
         }));
@@ -94,12 +95,52 @@ describe("SbEformsignDispatchIntentRepository", () => {
         };
         const repository = new SbEformsignDispatchIntentRepository(prisma as never);
 
-        const result = await repository.markAccepted(accepted.id, accepted.branchId, "provider-1", {
+        const result = await repository.markAccepted(accepted.id, accepted.branchId, accepted.attemptCount, "provider-1", {
             late: true,
         });
 
         expect(result).toMatchObject({ status: "accepted", providerDocumentId: "provider-1" });
         expect(updateMany).not.toHaveBeenCalled();
+    });
+
+    it("drops a stale attempt-A acceptance after attempt B reclaimed the intent", async () => {
+        const attemptA = baseRow({
+            status: "started",
+            attemptCount: 1,
+            startedAt: new Date("2026-08-29T00:02:00.000Z"),
+        });
+        const attemptB = baseRow({
+            status: "started",
+            attemptCount: 2,
+            startedAt: new Date("2026-08-29T00:03:00.000Z"),
+        });
+        const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+        // A reads its STARTED row, then B is reclaimed before A's CAS update.
+        const findFirst = jest.fn().mockResolvedValueOnce(attemptA).mockResolvedValueOnce(attemptB);
+        const repository = new SbEformsignDispatchIntentRepository({
+            eformsign_dispatch_intent: { findFirst, updateMany },
+        } as never);
+
+        const lateAcceptance = await repository.markAccepted(
+            attemptA.id,
+            attemptA.branchId,
+            attemptA.attemptCount,
+            "provider-attempt-a",
+        );
+
+        expect(lateAcceptance).toMatchObject({
+            status: "started",
+            attemptCount: 2,
+            providerDocumentId: null,
+        });
+        expect(updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+            where: expect.objectContaining({
+                attemptCount: 1,
+                status: {
+                    in: ["started", "uncertain"],
+                },
+            }),
+        }));
     });
 
     it("rejects a not-delivered reconciliation after an accepted receipt", async () => {
@@ -122,6 +163,59 @@ describe("SbEformsignDispatchIntentRepository", () => {
             actorUserId: "33333333-3333-4333-8333-333333333333",
             reason: "provider receipt confirms delivery",
         })).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it("does not reconcile an active STARTED provider attempt as not delivered", async () => {
+        const started = baseRow({
+            status: "started",
+            attemptCount: 1,
+            startedAt: new Date("2026-08-29T00:02:00.000Z"),
+        });
+        const updateMany = jest.fn();
+        const prisma = {
+            eformsign_dispatch_intent: {
+                findFirst: jest.fn().mockResolvedValue(started),
+                updateMany,
+            },
+        };
+        const repository = new SbEformsignDispatchIntentRepository(prisma as never);
+
+        await expect(repository.reconcile({
+            branchId: started.branchId,
+            intentId: started.id,
+            outcome: "not_delivered",
+            actorUserId: "33333333-3333-4333-8333-333333333333",
+            reason: "provider request is still in flight",
+        })).rejects.toThrow("진행 중인 전자문서는 미전달로 변경할 수 없습니다.");
+        expect(updateMany).not.toHaveBeenCalled();
+    });
+
+    it("fences a claim that starts between the read and reconciliation CAS", async () => {
+        const prepared = baseRow({ status: "prepared" });
+        const started = baseRow({
+            status: "started",
+            attemptCount: 1,
+            startedAt: new Date("2026-08-29T00:02:00.000Z"),
+        });
+        const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+        const findFirst = jest.fn().mockResolvedValueOnce(prepared).mockResolvedValueOnce(started);
+        const prisma = { eformsign_dispatch_intent: { findFirst, updateMany } };
+        const repository = new SbEformsignDispatchIntentRepository(prisma as never);
+
+        await expect(repository.reconcile({
+            branchId: prepared.branchId,
+            intentId: prepared.id,
+            outcome: "not_delivered",
+            actorUserId: "33333333-3333-4333-8333-333333333333",
+            reason: "claim won while reconciliation was pending",
+        })).rejects.toThrow("전자문서 작업 시도가 변경되어 확인 결과를 적용할 수 없습니다.");
+        expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({
+                status: {
+                    notIn: ["accepted", "started", "reconciled_delivered"],
+                },
+            }),
+        }));
     });
 
     it("clears a stale create receipt when an operator confirms non-delivery", async () => {

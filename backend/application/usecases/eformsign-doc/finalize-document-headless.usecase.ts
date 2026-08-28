@@ -58,8 +58,8 @@ export interface FinalizeHeadlessFailure {
     reason: string;
     /**
      * "iframe" reopens the editor so a human can finish the step. It is only
-     * safe once we know the step is genuinely unfinished — "manual_check" is
-     * for the runs where the vendor could not be asked.
+     * safe when no send was attempted and the step is genuinely unfinished;
+     * "manual_check" covers attempted sends and missing authoritative status.
      */
     fallbackHint: "iframe" | "manual_check";
     durationMs: number;
@@ -102,7 +102,8 @@ function workflowStateAdvanced(
 /**
  * Backend-driven mode:"02" finalize flow. Mirrors the staff-completion iframe
  * modal: builds the same SDK option payload, then runs the gate sequence
- * (top-level 전송 → popup 전송) headlessly. Falls back to iframe on errors.
+ * (top-level 전송 → popup 전송) headlessly. Falls back to iframe only when no
+ * send was attempted; once a send may have happened, errors require a manual check.
  */
 @Injectable()
 export class FinalizeDocumentHeadlessUsecase {
@@ -259,6 +260,12 @@ export class FinalizeDocumentHeadlessUsecase {
                 documentId: params.documentId,
                 onProgress: async (step) => {
                     latestProgressStep = step;
+                    if (step === "creating" || step === "sent") {
+                        // Set this before awaiting the SDK callback chain so a
+                        // thrown error after the click cannot fall back to the
+                        // iframe and submit a duplicate document.
+                        sendWasAttempted = true;
+                    }
                     await params.onProgress?.(step);
                     // The SDK's sent callback confirms this step's submission,
                     // not whole-document completion. Hold it until the vendor
@@ -268,8 +275,6 @@ export class FinalizeDocumentHeadlessUsecase {
                     }
                 },
             });
-            sendWasAttempted =
-                latestProgressStep === "creating" || latestProgressStep === "sent";
             const resultReason = result.ok ? undefined : sanitizeEformsignErrorMessage(result.reason);
             if (!result.ok && !sendWasAttempted) {
                 if (dispatchIntent) {
@@ -360,7 +365,11 @@ export class FinalizeDocumentHeadlessUsecase {
             return {
                 ok: false,
                 reason,
-                fallbackHint: settled === "pending" ? "iframe" : "manual_check",
+                fallbackHint: sendWasAttempted
+                    ? "manual_check"
+                    : settled === "pending"
+                        ? "iframe"
+                        : "manual_check",
                 dispatchIntentId: dispatchIntent?.id,
                 durationMs: result.durationMs,
                 failedStep: latestProgressStep,
@@ -383,7 +392,7 @@ export class FinalizeDocumentHeadlessUsecase {
             return {
                 ok: false,
                 reason,
-                fallbackHint: "iframe",
+                fallbackHint: sendWasAttempted ? "manual_check" : "iframe",
                 dispatchIntentId: dispatchIntent?.id,
                 durationMs: Date.now() - start,
                 failedStep: latestProgressStep,

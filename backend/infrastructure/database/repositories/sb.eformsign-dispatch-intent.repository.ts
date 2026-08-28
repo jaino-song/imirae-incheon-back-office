@@ -65,10 +65,17 @@ export class SbEformsignDispatchIntentRepository implements IEformsignDispatchIn
         intentId: string,
         branchId: string,
     ): Promise<{ intent: EformsignDispatchIntentEntity; claimed: boolean } | null> {
+        const current = await this.prisma.eformsign_dispatch_intent.findFirst({
+            where: { id: intentId, branchId },
+        });
+        if (!current) return null;
+
+        const nextAttemptCount = current.attemptCount + 1;
         const claimed = await this.prisma.eformsign_dispatch_intent.updateMany({
             where: {
                 id: intentId,
                 branchId,
+                attemptCount: current.attemptCount,
                 status: {
                     in: [
                         EFORMSIGN_DISPATCH_INTENT_STATUS.PREPARED,
@@ -91,12 +98,16 @@ export class SbEformsignDispatchIntentRepository implements IEformsignDispatchIn
         const row = await this.prisma.eformsign_dispatch_intent.findFirst({
             where: { id: intentId, branchId },
         });
-        return row ? { intent: this.toDomain(row), claimed: claimed.count === 1 } : null;
+        const claimedByThisAttempt = claimed.count === 1
+            && row?.status === EFORMSIGN_DISPATCH_INTENT_STATUS.STARTED
+            && row.attemptCount === nextAttemptCount;
+        return row ? { intent: this.toDomain(row), claimed: claimedByThisAttempt } : null;
     }
 
     async markAccepted(
         intentId: string,
         branchId: string,
+        attemptCount: number,
         providerDocumentId: string,
         providerReceipt?: unknown,
     ): Promise<EformsignDispatchIntentEntity | null> {
@@ -124,11 +135,15 @@ export class SbEformsignDispatchIntentRepository implements IEformsignDispatchIn
             // similarly owned by the next claim.
             return this.toDomain(current);
         }
+        if (current.attemptCount !== attemptCount) {
+            return this.toDomain(current);
+        }
 
         const updated = await this.prisma.eformsign_dispatch_intent.updateMany({
             where: {
                 id: intentId,
                 branchId,
+                attemptCount,
                 status: {
                     in: [
                         EFORMSIGN_DISPATCH_INTENT_STATUS.STARTED,
@@ -162,6 +177,7 @@ export class SbEformsignDispatchIntentRepository implements IEformsignDispatchIn
     async markUncertain(
         intentId: string,
         branchId: string,
+        attemptCount: number,
         reason: string,
         providerDocumentId?: string | null,
     ): Promise<EformsignDispatchIntentEntity | null> {
@@ -179,11 +195,15 @@ export class SbEformsignDispatchIntentRepository implements IEformsignDispatchIn
         if (current.status !== EFORMSIGN_DISPATCH_INTENT_STATUS.STARTED) {
             return this.toDomain(current);
         }
+        if (current.attemptCount !== attemptCount) {
+            return this.toDomain(current);
+        }
 
         const updated = await this.prisma.eformsign_dispatch_intent.updateMany({
             where: {
                 id: intentId,
                 branchId,
+                attemptCount,
                 status: EFORMSIGN_DISPATCH_INTENT_STATUS.STARTED,
             },
             data: {
@@ -202,6 +222,7 @@ export class SbEformsignDispatchIntentRepository implements IEformsignDispatchIn
     async releaseBeforeSend(
         intentId: string,
         branchId: string,
+        attemptCount: number,
         reason: string,
     ): Promise<EformsignDispatchIntentEntity | null> {
         const current = await this.prisma.eformsign_dispatch_intent.findFirst({
@@ -211,11 +232,15 @@ export class SbEformsignDispatchIntentRepository implements IEformsignDispatchIn
         if (current.status !== EFORMSIGN_DISPATCH_INTENT_STATUS.STARTED) {
             return this.toDomain(current);
         }
+        if (current.attemptCount !== attemptCount) {
+            return this.toDomain(current);
+        }
 
         await this.prisma.eformsign_dispatch_intent.updateMany({
             where: {
                 id: intentId,
                 branchId,
+                attemptCount,
                 status: EFORMSIGN_DISPATCH_INTENT_STATUS.STARTED,
             },
             data: {
@@ -254,6 +279,18 @@ export class SbEformsignDispatchIntentRepository implements IEformsignDispatchIn
             throw new ConflictException("이미 전달된 전자문서는 미전달로 변경할 수 없습니다.");
         }
 
+        // A STARTED intent still owns an in-flight provider attempt. Marking it
+        // not-delivered here would release the durable claim while the provider
+        // request can still succeed, allowing a retry to create a duplicate.
+        // Callers must first persist UNCERTAIN (after the provider attempt has
+        // ended) or release the claim before asking an operator to reconcile it.
+        if (
+            input.outcome === "not_delivered"
+            && row.status === EFORMSIGN_DISPATCH_INTENT_STATUS.STARTED
+        ) {
+            throw new ConflictException("진행 중인 전자문서는 미전달로 변경할 수 없습니다.");
+        }
+
         if (
             (input.outcome === "delivered" && row.status === EFORMSIGN_DISPATCH_INTENT_STATUS.RECONCILED_DELIVERED)
             || (
@@ -272,15 +309,21 @@ export class SbEformsignDispatchIntentRepository implements IEformsignDispatchIn
         // not fence the next create receipt. Finalize intents retain their
         // provider id because it is the document being finalized.
         const clearCreateReceipt = input.outcome === "not_delivered" && row.action === "create";
+        const expectedAttemptCount = input.attemptCount ?? row.attemptCount;
+        if (input.attemptCount !== undefined && input.attemptCount !== row.attemptCount) {
+            throw new ConflictException("전자문서 작업 시도가 변경되어 확인 결과를 적용할 수 없습니다.");
+        }
         const updated = await this.prisma.eformsign_dispatch_intent.updateMany({
             where: {
                 id: row.id,
                 branchId: input.branchId,
+                attemptCount: expectedAttemptCount,
                 ...(input.outcome === "not_delivered"
                     ? {
                         status: {
                             notIn: [
                                 EFORMSIGN_DISPATCH_INTENT_STATUS.ACCEPTED,
+                                EFORMSIGN_DISPATCH_INTENT_STATUS.STARTED,
                                 EFORMSIGN_DISPATCH_INTENT_STATUS.RECONCILED_DELIVERED,
                             ],
                         },
@@ -304,15 +347,23 @@ export class SbEformsignDispatchIntentRepository implements IEformsignDispatchIn
             const current = await this.prisma.eformsign_dispatch_intent.findFirst({
                 where: { id: row.id, branchId: input.branchId },
             });
+            if (current && current.attemptCount !== expectedAttemptCount) {
+                throw new ConflictException("전자문서 작업 시도가 변경되어 확인 결과를 적용할 수 없습니다.");
+            }
             if (
                 input.outcome === "not_delivered"
                 && current
                 && (
                     current.status === EFORMSIGN_DISPATCH_INTENT_STATUS.ACCEPTED
+                    || current.status === EFORMSIGN_DISPATCH_INTENT_STATUS.STARTED
                     || current.status === EFORMSIGN_DISPATCH_INTENT_STATUS.RECONCILED_DELIVERED
                 )
             ) {
-                throw new ConflictException("이미 전달된 전자문서는 미전달로 변경할 수 없습니다.");
+                throw new ConflictException(
+                    current.status === EFORMSIGN_DISPATCH_INTENT_STATUS.STARTED
+                        ? "진행 중인 전자문서는 미전달로 변경할 수 없습니다."
+                        : "이미 전달된 전자문서는 미전달로 변경할 수 없습니다.",
+                );
             }
             return current ? this.toDomain(current) : null;
         }

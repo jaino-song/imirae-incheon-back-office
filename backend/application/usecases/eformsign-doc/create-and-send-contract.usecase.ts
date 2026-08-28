@@ -146,13 +146,61 @@ export class CreateAndSendContractUsecase {
                     fingerprint,
                 });
                 if (claim.disposition === "already_accepted") {
-                    return claim.intent.providerDocumentId
-                        ? { success: true, documentId: claim.intent.providerDocumentId }
-                        : {
+                    const acceptedDocumentId = claim.intent.providerDocumentId?.trim();
+                    if (!acceptedDocumentId) {
+                        return {
                             success: false,
                             error: "계약서 발송 결과를 확인할 수 없습니다",
                             uncertain: true,
                         };
+                    }
+
+                    // The durable intent is promoted before the local mirror is
+                    // written. A replay therefore has to adopt/rebuild the mirror
+                    // and client link before it can report the previously accepted
+                    // provider receipt as success. The preserve flag keeps an
+                    // existing richer projection intact while still repairing a
+                    // missing row or stale client pointer.
+                    try {
+                        const repaired = await this.createEformsignDocUsecase.execute(branchid, {
+                            documentId: acceptedDocumentId,
+                            documentName: `${templateName || "계약서"} - ${client.name}`,
+                            clientId,
+                            linkToClient: true,
+                            statusType: "010",
+                            statusDetail: "created",
+                            stepType: "01",
+                            stepIndex: "1",
+                            stepName: "시작",
+                            stepRecipientType: "signer",
+                            stepRecipientName: client.name,
+                            stepRecipientSms: clientPhone,
+                            expiredDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                            documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT,
+                            templateId,
+                            templateName: templateName ?? null,
+                            customerName: client.name,
+                            clientTargetVersion: params.clientTargetVersion,
+                            preserveExistingMirrorProjection: true,
+                        });
+                        if (!repaired.warnings?.length) {
+                            return { success: true, documentId: acceptedDocumentId };
+                        }
+                        this.logger.warn(
+                            `Accepted eformsign contract ${acceptedDocumentId} replayed with local repair warnings: ${repaired.warnings.join(",")}`,
+                        );
+                    } catch (error) {
+                        this.logger.warn(
+                            `Accepted eformsign contract ${acceptedDocumentId} could not repair its local mirror: ${sanitizeEformsignErrorMessage(error)}`,
+                        );
+                    }
+
+                    return {
+                        success: false,
+                        error: "계약서 발송 결과 확인이 필요합니다",
+                        remoteDocumentId: acceptedDocumentId,
+                        uncertain: true,
+                    };
                 }
                 if (claim.disposition === "uncertain") {
                     return {
