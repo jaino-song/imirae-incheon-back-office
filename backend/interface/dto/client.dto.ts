@@ -1,5 +1,13 @@
 import { IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Matches, ValidateIf } from "class-validator";
+import { Transform } from "class-transformer";
 import { SERVICE_STATUS_VALUES } from "domain/value-objects/service-status.vo";
+import { KOREAN_WON_INPUT_PATTERN } from "domain/value-objects/money.vo";
+
+const KOREAN_WON_VALIDATION_MESSAGE = "금액은 정수 원 단위(예: 1,000원)만 입력할 수 있습니다.";
+
+function trimKoreanWonInput({ value }: { value: unknown }): unknown {
+    return typeof value === "string" ? value.trim() : value;
+}
 
 export class CreateClientDto {
     @IsString()
@@ -31,14 +39,20 @@ export class CreateClientDto {
 
     @IsOptional()
     @IsString()
+    @Transform(trimKoreanWonInput)
+    @Matches(KOREAN_WON_INPUT_PATTERN, { message: KOREAN_WON_VALIDATION_MESSAGE })
     fullPrice?: string | null;
 
     @IsOptional()
     @IsString()
+    @Transform(trimKoreanWonInput)
+    @Matches(KOREAN_WON_INPUT_PATTERN, { message: KOREAN_WON_VALIDATION_MESSAGE })
     grant?: string | null;
 
     @IsOptional()
     @IsString()
+    @Transform(trimKoreanWonInput)
+    @Matches(KOREAN_WON_INPUT_PATTERN, { message: KOREAN_WON_VALIDATION_MESSAGE })
     actualPrice?: string | null;
 
     @IsOptional()
@@ -132,14 +146,20 @@ export class UpdateClientDto {
 
     @IsOptional()
     @IsString()
+    @Transform(trimKoreanWonInput)
+    @Matches(KOREAN_WON_INPUT_PATTERN, { message: KOREAN_WON_VALIDATION_MESSAGE })
     fullPrice?: string | null;
 
     @IsOptional()
     @IsString()
+    @Transform(trimKoreanWonInput)
+    @Matches(KOREAN_WON_INPUT_PATTERN, { message: KOREAN_WON_VALIDATION_MESSAGE })
     grant?: string | null;
 
     @IsOptional()
     @IsString()
+    @Transform(trimKoreanWonInput)
+    @Matches(KOREAN_WON_INPUT_PATTERN, { message: KOREAN_WON_VALIDATION_MESSAGE })
     actualPrice?: string | null;
 
     @IsOptional()

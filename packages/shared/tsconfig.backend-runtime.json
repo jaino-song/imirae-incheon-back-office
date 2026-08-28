@@ -14,6 +14,7 @@
         "src/agent/index.ts",
         "src/agent/action-types.ts",
         "src/agent/capability-meta.ts",
-        "src/agent/message-parts.ts"
+        "src/agent/message-parts.ts",
+        "src/utils/business-days.ts"
     ]
 }

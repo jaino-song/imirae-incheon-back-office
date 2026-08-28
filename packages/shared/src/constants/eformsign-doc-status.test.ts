@@ -2,6 +2,7 @@ import {
     isContractReviewWindowOpen,
     resolveContractDocStatusLabel,
 } from "./eformsign-doc-status";
+import { UnsupportedKoreanHolidayYearError } from "../utils/business-days";
 
 /** A provider-review current_status (customer already signed). */
 const PROVIDER_REVIEW_STATUS = { status_type: "070", step_type: "06", step_name: "제공기관 확인" };
@@ -59,6 +60,13 @@ describe("isContractReviewWindowOpen", () => {
         expect(isContractReviewWindowOpen("nonsense", kstNoon("2026-08-01"))).toBe(true);
         expect(isContractReviewWindowOpen("2026-02-31", kstNoon("2026-02-01"))).toBe(true);
         expect(isContractReviewWindowOpen("2026-13-01", kstNoon("2026-02-01"))).toBe(true);
+    });
+
+    it("fails closed when a valid end date uses an unsupported holiday year", () => {
+        expect(() => isContractReviewWindowOpen("2028-01-03", kstNoon("2028-01-01")))
+            .toThrow(UnsupportedKoreanHolidayYearError);
+        expect(() => isContractReviewWindowOpen("2028-01-01", kstNoon("2027-12-31")))
+            .toThrow(UnsupportedKoreanHolidayYearError);
     });
 });
 

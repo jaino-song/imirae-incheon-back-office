@@ -10,6 +10,7 @@ import {
     IsObject,
     IsOptional,
     IsString,
+    Matches,
     MaxLength,
     Min,
     Validate,
@@ -21,6 +22,11 @@ import {
 import { Transform, Type } from "class-transformer";
 import { PROPOSAL_FIELDS } from "application/services/call-extraction.prompt";
 import { SERVICE_STATUS_VALUES } from "domain/value-objects/service-status.vo";
+import { KOREAN_WON_INPUT_PATTERN } from "domain/value-objects/money.vo";
+
+const KOREAN_WON_VALIDATION_MESSAGE = "금액은 정수 원 단위(예: 1,000원)만 입력할 수 있습니다.";
+const trimKoreanWonInput = ({ value }: { value: unknown }): unknown =>
+    typeof value === "string" ? value.trim() : value;
 
 @ValidatorConstraint({ name: "calendarBirthday", async: false })
 class CalendarBirthdayConstraint implements ValidatorConstraintInterface {
@@ -128,12 +134,18 @@ export class ConfirmNewClientFieldsDto {
     duration?: number | null;
 
     @IsOptional() @IsString() @MaxLength(40)
+    @Transform(trimKoreanWonInput)
+    @Matches(KOREAN_WON_INPUT_PATTERN, { message: KOREAN_WON_VALIDATION_MESSAGE })
     fullPrice?: string | null;
 
     @IsOptional() @IsString() @MaxLength(80)
+    @Transform(trimKoreanWonInput)
+    @Matches(KOREAN_WON_INPUT_PATTERN, { message: KOREAN_WON_VALIDATION_MESSAGE })
     grant?: string | null;
 
     @IsOptional() @IsString() @MaxLength(40)
+    @Transform(trimKoreanWonInput)
+    @Matches(KOREAN_WON_INPUT_PATTERN, { message: KOREAN_WON_VALIDATION_MESSAGE })
     actualPrice?: string | null;
 
     @IsOptional() @IsDateString()

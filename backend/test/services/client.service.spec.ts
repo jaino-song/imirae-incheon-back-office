@@ -1557,7 +1557,6 @@ describe("ClientService", () => {
                 ["address", "address"],
                 ["phone", "phone"],
                 ["type", "type"],
-                ["duration", "duration"],
                 ["fullPrice", "fullPrice"],
                 ["grant", "grant"],
                 ["actualPrice", "actualPrice"],
@@ -1578,6 +1577,20 @@ describe("ClientService", () => {
                 expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
                     where: { id: 1, branchId },
                     data: expect.objectContaining({ [dataKey]: null }),
+                }));
+            });
+
+            it("writes an explicit null duration for a client whose service period is incomplete", async () => {
+                const existingClient = createClientEntity();
+                existingClient.startDate = null;
+                existingClient.endDate = null;
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await service.update(branchId, 1, { duration: null });
+
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    where: { id: 1, branchId },
+                    data: expect.objectContaining({ duration: null }),
                 }));
             });
 
@@ -1680,6 +1693,37 @@ describe("ClientService", () => {
                     where: { id: 1, branchId },
                     data: expect.objectContaining({ startDate: null, endDate: null }),
                 }));
+            });
+
+            it("clears duration when a date patch leaves the service period incomplete", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await service.update(branchId, 1, { endDate: null });
+
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    where: { id: 1, branchId },
+                    data: expect.objectContaining({ endDate: null, duration: null }),
+                }));
+            });
+
+            it("rejects a duration-only mismatch when the existing service period is complete", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await expect(service.update(branchId, 1, { duration: 1 }))
+                    .rejects.toThrow("duration must equal the Korean business-day count (102)");
+                expect(prismaService.$transaction).not.toHaveBeenCalled();
+                expect(prismaService.client.updateMany).not.toHaveBeenCalled();
+            });
+
+            it("rejects a non-null duration when a date patch cannot derive a complete period", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await expect(service.update(branchId, 1, { endDate: null, duration: 5 }))
+                    .rejects.toThrow("duration requires a complete service period");
+                expect(prismaService.$transaction).not.toHaveBeenCalled();
             });
 
             it("merges a partial service period with the existing client before rejecting reversed dates", async () => {

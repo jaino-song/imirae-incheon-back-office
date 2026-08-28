@@ -12,6 +12,7 @@ import {
     EformsignProviderPrincipal,
 } from "application/services/eformsign-credential-boundary.service";
 import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
+import { normalizeKoreanWon } from "domain/value-objects/money.vo";
 
 export interface CreateAndSendContractParams {
     clientId: number;
@@ -50,6 +51,11 @@ export interface CreateAndSendContractResult {
     error?: string;
     remoteDocumentId?: string;
     uncertain?: boolean;
+}
+
+function normalizeContractAmount(value: string | null): string {
+    if (value == null || value.trim() === "") return "";
+    return normalizeKoreanWon(value) ?? "";
 }
 
 @Injectable()
@@ -239,6 +245,9 @@ export class CreateAndSendContractUsecase {
                     const startDate = formatDate(client.startDate);
                     const endDate = formatDate(client.endDate);
                     const today = formatDate(fallbackInstant);
+                    const fullPrice = normalizeContractAmount(client.fullPrice);
+                    const grant = normalizeContractAmount(client.grant);
+                    const actualPrice = normalizeContractAmount(client.actualPrice);
 
                     const prefillFields = [
                         { id: "이용자 성명", value: client.name },
@@ -250,11 +259,11 @@ export class CreateAndSendContractUsecase {
                         { id: "계약 종료 년도", value: endDate.year },
                         { id: "계약 종료 월", value: endDate.month },
                         { id: "계약 종료 일", value: endDate.day },
-                        { id: "서비스 비용", value: client.fullPrice || "" },
-                        { id: "정부지원금", value: client.grant || "" },
-                        { id: "본인부담금", value: client.actualPrice || "" },
+                        { id: "서비스 비용", value: fullPrice },
+                        { id: "정부지원금", value: grant },
+                        { id: "본인부담금", value: actualPrice },
                         { id: "서비스 기간", value: client.duration?.toString() || "" },
-                        { id: "서비스 가격", value: client.fullPrice || "" },
+                        { id: "서비스 가격", value: fullPrice },
                         { id: "본인부담금 수령 년도", value: today.year },
                         { id: "본인부담금 수령 월", value: today.month },
                         { id: "본인부담금 수령 일", value: today.day },

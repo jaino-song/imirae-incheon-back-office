@@ -196,9 +196,9 @@ describe("CreateAndSendContractUsecase", () => {
             birthday: "900101",
             startDate: "2026-08-03T00:00:00.000Z",
             endDate: "2026-08-17T00:00:00.000Z",
-            fullPrice: "100000",
-            grant: "50000",
-            actualPrice: "50000",
+            fullPrice: "100,000원",
+            grant: "50,000원",
+            actualPrice: "50,000",
             duration: 15,
             fallbackDate: "2026-08-04T01:02:03.000Z",
         };
@@ -230,6 +230,10 @@ describe("CreateAndSendContractUsecase", () => {
                 { id: "본인부담금 수령 년도", value: "26" },
                 { id: "본인부담금 수령 월", value: "08" },
                 { id: "본인부담금 수령 일", value: "04" },
+                { id: "서비스 비용", value: "100000" },
+                { id: "정부지원금", value: "50000" },
+                { id: "본인부담금", value: "50000" },
+                { id: "서비스 가격", value: "100000" },
             ]),
             idempotencyKey: "action-approved",
         }));

@@ -1,3 +1,15 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.UnsupportedKoreanHolidayYearError = exports.KR_HOLIDAYS = exports.KOREAN_HOLIDAYS = exports.KOREAN_HOLIDAY_CALENDAR = exports.KOREAN_HOLIDAY_CALENDAR_VERSION = void 0;
+exports.getKoreanHolidays = getKoreanHolidays;
+exports.assertSupportedKoreanHolidayYear = assertSupportedKoreanHolidayYear;
+exports.isBusinessDayKr = isBusinessDayKr;
+exports.isoDateInKorea = isoDateInKorea;
+exports.diffBusinessDaysKr = diffBusinessDaysKr;
+exports.calcEndDateBusinessDays = calcEndDateBusinessDays;
+exports.nextBusinessDayKr = nextBusinessDayKr;
+exports.addBusinessDaysKr = addBusinessDaysKr;
+exports.countBusinessDaysKr = countBusinessDaysKr;
 /**
  * Versioned Korean holiday calendar used by every business-day consumer.
  *
@@ -6,9 +18,8 @@
  * is therefore unsafe. Add a complete year and bump the version before that
  * year is used in production.
  */
-export const KOREAN_HOLIDAY_CALENDAR_VERSION = "kr-public-holidays-2024-2027.v1" as const;
-
-export const KOREAN_HOLIDAY_CALENDAR: Readonly<Record<number, readonly string[]>> = {
+exports.KOREAN_HOLIDAY_CALENDAR_VERSION = "kr-public-holidays-2024-2027.v1";
+exports.KOREAN_HOLIDAY_CALENDAR = {
     // 2024
     2024: [
         "2024-01-01", // New Year's Day
@@ -75,201 +86,179 @@ export const KOREAN_HOLIDAY_CALENDAR: Readonly<Record<number, readonly string[]>
         "2027-12-25", // Christmas
     ],
 };
-
 /** All dates in the authoritative calendar, useful for diagnostics and parity checks. */
-export const KOREAN_HOLIDAYS = new Set<string>(
-    Object.values(KOREAN_HOLIDAY_CALENDAR).flat(),
-);
-
+exports.KOREAN_HOLIDAYS = new Set(Object.values(exports.KOREAN_HOLIDAY_CALENDAR).flat());
 /**
  * Legacy 2026/2027 export retained for callers that only need the original
  * release window. It is derived from the authoritative calendar above (not a
  * second hand-maintained holiday list).
  */
-export const KR_HOLIDAYS = new Set<string>([
-    ...KOREAN_HOLIDAY_CALENDAR[2026]!,
-    ...KOREAN_HOLIDAY_CALENDAR[2027]!,
+exports.KR_HOLIDAYS = new Set([
+    ...exports.KOREAN_HOLIDAY_CALENDAR[2026],
+    ...exports.KOREAN_HOLIDAY_CALENDAR[2027],
 ]);
-
-export class UnsupportedKoreanHolidayYearError extends Error {
-    readonly year: number;
-
-    constructor(year: number) {
-        super(`Korean holiday calendar does not support year ${year} (version ${KOREAN_HOLIDAY_CALENDAR_VERSION})`);
+class UnsupportedKoreanHolidayYearError extends Error {
+    constructor(year) {
+        super(`Korean holiday calendar does not support year ${year} (version ${exports.KOREAN_HOLIDAY_CALENDAR_VERSION})`);
         this.name = "UnsupportedKoreanHolidayYearError";
         this.year = year;
     }
 }
-
-export function getKoreanHolidays(year: number): ReadonlySet<string> {
-    const holidays = KOREAN_HOLIDAY_CALENDAR[year];
-    if (!holidays) throw new UnsupportedKoreanHolidayYearError(year);
+exports.UnsupportedKoreanHolidayYearError = UnsupportedKoreanHolidayYearError;
+function getKoreanHolidays(year) {
+    const holidays = exports.KOREAN_HOLIDAY_CALENDAR[year];
+    if (!holidays)
+        throw new UnsupportedKoreanHolidayYearError(year);
     return new Set(holidays);
 }
-
-export function assertSupportedKoreanHolidayYear(year: number): void {
-    if (!KOREAN_HOLIDAY_CALENDAR[year]) {
+function assertSupportedKoreanHolidayYear(year) {
+    if (!exports.KOREAN_HOLIDAY_CALENDAR[year]) {
         throw new UnsupportedKoreanHolidayYearError(year);
     }
 }
-
 const KOREA_DATE_FORMATTER = new Intl.DateTimeFormat("en", {
     timeZone: "Asia/Seoul",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
 });
-
-function parseIsoDate(iso: string): Date | null {
+function parseIsoDate(iso) {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-    if (!match) return null;
-
+    if (!match)
+        return null;
     const year = Number(match[1]);
     const month = Number(match[2]);
     const day = Number(match[3]);
     const parsed = new Date(Date.UTC(year, month - 1, day));
-    if (
-        Number.isNaN(parsed.getTime())
+    if (Number.isNaN(parsed.getTime())
         || parsed.getUTCFullYear() !== year
         || parsed.getUTCMonth() !== month - 1
-        || parsed.getUTCDate() !== day
-    ) {
+        || parsed.getUTCDate() !== day) {
         return null;
     }
     return parsed;
 }
-
-function isoFromUtcDate(date: Date): string {
+function isoFromUtcDate(date) {
     return date.toISOString().slice(0, 10);
 }
-
-function assertSupportedIsoYear(iso: string): void {
+function assertSupportedIsoYear(iso) {
     assertSupportedKoreanHolidayYear(Number(iso.slice(0, 4)));
 }
-
-export function isBusinessDayKr(iso: string): boolean {
-    if (!iso) return false;
+function isBusinessDayKr(iso) {
+    if (!iso)
+        return false;
     const date = parseIsoDate(iso);
-    if (!date) return false;
-
+    if (!date)
+        return false;
     // Fail closed for a valid date in an unpopulated year. This is intentionally
     // before the weekday check: an unsupported Saturday must not look safe merely
     // because it is a weekend.
     assertSupportedIsoYear(iso);
     const dayOfWeek = date.getUTCDay();
-    if (dayOfWeek === 0 || dayOfWeek === 6) return false;
-    return !KOREAN_HOLIDAYS.has(iso);
+    if (dayOfWeek === 0 || dayOfWeek === 6)
+        return false;
+    return !exports.KOREAN_HOLIDAYS.has(iso);
 }
-
-export function isoDateInKorea(date = new Date()): string {
+function isoDateInKorea(date = new Date()) {
     const parts = KOREA_DATE_FORMATTER.formatToParts(date);
     const year = parts.find((part) => part.type === "year")?.value ?? "";
     const month = parts.find((part) => part.type === "month")?.value ?? "";
     const day = parts.find((part) => part.type === "day")?.value ?? "";
     return `${year}-${month}-${day}`;
 }
-
-export function diffBusinessDaysKr(targetISO: string, baseISO = isoDateInKorea()): number | null {
+function diffBusinessDaysKr(targetISO, baseISO = isoDateInKorea()) {
     const target = parseIsoDate(targetISO);
     const base = parseIsoDate(baseISO);
-    if (!target || !base) return null;
-
+    if (!target || !base)
+        return null;
     assertSupportedIsoYear(targetISO);
     assertSupportedIsoYear(baseISO);
-
     const targetTime = target.getTime();
     const baseTime = base.getTime();
-    if (targetTime === baseTime) return 0;
-
+    if (targetTime === baseTime)
+        return 0;
     const cursor = new Date(base);
     let count = 0;
-
     if (targetTime > baseTime) {
         while (cursor.getTime() < targetTime) {
             cursor.setUTCDate(cursor.getUTCDate() + 1);
-            if (isBusinessDayKr(isoFromUtcDate(cursor))) count++;
+            if (isBusinessDayKr(isoFromUtcDate(cursor)))
+                count++;
         }
         return count;
     }
-
     while (cursor.getTime() > targetTime) {
-        if (isBusinessDayKr(isoFromUtcDate(cursor))) count++;
+        if (isBusinessDayKr(isoFromUtcDate(cursor)))
+            count++;
         cursor.setUTCDate(cursor.getUTCDate() - 1);
     }
     return -count;
 }
-
 // Counts startISO as day 1. If startISO is not a business day, the next
 // Korean business day becomes day 1.
-export function calcEndDateBusinessDays(startISO: string, numberOfBusinessDays: number): string {
-    if (!startISO || !Number.isFinite(numberOfBusinessDays) || numberOfBusinessDays <= 0) return "";
+function calcEndDateBusinessDays(startISO, numberOfBusinessDays) {
+    if (!startISO || !Number.isFinite(numberOfBusinessDays) || numberOfBusinessDays <= 0)
+        return "";
     const start = parseIsoDate(startISO);
-    if (!start) return "";
+    if (!start)
+        return "";
     assertSupportedIsoYear(startISO);
-
     const cursor = new Date(start);
     let counted = 0;
-
     for (let i = 0; i < 365 && counted < numberOfBusinessDays; i += 1) {
         const iso = isoFromUtcDate(cursor);
         if (isBusinessDayKr(iso)) {
             counted += 1;
-            if (counted === numberOfBusinessDays) return iso;
+            if (counted === numberOfBusinessDays)
+                return iso;
         }
         cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
-
     return "";
 }
-
 // Ported from mobile/src/lib/date/business-days.ts, which has these two
 // helpers but frontend does not. Kept here so this module is a complete
 // superset of both call sites' business-day needs.
 const NEXT_BUSINESS_DAY_SEARCH_LIMIT = 30;
-
-export function nextBusinessDayKr(iso: string): string {
+function nextBusinessDayKr(iso) {
     const start = parseIsoDate(iso);
-    if (!start) throw new Error(`Invalid Korean calendar date: ${iso}`);
+    if (!start)
+        throw new Error(`Invalid Korean calendar date: ${iso}`);
     assertSupportedIsoYear(iso);
-
     const cursor = new Date(start);
     for (let i = 0; i < NEXT_BUSINESS_DAY_SEARCH_LIMIT; i += 1) {
         cursor.setUTCDate(cursor.getUTCDate() + 1);
         const cursorIso = isoFromUtcDate(cursor);
-        if (isBusinessDayKr(cursorIso)) return cursorIso;
+        if (isBusinessDayKr(cursorIso))
+            return cursorIso;
     }
-
-    throw new Error(
-        `Unable to find next Korean business day within ${NEXT_BUSINESS_DAY_SEARCH_LIMIT} days after ${iso}`,
-    );
+    throw new Error(`Unable to find next Korean business day within ${NEXT_BUSINESS_DAY_SEARCH_LIMIT} days after ${iso}`);
 }
-
-export function addBusinessDaysKr(iso: string, n: number): string {
+function addBusinessDaysKr(iso, n) {
     const parsed = parseIsoDate(iso);
-    if (!parsed) throw new Error(`Invalid Korean calendar date: ${iso}`);
+    if (!parsed)
+        throw new Error(`Invalid Korean calendar date: ${iso}`);
     assertSupportedIsoYear(iso);
-    if (n <= 0) return iso;
-
+    if (n <= 0)
+        return iso;
     let cursor = iso;
     for (let i = 0; i < n; i += 1) {
         cursor = nextBusinessDayKr(cursor);
     }
-
     return cursor;
 }
-
-export function countBusinessDaysKr(startISO: string, endISO: string): number | null {
+function countBusinessDaysKr(startISO, endISO) {
     const start = parseIsoDate(startISO);
     const end = parseIsoDate(endISO);
-    if (!start || !end || start.getTime() > end.getTime()) return null;
-
+    if (!start || !end || start.getTime() > end.getTime())
+        return null;
     assertSupportedIsoYear(startISO);
     assertSupportedIsoYear(endISO);
-
     const cursor = new Date(start);
     let count = 0;
     while (cursor.getTime() <= end.getTime()) {
-        if (isBusinessDayKr(isoFromUtcDate(cursor))) count += 1;
+        if (isBusinessDayKr(isoFromUtcDate(cursor)))
+            count += 1;
         cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
     return count;

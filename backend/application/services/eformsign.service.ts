@@ -24,6 +24,7 @@ import {
     extractEformsignVendorCode,
 } from "infrastructure/api/eformsign-api.error";
 import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
+import { normalizeKoreanWon } from "domain/value-objects/money.vo";
 
 export interface EformsignDocumentWorkflowState {
     statusCode?: string;
@@ -39,6 +40,11 @@ export const EFORMSIGN_STATUS_READ_TIMEOUT_MS = 2_000;
 // Deletion is non-idempotent, so one bounded attempt is safer than retries.
 // Keep the same total request-and-body budget used by the API client.
 export const EFORMSIGN_DELETE_TIMEOUT_MS = 30_000;
+
+function normalizeEformsignAmount(value: string): string {
+    if (value.trim() === "") return "";
+    return normalizeKoreanWon(value) ?? "";
+}
 
 export function getDocumentCreatedTimestamp(document: { created_date?: unknown; createdDate?: unknown }): number {
     const value = document.created_date ?? document.createdDate;
@@ -150,6 +156,9 @@ export class EformsignService {
 
     generateDocumentOptions(contractData: ContractDataDto, accessToken: string, refreshToken: string, templateId?: string) {
         this.assertConfigured();
+        const fullPrice = normalizeEformsignAmount(contractData.fullPrice);
+        const grant = normalizeEformsignAmount(contractData.grant);
+        const actualPrice = normalizeEformsignAmount(contractData.actualPrice);
         return {
             company: {
                 id: this.EFORMSIGN_COMPANY_ID,
@@ -189,13 +198,13 @@ export class EformsignService {
                     { id: "계약 종료 년도", value: contractData.endYear },
                     { id: "계약 종료 월", value: contractData.endMonth },
                     { id: "계약 종료 일", value: contractData.endDay },
-                    { id: "서비스 비용", value: contractData.fullPrice },
-                    { id: "정부지원금", value: contractData.grant },
-                    { id: "본인부담금", value: contractData.actualPrice },
+                    { id: "서비스 비용", value: fullPrice },
+                    { id: "정부지원금", value: grant },
+                    { id: "본인부담금", value: actualPrice },
                     { id: "서비스 기간", value: contractData.days },
                     { id: "제공인력 1 성명", value: contractData.caretaker1Name },
                     { id: "제공인력 1 연락처", value: contractData.caretaker1Contact },
-                    { id: "서비스 가격", value: contractData.fullPrice },
+                    { id: "서비스 가격", value: fullPrice },
                     { id: "본인부담금 수령 년도", value: contractData.paymentYear },
                     { id: "본인부담금 수령 월", value: contractData.paymentMonth },
                     { id: "본인부담금 수령 일", value: contractData.paymentDay },

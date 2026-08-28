@@ -13,13 +13,16 @@ import { AgentActionCertainFailureError } from "application/agent/action-coordin
 import { readAgentActionEffect, recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
 import { normalizeClientPricing } from "domain/services/client-pricing";
 import {
+    assertClientDurationMatchesDates,
     assertAllowedClientArea,
     assertAllowedServiceStatus,
     assertPhoneAvailable,
+    deriveClientDuration,
     mergeAndValidateClientServicePeriod,
     parseClientDate,
 } from "./client-write-validation";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
+import { KOREAN_WON_INPUT_PATTERN } from "domain/value-objects/money.vo";
 import { SERVICE_STATUS_VALUES, ServiceStatusType } from "domain/value-objects/service-status.vo";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
@@ -39,6 +42,10 @@ const DateInputValue = z.union([
     z.string().datetime({ offset: true }),
 ]);
 const DateInput = DateInputValue.nullable().optional();
+const KoreanWonInput = z.string().trim().regex(
+    KOREAN_WON_INPUT_PATTERN,
+    "Amount must be a whole Korean-won value with no trailing text or decimals",
+);
 
 function isCalendarValidYymmdd(value: string): boolean {
     if (!/^\d{6}$/.test(value)) return false;
@@ -64,9 +71,9 @@ const ClientWriteFields = z.object({
     phone: z.string().trim().max(40).nullable().optional(),
     type: z.string().trim().max(40).nullable().optional(),
     duration: z.number().int().nonnegative().nullable().optional(),
-    fullPrice: z.string().max(40).nullable().optional(),
-    grant: z.string().max(80).nullable().optional(),
-    actualPrice: z.string().max(40).nullable().optional(),
+    fullPrice: KoreanWonInput.max(40).nullable().optional(),
+    grant: KoreanWonInput.max(80).nullable().optional(),
+    actualPrice: KoreanWonInput.max(40).nullable().optional(),
     startDate: DateInput,
     endDate: DateInput,
     careCenter: z.boolean().nullable().optional(),
@@ -218,15 +225,31 @@ async function validateClientWrite(
         endDate?: Date | null;
         duration?: number | null;
     },
-): Promise<void> {
+): Promise<number | null> {
     try {
         assertAllowedServiceStatus(updates.serviceStatus);
         await assertAllowedClientArea(prisma, branchId, updates.areaId);
         await assertPhoneAvailable(repository, branchId, updates.phone, existing?.id);
-        mergeAndValidateClientServicePeriod(existing, {
+        const mergedServicePeriod = mergeAndValidateClientServicePeriod(existing, {
             startDate: updates.startDate,
             endDate: updates.endDate,
         });
+        const derivedDuration = deriveClientDuration(
+            mergedServicePeriod.startDate,
+            mergedServicePeriod.endDate,
+        );
+        assertClientDurationMatchesDates(updates.duration, derivedDuration);
+        const hasDateUpdate = existing !== null
+            && (updates.startDate !== undefined || updates.endDate !== undefined);
+        if (hasDateUpdate && derivedDuration !== null && updates.duration === null) {
+            throw new BadRequestException(
+                `duration must equal the Korean business-day count (${derivedDuration}) for the submitted service period`,
+            );
+        }
+        if (hasDateUpdate && derivedDuration === null && updates.duration !== undefined && updates.duration !== null) {
+            throw new BadRequestException("duration requires a complete service period");
+        }
+        return derivedDuration;
     } catch (error) {
         if (error instanceof BadRequestException || error instanceof ConflictException) {
             throw new AgentActionCertainFailureError(validationErrorMessage(error));
@@ -317,11 +340,12 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         startDate: parseClientDate(input.startDate) ?? null,
                         endDate: parseClientDate(input.endDate) ?? null,
                     };
-                    await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, null, {
+                    const derivedDuration = await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, null, {
                         ...dates,
                         areaId: input.areaId,
                         phone: input.phone,
                         serviceStatus: input.serviceStatus,
+                        duration: input.duration,
                     });
                     const normalizedPricing = normalizeClientPricing({
                         voucherClient: input.voucherClient ?? false,
@@ -337,7 +361,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                                 address: input.address ?? null,
                                 phone: input.phone,
                                 type: normalizedPricing.type,
-                                duration: input.duration ?? null,
+                                duration: derivedDuration ?? input.duration ?? null,
                                 fullPrice: normalizedPricing.fullPrice,
                                 grant: normalizedPricing.grant,
                                 actualPrice: normalizedPricing.actualPrice,
@@ -398,7 +422,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         endDate: parseClientDate(updates.endDate),
                     };
                     const normalizedPricing = normalizeMergedClientPricing(existing, updates);
-                    await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, {
+                    const derivedDuration = await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, {
                         ...parsedUpdates,
                         ...normalizedPricing,
                     });
@@ -406,7 +430,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         clientId: existing.id,
                         startDate: parsedUpdates.startDate,
                         endDate: parsedUpdates.endDate,
-                        duration: parsedUpdates.duration,
+                        duration: derivedDuration ?? parsedUpdates.duration,
                     });
                     return {
                         targetVersion: clientAgentTargetVersion(existing),
@@ -438,16 +462,18 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         dueDate: parseClientDate(updates.dueDate),
                         birthDate: parseClientDate(updates.birthDate),
                     };
-                    await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, parsedUpdates);
+                    const derivedDuration = await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, parsedUpdates);
+                    const duration = derivedDuration ?? parsedUpdates.duration;
                     await validateClientServicePeriod(this.serviceRecordLifecycleService, {
                         clientId: existing.id,
                         startDate: parsedUpdates.startDate,
                         endDate: parsedUpdates.endDate,
-                        duration: parsedUpdates.duration,
+                        duration,
                     });
                     try {
                         const client = await this.updateClient.execute(context.principal.branchId, id, {
                             ...parsedUpdates,
+                            ...(duration === undefined ? {} : { duration }),
                         });
                         await this.serviceRecordLifecycleService.ensureForClient(client.id);
                         await this.refreshEmployeeAssignmentJobsAfterProfileChange(
@@ -475,19 +501,23 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         dueDate: parseClientDate(updates.dueDate),
                         birthDate: parseClientDate(updates.birthDate),
                     };
-                    await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, parsedUpdates);
+                    const derivedDuration = await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, parsedUpdates);
+                    const duration = derivedDuration ?? parsedUpdates.duration;
                     try {
                         const result = await this.prisma.$transaction(async (transaction) => {
                             await validateClientServicePeriod(this.serviceRecordLifecycleService, {
                                 clientId: existing.id,
                                 startDate: parsedUpdates.startDate,
                                 endDate: parsedUpdates.endDate,
-                                duration: parsedUpdates.duration,
+                                duration,
                             }, transaction);
                             const client = await this.updateClient.executeApprovedTarget(
                                 context.principal.branchId,
                                 id,
-                                parsedUpdates,
+                                {
+                                    ...parsedUpdates,
+                                    ...(duration === undefined ? {} : { duration }),
+                                },
                                 expectedTargetVersion,
                                 transaction,
                             );

@@ -1,4 +1,4 @@
-import { Type } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import {
     IsDateString,
     IsInt,
@@ -12,6 +12,7 @@ import {
     ValidateNested,
 } from "class-validator";
 import { ContractDataDto } from "application/dto/contract.dto";
+import { KOREAN_WON_INPUT_PATTERN } from "domain/value-objects/money.vo";
 import type {
     EformsignDocumentJobSource,
     EformsignDocumentJobStatus,
@@ -22,6 +23,9 @@ import type {
 const EFORMSIGN_DOCUMENT_JOB_REQUEST_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$/;
 const EFORMSIGN_DOCUMENT_JOB_IDENTIFIER_PATTERN = /^\S+$/;
 const EFORMSIGN_DOCUMENT_JOB_TEXT_MAX_LENGTH = 255;
+const KOREAN_WON_VALIDATION_MESSAGE = "금액은 정수 원 단위(예: 1,000원)만 입력할 수 있습니다.";
+const trimKoreanWonInput = ({ value }: { value: unknown }): unknown =>
+    typeof value === "string" ? value.trim() : value;
 
 /**
  * The subset of contract data required to resume a document-creation job.
@@ -74,10 +78,16 @@ export class EformsignDocumentJobContractDataDto implements ContractDataDto {
     @IsString() @IsNotEmpty() @MaxLength(EFORMSIGN_DOCUMENT_JOB_TEXT_MAX_LENGTH)
     paymentDay!: string;
     @IsString() @IsNotEmpty() @MaxLength(EFORMSIGN_DOCUMENT_JOB_TEXT_MAX_LENGTH)
+    @Transform(trimKoreanWonInput)
+    @Matches(KOREAN_WON_INPUT_PATTERN, { message: KOREAN_WON_VALIDATION_MESSAGE })
     fullPrice!: string;
     @IsString() @IsNotEmpty() @MaxLength(EFORMSIGN_DOCUMENT_JOB_TEXT_MAX_LENGTH)
+    @Transform(trimKoreanWonInput)
+    @Matches(KOREAN_WON_INPUT_PATTERN, { message: KOREAN_WON_VALIDATION_MESSAGE })
     grant!: string;
     @IsString() @IsNotEmpty() @MaxLength(EFORMSIGN_DOCUMENT_JOB_TEXT_MAX_LENGTH)
+    @Transform(trimKoreanWonInput)
+    @Matches(KOREAN_WON_INPUT_PATTERN, { message: KOREAN_WON_VALIDATION_MESSAGE })
     actualPrice!: string;
     @IsOptional() @IsString() @MaxLength(EFORMSIGN_DOCUMENT_JOB_TEXT_MAX_LENGTH)
     issuerPhone?: string;

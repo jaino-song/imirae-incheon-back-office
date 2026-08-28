@@ -21,6 +21,8 @@ import { LinkMirroredEformsignDocByPhoneUsecase } from "application/usecases/efo
 import {
     assertAllowedClientArea,
     assertAllowedServiceStatus,
+    assertClientDurationMatchesDates,
+    deriveClientDuration,
     findClientByNormalizedPhone,
     mergeAndValidateClientServicePeriod,
     parseClientDate,
@@ -951,6 +953,9 @@ export class ClientService {
         const dueDate = parseClientDate(params.dueDate) ?? null;
         const birthDate = parseClientDate(params.birthDate) ?? null;
         mergeAndValidateClientServicePeriod(null, { startDate, endDate });
+        const derivedDuration = deriveClientDuration(startDate, endDate);
+        assertClientDurationMatchesDates(params.duration, derivedDuration);
+        const duration = derivedDuration ?? params.duration ?? null;
         assertAllowedServiceStatus(params.serviceStatus);
         await assertAllowedClientArea(this.prismaService, branchid, params.areaId);
 
@@ -1028,7 +1033,7 @@ export class ClientService {
             address: params.address ?? null,
             phone: params.phone ?? null,
             type: normalizedPricing.type,
-            duration: params.duration ?? null,
+            duration,
             fullPrice: normalizedPricing.fullPrice,
             grant: normalizedPricing.grant,
             actualPrice: normalizedPricing.actualPrice,
@@ -1538,13 +1543,6 @@ export class ClientService {
         // become a 400 here instead, and before the transaction opens.
         const dueDateUpdate = params.dueDate === undefined ? undefined : parseClientDate(params.dueDate);
         const birthDateUpdate = params.birthDate === undefined ? undefined : parseClientDate(params.birthDate);
-        await this.serviceRecordLifecycleService?.validatePeriodChange({
-            clientId: id,
-            startDate: startDateUpdate,
-            endDate: endDateUpdate,
-            duration: params.duration,
-        });
-
         const { existingClient: clientWithPhone } = await findClientByNormalizedPhone(
             this.clientRepository,
             branchid,
@@ -1563,6 +1561,35 @@ export class ClientService {
         const mergedServicePeriod = mergeAndValidateClientServicePeriod(existingClient, {
             startDate: startDateUpdate,
             endDate: endDateUpdate,
+        });
+        const hasDateUpdate = params.startDate !== undefined || params.endDate !== undefined;
+        const derivedDuration = deriveClientDuration(
+            mergedServicePeriod.startDate,
+            mergedServicePeriod.endDate,
+        );
+        assertClientDurationMatchesDates(params.duration, derivedDuration);
+        if (hasDateUpdate && params.duration === null && derivedDuration !== null) {
+            throw new BadRequestException(
+                `duration must equal the Korean business-day count (${derivedDuration}) for the submitted service period`,
+            );
+        }
+        if (hasDateUpdate && derivedDuration === null && params.duration !== undefined && params.duration !== null) {
+            throw new BadRequestException("duration requires a complete service period");
+        }
+        // Complete calendar dates own the persisted duration even when the
+        // caller changes an unrelated profile field. Incomplete periods keep
+        // the explicit policy duration (or null) because no derived count
+        // exists yet.
+        const duration = derivedDuration !== null
+            ? derivedDuration
+            : hasDateUpdate
+                ? null
+                : params.duration;
+        await this.serviceRecordLifecycleService?.validatePeriodChange({
+            clientId: id,
+            startDate: startDateUpdate,
+            endDate: endDateUpdate,
+            duration,
         });
         const startDate = mergedServicePeriod.startDate ?? new Date();
         const endDate = mergedServicePeriod.endDate ?? new Date(startDate.getTime() + DEFAULT_SERVICE_PERIOD_MS);
@@ -1649,7 +1676,7 @@ export class ClientService {
                     phone: params.phone === undefined ? undefined : params.phone,
                     phoneNormalized: normalizedPhoneUpdate,
                     type: normalizedPricing?.type,
-                    duration: params.duration === undefined ? undefined : params.duration,
+                    duration: duration === undefined ? undefined : duration,
                     fullPrice: normalizedPricing?.fullPrice,
                     grant: normalizedPricing?.grant,
                     actualPrice: normalizedPricing?.actualPrice,

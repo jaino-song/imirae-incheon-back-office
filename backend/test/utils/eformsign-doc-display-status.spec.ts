@@ -2,6 +2,7 @@ import {
     isContractReviewWindowOpen,
     resolveEformsignDocDisplayStatus,
 } from "application/utils/eformsign-doc-display-status";
+import { UnsupportedKoreanHolidayYearError } from "domain/utils/business-days";
 
 /**
  * Parity pin: these fixtures mirror
@@ -59,6 +60,13 @@ describe("isContractReviewWindowOpen (backend copy)", () => {
         expect(isContractReviewWindowOpen("nonsense", kstNoon("2026-08-01"))).toBe(true);
         expect(isContractReviewWindowOpen("2026-02-31", kstNoon("2026-02-01"))).toBe(true);
         expect(isContractReviewWindowOpen("2026-13-01", kstNoon("2026-02-01"))).toBe(true);
+    });
+
+    it("fails closed when a valid end date uses an unsupported holiday year", () => {
+        expect(() => isContractReviewWindowOpen("2028-01-03", kstNoon("2028-01-01")))
+            .toThrow(UnsupportedKoreanHolidayYearError);
+        expect(() => isContractReviewWindowOpen("2028-01-01", kstNoon("2027-12-31")))
+            .toThrow(UnsupportedKoreanHolidayYearError);
     });
 });
 

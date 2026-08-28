@@ -809,6 +809,10 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         expect(updateClient.execute).toHaveBeenCalledTimes(2);
         expect(updateClient.execute).toHaveBeenLastCalledWith("branch-a", 1, expect.objectContaining({ startDate: null }));
 
+        await expect(capability.execute(context, { id: 1, endDate: null, duration: 5 }))
+            .rejects.toThrow("duration requires a complete service period");
+        expect(updateClient.execute).toHaveBeenCalledTimes(2);
+
         await expect(capability.executeApprovedTarget!(context, { id: 1, startDate: "2025-01-01", endDate: "2024-01-01" }, "approved-target"))
             .rejects.toThrow("서비스 시작일은 종료일보다 늦을 수 없습니다.");
         expect(updateClient.executeApprovedTarget).not.toHaveBeenCalled();

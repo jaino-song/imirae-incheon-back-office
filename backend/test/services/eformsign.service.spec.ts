@@ -381,6 +381,50 @@ describe("EformsignService", () => {
         );
     });
 
+    it("round-trips formatted whole-won prices as canonical provider values", () => {
+        const service = new EformsignService(createConfigService());
+        const contractData: ContractDataDto = {
+            customerName: "김정인",
+            customerContact: "010-1234-5678",
+            customerDOB: "900101",
+            customerAddress: "인천 서구",
+            caretaker1Name: "이관리",
+            caretaker1Contact: "010-9999-8888",
+            type: "A통합3형",
+            days: "6",
+            area: "Seogu",
+            contractDuration: "2026-08-03 ~ 2026-08-10",
+            startYear: "26",
+            startMonth: "08",
+            startDay: "03",
+            startDate: "2026-08-03",
+            endYear: "26",
+            endMonth: "08",
+            endDay: "10",
+            endDate: "2026-08-10",
+            paymentYear: "26",
+            paymentMonth: "08",
+            paymentDay: "03",
+            fullPrice: " 1,000원 ",
+            grant: "500원",
+            actualPrice: "500",
+        };
+
+        const options = service.generateDocumentOptions(
+            contractData,
+            "access-token",
+            "refresh-token",
+            "template-seogu",
+        );
+
+        expect(options.prefill.fields).toEqual(expect.arrayContaining([
+            { id: "서비스 비용", value: "1000" },
+            { id: "정부지원금", value: "500" },
+            { id: "본인부담금", value: "500" },
+            { id: "서비스 가격", value: "1000" },
+        ]));
+    });
+
     it("uses a two-digit year when finalizing templates with a fixed century prefix", async () => {
         const service = new EformsignService(createConfigService());
         jest.spyOn(global, "fetch").mockResolvedValue(new Response(

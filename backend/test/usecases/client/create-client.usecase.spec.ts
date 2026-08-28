@@ -23,7 +23,7 @@ describe("CreateClientUsecase", () => {
                 address: "서울시 강남구",
                 phone: "010-1234-5678",
                 type: "A형",
-                duration: 15,
+                duration: 246,
                 fullPrice: "1000000",
                 grant: "500000",
                 actualPrice: "500000",
@@ -49,6 +49,33 @@ describe("CreateClientUsecase", () => {
             expect(result.address).toBe("서울시 강남구");
             expect(result.phone).toBe("010-1234-5678");
             expect(result.voucherClient).toBe(true);
+        });
+
+        it("should reject a complete-range duration mismatch before repository persistence", async () => {
+            const params = {
+                name: "기간 불일치 고객",
+                address: null,
+                phone: null,
+                type: null,
+                duration: 1,
+                fullPrice: "1000",
+                grant: "0",
+                actualPrice: "1000",
+                startDate: new Date("2024-01-02T00:00:00.000Z"),
+                endDate: new Date("2024-01-05T00:00:00.000Z"),
+                careCenter: false,
+                voucherClient: false,
+                birthday: null,
+                dueDate: null,
+                birthDate: null,
+                serviceStatus: null,
+                breastPump: false,
+            };
+
+            expect(() => usecase.execute(branchId, params)).toThrow(
+                "duration must equal the Korean business-day count (4)",
+            );
+            expect(mockRepository.getAllData()).toHaveLength(0);
         });
 
         it("should create client with minimal required fields", async () => {

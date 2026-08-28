@@ -29,7 +29,7 @@ type ClientRow = {
 
 export class ClientMapper {
     static toDomain(row: ClientRow): ClientEntity {
-        return new ClientEntity(
+        return ClientEntity.reconstitute(
             row.id,
             row.name,
             row.address,
@@ -44,10 +44,10 @@ export class ClientMapper {
             row.careCenter,
             row.voucherClient,
             row.birthday,
+            row.dueDate ?? null,
             row.serviceStatus,
             row.breastPump,
             row.eDocId,
-            row.dueDate ?? null,
             row.createdAt ?? null,
             row.areaId ?? null,
             row.branchId ?? null,
