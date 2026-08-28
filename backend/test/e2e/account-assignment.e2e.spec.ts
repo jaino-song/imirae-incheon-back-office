@@ -185,7 +185,7 @@ describeE2E("System-admin account assignment E2E", () => {
         expect(session.revokedReason).toBe("account_assignment_changed");
     });
 
-    it("preserves retained per-branch roles when the global role changes", async () => {
+    it("caps privileged retained roles while preserving lower per-branch roles", async () => {
         await prisma.user_branch.create({
             data: {
                 userId: TARGET_USER_ID,
@@ -210,8 +210,8 @@ describeE2E("System-admin account assignment E2E", () => {
             select: { branchId: true, role: true },
         });
         expect(memberships).toEqual([
-            { branchId: BRANCH_A_ID, role: "manager" },
-            { branchId: BRANCH_B_ID, role: "admin" },
+            { branchId: BRANCH_A_ID, role: "user" },
+            { branchId: BRANCH_B_ID, role: "user" },
         ]);
     });
 
