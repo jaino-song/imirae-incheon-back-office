@@ -130,12 +130,16 @@ export class MessageAutomationIntentService {
                 await this.releaseIntent(claim);
                 return false;
             }
-            await this.triggerService.syncEmployeeAssignmentRulesForSchedule(
+            const refreshed = await this.triggerService.syncEmployeeAssignmentRulesForSchedule(
                 params.branchId,
                 params.scheduleId,
                 params.includePast,
                 { preserveExisting: params.replaceExisting !== true },
             );
+            if (refreshed === false) {
+                await this.releaseIntent(claim);
+                return false;
+            }
             if (!(await this.isBranchApproved(params.branchId))) {
                 await this.releaseIntent(claim);
                 return false;

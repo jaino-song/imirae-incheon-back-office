@@ -555,7 +555,7 @@ describe("MessageAutomationIntentService", () => {
     });
 
     it("rebuilds schedule jobs after an update instead of preserving the previous generation", async () => {
-        const { service, triggerService } = setup();
+        const { service, triggerService, prisma, serviceRecordLinkService } = setup();
 
         await expect(service.fulfillScheduleIntent({
             branchId: "branch-1",
@@ -570,6 +570,31 @@ describe("MessageAutomationIntentService", () => {
             true,
             { preserveExisting: false },
         );
+        expect(serviceRecordLinkService.scheduleForServiceStart).toHaveBeenCalledWith(72);
+        expect(prisma.message_trigger_job.deleteMany).toHaveBeenCalledWith(
+            expect.objectContaining({ where: expect.objectContaining({ id: "intent-1" }) }),
+        );
+    });
+
+    it("retains a schedule intent when job generation reports a retryable result", async () => {
+        const { service, prisma, triggerService, serviceRecordLinkService } = setup();
+        triggerService.syncEmployeeAssignmentRulesForSchedule.mockResolvedValue(false);
+
+        await expect(service.fulfillScheduleIntent({
+            branchId: "branch-1",
+            scheduleId: 72,
+            includePast: true,
+            replaceExisting: true,
+        })).resolves.toBe(false);
+
+        expect(prisma.message_trigger_job.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({ id: "intent-1" }),
+                data: { nextAttemptAt: expect.any(Date) },
+            }),
+        );
+        expect(prisma.message_trigger_job.deleteMany).not.toHaveBeenCalled();
+        expect(serviceRecordLinkService.scheduleForServiceStart).not.toHaveBeenCalled();
     });
 
     it("does not generate schedule jobs while sender approval is absent", async () => {
