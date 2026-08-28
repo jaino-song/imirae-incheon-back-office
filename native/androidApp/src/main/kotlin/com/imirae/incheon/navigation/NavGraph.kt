@@ -61,7 +61,9 @@ fun AppNavGraph(
     settingsViewModel: SettingsViewModel,
     adminViewModel: AdminViewModel,
     startDestination: String = Routes.LOGIN,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    shouldNavigateToDashboard: () -> Boolean = { true },
+    onClearPendingNavigation: () -> Unit = {}
 ) {
     NavHost(navController = navController, startDestination = startDestination, modifier = modifier) {
         // Auth
@@ -72,6 +74,7 @@ fun AppNavGraph(
                 onNavigateToForgotPassword = { navController.navigate(Routes.FORGOT_PASSWORD) },
                 onNavigateToVerifyEmail = { navController.navigate(Routes.VERIFY_EMAIL) },
                 onNavigateToDashboard = { navController.navigate(Routes.DASHBOARD) { popUpTo(Routes.LOGIN) { inclusive = true } } },
+                shouldNavigateToDashboard = shouldNavigateToDashboard,
                 onNavigateToSelectBranch = { navController.navigate(Routes.SELECT_BRANCH) }
             )
         }
@@ -97,9 +100,11 @@ fun AppNavGraph(
                 viewModel = authViewModel,
                 onNavigateToDashboard = { navController.navigate(Routes.DASHBOARD) { popUpTo(0) } },
                 onNavigateToLogin = {
+                    onClearPendingNavigation()
                     authViewModel.logout()
                     navController.navigate(Routes.LOGIN) { popUpTo(0) }
-                }
+                },
+                shouldNavigateToDashboard = shouldNavigateToDashboard,
             )
         }
 

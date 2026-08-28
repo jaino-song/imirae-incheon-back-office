@@ -82,8 +82,13 @@ class NotificationNavigationGateTest {
             NotificationNavigationDecision.Login,
             gate.consumePendingNavigation(),
         )
-        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))
+        assertEquals(true, gate.hasPendingNavigation())
         assertNull(gate.consumePendingNavigation())
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))
+        assertEquals(
+            NotificationNavigationDecision.NavigateProtected(protectedIntent),
+            gate.consumePendingNavigation(),
+        )
     }
 
     @Test
@@ -96,6 +101,14 @@ class NotificationNavigationGateTest {
             NotificationNavigationDecision.Login,
             gate.consumePendingNavigation(),
         )
+        assertEquals(true, gate.hasPendingNavigation())
+        gate.onAuthStateChanged(AuthState.Loading)
+        assertEquals(NotificationNavigationDecision.Deferred, gate.consumePendingNavigation())
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))
+        assertEquals(
+            NotificationNavigationDecision.NavigateProtected(protectedIntent),
+            gate.consumePendingNavigation(),
+        )
     }
 
     @Test
@@ -106,6 +119,13 @@ class NotificationNavigationGateTest {
         gate.onAuthStateChanged(AuthState.RequiresBranchSelection)
         assertEquals(
             NotificationNavigationDecision.SelectBranch,
+            gate.consumePendingNavigation(),
+        )
+        assertEquals(true, gate.hasPendingNavigation())
+        assertNull(gate.consumePendingNavigation())
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin", "본점"))
+        assertEquals(
+            NotificationNavigationDecision.NavigateProtected(protectedIntent),
             gate.consumePendingNavigation(),
         )
     }
@@ -204,5 +224,176 @@ class NotificationNavigationGateTest {
             NotificationNavigationDecision.NavigateProtected(NavigationIntent.Dashboard),
             gate.consumePendingNavigation(),
         )
+    }
+
+    @Test
+    fun loggedOutColdTapRetainsRouteAcrossLoginErrorAndRetry() {
+        val gate = NotificationNavigationGate()
+        gate.onAuthStateChanged(AuthState.Unauthenticated)
+
+        assertEquals(
+            NotificationNavigationDecision.Deferred,
+            gate.enqueue(protectedIntent, "cold-logged-out"),
+        )
+        assertEquals(NotificationNavigationDecision.Login, gate.consumePendingNavigation())
+        gate.onAuthStateChanged(AuthState.Loading)
+        assertEquals(NotificationNavigationDecision.Deferred, gate.consumePendingNavigation())
+        gate.onAuthStateChanged(AuthState.Error("일시적인 오류"))
+        assertNull(gate.consumePendingNavigation())
+        assertEquals(true, gate.hasPendingNavigation())
+
+        gate.onAuthStateChanged(AuthState.Loading)
+        assertEquals(NotificationNavigationDecision.Deferred, gate.consumePendingNavigation())
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))
+        assertEquals(
+            NotificationNavigationDecision.NavigateProtected(protectedIntent),
+            gate.consumePendingNavigation(),
+        )
+        assertNull(gate.consumePendingNavigation())
+    }
+
+    @Test
+    fun loggedOutWarmTapUsesLoginThenContinuesToTargetAfterAuthentication() {
+        val gate = NotificationNavigationGate()
+        gate.onAuthStateChanged(AuthState.Unauthenticated)
+
+        gate.enqueue(protectedIntent, "warm-logged-out")
+        assertEquals(NotificationNavigationDecision.Login, gate.consumePendingNavigation())
+        assertNull(gate.consumePendingNavigation())
+
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))
+        assertEquals(
+            NotificationNavigationDecision.NavigateProtected(protectedIntent),
+            gate.consumePendingNavigation(),
+        )
+    }
+
+    @Test
+    fun requiresBranchSelectionRetainsRouteUntilSelectionCompletes() {
+        val gate = NotificationNavigationGate()
+        gate.onAuthStateChanged(AuthState.Loading)
+        gate.enqueue(protectedIntent, "requires-branch")
+
+        gate.onAuthStateChanged(AuthState.RequiresBranchSelection)
+        assertEquals(NotificationNavigationDecision.SelectBranch, gate.consumePendingNavigation())
+        assertNull(gate.consumePendingNavigation())
+        assertEquals(true, gate.hasPendingNavigation())
+
+        gate.onAuthStateChanged(AuthState.Loading)
+        assertEquals(NotificationNavigationDecision.Deferred, gate.consumePendingNavigation())
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "branch-a"))
+        assertEquals(
+            NotificationNavigationDecision.NavigateProtected(protectedIntent),
+            gate.consumePendingNavigation(),
+        )
+    }
+
+    @Test
+    fun authenticatedToLogoutClearsPendingRouteAndDashboardSuppression() {
+        val gate = NotificationNavigationGate()
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))
+        gate.enqueue(protectedIntent, "logout-clear")
+        assertEquals(true, gate.shouldSuppressDefaultDashboardNavigation())
+
+        gate.onAuthStateChanged(AuthState.Unauthenticated)
+
+        assertEquals(false, gate.hasPendingNavigation())
+        assertEquals(false, gate.shouldSuppressDefaultDashboardNavigation())
+        assertNull(gate.consumePendingNavigation())
+    }
+
+    @Test
+    fun authenticatedToErrorClearsPendingRoute() {
+        val gate = NotificationNavigationGate()
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))
+        gate.enqueue(protectedIntent, "error-clear")
+
+        gate.onAuthStateChanged(AuthState.Error("세션이 만료되었습니다"))
+
+        assertEquals(false, gate.hasPendingNavigation())
+        assertNull(gate.consumePendingNavigation())
+    }
+
+    @Test
+    fun branchSelectionLogoutClearsPendingRouteBeforeAnotherLogin() {
+        val gate = NotificationNavigationGate()
+        gate.onAuthStateChanged(AuthState.RequiresBranchSelection)
+        gate.enqueue(protectedIntent, "branch-logout-clear")
+
+        gate.onAuthStateChanged(AuthState.Unauthenticated)
+
+        assertEquals(false, gate.hasPendingNavigation())
+        gate.onAuthStateChanged(AuthState.Authenticated("user-2", "admin"))
+        assertNull(gate.consumePendingNavigation())
+    }
+
+    @Test
+    fun accountReplacementClearsRouteBoundToPreviousPrincipal() {
+        val gate = NotificationNavigationGate()
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))
+        gate.enqueue(protectedIntent, "account-replacement")
+        assertEquals(true, gate.hasPendingNavigation())
+
+        gate.onAuthStateChanged(AuthState.Authenticated("user-2", "admin"))
+
+        assertEquals(false, gate.hasPendingNavigation())
+        assertNull(gate.consumePendingNavigation())
+    }
+
+    @Test
+    fun invalidDeliveryClearsAnyPreviouslyQueuedRoute() {
+        val gate = NotificationNavigationGate()
+        gate.enqueue(protectedIntent, "valid-before-invalid")
+
+        assertEquals(
+            NotificationNavigationDecision.Rejected,
+            gate.enqueue(NavigationIntent.Unknown, "invalid-delivery"),
+        )
+        assertEquals(false, gate.hasPendingNavigation())
+        assertNull(gate.consumePendingNavigation())
+    }
+
+    @Test
+    fun lifecycleClearDropsStaleRouteButKeepsDeliveryLedgerBounded() {
+        val gate = NotificationNavigationGate(maxDeliveredKeys = 2)
+        gate.enqueue(protectedIntent, "lifecycle-route")
+        assertEquals(true, gate.hasPendingNavigation())
+
+        gate.clearPendingNavigation()
+
+        assertEquals(false, gate.hasPendingNavigation())
+        assertEquals(
+            NotificationNavigationDecision.Duplicate,
+            gate.enqueue(NavigationIntent.Settings, "lifecycle-route"),
+        )
+    }
+
+    @Test
+    fun noPendingRouteLeavesOrdinaryDashboardFallbackEnabled() {
+        val gate = NotificationNavigationGate()
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))
+
+        assertEquals(false, gate.shouldSuppressDefaultDashboardNavigation())
+        assertNull(gate.consumePendingNavigation())
+    }
+
+    @Test
+    fun duplicateDeliveryIdCanNavigateOnlyOnce() {
+        val gate = NotificationNavigationGate()
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))
+
+        assertEquals(
+            NotificationNavigationDecision.Deferred,
+            gate.enqueue(protectedIntent, "single-navigation"),
+        )
+        assertEquals(
+            NotificationNavigationDecision.NavigateProtected(protectedIntent),
+            gate.consumePendingNavigation(),
+        )
+        assertEquals(
+            NotificationNavigationDecision.Duplicate,
+            gate.enqueue(protectedIntent, "single-navigation"),
+        )
+        assertNull(gate.consumePendingNavigation())
     }
 }

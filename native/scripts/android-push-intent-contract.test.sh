@@ -6,12 +6,15 @@ NATIVE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FCM_SERVICE="$NATIVE_ROOT/androidApp/src/main/kotlin/com/imirae/incheon/notification/FCMService.kt"
 NAVIGATION="$NATIVE_ROOT/androidApp/src/main/kotlin/com/imirae/incheon/navigation/NotificationNavigation.kt"
 MAIN_ACTIVITY="$NATIVE_ROOT/androidApp/src/main/kotlin/com/imirae/incheon/MainActivity.kt"
+NAV_GRAPH="$NATIVE_ROOT/androidApp/src/main/kotlin/com/imirae/incheon/navigation/NavGraph.kt"
+LOGIN_SCREEN="$NATIVE_ROOT/androidApp/src/main/kotlin/com/imirae/incheon/ui/auth/LoginScreen.kt"
+SELECT_BRANCH_SCREEN="$NATIVE_ROOT/androidApp/src/main/kotlin/com/imirae/incheon/ui/auth/SelectBranchScreen.kt"
 AUTH_VIEW_MODEL="$NATIVE_ROOT/shared/src/commonMain/kotlin/com/imirae/incheon/viewmodel/AuthViewModel.kt"
 AUTH_GATE="$NATIVE_ROOT/shared/src/commonMain/kotlin/com/imirae/incheon/notification/NotificationNavigationGate.kt"
 DELIVERY_IDENTITY="$NATIVE_ROOT/shared/src/commonMain/kotlin/com/imirae/incheon/notification/NotificationDeliveryIdentity.kt"
 NOTIFICATION_MANAGER="$NATIVE_ROOT/shared/src/commonMain/kotlin/com/imirae/incheon/notification/NotificationManager.kt"
 
-for source in "$FCM_SERVICE" "$NAVIGATION" "$MAIN_ACTIVITY" "$AUTH_VIEW_MODEL" "$AUTH_GATE" "$DELIVERY_IDENTITY" "$NOTIFICATION_MANAGER"; do
+for source in "$FCM_SERVICE" "$NAVIGATION" "$MAIN_ACTIVITY" "$NAV_GRAPH" "$LOGIN_SCREEN" "$SELECT_BRANCH_SCREEN" "$AUTH_VIEW_MODEL" "$AUTH_GATE" "$DELIVERY_IDENTITY" "$NOTIFICATION_MANAGER"; do
     if [[ ! -f "$source" ]]; then
         echo "Android push intent contract failure: missing source file $source" >&2
         exit 2
@@ -111,6 +114,26 @@ require_text "$MAIN_ACTIVITY" "authViewModel.authState.collectAsState()" \
     "activity does not observe the shared auth state before consuming routes"
 require_text "$MAIN_ACTIVITY" "navigationGate.onAuthStateChanged(authState)" \
     "auth-state transitions do not release or refuse pending routes"
+require_text "$MAIN_ACTIVITY" "navigationGate.clearPendingNavigation()" \
+    "invalid deliveries and activity teardown do not clear stale pending routes"
+require_text "$MAIN_ACTIVITY" "if (intent == null) {" \
+    "a missing activity intent does not fail closed"
+require_text "$MAIN_ACTIVITY" "shouldSuppressDefaultDashboardNavigation()" \
+    "auth screens are not coordinated with protected-route continuation"
+require_text "$NAV_GRAPH" "shouldNavigateToDashboard: () -> Boolean" \
+    "the navigation graph does not expose dashboard fallback coordination"
+require_text "$NAV_GRAPH" "onClearPendingNavigation: () -> Unit" \
+    "branch-selection logout cannot explicitly clear a pending route"
+require_text "$NAV_GRAPH" "onClearPendingNavigation()" \
+    "branch-selection logout does not clear its pending route before sign-out"
+require_text "$LOGIN_SCREEN" "shouldNavigateToDashboard: () -> Boolean" \
+    "login does not accept the protected-route dashboard suppression decision"
+require_text "$LOGIN_SCREEN" "if (shouldNavigateToDashboard())" \
+    "login can race notification continuation with dashboard navigation"
+require_text "$SELECT_BRANCH_SCREEN" "shouldNavigateToDashboard: () -> Boolean" \
+    "branch selection does not accept the protected-route dashboard suppression decision"
+require_text "$SELECT_BRANCH_SCREEN" "authState is AuthState.Authenticated && shouldNavigateToDashboard()" \
+    "branch selection can race notification continuation with dashboard navigation"
 require_text "$AUTH_GATE" "AuthState.Initial" \
     "initial/restoring auth state is not deferred"
 require_text "$AUTH_GATE" "AuthState.RequiresBranchSelection" \
@@ -119,6 +142,20 @@ require_text "$AUTH_GATE" "NotificationNavigationDecision.Login" \
     "unauthenticated routes do not fall back to login"
 require_text "$AUTH_GATE" "NotificationNavigationDecision.NavigateProtected(intent)" \
     "authenticated routes do not release through the auth-aware gate"
+require_text "$AUTH_GATE" "pendingFallback == FallbackDestination.Login" \
+    "login fallback consumes the protected route instead of retaining it"
+require_text "$AUTH_GATE" "pendingFallback == FallbackDestination.SelectBranch" \
+    "branch-selection fallback consumes the protected route instead of retaining it"
+require_text "$AUTH_GATE" "pendingPrincipalId" \
+    "pending routes are not tied to the authenticated principal"
+require_text "$AUTH_GATE" "replacedAuthenticatedPrincipal" \
+    "account replacement does not clear stale pending routes"
+require_text "$AUTH_GATE" "abandonedBranchSelection" \
+    "branch-selection logout does not clear stale pending routes"
+require_text "$AUTH_GATE" "shouldSuppressDefaultDashboardNavigation" \
+    "the gate does not coordinate ordinary dashboard fallback"
+require_text "$AUTH_GATE" "fun clearPendingNavigation()" \
+    "lifecycle and invalid-delivery cleanup is not available"
 
 # Blank links must not be interpreted as the router's empty-path dashboard route.
 require_text "$NOTIFICATION_MANAGER" ".firstOrNull { !it.isNullOrEmpty() }" \

@@ -27,7 +27,8 @@ fun SelectBranchScreen(
     viewModel: AuthViewModel,
     onNavigateToDashboard: () -> Unit,
     onNavigateToLogin: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    shouldNavigateToDashboard: () -> Boolean = { true }
 ) {
     val authState by viewModel.authState.collectAsState()
     val branchesState by viewModel.branchesState.collectAsState()
@@ -37,7 +38,7 @@ fun SelectBranchScreen(
     }
 
     LaunchedEffect(authState) {
-        if (authState is AuthState.Authenticated) {
+        if (authState is AuthState.Authenticated && shouldNavigateToDashboard()) {
             onNavigateToDashboard()
         }
     }

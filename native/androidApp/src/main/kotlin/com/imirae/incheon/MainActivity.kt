@@ -48,7 +48,13 @@ class MainActivity : ComponentActivity() {
                     chatViewModel = get(),
                     fileListViewModel = get(),
                     settingsViewModel = get(),
-                    adminViewModel = get()
+                    adminViewModel = get(),
+                    shouldNavigateToDashboard = {
+                        !this@MainActivity.navigationGate.shouldSuppressDefaultDashboardNavigation()
+                    },
+                    onClearPendingNavigation = {
+                        this@MainActivity.navigationGate.clearPendingNavigation()
+                    },
                 )
                 LaunchedEffect(rememberedNavController) {
                     this@MainActivity.navController = rememberedNavController
@@ -69,10 +75,22 @@ class MainActivity : ComponentActivity() {
         enqueueNotificationIntent(intent)
     }
 
-    private fun enqueueNotificationIntent(intent: Intent?) {
-        if (intent == null) return
+    override fun onDestroy() {
+        navigationGate.clearPendingNavigation()
+        navController = null
+        super.onDestroy()
+    }
 
-        val parsedNavigation = NotificationNavigation.parse(intent, deepLinkRouter) ?: return
+    private fun enqueueNotificationIntent(intent: Intent?) {
+        if (intent == null) {
+            navigationGate.clearPendingNavigation()
+            return
+        }
+
+        val parsedNavigation = NotificationNavigation.parse(intent, deepLinkRouter) ?: run {
+            navigationGate.clearPendingNavigation()
+            return
+        }
         navigationGate.enqueue(parsedNavigation.intent, parsedNavigation.deliveryKey)
         flushPendingNavigation()
     }
@@ -83,7 +101,10 @@ class MainActivity : ComponentActivity() {
 
         when (decision) {
             is NotificationNavigationDecision.NavigateProtected -> {
-                val route = NotificationNavigation.routeFor(decision.intent) ?: return
+                val route = NotificationNavigation.routeFor(decision.intent) ?: run {
+                    navigationGate.clearPendingNavigation()
+                    return
+                }
                 controller.navigate(route) {
                     // A repeated PendingIntent must not add another copy of
                     // the same destination to the back stack.
