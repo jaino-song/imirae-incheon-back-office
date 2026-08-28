@@ -39,7 +39,16 @@ function makePrismaMock() {
                     && (where.expectedPhoneHash === undefined || r.expectedPhoneHash === where.expectedPhoneHash)
                     && (where.active === undefined || r.active === where.active)
                     && (where.revokedAt === undefined || r.revokedAt === where.revokedAt)
-                    && (where.lockedAt === undefined || r.lockedAt === where.lockedAt)
+                    && (
+                        where.lockedAt === undefined
+                        || (where.lockedAt && typeof where.lockedAt === "object" && "not" in where.lockedAt
+                            ? (where.lockedAt.not === null ? r.lockedAt !== null : r.lockedAt !== where.lockedAt.not)
+                            : r.lockedAt === where.lockedAt)
+                    )
+                    && (!where.OR || where.OR.some((clause: any) => (
+                        (clause.scheduleId !== undefined && r.scheduleId === clause.scheduleId)
+                        || (clause.serviceRecordCaseId !== undefined && r.serviceRecordCaseId === clause.serviceRecordCaseId)
+                    )))
                 )) ?? null;
             }),
             update: jest.fn(async ({ where, data }: any) => {
@@ -60,6 +69,11 @@ function makePrismaMock() {
                     const employeeMatches = where.employeeId === undefined || r.employeeId === where.employeeId;
                     const phoneMatches = where.expectedPhoneHash === undefined || r.expectedPhoneHash === where.expectedPhoneHash;
                     const revokedMatches = where.revokedAt === undefined || r.revokedAt === where.revokedAt;
+                    const lockedAtMatches = where.lockedAt === undefined
+                        ? true
+                        : where.lockedAt && typeof where.lockedAt === "object" && "not" in where.lockedAt
+                            ? (where.lockedAt.not === null ? r.lockedAt !== null : r.lockedAt !== where.lockedAt.not)
+                            : r.lockedAt === where.lockedAt;
                     const orMatches = !where.OR || where.OR.some((clause: any) => (
                         (clause.scheduleId !== undefined && r.scheduleId === clause.scheduleId)
                         || (clause.serviceRecordCaseId !== undefined && r.serviceRecordCaseId === clause.serviceRecordCaseId)
@@ -71,6 +85,7 @@ function makePrismaMock() {
                         && employeeMatches
                         && phoneMatches
                         && revokedMatches
+                        && lockedAtMatches
                         && orMatches
                         && (where.active === undefined || r.active === where.active)
                     ) {
@@ -523,5 +538,69 @@ describe("ServiceRecordTokenService", () => {
             expiresAt: future(),
         })).resolves.toBe(false);
         expect(await svc.resolveLink(prepared.linkToken)).toBeNull();
+    });
+
+    it("does not activate a token prepared before lockout after the active challenge is locked", async () => {
+        const { prisma, svc } = setup();
+        const previous = await svc.issueLink({
+            branchId: "b1", scheduleId: 10, employeeId: 7, expectedPhone: "010-1111-2222", expiresAt: future(),
+        });
+        const prepared = await svc.prepareLink({
+            branchId: "b1", scheduleId: 10, employeeId: 7, expectedPhone: "010-1111-2222", expiresAt: future(),
+        });
+
+        for (let i = 0; i < 5; i++) {
+            await svc.verifyPhoneAndMintAccess(previous.linkToken, "01000000000");
+        }
+
+        expect(prisma.__rows[0]).toMatchObject({ active: true, lockedAt: expect.any(Date) });
+        await expect(svc.activatePreparedLink({
+            linkToken: prepared.linkToken,
+            branchId: "b1",
+            scheduleId: 10,
+            employeeId: 7,
+            expectedPhone: "01011112222",
+            expiresAt: future(),
+        })).resolves.toBe(false);
+
+        expect(prisma.__rows[0]).toMatchObject({ active: true, lockedAt: expect.any(Date) });
+        expect(prisma.__rows[1]).toMatchObject({ active: false, lockedAt: null });
+        expect(await svc.resolveLink(prepared.linkToken)).toBeNull();
+    });
+
+    it("locks active assignment rows before prepared-link revocation and activation", async () => {
+        const { prisma, svc } = setup();
+        const previous = await svc.issueLink({
+            branchId: "b1", scheduleId: 10, employeeId: 7, expectedPhone: "010-1111-2222", expiresAt: future(),
+        });
+        const prepared = await svc.prepareLink({
+            branchId: "b1", scheduleId: 10, employeeId: 7, expectedPhone: "010-1111-2222", expiresAt: future(),
+        });
+        const order: string[] = [];
+        const queryRaw = jest.fn(async (query: { sql?: string }) => {
+            order.push(query.sql ?? "");
+            return [{ lockedAt: null }];
+        });
+        (prisma as any).$queryRaw = queryRaw;
+        const revoke = prisma.service_record_token.updateMany;
+        prisma.service_record_token.updateMany = jest.fn(async (args: any) => {
+            order.push("revoke");
+            return revoke(args);
+        });
+
+        await expect(svc.activatePreparedLink({
+            linkToken: prepared.linkToken,
+            branchId: "b1",
+            scheduleId: 10,
+            employeeId: 7,
+            expectedPhone: "01011112222",
+            expiresAt: future(),
+        })).resolves.toBe(true);
+
+        expect(queryRaw).toHaveBeenCalledTimes(1);
+        expect(order[0]).toContain("FOR UPDATE");
+        expect(order[1]).toBe("revoke");
+        expect(await svc.resolveLink(previous.linkToken)).toBeNull();
+        expect(await svc.resolveLink(prepared.linkToken)).toMatchObject({ active: true });
     });
 });

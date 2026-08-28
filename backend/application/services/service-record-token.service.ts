@@ -172,6 +172,17 @@ export class ServiceRecordTokenService {
                 return false;
             }
 
+            // A prepared token may have been created before the currently active
+            // challenge exhausted its budget. Do not let a later send activate that
+            // token and silently replace the locked record; only the explicit
+            // owner/admin reset path may clear a lock and issue a replacement.
+            const activeRows = await this.lockActiveRowsForAssignment(tx, {
+                branchId: params.branchId,
+                scheduleId: params.scheduleId,
+                serviceRecordCaseId: record.serviceRecordCaseId,
+            });
+            if (activeRows.some((row) => row.lockedAt !== null)) return false;
+
             if (!record.active) {
                 await tx.service_record_token.updateMany({
                     where: {
@@ -245,6 +256,57 @@ export class ServiceRecordTokenService {
         return row
             ? tx.service_record_token.findUnique({ where: { id: row.id } })
             : null;
+    }
+
+    /**
+     * Lock every currently active token for an assignment before checking lockout
+     * state. This gives activation the same serialization boundary as the phone
+     * challenge: if the fifth failed guess wins the row lock first, activation
+     * waits and observes the committed lock; if activation wins first, the failed
+     * guess observes the revoked row and cannot mint through it.
+     *
+     * The fallback keeps lightweight test doubles compatible; production Prisma
+     * always exposes `$queryRaw` on its transaction client.
+     */
+    private async lockActiveRowsForAssignment(
+        tx: Prisma.TransactionClient,
+        params: Pick<ServiceRecordLinkTokenParams, "branchId" | "scheduleId" | "serviceRecordCaseId">,
+    ): Promise<Array<{ lockedAt: Date | null }>> {
+        const transaction = tx as Prisma.TransactionClient & {
+            $queryRaw?: <T>(query: Prisma.Sql) => Promise<T>;
+        };
+        if (typeof transaction.$queryRaw !== "function") {
+            const locked = await tx.service_record_token.findFirst({
+                where: {
+                    branchId: params.branchId,
+                    active: true,
+                    revokedAt: null,
+                    lockedAt: { not: null },
+                    OR: [
+                        { scheduleId: params.scheduleId },
+                        ...(params.serviceRecordCaseId
+                            ? [{ serviceRecordCaseId: params.serviceRecordCaseId }]
+                            : []),
+                    ],
+                },
+                select: { lockedAt: true },
+            });
+            return locked ? [{ lockedAt: locked.lockedAt }] : [];
+        }
+
+        const serviceRecordCaseId = params.serviceRecordCaseId ?? null;
+        return transaction.$queryRaw<Array<{ lockedAt: Date | null }>>(Prisma.sql`
+            SELECT "locked_at" AS "lockedAt"
+            FROM "service_record_token"
+            WHERE "branch_id" = ${params.branchId}::uuid
+              AND (
+                  "schedule_id" = ${params.scheduleId}
+                  OR "service_record_case_id" = ${serviceRecordCaseId}::uuid
+              )
+              AND "active" = TRUE
+              AND "revoked_at" IS NULL
+            FOR UPDATE
+        `);
     }
 
     private unavailable(reason: "invalid_token" | "expired" | "locked"): VerifyPhoneResult {
