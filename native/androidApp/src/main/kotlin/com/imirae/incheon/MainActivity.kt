@@ -15,9 +15,11 @@ import com.imirae.incheon.notification.NotificationNavigationGate
 import com.imirae.incheon.deeplink.DeepLinkRouter
 import com.imirae.incheon.navigation.AppNavGraph
 import com.imirae.incheon.navigation.NotificationNavigation
+import com.imirae.incheon.navigation.Routes
 import com.imirae.incheon.ui.theme.ImiRaeTheme
 import com.imirae.incheon.viewmodel.*
 import org.koin.android.ext.android.inject
+import org.koin.android.ext.android.get
 
 class MainActivity : ComponentActivity() {
     private val deepLinkRouter: DeepLinkRouter by inject()
