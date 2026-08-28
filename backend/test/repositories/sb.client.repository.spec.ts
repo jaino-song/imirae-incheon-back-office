@@ -68,6 +68,7 @@ describe("SbClientRepository", () => {
     const branchId = "org-1";
 
     let clientModel: ReturnType<typeof createMockPrismaClient>;
+    let transactionQueryRaw: jest.Mock;
     let prisma: PrismaService;
     let repository: SbClientRepository;
 
@@ -78,9 +79,14 @@ describe("SbClientRepository", () => {
         // answer and silently pass/fail for the wrong reason.
         clearSchemaCapabilityCache();
         clientModel = createMockPrismaClient();
+        transactionQueryRaw = jest.fn()
+            .mockResolvedValueOnce([{ id: 1 }])
+            .mockResolvedValue([{ count: 0 }]);
         prisma = {
             client: clientModel,
             $queryRawUnsafe: jest.fn().mockResolvedValue([{ exists: true }]),
+            $transaction: jest.fn(async (callback: (transaction: unknown) => Promise<unknown>) =>
+                callback({ client: clientModel, $queryRaw: transactionQueryRaw })),
         } as unknown as PrismaService;
         repository = new SbClientRepository(prisma);
     });

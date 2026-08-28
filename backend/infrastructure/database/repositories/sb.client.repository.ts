@@ -18,6 +18,12 @@ import {
     isAutomaticServiceStatusTransitionAllowed,
     ServiceStatusType,
 } from "domain/value-objects/service-status.vo";
+import {
+    CLIENT_RETENTION_BLOCKED,
+    CLIENT_RETENTION_BLOCKED_MESSAGE,
+    RetentionDeleteBlockedError,
+    ScopedDeleteNotFoundError,
+} from "domain/errors/retention-delete-blocked.error";
 import type { Prisma } from "@prisma/client";
 
 @Injectable()
@@ -311,15 +317,73 @@ export class SbClientRepository implements IClientRepository {
     }
 
     async delete(branchid: string, id: number): Promise<void> {
-        // service_record_case.clientId and eformsign_doc.clientId are SetNull.
-        // Deleting only the tenant-scoped client preserves completed electronic
-        // documents and their snapshot data while removing live client data.
-        const result = await this.prismaService.client.deleteMany({
-            where: { id, branchId: branchid },
+        await this.prismaService.$transaction(async (transaction) => {
+            // The lock is the linearization point for this destructive action.
+            // Every dependency check and the delete itself must use this same
+            // transaction so a concurrent child insert cannot race the guard.
+            const lockedRows = await transaction.$queryRaw<Array<{ id: number }>>`
+                SELECT "id"
+                FROM "client"
+                WHERE "id" = ${id} AND "branch_id" = ${branchid}::uuid
+                FOR UPDATE
+            `;
+            if (lockedRows.length === 0) {
+                throw new ScopedDeleteNotFoundError("client", id);
+            }
+
+            const dependencyRows = await transaction.$queryRaw<Array<{ count: number }>>`
+                SELECT COUNT(*)::int AS "count"
+                FROM (
+                    SELECT 1 FROM "employee_schedule"
+                    WHERE "client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "service_record_case"
+                    WHERE "client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "eformsign_doc"
+                    WHERE "client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "eformsign_doc"
+                    WHERE "document_id" = (
+                        SELECT "e_doc_id"
+                        FROM "client"
+                        WHERE "id" = ${id} AND "branch_id" = ${branchid}::uuid
+                    )
+                    UNION ALL
+                    SELECT 1 FROM "eformsign_document_job"
+                    WHERE "client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "call_record"
+                    WHERE "matched_client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "client_draft"
+                    WHERE "client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "schedule_change_request"
+                    WHERE "client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "message_trigger_job"
+                    WHERE "client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "message_log"
+                    WHERE "client_id" = ${id}
+                ) AS "dependencies"
+            `;
+
+            if (Number(dependencyRows[0]?.count ?? 0) > 0) {
+                throw new RetentionDeleteBlockedError(
+                    CLIENT_RETENTION_BLOCKED,
+                    CLIENT_RETENTION_BLOCKED_MESSAGE,
+                );
+            }
+
+            const result = await transaction.client.deleteMany({
+                where: { id, branchId: branchid },
+            });
+            if (result.count !== 1) {
+                throw new ScopedDeleteNotFoundError("client", id);
+            }
         });
-        if (result.count === 0) {
-            throw new Error("Client not found for branch");
-        }
     }
 
     async findByStartDate(branchid: string, date: Date): Promise<ClientEntity[]> {

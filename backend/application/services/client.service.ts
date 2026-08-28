@@ -1918,8 +1918,12 @@ export class ClientService {
     }
 
     async delete(branchid: string, id: number): Promise<void> {
-        await this.triggerService?.cancelPendingJobsForClientDeletion(branchid, id);
         await this.deleteClientUsecase.execute(branchid, id);
+        // The delete use case holds the client row lock and rejects any
+        // retained message-trigger job before the physical delete. Keep this
+        // legacy cleanup hook after a successful delete so a blocked request
+        // cannot partially mutate pending jobs.
+        await this.triggerService?.cancelPendingJobsForClientDeletion(branchid, id);
     }
 
     async getStats(branchid: string): Promise<{

@@ -3,6 +3,12 @@ import { EmployeeScheduleEntity } from "domain/entities/employee-schedule.entity
 import { IEmployeeScheduleRepository } from "domain/repositories/employee-schedule.repository.interface";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { EmployeeScheduleMapper } from "infrastructure/database/mapper/employee-schedule.mapper";
+import {
+    RetentionDeleteBlockedError,
+    SCHEDULE_RETENTION_BLOCKED,
+    SCHEDULE_RETENTION_BLOCKED_MESSAGE,
+    ScopedDeleteNotFoundError,
+} from "domain/errors/retention-delete-blocked.error";
 import type { Prisma } from "@prisma/client";
 
 @Injectable()
@@ -92,11 +98,62 @@ export class SbEmployeeScheduleRepository implements IEmployeeScheduleRepository
     }
 
     async delete(branchid: string, id: number): Promise<void> {
-        const result = await this.prismaService.employee_schedule.deleteMany({
-            where: { id, branchId: branchid },
+        await this.prismaService.$transaction(async (transaction) => {
+            // Hold the branch-scoped schedule row while checking and deleting
+            // so child inserts that honour the FK cannot race this guard.
+            const lockedRows = await transaction.$queryRaw<Array<{ id: number }>>`
+                SELECT "id"
+                FROM "employee_schedule"
+                WHERE "id" = ${id} AND "branch_id" = ${branchid}::uuid
+                FOR UPDATE
+            `;
+            if (lockedRows.length === 0) {
+                throw new ScopedDeleteNotFoundError("schedule", id);
+            }
+
+            const dependencyRows = await transaction.$queryRaw<Array<{ count: number }>>`
+                SELECT COUNT(*)::int AS "count"
+                FROM (
+                    SELECT 1 FROM "employee_schedule"
+                    WHERE "id" = ${id}
+                      AND "start_date" <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
+                    UNION ALL
+                    SELECT 1 FROM "service_record"
+                    WHERE "schedule_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "service_record_day"
+                    WHERE "schedule_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "service_record_token"
+                    WHERE "schedule_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "service_record_assignment"
+                    WHERE "schedule_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "schedule_change_request"
+                    WHERE "schedule_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "eformsign_doc"
+                    WHERE "employee_schedule_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "message_trigger_job"
+                    WHERE "employee_schedule_id" = ${id}
+                ) AS "dependencies"
+            `;
+
+            if (Number(dependencyRows[0]?.count ?? 0) > 0) {
+                throw new RetentionDeleteBlockedError(
+                    SCHEDULE_RETENTION_BLOCKED,
+                    SCHEDULE_RETENTION_BLOCKED_MESSAGE,
+                );
+            }
+
+            const result = await transaction.employee_schedule.deleteMany({
+                where: { id, branchId: branchid },
+            });
+            if (result.count !== 1) {
+                throw new ScopedDeleteNotFoundError("schedule", id);
+            }
         });
-        if (result.count === 0) {
-            throw new Error("Employee schedule not found for branch");
-        }
     }
 }

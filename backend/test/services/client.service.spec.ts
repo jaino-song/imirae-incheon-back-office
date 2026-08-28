@@ -2802,7 +2802,7 @@ describe("ClientService", () => {
     // delete
     // ============================================
     describe("delete", () => {
-        it("should cancel pending message jobs before deleting the client", async () => {
+        it("should only run legacy pending-job cleanup after a successful guarded delete", async () => {
             // Arrange
             deleteClientUsecase.execute.mockResolvedValue(undefined);
 
@@ -2814,7 +2814,16 @@ describe("ClientService", () => {
             expect(deleteClientUsecase.execute).toHaveBeenCalledWith(branchId, 1);
             expect(
                 triggerService.cancelPendingJobsForClientDeletion.mock.invocationCallOrder[0],
-            ).toBeLessThan(deleteClientUsecase.execute.mock.invocationCallOrder[0] ?? 0);
+            ).toBeGreaterThan(deleteClientUsecase.execute.mock.invocationCallOrder[0] ?? 0);
+        });
+
+        it("must not cancel pending jobs when the guarded delete is rejected", async () => {
+            const blocked = new Error("CLIENT_RETENTION_BLOCKED");
+            deleteClientUsecase.execute.mockRejectedValue(blocked);
+
+            await expect(service.delete(branchId, 1)).rejects.toBe(blocked);
+
+            expect(triggerService.cancelPendingJobsForClientDeletion).not.toHaveBeenCalled();
         });
     });
 
