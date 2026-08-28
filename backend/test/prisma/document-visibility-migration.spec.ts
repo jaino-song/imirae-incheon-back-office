@@ -25,11 +25,19 @@ describe("document visibility migration", () => {
     });
 
     it("enforces one storage object owner and a closed visibility vocabulary", () => {
+        const normalizedMigration = migration.replace(/\s+/g, " ").trim();
+
+        expect(normalizedMigration).toContain(
+            'CREATE UNIQUE INDEX IF NOT EXISTS "document_storage_path_key" ON "document"("storage_path");',
+        );
         expect(migration).toContain(
-            'CREATE UNIQUE INDEX "document_storage_path_key" ON "document"("storage_path")',
+            "document_storage_path_key definition drifted",
         );
         expect(migration).toContain(
             'CHECK ("visibility_scope" IN (\'branch\', \'all_branches\'))',
+        );
+        expect(migration).toContain(
+            "document_visibility_scope_check definition drifted",
         );
     });
 });
