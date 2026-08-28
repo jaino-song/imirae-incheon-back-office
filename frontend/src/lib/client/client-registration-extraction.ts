@@ -22,7 +22,7 @@ const REGISTRATION_COMMANDS = /산모\s*등록|고객\s*등록|등록해줘|추�
 const DATE_TOKEN_PATTERN = /(?<!\d)(?:(?:19|20)\d{2}(?:(?:[-./]\s*\d{1,2}\s*[-./]\s*\d{1,2}일?)|(?:년\s*\d{1,2}월\s*\d{1,2}일?)|(?:\s+\d{1,2}\s+\d{1,2}일?)|\d{4})|\d{2}(?:(?:[-./]\s*\d{1,2}\s*[-./]\s*\d{1,2}일?)|(?:년\s*\d{1,2}월\s*\d{1,2}일?)|(?:\s+\d{1,2}\s+\d{1,2}일?))|\d{6}일?)(?![\dA-Za-z]|[-./](?=[\dA-Za-z가-힣]))/g;
 const ISO_DATE_PARTS_PATTERN = /^((?:19|20)\d{2})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2})(?:일)?$/;
 const SHORT_DATE_PARTS_PATTERN = /^(\d{2})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2})(?:일)?$/;
-const DATE_KOREAN_ENDING_PATTERN = /^(?:이고요?|이며요?|이에요|예요|입니다|이야|야|인데요?|이구요?)(?=$|[\s,.;:!?])/;
+const DATE_KOREAN_ENDING_PATTERN = /^(?:으로|로|이고요?|이며요?|이에요|예요|입니다|이야|야|인데요?|이구요?)(?=$|[\s,.;:!?])/;
 
 const DUE_DATE_LABEL_PATTERN = /(?:출산\s*(?:예정\s*(?:일자?|날짜)|날짜|일자?)|분만\s*(?:예정\s*(?:일자?|날짜)|날짜|일자?))/;
 const BIRTHDAY_LABEL_PATTERN = /(?:생년월일자?|생일|태어난\s*(?:날짜|날)?)/;
@@ -111,6 +111,7 @@ const PROVIDER_PARTICLE_SUFFIXES = [
 ] as const;
 const PROVIDER_AMBIGUOUS_PARTICLE_SUFFIXES = ["와", "과", "랑", "이랑"] as const;
 const PROVIDER_STRONG_PARTICLE_SUFFIXES = ["에게", "이랑", "한테", "께", "로부터", "으로부터"] as const;
+const PROVIDER_CONNECTIVE_SUFFIXES = ["고"] as const;
 const PROVIDER_FIXED_SUFFIXES = PROVIDER_SUFFIXES.filter(
     (suffix) => !(PROVIDER_PARTICLE_SUFFIXES as readonly string[]).includes(suffix),
 ).sort((left, right) => right.length - left.length);
@@ -228,7 +229,10 @@ function collectDateTokens(message: string): DateToken[] {
 
 function extractLabeledDateValue(
     fieldText: string,
-    options?: { allowBirthdayCalendarQualifier?: boolean },
+    options?: {
+        allowBirthdayCalendarQualifier?: boolean;
+        hasFollowingFieldLabel?: boolean;
+    },
 ): string | undefined {
     let afterLabel = fieldText.replace(LABEL_VALUE_PREFIX, "");
 
@@ -250,6 +254,16 @@ function extractLabeledDateValue(
     // allowed particle/separator prefix). A later unrelated date is never a
     // substitute for an absent or invalid labeled value.
     if (!candidate || !afterLabel.startsWith(candidate.raw)) return undefined;
+
+    // A field slice can end immediately before the next Korean label. Do not
+    // let that artificial end-of-string turn an unbounded date continuation
+    // (or a date directly glued to the next label) into a valid value.
+    if (
+        options?.hasFollowingFieldLabel
+        && /[가-힣]$/.test(afterLabel)
+    ) {
+        return undefined;
+    }
 
     return normalizeDateCandidate(candidate.raw);
 }
@@ -285,7 +299,10 @@ function extractLabeledDate(
         const nextFieldLabel = dateFieldLabels.find(({ index }) => index > occurrence.index);
         const fieldEnd = nextFieldLabel?.index ?? message.length;
         const fieldText = message.slice(occurrence.index + occurrence.length, fieldEnd);
-        const value = extractLabeledDateValue(fieldText, options);
+        const value = extractLabeledDateValue(fieldText, {
+            ...options,
+            hasFollowingFieldLabel: Boolean(nextFieldLabel),
+        });
         if (value) return { found: true, value };
     }
 
@@ -344,6 +361,17 @@ function consumeProviderSuffix(remainder: string, suffix: string): string | unde
 
 function hasProviderFollowingContext(tail: string): boolean {
     return /^\s*[가-힣]/.test(tail);
+}
+
+function hasProviderConnectiveContext(tail: string): boolean {
+    // A comma/semicolon followed by Korean text is an explicit clause boundary
+    // ("김영희고, 주소는 ..."). Without that boundary, only a recognized
+    // next-field label is strong enough to distinguish connective 고 from a
+    // legitimate provider name that happens to end in 고 ("김민고").
+    if (/^\s*[,，;]\s*[가-힣]/.test(tail)) return true;
+
+    const nextField = tail.match(/^\s+([가-힣]+)/)?.[1];
+    return nextField ? isProviderNonNameField(nextField) : false;
 }
 
 function hasProviderValueSeparator(value: string): boolean {
@@ -408,6 +436,23 @@ function extractEmployeeNameFromProviderTail(afterLabel: string): string | undef
         : undefined;
     if (ambiguousShortCopularTail !== undefined) {
         return hasExplicitValueSeparator ? ambiguousShortCopularName : undefined;
+    }
+
+    // The connective 고 is only a suffix when a clear clause or next-field
+    // context follows it. Keeping a bare token such as 김민고 intact avoids
+    // truncating a real provider name whose final syllable is 고.
+    for (const suffix of PROVIDER_CONNECTIVE_SUFFIXES) {
+        for (let length = Math.min(4, token.length - suffix.length); length >= 2; length -= 1) {
+            const candidate = token.slice(0, length);
+            if (!/^[가-힣]+$/.test(candidate)) continue;
+
+            const remainder = afterLabel.slice(length);
+            if (!remainder.startsWith(suffix)) continue;
+
+            if (hasProviderConnectiveContext(remainder.slice(suffix.length))) {
+                return candidate;
+            }
+        }
     }
 
     // Copular endings and honorifics are unambiguous even when they are

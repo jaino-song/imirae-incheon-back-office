@@ -168,6 +168,28 @@ describe("extractClientRegistrationDraft", () => {
     });
 
     it.each([
+        ["출산 예정일은 2026년 2월 1일로 정했어", "dueDate", "260201"],
+        ["생년월일은 2000년 1월 1일으로 등록해줘", "birthday", "000101"],
+        ["출산 예정일은 2026년 2월 1일로, 주소는 서울이야", "dueDate", "260201"],
+        ["출산 예정일은 2026년 2월 1일으로 생년월일은 2000-01-01", "dueDate", "260201"],
+    ])("accepts labeled dates followed by Korean 로/으로 connective context: %s", (message, field, expectedValue) => {
+        const draft = extractClientRegistrationDraft(`산모 등록. ${message}.`);
+
+        expect(draft[field as "birthday" | "dueDate"]).toBe(expectedValue);
+    });
+
+    it.each([
+        "출산 예정일은 2026년 2월 1일로고",
+        "출산 예정일은 2026년 2월 1일으로2",
+        "출산 예정일은 2026년 2월 1일로생년월일은 2000-01-01",
+    ])("does not accept a malformed or unbounded 로/으로 continuation: %s", (message) => {
+        const draft = extractClientRegistrationDraft(`산모 등록. ${message}.`);
+
+        expect(draft.dueDate).toBeUndefined();
+        expect(draft.missingFields).toContain("dueDate");
+    });
+
+    it.each([
         [
             "생년월일은 2000년 1월 1일이고 출산 예정일은 2026년 2월 1일이에요",
             "000101",
@@ -348,6 +370,9 @@ describe("extractClientRegistrationDraft", () => {
         ["관리사는 박이랑으로 담당해.", "박이랑"],
         ["관리사는 김가은을 선택해.", "김가은"],
         ["관리사는 박이 담당해.", "박이"],
+        ["관리사는 김영희고 주소는 서울이야", "김영희"],
+        ["관리사는 김영희고, 주소는 서울이야", "김영희"],
+        ["관리사는 김영희고 연락처는 010-1234-5678", "김영희"],
     ])("strips the provider suffix from %s", (message, expectedName) => {
         expect(extractClientRegistrationDraft(message).employeeName).toBe(expectedName);
     });
@@ -355,8 +380,17 @@ describe("extractClientRegistrationDraft", () => {
     it.each([
         ["관리사는 김가은.", "김가은"],
         ["관리사는 김나이 담당해.", "김나이"],
+        ["관리사는 김민고.", "김민고"],
+        ["관리사: 박고, ...", "박고"],
     ])("preserves a complete provider name ending in a particle-like syllable: %s", (message, expectedName) => {
         expect(extractClientRegistrationDraft(message).employeeName).toBe(expectedName);
+    });
+
+    it.each([
+        "관리사는 김영희고2 주소는 서울이야",
+        "관리사는 김영희고주소는 서울이야",
+    ])("does not strip 고 from malformed provider text: %s", (message) => {
+        expect(extractClientRegistrationDraft(message).employeeName).toBeUndefined();
     });
 
     it("skips a provider field label and scans a later provider label for the name", () => {
