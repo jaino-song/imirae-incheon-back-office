@@ -142,14 +142,14 @@ export function ClientRegistrationWizard({
         if (activeStep === 0) {
             return Boolean(name.trim() && phone.trim() && birthday.trim() && address.trim())
                 && (isValidCompactDateInput(dueDate) || initialDraft?.skippedFields?.includes("dueDate"))
-                && !(employeeName && isEmployeesLoading);
+                && !(employeeName && (isEmployeesLoading || isEmployeesError));
         }
         if (activeStep === 1) {
             if (!voucherClient) return true;
             return isVoucherInfoComplete;
         }
         return true;
-    }, [activeStep, name, phone, birthday, address, dueDate, employeeName, isEmployeesLoading, initialDraft?.skippedFields, voucherClient, isVoucherInfoComplete]);
+    }, [activeStep, name, phone, birthday, address, dueDate, employeeName, isEmployeesError, isEmployeesLoading, initialDraft?.skippedFields, voucherClient, isVoucherInfoComplete]);
 
     const handleNext = () => {
         if (!canGoNext) return;
@@ -532,6 +532,15 @@ export function ClientRegistrationWizard({
                 <Alert variant="destructive" className="mt-4">
                     <AlertCircle className="h-4 w-4" />
                     <AlertDescription>{submitError}</AlertDescription>
+                </Alert>
+            )}
+
+            {employeeName && isEmployeesError && (
+                <Alert variant="destructive" className="mt-4">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                        제공인력 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+                    </AlertDescription>
                 </Alert>
             )}
 

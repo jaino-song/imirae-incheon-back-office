@@ -290,7 +290,7 @@ describe("ClientRegistrationWizard", () => {
         expect(screen.queryByLabelText("제공인력 이름")).not.toBeInTheDocument();
     });
 
-    test("does not offer employee registration when employee lookup fails", async () => {
+    test("blocks progression and does not offer registration when employee lookup fails", async () => {
         mockEmployeesError = true;
         render(
             <ClientRegistrationWizard
@@ -305,10 +305,11 @@ describe("ClientRegistrationWizard", () => {
             />,
         );
 
-        fireEvent.click(screen.getByRole("button", { name: "다음" }));
-
-        expect(await screen.findByRole("checkbox", { name: "바우처 대상" }))
+        expect(screen.getByRole("button", { name: "다음" })).toBeDisabled();
+        expect(screen.getByText("제공인력 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."))
             .toBeInTheDocument();
+        expect(screen.queryByRole("checkbox", { name: "바우처 대상" }))
+            .not.toBeInTheDocument();
         expect(screen.queryByLabelText("제공인력 이름")).not.toBeInTheDocument();
         expect(mockCreateEmployeeMutateAsync).not.toHaveBeenCalled();
     });
