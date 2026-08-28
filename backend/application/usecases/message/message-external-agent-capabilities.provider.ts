@@ -734,7 +734,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
             : actionId
                 ? await this.prisma.message_trigger_job.findFirst({ where: { branchId: context.principal.branchId, OR: [{ dedupeKey: `agent-sms:${actionId}` }, { dedupeKey: `agent-sms-retry:${actionId}` }] } })
                 : null;
-        if (!job || job.status === "pending" || job.status === "processing") {
+        if (!job || job.status === "pending" || job.status === "processing" || job.status === "dispatching") {
             return { status: "uncertain" as const, reason: "SMS delivery is not terminal" };
         }
         if (job.status === "sent") {

@@ -242,7 +242,11 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
     async findStaleProcessing(cutoff: Date, limit = 50): Promise<MessageTriggerJobEntity[]> {
         const rows = await this.prisma.message_trigger_job.findMany({
             where: {
-                status: "processing",
+                // `dispatching` is an irreversible provider authorization
+                // state. It is reclaimed for reconciliation, never for a
+                // fresh provider attempt, so a crash after authorization
+                // cannot duplicate delivery.
+                status: { in: ["processing", "dispatching"] },
                 updatedAt: { lt: cutoff },
             },
             orderBy: { updatedAt: "asc" },
@@ -258,7 +262,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         const rows = await this.prisma.message_trigger_job.findMany({
             where: {
                 branchId,
-                status: { in: ["pending", "processing"] },
+                status: { in: ["pending", "processing", "dispatching"] },
             },
             orderBy: { scheduledFor: "asc" },
             take: limit,
@@ -359,7 +363,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
             where: {
                 branchId,
                 ruleId,
-                status: { in: ["pending", "processing"] },
+                status: { in: ["pending", "processing", "dispatching"] },
                 // A stale rebuild may reactivate the same dedupe row. Its
                 // immutable createdAt belongs to the obsolete generation, so
                 // the mutable DB-updated timestamp is the generation fence.

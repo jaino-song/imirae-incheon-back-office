@@ -449,7 +449,7 @@ describe("ServiceRecordLinkService", () => {
         expect(sql.strings.join("?")).toContain('ON CONFLICT ("dedupe_key") DO UPDATE');
         expect(sql.strings.join("?")).toContain("WHERE NOT EXISTS");
         expect(sql.strings.join("?")).toContain("RETURNING id, updated_at::text AS claim_version");
-        expect(sql.strings.join("?")).toContain("blocker.\"status\" IN ('pending', 'processing', 'sent')");
+        expect(sql.strings.join("?")).toContain("blocker.\"status\" IN ('pending', 'processing', 'dispatching', 'sent')");
         expect(sql.strings.join("?")).toContain('"canceled_by_user" = false');
     });
 

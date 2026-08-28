@@ -8,7 +8,13 @@ import {
     TRIGGER_JOB_RETRY_DELAY_MS,
 } from "domain/constants/message-automation-policy";
 
-export type MessageTriggerJobStatus = "pending" | "processing" | "sent" | "failed" | "canceled";
+export type MessageTriggerJobStatus =
+    | "pending"
+    | "processing"
+    | "dispatching"
+    | "sent"
+    | "failed"
+    | "canceled";
 
 export interface MessageTriggerCatchUpMetadata {
     batchId: string;
@@ -151,6 +157,17 @@ export class MessageTriggerJobEntity {
         if (claimToken !== undefined) {
             this.claimToken = claimToken;
         }
+        this.updatedAt = new Date();
+    }
+
+    /**
+     * The dispatching state is an irreversible authorization boundary. Once a
+     * claim reaches it, the provider path may open its own database connection
+     * without holding the claim row lock; terminal completion remains fenced
+     * by the immutable claim token.
+     */
+    markDispatchAuthorized(): void {
+        this.status = "dispatching";
         this.updatedAt = new Date();
     }
 

@@ -18,7 +18,10 @@ import {
     SEND_HOUR_KST,
     TRIGGER_JOB_MAX_ATTEMPTS,
 } from "domain/constants/message-automation-policy";
-import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
+import {
+    MessageTriggerJobEntity,
+    MessageTriggerJobStatus,
+} from "domain/entities/message-trigger-job.entity";
 import { MessageTriggerRuleEntity } from "domain/entities/message-trigger-rule.entity";
 import { TriggerJobDeferredError } from "domain/errors/trigger-job-deferred.error";
 
@@ -109,7 +112,7 @@ describe("MessageTriggerService", () => {
     const createJob = (overrides: Partial<{
         id: string;
         ruleId: string;
-        status: "pending" | "processing" | "sent" | "failed" | "canceled";
+        status: MessageTriggerJobStatus;
         scheduledFor: Date;
         clientId: number | null;
         employeeScheduleId: number | null;
@@ -321,10 +324,15 @@ describe("MessageTriggerService", () => {
         const employeeScheduleFindFirst = jest.fn().mockResolvedValue(null);
         type DispatchTransaction = {
             $queryRaw: jest.Mock;
+            message_trigger_job: { findUnique: jest.Mock };
             employee_schedule: { findFirst: jest.Mock };
         };
         const transaction: DispatchTransaction = {
             $queryRaw: jest.fn().mockResolvedValue([{ status: "processing", claim_token: "claim-a" }]),
+            message_trigger_job: {
+                findUnique: jest.fn().mockImplementation(async ({ where }: { where: { id: string } }) =>
+                    jobRepository.findById(where.id)),
+            },
             employee_schedule: {
                 findFirst: employeeScheduleFindFirst,
             },
@@ -1441,6 +1449,44 @@ describe("MessageTriggerService", () => {
         expect(jobRepository.update).not.toHaveBeenCalled();
     });
 
+    it("does not call the provider when cancellation wins the authorization CAS", async () => {
+        const { service, deliveryService, jobRepository, transaction } = createDispatchService();
+        const job = createJob();
+        jobRepository.findDuePending.mockResolvedValue([job]);
+        jobRepository.claimPendingWithRuleFence.mockResolvedValue("claim-a");
+        let authorizationReadStarted!: () => void;
+        const authorizationRead = new Promise<void>((resolve) => {
+            authorizationReadStarted = resolve;
+        });
+        let releaseAuthorizationRead!: () => void;
+        const authorizationReadReleased = new Promise<void>((resolve) => {
+            releaseAuthorizationRead = resolve;
+        });
+        let cancellationWon = false;
+        let queryCount = 0;
+        transaction.$queryRaw.mockImplementation(async () => {
+            queryCount += 1;
+            if (queryCount === 1) {
+                authorizationReadStarted();
+                await authorizationReadReleased;
+                return [{ status: "processing", claim_token: "claim-a" }];
+            }
+            return cancellationWon ? [] : [{ id: job.id }];
+        });
+
+        const dispatchPromise = service.dispatchDueJobs();
+        await authorizationRead;
+        cancellationWon = true;
+        // Release the mocked claim read only after the concurrent cancellation
+        // has committed; the following CAS must therefore return no row.
+        releaseAuthorizationRead();
+        await dispatchPromise;
+
+        expect(deliveryService.sendJob).not.toHaveBeenCalled();
+        expect(jobRepository.update).not.toHaveBeenCalled();
+        expect(job.status).toBe("processing");
+    });
+
     it("dispatchPendingJobNow claims and sends only the requested job", async () => {
         const { service, deliveryService, jobRepository, messageSenderApprovalService } =
             createDispatchService();
@@ -1498,10 +1544,13 @@ describe("MessageTriggerService", () => {
         dispatcher.transaction.$queryRaw.mockImplementation(async () => {
             queryCount += 1;
             if (queryCount === 1) {
+                events.push("schedule-lock");
+                return [{ id: schedule.id }];
+            }
+            if (queryCount === 2) {
                 return [{ status: "processing", claim_token: "claim-a" }];
             }
-            events.push("schedule-lock");
-            return [{ id: schedule.id }];
+            return [{ id: job.id }];
         });
         dispatcher.prisma.employee_schedule.findFirst.mockImplementation(async () => {
             events.push("schedule-read");
@@ -1519,10 +1568,10 @@ describe("MessageTriggerService", () => {
         expect(job.status).toBe("sent");
     });
 
-    it("does not let a concurrent schedule replacement commit while the fenced provider call is in flight", async () => {
+    it("commits dispatch authorization before the provider call begins", async () => {
         const builder = createService();
         const employeeRule = createRule({
-            id: "rule-employee-pre-send-lock",
+            id: "rule-employee-dispatch-authorization",
             eventType: MessageTriggerEventType.EMPLOYEE_ASSIGNED,
             offsetType: MessageTriggerOffsetType.IMMEDIATE,
             recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
@@ -1536,17 +1585,12 @@ describe("MessageTriggerService", () => {
         dispatcher.prisma.employee_schedule.findFirst.mockResolvedValue(schedule);
 
         let transactionOpen = false;
-        let releaseTransaction!: () => void;
-        const transactionReleased = new Promise<void>((resolve) => {
-            releaseTransaction = resolve;
-        });
         dispatcher.prisma.$transaction.mockImplementation(async (operation: (transaction: typeof dispatcher.transaction) => Promise<unknown>) => {
             transactionOpen = true;
             try {
                 return await operation(dispatcher.transaction);
             } finally {
                 transactionOpen = false;
-                releaseTransaction();
             }
         });
 
@@ -1554,42 +1598,16 @@ describe("MessageTriggerService", () => {
         const providerStarted = new Promise<void>((resolve) => {
             providerEntered = resolve;
         });
-        let replacementAttempted!: () => void;
-        const replacementStarted = new Promise<void>((resolve) => {
-            replacementAttempted = resolve;
-        });
-        let allowProviderReturn!: () => void;
-        const providerReleased = new Promise<void>((resolve) => {
-            allowProviderReturn = resolve;
-        });
-        let replacementCommitted = false;
         dispatcher.deliveryService.sendJob.mockImplementation(async () => {
+            expect(transactionOpen).toBe(false);
             providerEntered();
-            await replacementStarted;
-            await providerReleased;
             return true;
         });
 
-        const dispatchPromise = dispatcher.service.dispatchDueJobs();
+        await dispatcher.service.dispatchDueJobs();
         await providerStarted;
-        const replacementPromise = (async () => {
-            replacementAttempted();
-            if (transactionOpen) await transactionReleased;
-            schedule.replaced = true;
-            replacementCommitted = true;
-        })();
-        await replacementStarted;
-        await Promise.resolve();
-
-        expect(transactionOpen).toBe(true);
-        expect(replacementCommitted).toBe(false);
-
-        allowProviderReturn();
-        await dispatchPromise;
-        await replacementPromise;
-
-        expect(replacementCommitted).toBe(true);
         expect(dispatcher.deliveryService.sendJob).toHaveBeenCalledWith(job);
+        expect(transactionOpen).toBe(false);
         expect(job.status).toBe("sent");
     });
 
@@ -1621,11 +1639,14 @@ describe("MessageTriggerService", () => {
         dispatcher.transaction.$queryRaw.mockImplementation(async () => {
             queryCount += 1;
             if (queryCount === 1) {
+                lockWaitStarted();
+                await replacementDone;
+                return [{ id: schedule.id }];
+            }
+            if (queryCount === 2) {
                 return [{ status: "processing", claim_token: "claim-a" }];
             }
-            lockWaitStarted();
-            await replacementDone;
-            return [{ id: schedule.id }];
+            return [{ id: job.id }];
         });
 
         const dispatchPromise = dispatcher.service.dispatchDueJobs();
@@ -2003,6 +2024,20 @@ describe("MessageTriggerService", () => {
         expect(unsentJob.attempts).toBe(1);
         expect(unsentJob.nextAttemptAt).toBeInstanceOf(Date);
         expect(jobRepository.update).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not requeue a stale dispatch-authorized job after a worker crash", async () => {
+        const { service, jobRepository, messageLogRepository } = createDispatchService();
+        const dispatchingJob = createJob({ id: "job-dispatching", status: "dispatching" });
+        jobRepository.findStaleProcessing.mockResolvedValue([dispatchingJob]);
+        messageLogRepository.findSentTriggerJobIds.mockResolvedValue(new Set());
+
+        await service.dispatchDueJobs();
+
+        expect(dispatchingJob.status).toBe("failed");
+        expect(dispatchingJob.cancelReason).toContain("불확실");
+        expect(dispatchingJob.nextAttemptAt).toBeNull();
+        expect(jobRepository.update).toHaveBeenCalledWith(dispatchingJob);
     });
 
     it("an externally approved branch recovers via the scheduler tick without any page load", async () => {

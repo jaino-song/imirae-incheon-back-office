@@ -555,7 +555,7 @@ ${url}`;
                 WHERE blocker."employee_schedule_id" = ${params.scheduleId}
                   AND blocker."rule_id" = ${SERVICE_RECORD_LINK_RULE_ID}
                   AND (
-                      blocker."status" IN ('pending', 'processing', 'sent')
+                      blocker."status" IN ('pending', 'processing', 'dispatching', 'sent')
                       OR (
                           blocker."status" = 'failed'
                           AND blocker."cancel_reason" IS DISTINCT FROM ${SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON}

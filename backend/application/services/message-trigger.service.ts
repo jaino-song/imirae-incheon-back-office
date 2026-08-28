@@ -107,9 +107,9 @@ const MISSING_CATCH_UP_PREDECESSOR_CANCEL_REASON = "보충 발송 이전 순위 
 const USER_REQUESTED_CANCEL_REASON = "사용자가 발송을 취소함";
 const CANCEL_JOB_CONFLICT_MESSAGE = "이미 발송되었거나 취소할 수 없는 상태입니다";
 const MS_PER_MINUTE = 60 * 1000;
-// Aligo aborts a provider request after 30 seconds. Keep the schedule lock
-// alive through that provider deadline and the durable delivery-log write.
-const EMPLOYEE_ASSIGNMENT_PROVIDER_FENCE_TIMEOUT_MS = 35_000;
+// The authorization fence only validates the current claim/source and commits
+// a short CAS before any provider path opens another Prisma connection.
+const CLAIM_DISPATCH_AUTHORIZATION_TIMEOUT_MS = 5_000;
 
 function normalizeMessageTriggerOffsetDays(
     offsetType: MessageTriggerOffsetType,
@@ -1986,32 +1986,84 @@ export class MessageTriggerService {
         }
 
         job.markProcessing(claimToken);
-        const shouldPersist = await this.prisma.$transaction(async (transaction) => {
-            const tokenFence = await this.fenceClaimTokenBeforeProviderSend(job, transaction);
-            if (tokenFence.kind === "lost") {
-                return false;
-            }
+        const authorization = await this.authorizeClaimedJobForDispatch(job);
+        if (authorization.kind === "lost") {
+            return;
+        }
+        if (authorization.kind === "stale") {
+            // The authorization transaction already invalidated this claim
+            // when the source snapshot was stale. Keep the in-memory entity
+            // aligned so the token-CAS write below is a harmless no-op if a
+            // concurrent cancellation won the race first.
+            job.cancel(authorization.reason);
+            await this.persistTriggerJobStatus(job, "persist stale trigger job");
+            return;
+        }
 
-            const fence = job.templateKey === MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED
+        // The transaction has committed the irreversible dispatching state.
+        // Provider delivery and its message_log writes must happen outside the
+        // claim transaction so the FK insert cannot wait on a held row lock.
+        job.markDispatchAuthorized();
+        await this.deliverClaimedJob(job);
+        await this.persistTriggerJobStatus(job, "persist dispatched trigger job");
+    }
+
+    /**
+     * Revalidate cancellation/source state and atomically authorize one
+     * claimed attempt for provider delivery. This transaction deliberately
+     * ends before `deliverClaimedJob`: the delivery service persists its own
+     * message_log attempt through another Prisma connection.
+     */
+    private async authorizeClaimedJobForDispatch(
+        job: MessageTriggerJobEntity,
+    ): Promise<PreProviderSendFenceResult> {
+        return this.prisma.$transaction(async (transaction) => {
+            // Employee schedule writers lock the source row before committing
+            // their replacement. Preserve that order here, then lock the job
+            // row for the token/CAS check; no provider work occurs while either
+            // lock is held.
+            const sourceFence = job.templateKey === MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED
                 && job.employeeScheduleId !== null
                 ? await this.fenceEmployeeAssignmentBeforeProviderSend(job, transaction)
                 : { kind: "allow" as const };
-            if (fence.kind === "lost") {
-                return false;
+            if (sourceFence.kind === "lost") {
+                return sourceFence;
             }
-            if (fence.kind === "stale") {
-                job.cancel(fence.reason);
-                return true;
+
+            const tokenFence = await this.fenceClaimTokenBeforeProviderSend(job, transaction);
+            if (tokenFence.kind === "lost") {
+                return tokenFence;
             }
-            await this.deliverClaimedJob(job);
-            return true;
+            if (sourceFence.kind === "stale") {
+                const canceled = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+                    UPDATE "message_trigger_job"
+                    SET status = 'canceled',
+                        canceled_at = date_trunc('milliseconds', clock_timestamp()),
+                        cancel_reason = ${sourceFence.reason},
+                        claim_token = NULL,
+                        updated_at = date_trunc('milliseconds', clock_timestamp())
+                    WHERE id = ${job.id}
+                      AND status = 'processing'
+                      AND claim_token = ${job.claimToken}
+                    RETURNING id
+                `);
+                return canceled.length === 1 ? sourceFence : { kind: "lost" as const };
+            }
+
+            const authorized = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+                UPDATE "message_trigger_job"
+                SET status = 'dispatching',
+                    updated_at = date_trunc('milliseconds', clock_timestamp())
+                WHERE id = ${job.id}
+                  AND status = 'processing'
+                  AND claim_token = ${job.claimToken}
+                RETURNING id
+            `);
+            return authorized.length === 1 ? { kind: "allow" as const } : { kind: "lost" as const };
         }, {
-            maxWait: 5_000,
-            timeout: EMPLOYEE_ASSIGNMENT_PROVIDER_FENCE_TIMEOUT_MS,
+            maxWait: CLAIM_DISPATCH_AUTHORIZATION_TIMEOUT_MS,
+            timeout: CLAIM_DISPATCH_AUTHORIZATION_TIMEOUT_MS,
         });
-        if (shouldPersist) {
-            await this.persistTriggerJobStatus(job, "persist dispatched trigger job");
-        }
     }
 
     private async deliverClaimedJob(job: MessageTriggerJobEntity): Promise<void> {
@@ -2019,7 +2071,7 @@ export class MessageTriggerService {
             const sent = await this.deliveryService.sendJob(job);
             if (sent) {
                 job.markSent();
-            } else if (job.status === "processing") {
+            } else if (job.status === "processing" || job.status === "dispatching") {
                 job.markFailed("Provider disabled or delivery failed");
             }
         } catch (error) {
@@ -2035,18 +2087,31 @@ export class MessageTriggerService {
      * Re-read the claimed job and its schedule immediately before provider
      * invocation. BJJ-35 fences pending rows in the schedule update
      * transaction, but a row already claimed as `processing` needs this final
-     * source check as well. When called in a transaction, the schedule row is
-     * locked before this read and remains locked through provider invocation.
-     * A lost claim is left untouched so a concurrent user cancel or retry
-     * transition is never overwritten.
+     * source check as well. When called from the authorization transaction,
+     * the schedule row is locked only until that transaction commits; provider
+     * delivery never runs while this lock is held. A lost claim is left
+     * untouched so a concurrent user cancel or retry transition is never
+     * overwritten.
      */
     private async fenceEmployeeAssignmentBeforeProviderSend(
         job: MessageTriggerJobEntity,
-        transaction?: Prisma.TransactionClient,
+        transaction: Prisma.TransactionClient,
     ): Promise<PreProviderSendFenceResult> {
         const employeeScheduleId = job.employeeScheduleId;
         if (employeeScheduleId === null) return { kind: "lost" };
-        const currentJob = await this.jobRepository.findById(job.id);
+        const currentJob = await transaction.message_trigger_job.findUnique({
+            where: { id: job.id },
+            select: {
+                status: true,
+                branchId: true,
+                ruleId: true,
+                clientId: true,
+                employeeScheduleId: true,
+                recipientType: true,
+                templateKey: true,
+                claimToken: true,
+            },
+        });
         if (
             !currentJob
             || currentJob.status !== "processing"
@@ -2056,30 +2121,26 @@ export class MessageTriggerService {
             || currentJob.employeeScheduleId !== employeeScheduleId
             || currentJob.recipientType !== job.recipientType
             || currentJob.templateKey !== job.templateKey
-            || currentJob.payload.employeeScheduleFingerprint !== job.payload.employeeScheduleFingerprint
             || currentJob.claimToken !== job.claimToken
         ) {
             return { kind: "lost" };
         }
 
-        if (transaction) {
-            const lockedSchedule = await transaction.$queryRaw<Array<{ id: number }>>(Prisma.sql`
-                SELECT id
-                FROM "employee_schedule"
-                WHERE id = ${employeeScheduleId}
-                  AND "branch_id" = ${job.branchId}::uuid
-                FOR UPDATE
-            `);
-            if (lockedSchedule.length === 0) {
-                return {
-                    kind: "stale",
-                    reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
-                };
-            }
+        const lockedSchedule = await transaction.$queryRaw<Array<{ id: number }>>(Prisma.sql`
+            SELECT id
+            FROM "employee_schedule"
+            WHERE id = ${employeeScheduleId}
+              AND "branch_id" = ${job.branchId}::uuid
+            FOR UPDATE
+        `);
+        if (lockedSchedule.length === 0) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
         }
 
-        const scheduleClient = transaction ?? this.prisma;
-        const schedule = await scheduleClient.employee_schedule.findFirst({
+        const schedule = await transaction.employee_schedule.findFirst({
             where: {
                 id: employeeScheduleId,
                 branchId: job.branchId,
@@ -2209,11 +2270,11 @@ export class MessageTriggerService {
     }
 
     /**
-     * Lock and re-read the active claim immediately before entering any
-     * provider-facing delivery path. The lock makes cancellation/source
-     * mutation and provider acceptance serialize on the same row: a mutation
-     * that wins before this check clears the token and fails closed, while a
-     * mutation arriving after the lock is explicitly ordered after the send.
+     * Lock and re-read the active claim as the final half of the dispatch
+     * authorization transaction. A mutation that wins before this check
+     * clears/replaces the token and fails closed; once the caller commits the
+     * `dispatching` CAS, later mutations cannot revoke an already-authorized
+     * provider crossing and terminal completion remains token fenced.
      */
     private async fenceClaimTokenBeforeProviderSend(
         job: MessageTriggerJobEntity,
@@ -2304,7 +2365,9 @@ export class MessageTriggerService {
 
         const intervalMs = catchUp.intervalMinutes * MS_PER_MINUTE;
         const now = Date.now();
-        const predecessorReference = predecessor.status === "pending" || predecessor.status === "processing"
+        const predecessorReference = predecessor.status === "pending"
+            || predecessor.status === "processing"
+            || predecessor.status === "dispatching"
             ? predecessor.nextAttemptAt ?? predecessor.scheduledFor
             : predecessor.sentAt ?? predecessor.canceledAt ?? predecessor.updatedAt;
         const earliestNextSend = new Date(predecessorReference.getTime() + intervalMs);
@@ -2312,6 +2375,7 @@ export class MessageTriggerService {
         if (
             predecessor.status === "pending" ||
             predecessor.status === "processing" ||
+            predecessor.status === "dispatching" ||
             earliestNextSend.getTime() > now
         ) {
             const retryAt = new Date(Math.max(earliestNextSend.getTime(), now + intervalMs));
@@ -2454,6 +2518,12 @@ export class MessageTriggerService {
             if (sentIds.has(job.id)) {
                 job.markSent();
             } else if (uncertainIds.has(job.id)) {
+                job.markFailed(SMS_PROVIDER_ACCEPTANCE_UNCERTAIN_REASON);
+            } else if (job.status === "dispatching") {
+                // Dispatch authorization is the irreversible crossing into
+                // the provider path. A worker crash after that CAS cannot
+                // prove that no provider request was accepted, so never
+                // re-queue the row for another send.
                 job.markFailed(SMS_PROVIDER_ACCEPTANCE_UNCERTAIN_REASON);
             } else {
                 job.defer("transient", "Reclaimed stale processing job");

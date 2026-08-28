@@ -102,6 +102,16 @@ describe("MessageTriggerJobEntity", () => {
         expect(job.status).toBe("processing");
         expect(job.claimToken).toBe("claim-a");
     });
+
+    it("marks a claimed job dispatching at the provider authorization boundary", () => {
+        const job = createJob();
+        job.markProcessing("claim-a");
+
+        job.markDispatchAuthorized();
+
+        expect(job.status).toBe("dispatching");
+        expect(job.claimToken).toBe("claim-a");
+    });
 });
 
 describe("SbMessageTriggerJobRepository", () => {
@@ -332,7 +342,7 @@ describe("SbMessageTriggerJobRepository", () => {
             where: {
                 branchId: "branch-1",
                 ruleId: "rule-1",
-                status: { in: ["pending", "processing"] },
+                status: { in: ["pending", "processing", "dispatching"] },
                 updatedAt: { lt: now },
             },
             select: { id: true },
@@ -358,7 +368,7 @@ describe("SbMessageTriggerJobRepository", () => {
         });
     });
 
-    it("findUpcomingPendingByBranch keeps future, overdue, and processing jobs visible", async () => {
+    it("findUpcomingPendingByBranch keeps future, overdue, processing, and dispatching jobs visible", async () => {
         messageTriggerJobModel.findMany.mockResolvedValue([]);
 
         await repository.findUpcomingPendingByBranch("branch-1", 25);
@@ -366,7 +376,7 @@ describe("SbMessageTriggerJobRepository", () => {
         expect(messageTriggerJobModel.findMany).toHaveBeenCalledWith({
             where: {
                 branchId: "branch-1",
-                status: { in: ["pending", "processing"] },
+                status: { in: ["pending", "processing", "dispatching"] },
             },
             orderBy: { scheduledFor: "asc" },
             take: 25,
@@ -1158,23 +1168,30 @@ describe("SbMessageTriggerJobRepository", () => {
         });
     });
 
-    it("findStaleProcessing queries processing rows older than cutoff", async () => {
+    it("findStaleProcessing queries processing and dispatching rows older than cutoff", async () => {
         const cutoff = new Date("2026-07-09T00:10:00.000Z");
-        messageTriggerJobModel.findMany.mockResolvedValue([createRow({
-            status: "processing",
-            updatedAt: new Date("2026-07-08T23:59:00.000Z"),
-        })]);
+        messageTriggerJobModel.findMany.mockResolvedValue([
+            createRow({
+                status: "processing",
+                updatedAt: new Date("2026-07-08T23:59:00.000Z"),
+            }),
+            createRow({
+                id: "job-dispatching",
+                status: "dispatching",
+                updatedAt: new Date("2026-07-08T23:58:00.000Z"),
+            }),
+        ]);
 
         const result = await repository.findStaleProcessing(cutoff, 10);
 
         expect(messageTriggerJobModel.findMany).toHaveBeenCalledWith({
             where: {
-                status: "processing",
+                status: { in: ["processing", "dispatching"] },
                 updatedAt: { lt: cutoff },
             },
             orderBy: { updatedAt: "asc" },
             take: 10,
         });
-        expect(result[0]?.status).toBe("processing");
+        expect(result.map((job) => job.status)).toEqual(["processing", "dispatching"]);
     });
 });

@@ -216,8 +216,8 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
             // the approved update must fail rather than commit underneath an
             // in-flight provider call.
             const activeJobStatusPredicate = fenceStartedAt
-                ? Prisma.sql`status IN ('pending', 'processing') OR (status = 'sent' AND sent_at >= ${fenceStartedAt})`
-                : Prisma.sql`status IN ('pending', 'processing')`;
+                ? Prisma.sql`status IN ('pending', 'processing', 'dispatching') OR (status = 'sent' AND sent_at >= ${fenceStartedAt})`
+                : Prisma.sql`status IN ('pending', 'processing', 'dispatching')`;
             const activeJobs = await writeTransaction.$queryRaw<Array<{ status: string }>>(Prisma.sql`
                 SELECT status
                 FROM "message_trigger_job"
@@ -226,7 +226,7 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
                   AND (${activeJobStatusPredicate})
                 FOR UPDATE
             `);
-            if (activeJobs.some((job) => job.status === "processing" || job.status === "sent")) {
+            if (activeJobs.some((job) => job.status === "processing" || job.status === "dispatching" || job.status === "sent")) {
                 return null;
             }
 
@@ -369,8 +369,8 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
             }
 
             const activeJobStatusPredicate = fenceStartedAt
-                ? Prisma.sql`status IN ('pending', 'processing') OR (status = 'sent' AND sent_at >= ${fenceStartedAt})`
-                : Prisma.sql`status IN ('pending', 'processing')`;
+                ? Prisma.sql`status IN ('pending', 'processing', 'dispatching') OR (status = 'sent' AND sent_at >= ${fenceStartedAt})`
+                : Prisma.sql`status IN ('pending', 'processing', 'dispatching')`;
             const activeJobs = await transaction.$queryRaw<Array<{ status: string }>>(Prisma.sql`
                 SELECT status
                 FROM "message_trigger_job"
@@ -379,7 +379,7 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
                   AND (${activeJobStatusPredicate})
                 FOR UPDATE
             `);
-            if (activeJobs.some((job) => job.status === "processing" || job.status === "sent")) {
+            if (activeJobs.some((job) => job.status === "processing" || job.status === "dispatching" || job.status === "sent")) {
                 return false;
             }
 
