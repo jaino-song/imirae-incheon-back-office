@@ -10,6 +10,8 @@ readonly ROOT_OPERATOR_ARTIFACT="$ROOT_ARTIFACT_DIRECTORY/ci-operator.sh"
 readonly ROOT_DEPLOY_ARTIFACT="$ROOT_ARTIFACT_DIRECTORY/deploy.sh"
 readonly ROOT_ROLLBACK_ARTIFACT="$ROOT_ARTIFACT_DIRECTORY/rollback.sh"
 readonly ROOT_COMPOSE_ARTIFACT="$ROOT_ARTIFACT_DIRECTORY/compose.lightsail.yml"
+readonly ROOT_BUNDLE_MANIFEST="$ROOT_ARTIFACT_DIRECTORY/bundle.manifest"
+readonly BUNDLE_MANIFEST_VERSION="1"
 readonly ROOT_COMPOSE_ENV_FILE="/dev/null"
 readonly STATE_ROOT="/opt/babyjamjam/environments"
 readonly ROUTE_STATE_ROOT="/opt/babyjamjam/db-failover-state"
@@ -56,12 +58,17 @@ const timeout = setTimeout(() => finish(1), 5000);
 prisma.$queryRawUnsafe("SELECT 1").then(() => finish(0)).catch(() => finish(1));'
 readonly SCHEDULERS_ENV_FORMAT='{{range .Config.Env}}{{if eq (index (split . "=") 0) "SCHEDULERS_ENABLED"}}{{println .}}{{end}}{{end}}'
 readonly DATABASE_MODE_ENV_FORMAT='{{range .Config.Env}}{{if eq (index (split . "=") 0) "DATABASE_CONNECTION_MODE"}}{{println .}}{{end}}{{end}}'
+readonly DIAGNOSTICS_MAX_LOGS="5"
+readonly DIAGNOSTICS_MAX_BYTES_PER_LOG="32768"
+readonly DIAGNOSTICS_MAX_LINES_PER_LOG="200"
+readonly DIAGNOSTICS_MAX_OUTPUT_BYTES="131072"
 
 usage() {
     cat >&2 <<'EOF'
 Usage:
   babyjamjam-ci-operator status <preview|production>
   babyjamjam-ci-operator deploy <preview|production> <40-character-commit-sha> <sha256-image-digest>
+  babyjamjam-ci-operator diagnostics <preview|production>
   babyjamjam-ci-operator db-probe <preview|production> <shared|direct> <uuid>
   babyjamjam-ci-operator db-reconcile <preview|production> <uuid>
 EOF
@@ -108,6 +115,10 @@ validate_invocation() {
             [[ "$#" -eq 4 ]] || return 1
             is_environment "$2" && is_commit_sha "$3" && is_image_digest "$4"
             ;;
+        diagnostics)
+            [[ "$#" -eq 2 ]] || return 1
+            is_environment "$2"
+            ;;
         db-probe)
             [[ "$#" -eq 4 ]] || return 1
             is_environment "$2" && is_route "$3" && is_uuid "$4"
@@ -151,6 +162,127 @@ validate_root_artifact_file() {
         || die "A root deployment artifact has unexpected ownership or mode."
 }
 
+sha256_file() {
+    local path="$1"
+    local digest_output
+
+    [[ -f "$path" && ! -L "$path" ]] || return 1
+    if [[ -x /usr/bin/sha256sum ]]; then
+        digest_output="$(/usr/bin/sha256sum "$path")" || return 1
+    elif [[ -x /sbin/sha256sum ]]; then
+        digest_output="$(/sbin/sha256sum "$path")" || return 1
+    elif [[ -x /usr/bin/shasum ]]; then
+        digest_output="$(/usr/bin/shasum -a 256 "$path")" || return 1
+    else
+        return 1
+    fi
+    digest_output="${digest_output%% *}"
+    [[ "$digest_output" =~ ^[0-9a-f]{64}$ ]] || return 1
+    printf '%s\n' "$digest_output"
+}
+
+validate_bundle_manifest_entry() {
+    local label="$1"
+    local path="$2"
+    local expected_mode="$3"
+    local encoded_value="$4"
+    local owner
+    local group
+    local mode
+    local digest
+    local extra
+    local metadata
+    local actual_digest
+
+    IFS=':' read -r owner group mode digest extra <<<"$encoded_value"
+    [[ -z "$extra" && "$owner" == root && "$group" == root \
+        && "$mode" == "$expected_mode" && "$digest" =~ ^[0-9a-f]{64}$ ]] \
+        || die "The installed operator bundle manifest is invalid: $label."
+    [[ -f "$path" && ! -L "$path" ]] \
+        || die "The installed operator bundle artifact is missing or invalid: $label."
+    metadata="$(/usr/bin/stat -c '%U:%G:%a' "$path")" \
+        || die "Unable to inspect the installed operator bundle artifact: $label."
+    [[ "$metadata" == "root:root:$expected_mode" ]] \
+        || die "The installed operator bundle ownership or mode is invalid: $label."
+    actual_digest="$(sha256_file "$path")" \
+        || die "Unable to hash the installed operator bundle artifact: $label."
+    [[ "$actual_digest" == "$digest" ]] \
+        || die "The installed operator bundle hash does not match its manifest: $label."
+}
+
+validate_bundle_manifest() {
+    local manifest_path="$1"
+    local manifest_metadata
+    local manifest_line
+    local manifest_key
+    local manifest_value
+    local line_count=0
+    local seen_version=false
+    local seen_entrypoint=false
+    local seen_operator=false
+    local seen_deploy=false
+    local seen_rollback=false
+    local seen_compose=false
+
+    [[ -f "$manifest_path" && ! -L "$manifest_path" ]] \
+        || die "The installed operator bundle manifest is missing or invalid."
+    manifest_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$manifest_path")" \
+        || die "Unable to inspect the installed operator bundle manifest."
+    [[ "$manifest_metadata" == "root:root:640" ]] \
+        || die "The installed operator bundle manifest has unexpected ownership or mode."
+
+    while IFS= read -r manifest_line || [[ -n "$manifest_line" ]]; do
+        ((line_count += 1))
+        [[ "$manifest_line" == *=* ]] \
+            || die "The installed operator bundle manifest is malformed."
+        manifest_key="${manifest_line%%=*}"
+        manifest_value="${manifest_line#*=}"
+        case "$manifest_key" in
+            version)
+                [[ "$seen_version" == false ]] || die "The installed operator bundle manifest contains a duplicate key."
+                seen_version=true
+                [[ "$manifest_value" == "$BUNDLE_MANIFEST_VERSION" ]] \
+                    || die "The installed operator bundle manifest version is unsupported."
+                ;;
+            entrypoint)
+                [[ "$seen_entrypoint" == false ]] || die "The installed operator bundle manifest contains a duplicate key."
+                seen_entrypoint=true
+                validate_bundle_manifest_entry entrypoint "$INSTALLED_OPERATOR_PATH" 750 "$manifest_value"
+                ;;
+            ci-operator.sh)
+                [[ "$seen_operator" == false ]] || die "The installed operator bundle manifest contains a duplicate key."
+                seen_operator=true
+                validate_bundle_manifest_entry ci-operator.sh "$ROOT_OPERATOR_ARTIFACT" 750 "$manifest_value"
+                ;;
+            deploy.sh)
+                [[ "$seen_deploy" == false ]] || die "The installed operator bundle manifest contains a duplicate key."
+                seen_deploy=true
+                validate_bundle_manifest_entry deploy.sh "$ROOT_DEPLOY_ARTIFACT" 750 "$manifest_value"
+                ;;
+            rollback.sh)
+                [[ "$seen_rollback" == false ]] || die "The installed operator bundle manifest contains a duplicate key."
+                seen_rollback=true
+                validate_bundle_manifest_entry rollback.sh "$ROOT_ROLLBACK_ARTIFACT" 750 "$manifest_value"
+                ;;
+            compose.lightsail.yml)
+                [[ "$seen_compose" == false ]] || die "The installed operator bundle manifest contains a duplicate key."
+                seen_compose=true
+                validate_bundle_manifest_entry compose.lightsail.yml "$ROOT_COMPOSE_ARTIFACT" 640 "$manifest_value"
+                ;;
+            *)
+                die "The installed operator bundle manifest contains an unexpected key."
+                ;;
+        esac
+    done <"$manifest_path"
+
+    [[ "$line_count" -eq 6 && "$seen_version" == true && "$seen_entrypoint" == true \
+        && "$seen_operator" == true && "$seen_deploy" == true \
+        && "$seen_rollback" == true && "$seen_compose" == true ]] \
+        || die "The installed operator bundle manifest is incomplete."
+    /usr/bin/cmp -s "$INSTALLED_OPERATOR_PATH" "$ROOT_OPERATOR_ARTIFACT" \
+        || die "The installed operator does not match its manifest artifact."
+}
+
 validate_root_artifacts() {
     local artifact_directory_metadata
 
@@ -164,9 +296,26 @@ validate_root_artifacts() {
     validate_root_artifact_file "$ROOT_DEPLOY_ARTIFACT" 750
     validate_root_artifact_file "$ROOT_ROLLBACK_ARTIFACT" 750
     validate_root_artifact_file "$ROOT_COMPOSE_ARTIFACT" 640
+    validate_root_artifact_file "$ROOT_BUNDLE_MANIFEST" 640
     validate_root_artifact_file "$INSTALLED_OPERATOR_PATH" 750
-    /usr/bin/cmp -s "$ROOT_OPERATOR_ARTIFACT" "$INSTALLED_OPERATOR_PATH" \
-        || die "The installed operator does not match its protected artifact."
+    local artifact_path
+    for artifact_path in "$ROOT_ARTIFACT_DIRECTORY"/*; do
+        [[ -e "$artifact_path" || -L "$artifact_path" ]] || continue
+        case "$artifact_path" in
+            "$ROOT_OPERATOR_ARTIFACT"|"$ROOT_DEPLOY_ARTIFACT"|"$ROOT_ROLLBACK_ARTIFACT"|"$ROOT_COMPOSE_ARTIFACT"|"$ROOT_BUNDLE_MANIFEST")
+                ;;
+            *)
+                die "The protected operator bundle contains an unexpected path."
+                ;;
+        esac
+    done
+    # A normal glob omits dotfiles; reject hidden staging or injected paths as
+    # well so every invocation observes one complete, immutable bundle.
+    for artifact_path in "$ROOT_ARTIFACT_DIRECTORY"/.[!.]* "$ROOT_ARTIFACT_DIRECTORY"/..?*; do
+        [[ -e "$artifact_path" || -L "$artifact_path" ]] || continue
+        die "The protected operator bundle contains an unexpected path."
+    done
+    validate_bundle_manifest "$ROOT_BUNDLE_MANIFEST"
 }
 
 require_root() {
@@ -1826,6 +1975,161 @@ deploy_environment() {
     die "Deployment and automatic recovery both failed. Diagnostic log retained at $log_file"
 }
 
+diagnostics_file_size() {
+    local path="$1"
+    local size
+
+    size="$(/usr/bin/stat -c '%s' "$path" 2>/dev/null)" || \
+        size="$(/usr/bin/stat -f '%z' "$path" 2>/dev/null)" || return 1
+    [[ "$size" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "$size"
+}
+
+diagnostics_file_mtime() {
+    local path="$1"
+    local mtime
+
+    mtime="$(/usr/bin/stat -c '%Y' "$path" 2>/dev/null)" || \
+        mtime="$(/usr/bin/stat -f '%m' "$path" 2>/dev/null)" || return 1
+    [[ "$mtime" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "$mtime"
+}
+
+redact_diagnostic_line() {
+    local line="$1"
+
+    /usr/bin/sed -E \
+        -e 's#([A-Za-z][A-Za-z0-9+.-]*://)[^[:space:]]+#\1[REDACTED_URL]#g' \
+        -e 's#((^|[[:space:]])(Bearer|Basic)[[:space:]]+)[A-Za-z0-9._~+/=-]+#\1[REDACTED_AUTH]#gI' \
+        -e 's#(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})#[REDACTED_TOKEN]#g' \
+        -e 's#(gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,})#[REDACTED_TOKEN]#g' \
+        -e 's#(\"?(password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization|cookie|session[_-]?id|database_url|direct_url|redis_url|smtp_url|dsn|uri|url)[A-Za-z0-9_.-]*\"?[[:space:]]*[:=][[:space:]]*)\"[^\"]*\"#\1[REDACTED]#gI' \
+        -e "s#(\\\"?(password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization|cookie|session[_-]?id|database_url|direct_url|redis_url|smtp_url|dsn|uri|url)[A-Za-z0-9_.-]*\\\"?[[:space:]]*[:=][[:space:]]*)'[^']*'#\\1[REDACTED]#gI" \
+        -e 's#(\"?(password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization|cookie|session[_-]?id|database_url|direct_url|redis_url|smtp_url|dsn|uri|url)[A-Za-z0-9_.-]*\"?[[:space:]]*[:=][[:space:]]*)[^[:space:],;}]+#\1[REDACTED]#gI' \
+        -e 's#(\"?(password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization|cookie|session[_-]?id|database_url|direct_url|redis_url|smtp_url|dsn|uri|url)[A-Za-z0-9_.-]*\"?[[:space:]]*[:=][[:space:]]*).*$#\1[REDACTED]#gI' \
+        -e 's#-----BEGIN [^-]+-----.*#-----BEGIN REDACTED-----#g' <<<"$line"
+}
+
+diagnostics_emit() {
+    local chunk="$1"
+    local chunk_bytes="${#chunk}"
+    local remaining=$((DIAGNOSTICS_MAX_OUTPUT_BYTES - DIAGNOSTICS_OUTPUT_USED))
+
+    (( remaining > 0 )) || return 1
+    if (( chunk_bytes > remaining )); then
+        printf '%s' "${chunk:0:remaining}"
+        DIAGNOSTICS_OUTPUT_USED="$DIAGNOSTICS_MAX_OUTPUT_BYTES"
+        return 1
+    fi
+    printf '%s' "$chunk"
+    DIAGNOSTICS_OUTPUT_USED=$((DIAGNOSTICS_OUTPUT_USED + chunk_bytes))
+}
+
+diagnostics_emit_log() {
+    local path="$1"
+    local line
+    local redacted_line
+    local line_number=0
+    local emitted_bytes=0
+    local redacted_bytes
+    local remaining_bytes
+    local truncation_reason=""
+    local truncation_marker
+    local truncation_marker_bytes
+    local LC_ALL=C
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        ((line_number += 1))
+        if (( line_number > DIAGNOSTICS_MAX_LINES_PER_LOG )); then
+            truncation_reason="line"
+            break
+        fi
+        redacted_line="$(redact_diagnostic_line "$line")"
+        redacted_bytes=$(( ${#redacted_line} + 1 ))
+        remaining_bytes=$((DIAGNOSTICS_MAX_BYTES_PER_LOG - emitted_bytes))
+        if (( remaining_bytes <= 0 )); then
+            truncation_reason="byte"
+            break
+        fi
+        if (( redacted_bytes > remaining_bytes )); then
+            if diagnostics_emit "${redacted_line:0:remaining_bytes}"; then :; else return 1; fi
+            emitted_bytes=$((emitted_bytes + remaining_bytes))
+            truncation_reason="byte"
+            break
+        fi
+        if diagnostics_emit "$redacted_line"$'\n'; then :; else return 1; fi
+        emitted_bytes=$((emitted_bytes + redacted_bytes))
+    done <"$path"
+
+    if [[ -n "$truncation_reason" && "$emitted_bytes" -lt "$DIAGNOSTICS_MAX_BYTES_PER_LOG" ]]; then
+        truncation_marker="[output truncated: ${truncation_reason} cap]"$'\n'
+        truncation_marker_bytes="${#truncation_marker}"
+        if (( truncation_marker_bytes <= DIAGNOSTICS_MAX_BYTES_PER_LOG - emitted_bytes )); then
+            if diagnostics_emit "$truncation_marker"; then :; else return 1; fi
+            emitted_bytes=$((emitted_bytes + truncation_marker_bytes))
+        fi
+    fi
+    :
+}
+
+diagnostics_environment() {
+    local environment="$1"
+    local path
+    local file_name
+    local mtime
+    local size
+    local line_count
+    local selected_count=0
+    local reported_log_count
+    local LC_ALL=C
+    local -a diagnostic_entries=()
+
+    [[ "$environment" == "preview" || "$environment" == "production" ]] \
+        || die "Unsupported diagnostics environment."
+    DIAGNOSTICS_OUTPUT_USED=0
+    if [[ ! -d "$LOG_ROOT" || -L "$LOG_ROOT" ]]; then
+        diagnostics_emit "environment=$environment"$'\n'"logs=0"$'\n'"message=no_retained_deployment_logs"$'\n' || true
+        return 0
+    fi
+
+    for path in "$LOG_ROOT/$environment".*.log; do
+        [[ -f "$path" && ! -L "$path" ]] || continue
+        file_name="${path##*/}"
+        [[ "$file_name" =~ ^${environment//./\\.}\.[A-Za-z0-9][A-Za-z0-9._-]*\.log$ ]] || continue
+        mtime="$(diagnostics_file_mtime "$path")" || continue
+        diagnostic_entries+=("$mtime	$file_name")
+    done
+
+    reported_log_count="${#diagnostic_entries[@]}"
+    if (( reported_log_count > DIAGNOSTICS_MAX_LOGS )); then
+        reported_log_count="$DIAGNOSTICS_MAX_LOGS"
+    fi
+    diagnostics_emit "environment=$environment"$'\n' || return 0
+    diagnostics_emit "logs=$reported_log_count"$'\n' || return 0
+    if (( ${#diagnostic_entries[@]} == 0 )); then
+        diagnostics_emit "message=no_retained_deployment_logs"$'\n' || true
+        return 0
+    fi
+
+    while IFS=$'\t' read -r mtime file_name; do
+        [[ -n "$file_name" ]] || continue
+        ((selected_count += 1))
+        if (( selected_count > DIAGNOSTICS_MAX_LOGS )); then
+            break
+        fi
+        path="$LOG_ROOT/$file_name"
+        [[ -f "$path" && ! -L "$path" ]] || continue
+        size="$(diagnostics_file_size "$path")" || size=0
+        line_count="$(/usr/bin/wc -l <"$path" 2>/dev/null || printf '0')"
+        line_count="${line_count//[[:space:]]/}"
+        [[ "$line_count" =~ ^[0-9]+$ ]] || line_count=0
+        diagnostics_emit "log=$file_name bytes=$size lines=$line_count"$'\n' || return 0
+        diagnostics_emit "content_begin"$'\n' || return 0
+        diagnostics_emit_log "$path" || return 0
+        diagnostics_emit "content_end"$'\n' || return 0
+    done < <(printf '%s\n' "${diagnostic_entries[@]}" | /usr/bin/sort -t $'\t' -k1,1nr -k2,2r)
+}
+
 main() {
     validate_invocation "$@" || {
         usage
@@ -1841,6 +2145,9 @@ main() {
             ;;
         deploy)
             deploy_environment "$3" "$4"
+            ;;
+        diagnostics)
+            diagnostics_environment "$2"
             ;;
         db-probe)
             db_probe "$3" "$4"

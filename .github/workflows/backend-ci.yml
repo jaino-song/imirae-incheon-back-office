@@ -327,36 +327,61 @@ jobs:
           managed_node_id=""
           final_status="TimedOut"
 
+          emit_safe_ssm_output() {
+            local stream_name="$1"
+            local raw_output="$2"
+            local lowercase_output
+            local normalized_output
+
+            normalized_output="$(printf '%s' "$raw_output" \
+              | tr '\r\n\t' '   ' \
+              | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+            lowercase_output="$(printf '%s' "$normalized_output" | tr '[:upper:]' '[:lower:]')"
+
+            if [[ -z "$normalized_output" \
+              || ${#normalized_output} -gt 1024 \
+              || "$normalized_output" == *"="* \
+              || "$normalized_output" == *"://"* \
+              || "$lowercase_output" =~ (authorization|bearer|credential|password|secret|token) ]]; then
+              return 1
+            fi
+
+            printf 'SSM deployment %s: %s\n' "$stream_name" "$normalized_output" >&2
+            return 0
+          }
+
           report_ssm_failure() {
-            local lowercase_error
-            local normalized_error
-            local raw_error
+            local invocation_json
+            local raw_stdout
+            local raw_stderr
+            local reported_output=false
 
             if [[ -z "$managed_node_id" || "$managed_node_id" != "$expected_node_id" ]]; then
               echo "SSM deployment error unavailable." >&2
               return
             fi
 
-            raw_error="$(aws ssm get-command-invocation \
+            if ! invocation_json="$(aws ssm get-command-invocation \
               --command-id "$command_id" \
               --instance-id "$managed_node_id" \
-              --query 'StandardErrorContent' \
-              --output text 2>/dev/null || true)"
-            normalized_error="$(printf '%s' "$raw_error" \
-              | tr '\r\n\t' '   ' \
-              | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
-            lowercase_error="$(printf '%s' "$normalized_error" | tr '[:upper:]' '[:lower:]')"
-
-            if [[ -z "$normalized_error" \
-              || ${#normalized_error} -gt 1024 \
-              || "$normalized_error" == *"="* \
-              || "$normalized_error" == *"://"* \
-              || "$lowercase_error" =~ (authorization|bearer|credential|password|secret|token) ]]; then
+              --query '{stdout:StandardOutputContent,stderr:StandardErrorContent}' \
+              --output json 2>/dev/null)"; then
               echo "SSM deployment error unavailable." >&2
               return
             fi
 
-            printf 'SSM deployment error: %s\n' "$normalized_error" >&2
+            raw_stdout="$(jq -r '.stdout // ""' <<<"$invocation_json" 2>/dev/null || true)"
+            raw_stderr="$(jq -r '.stderr // ""' <<<"$invocation_json" 2>/dev/null || true)"
+
+            if emit_safe_ssm_output stdout "$raw_stdout"; then
+              reported_output=true
+            fi
+            if emit_safe_ssm_output stderr "$raw_stderr"; then
+              reported_output=true
+            fi
+            if [[ "$reported_output" != true ]]; then
+              echo "SSM deployment error unavailable." >&2
+            fi
           }
 
           for _attempt in $(seq 1 360); do
@@ -366,8 +391,10 @@ jobs:
               --output json)"
             invocation_count="$(jq '.CommandInvocations | length' <<<"$invocation_json")"
             if [[ "$invocation_count" -gt 1 ]]; then
+              managed_node_id=""
               echo "Deployment target resolved to more than one managed node." >&2
-              exit 1
+              final_status="MultipleTargets"
+              break
             fi
             if [[ "$invocation_count" -eq 0 ]]; then
               sleep 5
@@ -384,16 +411,20 @@ jobs:
                 break
                 ;;
               *)
-                report_ssm_failure
-                echo "SSM deployment ended with status: $final_status" >&2
-                exit 1
+                break
                 ;;
             esac
           done
 
           if [[ "$final_status" != "Success" || -z "$managed_node_id" ]]; then
             report_ssm_failure
-            echo "SSM deployment did not finish successfully before the timeout." >&2
+            if [[ "$final_status" == "MultipleTargets" ]]; then
+              echo "SSM deployment ended with multiple managed-node invocations." >&2
+            elif [[ "$final_status" == "TimedOut" ]]; then
+              echo "SSM deployment did not finish successfully before the timeout." >&2
+            else
+              echo "SSM deployment ended with status: $final_status" >&2
+            fi
             exit 1
           fi
           if [[ "$managed_node_id" != "$expected_node_id" ]]; then

@@ -11,7 +11,10 @@ if [[ "$EUID" -ne 0 ]]; then
 fi
 
 readonly PROTECTED_ARTIFACT_DIRECTORY="/usr/local/libexec/babyjamjam-ci-operator"
+readonly PROTECTED_OPERATOR_PATH="/usr/local/sbin/babyjamjam-ci-operator"
 readonly PROTECTED_COMPOSE_FILE="$PROTECTED_ARTIFACT_DIRECTORY/compose.lightsail.yml"
+readonly PROTECTED_BUNDLE_MANIFEST="$PROTECTED_ARTIFACT_DIRECTORY/bundle.manifest"
+readonly PROTECTED_BUNDLE_MANIFEST_VERSION="1"
 readonly PROTECTED_COMPOSE_ENV_FILE="/dev/null"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 if [[ "$SCRIPT_DIR" != "$PROTECTED_ARTIFACT_DIRECTORY" ]]; then
@@ -61,6 +64,112 @@ validate_protected_artifact_file() {
     }
 }
 
+sha256_protected_artifact() {
+    local artifact_path="$1"
+    local digest_output
+
+    if [[ -x /usr/bin/sha256sum ]]; then
+        digest_output="$(/usr/bin/sha256sum "$artifact_path")" || return 1
+    elif [[ -x /sbin/sha256sum ]]; then
+        digest_output="$(/sbin/sha256sum "$artifact_path")" || return 1
+    elif [[ -x /usr/bin/shasum ]]; then
+        digest_output="$(/usr/bin/shasum -a 256 "$artifact_path")" || return 1
+    else
+        return 1
+    fi
+    digest_output="${digest_output%% *}"
+    [[ "$digest_output" =~ ^[0-9a-f]{64}$ ]] || return 1
+    printf '%s\n' "$digest_output"
+}
+
+validate_protected_bundle_manifest() {
+    local manifest_line_count
+    local entrypoint_digest
+    local operator_digest
+    local deploy_digest
+    local rollback_digest
+    local compose_digest
+
+    [[ -f "$PROTECTED_BUNDLE_MANIFEST" && ! -L "$PROTECTED_BUNDLE_MANIFEST" ]] || {
+        echo "The protected operator bundle manifest is missing or invalid." >&2
+        exit 1
+    }
+    [[ "$(/usr/bin/stat -c '%U:%G:%a' "$PROTECTED_BUNDLE_MANIFEST")" == root:root:640 ]] || {
+        echo "The protected operator bundle manifest has unexpected ownership or mode." >&2
+        exit 1
+    }
+    manifest_line_count="$(/usr/bin/wc -l <"$PROTECTED_BUNDLE_MANIFEST")"
+    [[ "$manifest_line_count" -eq 6 ]] || {
+        echo "The protected operator bundle manifest is incomplete." >&2
+        exit 1
+    }
+    entrypoint_digest="$(sha256_protected_artifact "$PROTECTED_OPERATOR_PATH")" || {
+        echo "Unable to hash the installed CI operator entrypoint." >&2
+        exit 1
+    }
+    operator_digest="$(sha256_protected_artifact "$PROTECTED_ARTIFACT_DIRECTORY/ci-operator.sh")" || {
+        echo "Unable to hash the protected CI operator artifact." >&2
+        exit 1
+    }
+    deploy_digest="$(sha256_protected_artifact "$PROTECTED_ARTIFACT_DIRECTORY/deploy.sh")" || {
+        echo "Unable to hash the protected deploy artifact." >&2
+        exit 1
+    }
+    rollback_digest="$(sha256_protected_artifact "$PROTECTED_ARTIFACT_DIRECTORY/rollback.sh")" || {
+        echo "Unable to hash the protected rollback artifact." >&2
+        exit 1
+    }
+    compose_digest="$(sha256_protected_artifact "$PROTECTED_COMPOSE_FILE")" || {
+        echo "Unable to hash the protected Compose artifact." >&2
+        exit 1
+    }
+    /usr/bin/grep -Fqx "version=$PROTECTED_BUNDLE_MANIFEST_VERSION" "$PROTECTED_BUNDLE_MANIFEST" || {
+        echo "The protected operator bundle manifest version is unsupported." >&2
+        exit 1
+    }
+    /usr/bin/grep -Fqx "entrypoint=root:root:750:$entrypoint_digest" "$PROTECTED_BUNDLE_MANIFEST" || {
+        echo "The protected operator bundle entrypoint does not match its manifest." >&2
+        exit 1
+    }
+    /usr/bin/grep -Fqx "ci-operator.sh=root:root:750:$operator_digest" "$PROTECTED_BUNDLE_MANIFEST" || {
+        echo "The protected CI operator artifact does not match its manifest." >&2
+        exit 1
+    }
+    /usr/bin/grep -Fqx "deploy.sh=root:root:750:$deploy_digest" "$PROTECTED_BUNDLE_MANIFEST" || {
+        echo "The protected deploy artifact does not match its manifest." >&2
+        exit 1
+    }
+    /usr/bin/grep -Fqx "rollback.sh=root:root:750:$rollback_digest" "$PROTECTED_BUNDLE_MANIFEST" || {
+        echo "The protected rollback artifact does not match its manifest." >&2
+        exit 1
+    }
+    /usr/bin/grep -Fqx "compose.lightsail.yml=root:root:640:$compose_digest" "$PROTECTED_BUNDLE_MANIFEST" || {
+        echo "The protected Compose artifact does not match its manifest." >&2
+        exit 1
+    }
+}
+
+validate_protected_bundle_paths() {
+    local artifact_path
+
+    for artifact_path in "$PROTECTED_ARTIFACT_DIRECTORY"/*; do
+        [[ -e "$artifact_path" || -L "$artifact_path" ]] || continue
+        case "$artifact_path" in
+            "$PROTECTED_ARTIFACT_DIRECTORY/ci-operator.sh"|"$PROTECTED_ARTIFACT_DIRECTORY/deploy.sh"|"$PROTECTED_ARTIFACT_DIRECTORY/rollback.sh"|"$PROTECTED_COMPOSE_FILE"|"$PROTECTED_BUNDLE_MANIFEST")
+                ;;
+            *)
+                echo "The protected CI operator bundle contains an unexpected path." >&2
+                exit 1
+                ;;
+        esac
+    done
+    for artifact_path in "$PROTECTED_ARTIFACT_DIRECTORY"/.[!.]* "$PROTECTED_ARTIFACT_DIRECTORY"/..?*; do
+        [[ -e "$artifact_path" || -L "$artifact_path" ]] || continue
+        echo "The protected CI operator bundle contains an unexpected path." >&2
+        exit 1
+    done
+}
+
 validate_protected_runtime_bundle() {
     local script_path="$SCRIPT_DIR/$(/usr/bin/basename "${BASH_SOURCE[0]}")"
 
@@ -73,10 +182,14 @@ validate_protected_runtime_bundle() {
         echo "The protected CI operator artifact directory is missing or unsafe." >&2
         exit 1
     }
+    validate_protected_bundle_paths
     validate_protected_artifact_file "$script_path" 750
+    validate_protected_artifact_file "$PROTECTED_OPERATOR_PATH" 750
     validate_protected_artifact_file "$PROTECTED_ARTIFACT_DIRECTORY/ci-operator.sh" 750
     validate_protected_artifact_file "$PROTECTED_ARTIFACT_DIRECTORY/rollback.sh" 750
     validate_protected_artifact_file "$PROTECTED_COMPOSE_FILE" 640
+    validate_protected_artifact_file "$PROTECTED_BUNDLE_MANIFEST" 640
+    validate_protected_bundle_manifest
 }
 
 validate_protected_runtime_bundle
