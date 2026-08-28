@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { FooterNavigation } from "@/components/ui/footer-navigation";
 import { getRoleLabel } from "@/lib/constants/roles";
 import { resetAuthorityState } from "@/lib/auth/authority-state";
+import { getCurrentPushEndpoint } from "@/lib/notifications/push-endpoint";
+import { logout } from "@/app/logout/actions";
 import { getUserBranches, setCurrentBranch } from "./actions";
 
 interface Branch {
@@ -60,7 +62,30 @@ export default function SelectBranchPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selecting, setSelecting] = useState<string | null>(null);
+    const [loggingOut, setLoggingOut] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
+
+    const handleLogout = useCallback(async () => {
+        if (loggingOut || selecting) return;
+
+        setLoggingOut(true);
+        try {
+            const pushEndpoint = await getCurrentPushEndpoint();
+            await resetAuthorityState(queryClient);
+            const result = await logout(pushEndpoint);
+            if (!result.success) {
+                setError(result.error || "로그아웃에 실패했습니다.");
+                setLoggingOut(false);
+                return;
+            }
+
+            router.replace("/login");
+        } catch (err) {
+            console.error("[Select Branch] Error logging out:", err);
+            setError("로그아웃에 실패했습니다.");
+            setLoggingOut(false);
+        }
+    }, [loggingOut, selecting, queryClient, router]);
 
     const handleSelectBranch = useCallback(async (branchId: string): Promise<boolean> => {
         setSelecting(branchId);
@@ -206,16 +231,10 @@ export default function SelectBranchPage() {
                         </Button>
                         <Button
                             variant="outline"
-                            onClick={async () => {
-                                await resetAuthorityState(queryClient);
-                                // Clear auth cookies and redirect to login
-                                document.cookie = "auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-                                document.cookie = "refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-                                document.cookie = "selected_branch_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-                                router.replace("/login");
-                            }}
+                            onClick={handleLogout}
+                            disabled={loggingOut}
                         >
-                            로그아웃
+                            {loggingOut ? "로그아웃 중..." : "로그아웃"}
                         </Button>
                     </div>
                 </div>

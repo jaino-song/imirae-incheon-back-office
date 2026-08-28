@@ -24,4 +24,10 @@ describe("mobile select-branch navigation lifecycle", () => {
     expect(resetIndex).toBeGreaterThanOrEqual(0);
     expect(branchIndex).toBeGreaterThan(resetIndex);
   });
+
+  it("uses the shared server logout action and never mutates auth cookies from JavaScript", () => {
+    expect(source).toContain('import { logout } from "@/app/(shell)/logout/actions"');
+    expect(source).toContain("const result = await logout(pushEndpoint)");
+    expect(source).not.toContain(["document", "cookie"].join("."));
+  });
 });

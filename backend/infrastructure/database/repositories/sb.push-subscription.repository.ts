@@ -30,11 +30,35 @@ export class SbPushSubscriptionRepository implements IPushSubscriptionRepository
         return PushSubscriptionMapper.toDomain(created);
     }
 
+    async upsert(subscription: PushSubscriptionEntity): Promise<PushSubscriptionEntity> {
+        const data = PushSubscriptionMapper.toPrismaCreate(subscription);
+        const saved = await this.prismaService.push_subscription.upsert({
+            where: { endpoint: subscription.endpoint },
+            update: {
+                userId: data.userId,
+                p256dhKey: data.p256dhKey,
+                authKey: data.authKey,
+                userAgent: data.userAgent,
+            },
+            create: data,
+        });
+        return PushSubscriptionMapper.toDomain(saved);
+    }
+
     async deleteByEndpoint(endpoint: string): Promise<void> {
         await this.prismaService.push_subscription.delete({
             where: { endpoint },
         }).catch(() => {
             // Ignore if not found
+        });
+    }
+
+    async deleteByEndpointForUser(endpoint: string, userId: string): Promise<void> {
+        // A mismatched endpoint is deliberately a no-op. This prevents an
+        // authenticated user from deleting another user's subscription or
+        // learning whether the endpoint exists.
+        await this.prismaService.push_subscription.deleteMany({
+            where: { endpoint, userId },
         });
     }
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
 import { resetAuthorityState } from "@/lib/auth/authority-state";
+import { getCurrentPushEndpoint } from "@/lib/notifications/push-endpoint";
 import { logout } from "./actions";
 
 export default function LogoutPage() {
@@ -12,8 +13,9 @@ export default function LogoutPage() {
 
     useEffect(() => {
         const performLogout = async () => {
+            const pushEndpoint = await getCurrentPushEndpoint();
             await resetAuthorityState();
-            const result = await logout();
+            const result = await logout(pushEndpoint);
 
             if (result.success) {
                 // Redirect to login page after successful logout

@@ -11,7 +11,9 @@ describe("SendNotificationUsecase", () => {
         findByUserId: jest.fn(),
         findByEndpoint: jest.fn(),
         create: jest.fn(),
+        upsert: jest.fn(),
         deleteByEndpoint: jest.fn(),
+        deleteByEndpointForUser: jest.fn(),
         deleteByUserId: jest.fn(),
         findAll: jest.fn(),
     });

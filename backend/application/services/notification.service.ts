@@ -194,8 +194,8 @@ export class NotificationService {
         return this.subscribePushUsecase.execute(userId, endpoint, p256dhKey, authKey, userAgent);
     }
 
-    unsubscribePush(endpoint: string): Promise<void> {
-        return this.unsubscribePushUsecase.execute(endpoint);
+    unsubscribePush(userId: string, endpoint: string): Promise<void> {
+        return this.unsubscribePushUsecase.execute(userId, endpoint);
     }
 
     // Send Notifications

@@ -75,8 +75,11 @@ export class NotificationController {
      */
     @Post("unsubscribe")
     @UseGuards(JwtGuard)
-    async unsubscribe(@Body() dto: UnsubscribePushDto): Promise<{ success: boolean }> {
-        await this.notificationService.unsubscribePush(dto.endpoint);
+    async unsubscribe(
+        @Request() req: { user: JwtPayload },
+        @Body() dto: UnsubscribePushDto,
+    ): Promise<{ success: boolean }> {
+        await this.notificationService.unsubscribePush(req.user.userId, dto.endpoint);
         return { success: true };
     }
 
