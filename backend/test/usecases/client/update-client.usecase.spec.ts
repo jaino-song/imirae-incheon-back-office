@@ -117,7 +117,6 @@ describe("UpdateClientUsecase", () => {
             "address",
             "phone",
             "type",
-            "duration",
             "fullPrice",
             "grant",
             "actualPrice",
@@ -137,6 +136,17 @@ describe("UpdateClientUsecase", () => {
             const result = await usecase.execute(branchId, 1, { [field]: null } as never);
 
             expect((result as unknown as Record<string, unknown>)[field]).toBeNull();
+        });
+
+        it("should reject clearing duration when the service period is complete", async () => {
+            const existingClient = ClientFactory.create({ id: 1 });
+            mockRepository.setData([existingClient]);
+
+            await expect(usecase.execute(branchId, 1, { duration: null }))
+                .rejects.toThrow("duration must equal the Korean business-day count (246)");
+
+            expect(mockRepository.getAllData()[0]).toBe(existingClient);
+            expect(mockRepository.getAllData()[0]?.duration).toBe(15);
         });
 
         it.each(["name", "voucherClient", "breastPump"])(

@@ -1,9 +1,8 @@
-import { PwaNotificationSchedulerService } from "application/services/pwa-notification-scheduler.service";
-import { DailyDigestSection, NotificationService } from "application/services/notification.service";
+import type { DailyDigestSection, NotificationService } from "application/services/notification.service";
 import { IBranchRepository } from "domain/repositories/branch.repository.interface";
 import { IClientRepository } from "domain/repositories/client.repository.interface";
 import { IMessageTriggerJobRepository } from "domain/repositories/message-trigger-job.repository.interface";
-import { SystemSettingService } from "application/services/system-setting.service";
+import type { SystemSettingService } from "application/services/system-setting.service";
 import {
     MESSAGE_TRIGGER_TEMPLATE_CATALOG,
     MessageTriggerRecipientType,
@@ -11,8 +10,9 @@ import {
 } from "domain/constants/message-trigger-catalog";
 
 describe("PwaNotificationSchedulerService", () => {
+    const testFrontendUrl = "https://admin.babyjamjam.com";
     const emailTemplateContext = {
-        ctaUrl: "https://admin.babyjamjam.com/login",
+        ctaUrl: `${testFrontendUrl}/login`,
         ctaLabel: "로그인해서 확인하기",
     };
     const notificationService = {
@@ -37,7 +37,30 @@ describe("PwaNotificationSchedulerService", () => {
         getPwaUndeliveredDigestWatermark: jest.fn(),
         setPwaUndeliveredDigestWatermark: jest.fn(),
     };
-    let service: PwaNotificationSchedulerService;
+    let PwaNotificationSchedulerServiceClass: typeof import("application/services/pwa-notification-scheduler.service").PwaNotificationSchedulerService;
+    let service: InstanceType<typeof PwaNotificationSchedulerServiceClass>;
+    const originalNodeEnv = process.env["NODE_ENV"];
+    const originalProductionFrontendUrl = process.env["PRODUCTION_FRONTEND_URL"];
+
+    beforeAll(async () => {
+        // The full backend Jest run may execute an AppModule test in the same
+        // worker first, which loads backend/.env and leaves DEVELOPMENT_FRONTEND_URL
+        // in process.env. Isolate this module with an explicit production URL so
+        // the CTA assertion is deterministic without changing any .env file.
+        process.env["NODE_ENV"] = "production";
+        process.env["PRODUCTION_FRONTEND_URL"] = testFrontendUrl;
+        await jest.isolateModulesAsync(async () => {
+            ({ PwaNotificationSchedulerService: PwaNotificationSchedulerServiceClass } =
+                await import("application/services/pwa-notification-scheduler.service"));
+        });
+    });
+
+    afterAll(() => {
+        if (originalNodeEnv === undefined) delete process.env["NODE_ENV"];
+        else process.env["NODE_ENV"] = originalNodeEnv;
+        if (originalProductionFrontendUrl === undefined) delete process.env["PRODUCTION_FRONTEND_URL"];
+        else process.env["PRODUCTION_FRONTEND_URL"] = originalProductionFrontendUrl;
+    });
 
     const digestCall = (index = 0): [string, string, DailyDigestSection[], typeof emailTemplateContext] =>
         notificationService.sendDailyDigestToBranchUsers.mock.calls[index];
@@ -46,7 +69,7 @@ describe("PwaNotificationSchedulerService", () => {
         MESSAGE_TRIGGER_TEMPLATE_CATALOG[templateKey].name;
 
     beforeEach(() => {
-        service = new PwaNotificationSchedulerService(
+        service = new PwaNotificationSchedulerServiceClass(
             notificationService as unknown as NotificationService,
             clientRepository as unknown as IClientRepository,
             branchRepository as unknown as IBranchRepository,

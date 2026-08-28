@@ -34,6 +34,7 @@ import {
     countBusinessDaysKr,
     isoDateInKorea,
     isBusinessDayKr,
+    UnsupportedKoreanHolidayYearError,
 } from "domain/utils/business-days";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { PrismaService } from "infrastructure/database/prisma.service";
@@ -84,6 +85,12 @@ describe("full-flow service period fixture", () => {
         expect(isBusinessDayKr(period.startDate)).toBe(true);
         expect(isBusinessDayKr(period.endDate)).toBe(true);
         expect(countBusinessDaysKr(period.startDate, period.endDate)).toBe(2);
+    });
+
+    it("fails closed for service periods outside the supported holiday calendar", () => {
+        expect(() => countBusinessDaysKr("2099-01-01", "2099-01-03")).toThrow(
+            UnsupportedKoreanHolidayYearError,
+        );
     });
 });
 
@@ -195,8 +202,8 @@ describeE2E("BJJ-275 full connected flow", () => {
                 address: "E2E 자동화 불변식 테스트 주소",
                 phone: `0108${uniqueDigits}`,
                 duration: 3,
-                startDate: "2099-01-01",
-                endDate: "2099-01-03",
+                startDate: "2027-01-04",
+                endDate: "2027-01-06",
                 careCenter: false,
                 voucherClient: false,
                 breastPump: false,
