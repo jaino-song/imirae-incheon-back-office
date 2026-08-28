@@ -128,13 +128,21 @@ export function ClientRegistrationWizard({
         ? undefined
         : matchingEmployees.find((employee) => employee.id === selectedEmployeeId);
     const matchedEmployee = selectedEmployee
-        ?? (matchingEmployees.length === 1 ? matchingEmployees[0] : undefined);
-    const hasAmbiguousEmployeeMatch = matchingEmployees.length > 1 && !selectedEmployee;
-    const needsEmployeeRegistration = Boolean(employeeName)
+        ?? (selectedEmployeeId === null && matchingEmployees.length === 1 ? matchingEmployees[0] : undefined);
+    const hasInvalidEmployeeSelection = employeeName.trim().length > 0
+        && selectedEmployeeId !== null
+        && selectedEmployee === undefined;
+    const hasAmbiguousEmployeeMatch = createdEmployeeId === null
+        && (hasInvalidEmployeeSelection || (matchingEmployees.length > 1 && !selectedEmployee));
+    const isEmployeeLookupBlocked = createdEmployeeId === null
+        && employeeName.trim().length > 0
+        && (isEmployeesLoading || isEmployeesFetching || isEmployeesError);
+    const needsEmployeeRegistration = Boolean(employeeName.trim())
         && !isEmployeesLoading
         && !isEmployeesFetching
         && !isEmployeesError
         && matchingEmployees.length === 0
+        && !hasInvalidEmployeeSelection
         && createdEmployeeId === null;
     const canRegisterEmployee = employeeName.trim().length >= 2
         && employeePhone.replace(/\D/g, "").length === 11
@@ -151,7 +159,7 @@ export function ClientRegistrationWizard({
         if (activeStep === 0) {
             return Boolean(name.trim() && phone.trim() && birthday.trim() && address.trim())
                 && (isValidCompactDateInput(dueDate) || initialDraft?.skippedFields?.includes("dueDate"))
-                && !(employeeName && (isEmployeesLoading || isEmployeesFetching || isEmployeesError))
+                && !isEmployeeLookupBlocked
                 && !hasAmbiguousEmployeeMatch;
         }
         if (activeStep === 1) {
@@ -159,7 +167,7 @@ export function ClientRegistrationWizard({
             return isVoucherInfoComplete;
         }
         return true;
-    }, [activeStep, name, phone, birthday, address, dueDate, employeeName, hasAmbiguousEmployeeMatch, isEmployeesError, isEmployeesFetching, isEmployeesLoading, initialDraft?.skippedFields, voucherClient, isVoucherInfoComplete]);
+    }, [activeStep, name, phone, birthday, address, dueDate, hasAmbiguousEmployeeMatch, initialDraft?.skippedFields, isEmployeeLookupBlocked, voucherClient, isVoucherInfoComplete]);
 
     const handleNext = () => {
         if (!canGoNext) return;
@@ -198,7 +206,7 @@ export function ClientRegistrationWizard({
     };
 
     const handleSubmit = async () => {
-        if (employeeName && isEmployeesFetching) {
+        if (employeeName.trim() && createdEmployeeId === null && isEmployeesFetching) {
             setSubmitError("제공인력 정보를 확인하고 있습니다. 잠시 후 다시 시도해 주세요.");
             setActiveStep(0);
             return;
@@ -364,7 +372,7 @@ export function ClientRegistrationWizard({
                                 onChange={(e) => setAddress(e.target.value)}
                             />
                         </div>
-                        {matchingEmployees.length > 1 && (
+                        {createdEmployeeId === null && (matchingEmployees.length > 1 || hasInvalidEmployeeSelection) && (
                             <div className="space-y-2">
                                 <Label htmlFor="employee-selection">제공인력 선택</Label>
                                 <Select
@@ -577,7 +585,7 @@ export function ClientRegistrationWizard({
                 </Alert>
             )}
 
-            {employeeName && isEmployeesError && (
+            {employeeName.trim() && createdEmployeeId === null && isEmployeesError && (
                 <Alert variant="destructive" className="mt-4">
                     <AlertCircle className="h-4 w-4" />
                     <AlertDescription>
@@ -625,7 +633,9 @@ export function ClientRegistrationWizard({
                         onClick={handleSubmit}
                         disabled={isSubmitting
                             || !name.trim()
-                            || Boolean(employeeName && (isEmployeesFetching || isEmployeesError))
+                            || Boolean(employeeName.trim()
+                                && createdEmployeeId === null
+                                && (isEmployeesFetching || isEmployeesError || hasInvalidEmployeeSelection))
                             || (voucherClient && !isVoucherInfoComplete)}
                     >
                         제출

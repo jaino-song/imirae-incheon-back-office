@@ -293,6 +293,101 @@ describe("ClientRegistrationWizard", () => {
         expect(screen.getByLabelText("이름")).toHaveValue("홍길동");
     });
 
+    test("does not rebind an explicitly selected provider after a same-name refetch", async () => {
+        mockEmployees = [
+            { id: 10, name: "김제공", phone: "010-1111-1111" },
+            { id: 11, name: "김제공", phone: "010-2222-2222" },
+        ];
+        mockCreateClientMutateAsync.mockResolvedValue({ id: 123, name: "홍길동" });
+        const initialDraft = {
+            name: "홍길동",
+            phone: "01012345678",
+            birthday: "900101",
+            address: "인천 연수구",
+            dueDate: "260201",
+            employeeName: "김제공",
+        };
+        const { rerender } = render(<ClientRegistrationWizard initialDraft={initialDraft} />);
+
+        const nextButton = screen.getByRole("button", { name: "다음" });
+        expect(nextButton).toBeDisabled();
+        fireEvent.click(screen.getByLabelText("제공인력 선택"));
+        fireEvent.click(await screen.findByRole("option", { name: "김제공 (010-2222-2222)" }));
+        expect(nextButton).not.toBeDisabled();
+        fireEvent.click(nextButton);
+
+        fireEvent.click(await screen.findByRole("checkbox", { name: "바우처 대상" }));
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        expect(screen.getByRole("button", { name: "제출" })).toBeInTheDocument();
+
+        // A refetch replaces the selected employee with a different same-name match.
+        mockEmployeesFetching = true;
+        rerender(<ClientRegistrationWizard initialDraft={initialDraft} />);
+        expect(screen.getByRole("button", { name: "제출" })).toBeDisabled();
+
+        mockEmployees = [{ id: 12, name: "김제공", phone: "010-3333-3333" }];
+        mockEmployeesFetching = false;
+        rerender(<ClientRegistrationWizard initialDraft={initialDraft} />);
+
+        const submitButton = screen.getByRole("button", { name: "제출" });
+        expect(submitButton).toBeDisabled();
+        fireEvent.click(submitButton);
+        expect(mockCreateClientMutateAsync).not.toHaveBeenCalled();
+
+        // Returning to the first step exposes the stale choice and keeps progression blocked
+        // until the user explicitly selects the remaining provider.
+        fireEvent.click(screen.getByRole("button", { name: "이전" }));
+        fireEvent.click(screen.getByRole("button", { name: "이전" }));
+        expect(screen.getByLabelText("제공인력 선택")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "다음" })).toBeDisabled();
+    });
+
+    test("submits with a created provider id even when the follow-up employee lookup fails", async () => {
+        mockCreateEmployeeMutateAsync.mockResolvedValue({ id: 9, name: "김제공" });
+        mockCreateClientMutateAsync.mockResolvedValue({ id: 123, name: "홍길동" });
+        const initialDraft = {
+            name: "홍길동",
+            phone: "01012345678",
+            birthday: "900101",
+            address: "인천 연수구",
+            dueDate: "260201",
+            employeeName: "김제공",
+        };
+        const { rerender } = render(<ClientRegistrationWizard initialDraft={initialDraft} />);
+
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        const registerButton = await screen.findByRole("button", { name: "제공인력 등록" });
+        fireEvent.change(screen.getByLabelText("연락처"), {
+            target: { value: "01012345678" },
+        });
+        fireEvent.click(registerButton);
+
+        await waitFor(() => {
+            expect(mockCreateEmployeeMutateAsync).toHaveBeenCalledTimes(1);
+        });
+        expect(await screen.findByRole("checkbox", { name: "바우처 대상" }))
+            .toBeInTheDocument();
+
+        // The create mutation can trigger a query refetch that fails; the created id is still authoritative.
+        mockEmployeesError = true;
+        rerender(<ClientRegistrationWizard initialDraft={initialDraft} />);
+
+        const nextButton = screen.getByRole("button", { name: "다음" });
+        fireEvent.click(screen.getByLabelText("바우처 대상"));
+        expect(nextButton).not.toBeDisabled();
+        fireEvent.click(nextButton);
+
+        const submitButton = screen.getByRole("button", { name: "제출" });
+        expect(submitButton).not.toBeDisabled();
+        fireEvent.click(submitButton);
+
+        await waitFor(() => {
+            expect(mockCreateClientMutateAsync).toHaveBeenCalledWith(
+                expect.objectContaining({ primaryEmployeeId: 9 }),
+            );
+        });
+    });
+
     test("waits for employee lookup before deciding whether registration is needed", async () => {
         mockEmployeesLoading = true;
         const { rerender } = render(
