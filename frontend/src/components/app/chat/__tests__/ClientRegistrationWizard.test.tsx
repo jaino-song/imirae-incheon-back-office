@@ -4,6 +4,7 @@ import { ClientRegistrationWizard } from "../ClientRegistrationWizard";
 const mockCreateClientMutateAsync = jest.fn();
 const mockCreateEmployeeMutateAsync = jest.fn();
 let mockEmployees: Array<{ id: number; name: string }> = [];
+let mockEmployeesLoading = false;
 
 jest.mock("@/hooks/useVoucherData", () => ({
     useAvailableClientAreas: () => ({ data: [], isLoading: false }),
@@ -41,7 +42,7 @@ jest.mock("@/hooks/useEmployees", () => ({
         mutateAsync: (...args: unknown[]) => mockCreateEmployeeMutateAsync(...args),
         isPending: false,
     }),
-    useEmployees: () => ({ data: mockEmployees }),
+    useEmployees: () => ({ data: mockEmployees, isLoading: mockEmployeesLoading }),
 }));
 
 describe("ClientRegistrationWizard", () => {
@@ -49,6 +50,7 @@ describe("ClientRegistrationWizard", () => {
         mockCreateClientMutateAsync.mockReset();
         mockCreateEmployeeMutateAsync.mockReset();
         mockEmployees = [];
+        mockEmployeesLoading = false;
     });
 
     test("submits minimal required payload to /api/clients", async () => {
@@ -240,6 +242,46 @@ describe("ClientRegistrationWizard", () => {
                 expect.objectContaining({ primaryEmployeeId: 10 }),
             );
         });
+    });
+
+    test("waits for employee lookup before deciding whether registration is needed", async () => {
+        mockEmployeesLoading = true;
+        const { rerender } = render(
+            <ClientRegistrationWizard
+                initialDraft={{
+                    name: "홍길동",
+                    phone: "01012345678",
+                    birthday: "900101",
+                    address: "인천 연수구",
+                    dueDate: "260201",
+                    employeeName: "김제공",
+                }}
+            />,
+        );
+
+        expect(screen.getByRole("button", { name: "다음" })).toBeDisabled();
+
+        mockEmployeesLoading = false;
+        mockEmployees = [{ id: 10, name: "김제공" }];
+        rerender(
+            <ClientRegistrationWizard
+                initialDraft={{
+                    name: "홍길동",
+                    phone: "01012345678",
+                    birthday: "900101",
+                    address: "인천 연수구",
+                    dueDate: "260201",
+                    employeeName: "김제공",
+                }}
+            />,
+        );
+
+        const nextButton = screen.getByRole("button", { name: "다음" });
+        expect(nextButton).not.toBeDisabled();
+        fireEvent.click(nextButton);
+        expect(await screen.findByRole("checkbox", { name: "바우처 대상" }))
+            .toBeInTheDocument();
+        expect(screen.queryByLabelText("제공인력 이름")).not.toBeInTheDocument();
     });
 
     test("shows inline error on API failure", async () => {

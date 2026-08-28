@@ -41,11 +41,18 @@ describe("useChatStream command intercept", () => {
         (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
             ok: true,
             json: async () => ({
-                messages: [{
-                    role: "assistant",
-                    content: "[산모 등록 위자드 표시됨] 연락처 알려주세요.",
-                    timestamp: "2026-08-28T00:00:00.000Z",
-                }],
+                messages: [
+                    {
+                        role: "user",
+                        content: "산모 등록. 이름은 홍길동, 생년월일은 900101, 주소는 인천 연수구야.",
+                        timestamp: "2026-08-28T00:00:00.000Z",
+                    },
+                    {
+                        role: "assistant",
+                        content: "[산모 등록 위자드 표시됨] 연락처 알려주세요.",
+                        timestamp: "2026-08-28T00:00:01.000Z",
+                    },
+                ],
                 sessionId: "session-1",
                 hasMore: false,
                 total: 1,
@@ -57,9 +64,16 @@ describe("useChatStream command intercept", () => {
             await result.current.loadHistory();
         });
 
-        expect(result.current.messages).toEqual([expect.objectContaining({
+        expect(result.current.messages.at(-1)).toEqual(expect.objectContaining({
             content: "",
-            ui: { type: "clientRegistrationWizard" },
-        })]);
+            ui: expect.objectContaining({
+                type: "clientRegistrationWizard",
+                registrationDraft: expect.objectContaining({
+                    name: "홍길동",
+                    birthday: "900101",
+                    address: expect.stringContaining("인천 연수구"),
+                }),
+            }),
+        }));
     });
 });

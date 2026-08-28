@@ -148,7 +148,7 @@ function clientRegistrationAssistantContent(draft: ReturnType<typeof extractClie
         : `[산모 등록 위자드 표시됨] ${draft.missingFields.map((field) => `${labels[field]} 알려주세요.`).join(" ")}`;
 }
 
-function restoreMessageUI(msg: ChatMessage): ChatMessage {
+function restoreMessageUI(msg: ChatMessage, precedingMessage?: ChatMessage): ChatMessage {
     if (msg.role !== "assistant") return msg;
 
     const marker = Object.keys(WIZARD_MARKERS).find(
@@ -156,9 +156,21 @@ function restoreMessageUI(msg: ChatMessage): ChatMessage {
     );
     const ui = marker ? WIZARD_MARKERS[marker] : undefined;
     if (ui) {
-        return { ...msg, content: "", ui };
+        const registrationDraft = ui.type === "clientRegistrationWizard"
+            && precedingMessage?.role === "user"
+            ? extractClientRegistrationDraft(precedingMessage.content)
+            : undefined;
+        return {
+            ...msg,
+            content: "",
+            ui: registrationDraft ? { ...ui, registrationDraft } : ui,
+        };
     }
     return msg;
+}
+
+function restoreMessagesUI(messages: ChatMessage[]): ChatMessage[] {
+    return messages.map((message, index) => restoreMessageUI(message, messages[index - 1]));
 }
 
 function parseSSEBuffer(buffer: string): { events: ChatStreamEvent[]; remaining: string } {
@@ -299,7 +311,7 @@ export function useChatStream(): UseChatStreamReturn {
                 return;
             }
             const data = await res.json();
-            const restoredMessages = (data.messages as ChatMessage[]).map(restoreMessageUI);
+            const restoredMessages = restoreMessagesUI(data.messages as ChatMessage[]);
             if (offset === 0) {
                 setMessages(restoredMessages);
                 if (data.sessionId) {

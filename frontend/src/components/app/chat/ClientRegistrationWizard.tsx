@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -65,7 +65,7 @@ export function ClientRegistrationWizard({
 }: ClientRegistrationWizardProps) {
     const createClientMutation = useCreateClient();
     const createEmployeeMutation = useCreateEmployee();
-    const { data: employees = [] } = useEmployees();
+    const { data: employees = [], isLoading: isEmployeesLoading } = useEmployees();
     const [activeStep, setActiveStep] = useState(0);
 
     const [name, setName] = useState(initialDraft?.name ?? "");
@@ -120,23 +120,31 @@ export function ClientRegistrationWizard({
     );
     const matchedEmployee = matchingEmployees.length === 1 ? matchingEmployees[0] : undefined;
     const needsEmployeeRegistration = Boolean(employeeName)
+        && !isEmployeesLoading
         && matchingEmployees.length === 0
         && createdEmployeeId === null;
     const canRegisterEmployee = employeeName.trim().length >= 2
         && employeePhone.replace(/\D/g, "").length === 11
         && Boolean(employeeWorkArea);
 
+    useEffect(() => {
+        if (isRegisteringEmployee && matchingEmployees.length > 0) {
+            setIsRegisteringEmployee(false);
+        }
+    }, [isRegisteringEmployee, matchingEmployees.length]);
+
     const canGoNext = useMemo(() => {
         if (activeStep === 0) {
             return Boolean(name.trim() && phone.trim() && birthday.trim() && address.trim())
-                && (isValidCompactDateInput(dueDate) || initialDraft?.skippedFields?.includes("dueDate"));
+                && (isValidCompactDateInput(dueDate) || initialDraft?.skippedFields?.includes("dueDate"))
+                && !(employeeName && isEmployeesLoading);
         }
         if (activeStep === 1) {
             if (!voucherClient) return true;
             return isVoucherInfoComplete;
         }
         return true;
-    }, [activeStep, name, phone, birthday, address, dueDate, initialDraft?.skippedFields, voucherClient, isVoucherInfoComplete]);
+    }, [activeStep, name, phone, birthday, address, dueDate, employeeName, isEmployeesLoading, initialDraft?.skippedFields, voucherClient, isVoucherInfoComplete]);
 
     const handleNext = () => {
         if (!canGoNext) return;
