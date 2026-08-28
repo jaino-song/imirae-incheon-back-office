@@ -14,6 +14,14 @@ Parameters:
     Description: Fixed DeploymentTarget tag on the single shared SSM managed Lightsail node.
     AllowedPattern: "^[A-Za-z0-9._:/=+@-]{1,128}$"
 
+Rules:
+  SeoulRegionOnly:
+    Assertions:
+      - Assert: !Equals
+          - !Ref AWS::Region
+          - ap-northeast-2
+        AssertDescription: Deploy this stack only in the ap-northeast-2 region.
+
 Resources:
   ManagedNodeServiceRole:
     Type: AWS::IAM::Role
@@ -52,6 +60,24 @@ Resources:
               timeoutSeconds: "1800"
               runCommand:
                 - '/usr/local/sbin/babyjamjam-ci-operator deploy preview "{{ CommitSha }}" "{{ ImageDigest }}"'
+
+  PreviewDiagnosticsDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: babyjamjam-preview-diagnostics
+      DocumentType: Command
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Read the bounded, sanitized BabyJamJam preview deployment diagnostics.
+        mainSteps:
+          - action: aws:runShellScript
+            name: readPreviewDiagnostics
+            inputs:
+              timeoutSeconds: "120"
+              runCommand:
+                - '/usr/local/sbin/babyjamjam-ci-operator diagnostics preview'
 
   ProductionDeployDocument:
     Type: AWS::SSM::Document
@@ -149,6 +175,24 @@ Resources:
                   "$upgrade_root/repository/backend/deploy/lightsail/install-ci-operator.sh" install --replace
                   "$upgrade_root/repository/backend/deploy/lightsail/install-ci-operator.sh" check
                   printf '%s\n' 'operator_upgrade=ok'
+
+  ProductionDiagnosticsDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: babyjamjam-production-diagnostics
+      DocumentType: Command
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Read the bounded, sanitized BabyJamJam production deployment diagnostics.
+        mainSteps:
+          - action: aws:runShellScript
+            name: readProductionDiagnostics
+            inputs:
+              timeoutSeconds: "120"
+              runCommand:
+                - '/usr/local/sbin/babyjamjam-ci-operator diagnostics production'
 
   PreviewDbReconcileDocument:
     Type: AWS::SSM::Document
@@ -279,6 +323,43 @@ Resources:
                   - ssm:ListCommandInvocations
                 Resource: "*"
 
+  AgentLightsailDiagnosticsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Unattached least-privilege SSM diagnostics policy for the external agent-lightsail-operator IAM user.
+      ManagedPolicyName: AgentLightsailOperatorDiagnostics
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: UseFixedDiagnosticsDocuments
+            Effect: Allow
+            Action: ssm:SendCommand
+            Resource:
+              - !Sub arn:${AWS::Partition}:ssm:ap-northeast-2:${AWS::AccountId}:document/${PreviewDiagnosticsDocument}
+              - !Sub arn:${AWS::Partition}:ssm:ap-northeast-2:${AWS::AccountId}:document/${ProductionDiagnosticsDocument}
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: ap-northeast-2
+          - Sid: TargetTaggedManagedNode
+            Effect: Allow
+            Action: ssm:SendCommand
+            Resource: !Sub arn:${AWS::Partition}:ssm:ap-northeast-2:${AWS::AccountId}:managed-instance/*
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: ap-northeast-2
+                "ssm:resourceTag/DeploymentTarget": !Ref ManagedNodeTagValue
+          - Sid: ReadCommandDiagnostics
+            Effect: Allow
+            Action:
+              - ssm:DescribeInstanceInformation
+              - ssm:GetCommandInvocation
+              - ssm:ListCommandInvocations
+              - ssm:ListCommands
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: ap-northeast-2
+
 Outputs:
   DeploymentTargetTagValue:
     Description: Set as the LIGHTSAIL_SSM_TARGET_TAG GitHub repository variable.
@@ -307,6 +388,21 @@ Outputs:
   OperatorUpgradeDocumentName:
     Description: Set as the AWS_OPERATOR_UPGRADE_DOCUMENT_NAME GitHub repository variable.
     Value: !Ref OperatorUpgradeDocument
+  PreviewDiagnosticsDocumentArn:
+    Description: Exact Seoul-region SSM document ARN for the external diagnostics policy.
+    Value: !Sub arn:${AWS::Partition}:ssm:ap-northeast-2:${AWS::AccountId}:document/${PreviewDiagnosticsDocument}
+  PreviewDiagnosticsDocumentName:
+    Description: Fixed preview diagnostics document name for the external IAM operator.
+    Value: !Ref PreviewDiagnosticsDocument
+  ProductionDiagnosticsDocumentArn:
+    Description: Exact Seoul-region SSM document ARN for the external diagnostics policy.
+    Value: !Sub arn:${AWS::Partition}:ssm:ap-northeast-2:${AWS::AccountId}:document/${ProductionDiagnosticsDocument}
+  ProductionDiagnosticsDocumentName:
+    Description: Fixed production diagnostics document name for the external IAM operator.
+    Value: !Ref ProductionDiagnosticsDocument
+  AgentLightsailDiagnosticsPolicyArn:
+    Description: Attach this unattached policy explicitly to agent-lightsail-operator after reviewing the change.
+    Value: !Ref AgentLightsailDiagnosticsPolicy
   PreviewDbReconcileDocumentArn:
     Description: Fixed preview database-route reconcile document ARN for the failover worker policy.
     Value: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${PreviewDbReconcileDocument}

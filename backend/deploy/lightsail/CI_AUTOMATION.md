@@ -45,6 +45,18 @@ Preview-only upgrade exists. The workflow does not accept arbitrary shell text,
 document names, commit SHAs, image digests, roles, regions, or node targets from
 the local caller.
 
+Diagnostics access is a separate account-owned boundary. The
+`AgentLightsailDiagnosticsPolicy` CloudFormation resource is deliberately
+unattached; it is not granted to either GitHub OIDC deployment role and it does
+not change ownership of the existing `agent-lightsail-operator` IAM user. The
+policy allows only the four existing SSM read actions
+(`DescribeInstanceInformation`, `GetCommandInvocation`, `ListCommandInvocations`,
+and `ListCommands`) in `ap-northeast-2`, plus `SendCommand` for the fixed
+`PreviewDiagnosticsDocument` and `ProductionDiagnosticsDocument` on the single
+managed node tagged `DeploymentTarget=babyjamjam-admin-server`. It grants no
+`AWS-RunShellScript`, `StartSession`, arbitrary document, shell, path, or
+deployment access.
+
 ## One-time activation checklist
 
 Every step below changes external state and requires the Lightsail operational
@@ -54,10 +66,12 @@ approval gate before execution.
    `https://token.actions.githubusercontent.com` with audience
    `sts.amazonaws.com`. Reuse an existing provider rather than creating a
    duplicate.
-2. Deploy `github-oidc-ssm.yaml`, passing the existing provider ARN and the
-   fixed `ManagedNodeTagValue=babyjamjam-admin-server`. Keep the CloudFormation
-   stack as the source of truth for roles, the shared managed-node tag, and SSM
-   documents.
+2. Deploy `github-oidc-ssm.yaml` in `ap-northeast-2`, passing the existing
+   provider ARN and the fixed `ManagedNodeTagValue=babyjamjam-admin-server`.
+   The template requires `CAPABILITY_NAMED_IAM` for its version-controlled
+   managed policy. Keep the CloudFormation stack as the source of truth for
+   roles, the shared managed-node tag, SSM documents, and the unattached
+   diagnostics policy.
 3. Create a short-lived Systems Manager hybrid activation using the stack's
    `ManagedNodeServiceRoleName`. Attach the same `DeploymentTarget` tag, install
    the SSM agent on the Lightsail host, verify exactly one online managed node,
@@ -102,7 +116,25 @@ approval gate before execution.
    - `AWS_OPERATOR_UPGRADE_DOCUMENT_NAME`
    - `LIGHTSAIL_SSM_TARGET_TAG`
 
-8. Run the workflow manually on a non-deploying branch to validate CI, then
+8. If the external IAM operator needs deployment-failure diagnostics, review the
+   `AgentLightsailDiagnosticsPolicyArn` stack output and explicitly attach that
+   managed policy to the existing `agent-lightsail-operator` user. The stack does
+   not attach it automatically:
+
+   ```bash
+   aws iam attach-user-policy \
+     --profile <administrator-profile> \
+     --user-name agent-lightsail-operator \
+     --policy-arn '<AgentLightsailDiagnosticsPolicyArn output>'
+   ```
+
+   Verify the attachment and remove any temporary inline read policy only after
+   the fixed diagnostics documents return bounded, sanitized output. Detaching
+   or replacing an IAM policy is a separate state-changing operation and needs
+   its own approval. Do not attach this policy to a GitHub role or a broad IAM
+   group as a convenience.
+
+9. Run the workflow manually on a non-deploying branch to validate CI, then
    merge through `dev` to `preview`. Verify image provenance, container health,
    restart count, scheduler ownership, and the public health route. Rehearse a
    rollback in preview before enabling the production environment.
@@ -134,7 +166,15 @@ the prior rollback-tag history, restores the prior digest state, and verifies
 the recovered runtime. The root CI operator holds one per-environment lock so
 concurrent commands cannot change the same runtime. Detailed output is kept in
 a root-only host log; GitHub receives only a failure status and safe release
-fields. The status contract includes `db_route`, `runtime_route`, and
+fields. When a deployment reaches a terminal SSM failure, Backend CI first
+requests both `StandardOutputContent` and `StandardErrorContent` through the
+command-invocation read API, then applies the same length, whitespace, URL,
+assignment, and credential-word redaction checks before printing a bounded
+diagnostic. A missing, ambiguous, or unsafe response is reported as unavailable
+rather than copied into the workflow log. The fixed diagnostics documents expose
+the host's own bounded failure history when the SSM invocation output is
+insufficient; they cannot accept a command or path parameter. The status contract
+includes `db_route`, `runtime_route`, and
 `db_readiness=ok`; the workflow requires the two routes to match and rejects
 any missing or non-`ok` readiness value.
 
@@ -149,6 +189,8 @@ sudo backend/deploy/lightsail/install-ci-operator.sh uninstall
 ```
 
 After confirming there are no active SSM commands, deregister the managed node
-and delete the CloudFormation stack. These steps do not remove the running
-containers, environment files, deployment state, GHCR images, or root-only
-diagnostic logs.
+detach `AgentLightsailDiagnosticsPolicy` from `agent-lightsail-operator` if it
+was attached, and then delete the CloudFormation stack. Detaching the policy is
+a separate approved IAM change; CloudFormation cannot delete a managed policy
+while it is attached. These steps do not remove the running containers,
+environment files, deployment state, GHCR images, or root-only diagnostic logs.

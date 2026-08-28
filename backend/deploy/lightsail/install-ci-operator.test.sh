@@ -57,6 +57,7 @@ INSTALLED_OPERATOR_ARTIFACT="$ARTIFACT_DIRECTORY/ci-operator.sh"
 INSTALLED_DEPLOY_ARTIFACT="$ARTIFACT_DIRECTORY/deploy.sh"
 INSTALLED_ROLLBACK_ARTIFACT="$ARTIFACT_DIRECTORY/rollback.sh"
 INSTALLED_COMPOSE_ARTIFACT="$ARTIFACT_DIRECTORY/compose.lightsail.yml"
+INSTALLED_MANIFEST="$ARTIFACT_DIRECTORY/bundle.manifest"
 
 REAL_CHOWN="$(command -v chown)"
 REAL_STAT="$(command -v stat)"
@@ -162,6 +163,10 @@ test_install_target_failure() {
         last_argument="$argument"
     done
     [[ "$last_argument" == "$TEST_INSTALL_FAILURE_TARGET" ]] && return 1
+    if [[ "$TEST_INSTALL_FAILURE_TARGET" == "$INSTALLED_MANIFEST" \
+        && "$last_argument" == "$ARTIFACT_DIRECTORY"/.bundle-manifest.* ]]; then
+        return 1
+    fi
     test_install "$@"
 }
 
@@ -253,6 +258,10 @@ install_current_test_bundle() {
         "$INSTALLED_OPERATOR" "$INSTALLED_OPERATOR_ARTIFACT" \
         "$INSTALLED_DEPLOY_ARTIFACT" "$INSTALLED_ROLLBACK_ARTIFACT"
     /bin/chmod 0640 "$INSTALLED_COMPOSE_ARTIFACT"
+    write_bundle_manifest "$INSTALLED_MANIFEST" \
+        "$INSTALLED_OPERATOR_ARTIFACT" "$INSTALLED_DEPLOY_ARTIFACT" \
+        "$INSTALLED_ROLLBACK_ARTIFACT" "$INSTALLED_COMPOSE_ARTIFACT"
+    /bin/chmod 0640 "$INSTALLED_MANIFEST"
 }
 
 prepare_complete_test_bundle() {
@@ -273,7 +282,8 @@ save_bundle_snapshot() {
         "$INSTALLED_OPERATOR_ARTIFACT" \
         "$INSTALLED_DEPLOY_ARTIFACT" \
         "$INSTALLED_ROLLBACK_ARTIFACT" \
-        "$INSTALLED_COMPOSE_ARTIFACT"; do
+        "$INSTALLED_COMPOSE_ARTIFACT" \
+        "$INSTALLED_MANIFEST"; do
         name="$(/usr/bin/basename "$bundle_path")"
         /bin/cp "$bundle_path" "$prefix.$name"
         test_stat -c '%U:%G:%a' "$bundle_path" >"$prefix.$name.metadata"
@@ -291,7 +301,8 @@ assert_bundle_snapshot() {
         "$INSTALLED_OPERATOR_ARTIFACT" \
         "$INSTALLED_DEPLOY_ARTIFACT" \
         "$INSTALLED_ROLLBACK_ARTIFACT" \
-        "$INSTALLED_COMPOSE_ARTIFACT"; do
+        "$INSTALLED_COMPOSE_ARTIFACT" \
+        "$INSTALLED_MANIFEST"; do
         name="$(/usr/bin/basename "$bundle_path")"
         assert_file_unchanged "$prefix.$name" "$bundle_path"
         assert_path_metadata_unchanged "$(<"$prefix.$name.metadata")" "$bundle_path"
@@ -609,6 +620,49 @@ ensure_route_state_file preview true
 grep -Fxq "request_history=$VALID_REQUEST_ID" "$(route_state_file preview)" \
     || fail "legacy v2 migration did not preserve last_request_id as history"
 assert_route_state_structure preview
+
+# The installed marker is the transactional ownership contract for the whole
+# root bundle. Hash, mode, and extra-path tampering must all fail closed
+# without rewriting the marker or any protected artifact.
+bundle_validation_snapshot="$TEST_ROOT/bundle-validation"
+save_bundle_snapshot "$bundle_validation_snapshot"
+tampered_manifest="$TEST_ROOT/tampered-manifest"
+/usr/bin/sed 's/^deploy\.sh=.*/deploy.sh=root:root:750:0000000000000000000000000000000000000000000000000000000000000000/' \
+    "$INSTALLED_MANIFEST" >"$tampered_manifest"
+/bin/mv "$tampered_manifest" "$INSTALLED_MANIFEST"
+/bin/chmod 0640 "$INSTALLED_MANIFEST"
+assert_refusal_message "hash does not match" verify_installed_files
+/bin/cp "$bundle_validation_snapshot.bundle.manifest" "$INSTALLED_MANIFEST"
+/bin/chmod 0640 "$INSTALLED_MANIFEST"
+assert_bundle_snapshot "$bundle_validation_snapshot"
+
+/bin/cp "$INSTALLED_DEPLOY_ARTIFACT" "$TEST_ROOT/deploy-artifact.snapshot"
+printf '%s\n' '# mixed-bundle tamper' >>"$INSTALLED_DEPLOY_ARTIFACT"
+/bin/chmod 0750 "$INSTALLED_DEPLOY_ARTIFACT"
+assert_refusal_message "hash does not match" verify_installed_files
+/bin/cp "$TEST_ROOT/deploy-artifact.snapshot" "$INSTALLED_DEPLOY_ARTIFACT"
+/bin/chmod 0750 "$INSTALLED_DEPLOY_ARTIFACT"
+assert_bundle_snapshot "$bundle_validation_snapshot"
+
+/bin/chmod 0600 "$INSTALLED_MANIFEST"
+assert_refusal_message "Unexpected protected deployment artifact ownership or mode" verify_installed_files
+/bin/chmod 0640 "$INSTALLED_MANIFEST"
+assert_bundle_snapshot "$bundle_validation_snapshot"
+
+printf '%s\n' 'unexpected hidden bundle artifact' >"$ARTIFACT_DIRECTORY/.unexpected"
+/bin/chmod 0600 "$ARTIFACT_DIRECTORY/.unexpected"
+assert_refusal_message "unexpected path" verify_installed_files
+/bin/unlink "$ARTIFACT_DIRECTORY/.unexpected"
+assert_bundle_snapshot "$bundle_validation_snapshot"
+
+# The installed entrypoint is part of the manifest-bound bundle and may not be
+# replaced with a symlink, even when it resolves to the expected bytes.
+/bin/mv "$INSTALLED_OPERATOR" "$TEST_ROOT/operator-entrypoint-real"
+/bin/ln -s "$TEST_ROOT/operator-entrypoint-real" "$INSTALLED_OPERATOR"
+assert_refusal_message "symbolic link" verify_installed_files
+/bin/unlink "$INSTALLED_OPERATOR"
+/bin/mv "$TEST_ROOT/operator-entrypoint-real" "$INSTALLED_OPERATOR"
+assert_bundle_snapshot "$bundle_validation_snapshot"
 
 /bin/cp "$legacy_snapshot" "$(route_state_file preview)"
 /bin/chmod 0600 "$(route_state_file preview)"
@@ -1060,6 +1114,7 @@ for TEST_INSTALL_FAILURE_TARGET in \
     "$INSTALLED_DEPLOY_ARTIFACT" \
     "$INSTALLED_ROLLBACK_ARTIFACT" \
     "$INSTALLED_COMPOSE_ARTIFACT" \
+    "$INSTALLED_MANIFEST" \
     "$INSTALLED_OPERATOR"; do
     reset_installation_targets
     ensure_route_state_file preview
@@ -1073,6 +1128,7 @@ for TEST_INSTALL_FAILURE_TARGET in \
     failure_deploy_snapshot="$TEST_ROOT/bundle-failure-$failure_index-deploy.snapshot"
     failure_rollback_snapshot="$TEST_ROOT/bundle-failure-$failure_index-rollback.snapshot"
     failure_compose_snapshot="$TEST_ROOT/bundle-failure-$failure_index-compose.snapshot"
+    failure_manifest_snapshot="$TEST_ROOT/bundle-failure-$failure_index-manifest.snapshot"
     /bin/cp "$(route_state_file preview)" "$failure_preview_snapshot"
     /bin/cp "$(route_state_file production)" "$failure_production_snapshot"
     /bin/cp "$INSTALLED_OPERATOR" "$failure_operator_snapshot"
@@ -1080,6 +1136,7 @@ for TEST_INSTALL_FAILURE_TARGET in \
     /bin/cp "$INSTALLED_DEPLOY_ARTIFACT" "$failure_deploy_snapshot"
     /bin/cp "$INSTALLED_ROLLBACK_ARTIFACT" "$failure_rollback_snapshot"
     /bin/cp "$INSTALLED_COMPOSE_ARTIFACT" "$failure_compose_snapshot"
+    /bin/cp "$INSTALLED_MANIFEST" "$failure_manifest_snapshot"
 
     CMD_INSTALL=test_install_target_failure
     assert_fails main install --replace
@@ -1091,6 +1148,7 @@ for TEST_INSTALL_FAILURE_TARGET in \
     assert_file_unchanged "$failure_deploy_snapshot" "$INSTALLED_DEPLOY_ARTIFACT"
     assert_file_unchanged "$failure_rollback_snapshot" "$INSTALLED_ROLLBACK_ARTIFACT"
     assert_file_unchanged "$failure_compose_snapshot" "$INSTALLED_COMPOSE_ARTIFACT"
+    assert_file_unchanged "$failure_manifest_snapshot" "$INSTALLED_MANIFEST"
     assert_path_absent "$LOG_DIRECTORY"
     failure_index=$((failure_index + 1))
 done
@@ -1107,6 +1165,7 @@ assert_file_unchanged "$failure_operator_artifact_snapshot" "$INSTALLED_OPERATOR
 assert_file_unchanged "$failure_deploy_snapshot" "$INSTALLED_DEPLOY_ARTIFACT"
 assert_file_unchanged "$failure_rollback_snapshot" "$INSTALLED_ROLLBACK_ARTIFACT"
 assert_file_unchanged "$failure_compose_snapshot" "$INSTALLED_COMPOSE_ARTIFACT"
+assert_file_unchanged "$failure_manifest_snapshot" "$INSTALLED_MANIFEST"
 assert_path_absent "$LOG_DIRECTORY"
 
 # Uninstall acquires both environment locks before touching the bundle, and a
