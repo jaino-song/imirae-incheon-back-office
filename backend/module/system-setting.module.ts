@@ -7,6 +7,7 @@ import { SystemSettingService } from "application/services/system-setting.servic
 import { MessageSenderApprovalService } from "application/services/message-sender-approval.service";
 import { SystemSettingController } from "interface/controllers/system-setting.controller";
 import { PublicSettingsController } from "interface/controllers/public-settings.controller";
+import { AdminAuditEventWriter } from "application/services/admin-audit-event.service";
 
 @Module({
     imports: [DatabaseModule],
@@ -17,6 +18,7 @@ import { PublicSettingsController } from "interface/controllers/public-settings.
         UpdateSettingUsecase,
         SystemSettingService,
         MessageSenderApprovalService,
+        AdminAuditEventWriter,
     ],
     exports: [GetSettingUsecase, UpdateSettingUsecase, SystemSettingService, MessageSenderApprovalService],
 })

@@ -438,6 +438,35 @@ describe("ExtendedReadAgentCapabilitiesProvider", () => {
         expect(models.branch.create).not.toHaveBeenCalled();
     });
 
+    it("refuses agent admin/settings writes without an authenticated principal", async () => {
+        const { models, systemAdmin, settings, capabilities } = setup();
+        models.branch.findUnique.mockResolvedValue(null);
+        const unauthenticated = {
+            ...context,
+            principal: { ...context.principal, userId: "" },
+        };
+        const createBranch = capabilities.find((entry) => entry.meta.name === "admin.createBranch")!;
+        const website = capabilities.find((entry) => entry.meta.name === "website.updateSettings")!;
+
+        await expect(createBranch.execute(unauthenticated, {
+            name: "서초점",
+            slug: "seocho",
+            region: "서울",
+        })).rejects.toThrow("Authenticated agent principal");
+        await expect(website.execute(unauthenticated, {
+            enabled: false,
+            message: "",
+            backgroundColor: "#000000",
+            textColor: "#ffffff",
+            linkText: "",
+            linkHref: "",
+            linkColor: "#ffffff",
+        })).rejects.toThrow("Authenticated agent principal");
+
+        expect(systemAdmin.createBranch).not.toHaveBeenCalled();
+        expect(settings.setRibbonConfig).not.toHaveBeenCalled();
+    });
+
     it("retrieves only versioned policy records through the intelligence service", async () => {
         const { intelligence, capabilities } = setup();
         const policy = capabilities.find((entry) => entry.meta.name === "policy.retrieve")!;

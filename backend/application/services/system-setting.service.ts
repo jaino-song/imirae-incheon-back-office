@@ -1,5 +1,7 @@
 import { ConflictException, Injectable } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
+import { AdminAuditActor, AdminAuditEventWriter } from "application/services/admin-audit-event.service";
+import { currentAdminAuditActor } from "application/services/admin-audit-context";
 import { GetSettingUsecase, UpdateSettingUsecase } from "application/usecases/system-setting";
 import {
     SystemSettingEntity,
@@ -8,6 +10,7 @@ import {
     MessageAutomationPastTriggerConfig,
     DEFAULT_MESSAGE_AUTOMATION_PAST_TRIGGER_CONFIG,
 } from "domain/entities/system-setting.entity";
+import { SystemSettingAuditContext } from "domain/repositories/system-setting.repository.interface";
 
 export type PwaDigestDeliveryStatus = "sent" | "retryable" | "uncertain";
 
@@ -25,7 +28,8 @@ const PWA_DIGEST_DELIVERY_LEASE_MS = 30 * 60 * 1000;
 export class SystemSettingService {
     constructor(
         private readonly getSettingUsecase: GetSettingUsecase,
-        private readonly updateSettingUsecase: UpdateSettingUsecase
+        private readonly updateSettingUsecase: UpdateSettingUsecase,
+        private readonly auditWriter?: AdminAuditEventWriter,
     ) {}
 
     private getUserEmailNotificationPreferenceKey(userId: string): string {
@@ -57,11 +61,18 @@ export class SystemSettingService {
         return value === "true";
     }
 
-    async setUserEmailNotificationsEnabled(userId: string, enabled: boolean): Promise<SystemSettingEntity> {
-        return this.updateSettingUsecase.execute(
-            this.getUserEmailNotificationPreferenceKey(userId),
-            enabled ? "true" : "false"
-        );
+    async setUserEmailNotificationsEnabled(
+        userId: string,
+        enabled: boolean,
+        actor?: AdminAuditActor,
+    ): Promise<SystemSettingEntity> {
+        actor = actor ?? currentAdminAuditActor();
+        const key = this.getUserEmailNotificationPreferenceKey(userId);
+        const value = enabled ? "true" : "false";
+        const auditContext = this.auditContext(actor, "system_setting.notification_preferences.updated");
+        return auditContext
+            ? this.updateSettingUsecase.execute(key, value, auditContext)
+            : this.updateSettingUsecase.execute(key, value);
     }
 
     async getRibbonConfig(): Promise<RibbonConfig> {
@@ -76,24 +87,40 @@ export class SystemSettingService {
         }
     }
 
-    async setRibbonConfig(config: RibbonConfig): Promise<SystemSettingEntity> {
-        return this.updateSettingUsecase.execute(
+    async setRibbonConfig(config: RibbonConfig, actor?: AdminAuditActor): Promise<SystemSettingEntity> {
+        actor = actor ?? currentAdminAuditActor();
+        const args = [
             SystemSettingEntity.RIBBON_CONFIG_KEY,
-            JSON.stringify(config)
-        );
+            JSON.stringify(config),
+        ] as const;
+        const auditContext = this.auditContext(actor, "system_setting.ribbon.updated");
+        return auditContext
+            ? this.updateSettingUsecase.execute(...args, auditContext)
+            : this.updateSettingUsecase.execute(...args);
     }
 
     async setRibbonConfigIfVersion(
         expectedTargetVersion: string,
         config: RibbonConfig,
+        actor?: AdminAuditActor,
     ): Promise<SystemSettingEntity> {
+        actor = actor ?? currentAdminAuditActor();
         const normalized = { ...DEFAULT_RIBBON_CONFIG, ...config };
-        const updated = await this.updateSettingUsecase.executeIfVersion(
-            SystemSettingEntity.RIBBON_CONFIG_KEY,
-            JSON.stringify(normalized),
-            expectedTargetVersion,
-            (rawValue) => this.ribbonTargetVersion(rawValue),
-        );
+        const auditContext = this.auditContext(actor, "system_setting.ribbon.updated");
+        const updated = auditContext
+            ? await this.updateSettingUsecase.executeIfVersion(
+                SystemSettingEntity.RIBBON_CONFIG_KEY,
+                JSON.stringify(normalized),
+                expectedTargetVersion,
+                (rawValue) => this.ribbonTargetVersion(rawValue),
+                auditContext!,
+            )
+            : await this.updateSettingUsecase.executeIfVersion(
+                SystemSettingEntity.RIBBON_CONFIG_KEY,
+                JSON.stringify(normalized),
+                expectedTargetVersion,
+                (rawValue) => this.ribbonTargetVersion(rawValue),
+            );
         if (!updated) throw new ConflictException("Ribbon configuration changed after approval");
         return updated;
     }
@@ -110,12 +137,16 @@ export class SystemSettingService {
     async setMessageAutomationPastTriggerConfig(
         branchId: string,
         config: MessageAutomationPastTriggerConfig,
+        actor?: AdminAuditActor,
     ): Promise<SystemSettingEntity> {
+        actor = actor ?? currentAdminAuditActor();
         const normalized = this.normalizeMessageAutomationPastTriggerConfig(config);
-        return this.updateSettingUsecase.execute(
-            this.getMessageAutomationPastTriggerConfigKey(branchId),
-            JSON.stringify(normalized)
-        );
+        const key = this.getMessageAutomationPastTriggerConfigKey(branchId);
+        const value = JSON.stringify(normalized);
+        const auditContext = this.auditContext(actor, "system_setting.message_automation.updated", branchId);
+        return auditContext
+            ? this.updateSettingUsecase.execute(key, value, auditContext)
+            : this.updateSettingUsecase.execute(key, value);
     }
 
     async getClientAutoRegistrationEnabled(branchId: string): Promise<boolean> {
@@ -127,11 +158,18 @@ export class SystemSettingService {
         return value === "true";
     }
 
-    async setClientAutoRegistrationEnabled(branchId: string, enabled: boolean): Promise<SystemSettingEntity> {
-        return this.updateSettingUsecase.execute(
-            this.getClientAutoRegistrationKey(branchId),
-            enabled ? "true" : "false"
-        );
+    async setClientAutoRegistrationEnabled(
+        branchId: string,
+        enabled: boolean,
+        actor?: AdminAuditActor,
+    ): Promise<SystemSettingEntity> {
+        actor = actor ?? currentAdminAuditActor();
+        const key = this.getClientAutoRegistrationKey(branchId);
+        const value = enabled ? "true" : "false";
+        const auditContext = this.auditContext(actor, "system_setting.client_registration.updated", branchId);
+        return auditContext
+            ? this.updateSettingUsecase.execute(key, value, auditContext)
+            : this.updateSettingUsecase.execute(key, value);
     }
 
     async getGreetingOnAutoRegistrationEnabled(branchId: string): Promise<boolean> {
@@ -143,11 +181,18 @@ export class SystemSettingService {
         return value === "true";
     }
 
-    async setGreetingOnAutoRegistrationEnabled(branchId: string, enabled: boolean): Promise<SystemSettingEntity> {
-        return this.updateSettingUsecase.execute(
-            this.getGreetingOnAutoRegistrationKey(branchId),
-            enabled ? "true" : "false"
-        );
+    async setGreetingOnAutoRegistrationEnabled(
+        branchId: string,
+        enabled: boolean,
+        actor?: AdminAuditActor,
+    ): Promise<SystemSettingEntity> {
+        actor = actor ?? currentAdminAuditActor();
+        const key = this.getGreetingOnAutoRegistrationKey(branchId);
+        const value = enabled ? "true" : "false";
+        const auditContext = this.auditContext(actor, "system_setting.greeting_registration.updated", branchId);
+        return auditContext
+            ? this.updateSettingUsecase.execute(key, value, auditContext)
+            : this.updateSettingUsecase.execute(key, value);
     }
 
     async getPwaUndeliveredDigestWatermark(branchId: string): Promise<Date | null> {
@@ -162,11 +207,38 @@ export class SystemSettingService {
     async setPwaUndeliveredDigestWatermark(
         branchId: string,
         watermark: Date,
+        actor?: AdminAuditActor,
     ): Promise<SystemSettingEntity> {
-        return this.updateSettingUsecase.execute(
-            this.getPwaUndeliveredDigestWatermarkKey(branchId),
-            watermark.toISOString(),
+        actor = actor ?? currentAdminAuditActor();
+        const key = this.getPwaUndeliveredDigestWatermarkKey(branchId);
+        const value = watermark.toISOString();
+        const auditContext = this.auditContext(
+            actor,
+            "system_setting.pwa_digest_watermark.updated",
+            branchId,
+            true,
+            "scheduler",
         );
+        return auditContext
+            ? this.updateSettingUsecase.execute(key, value, auditContext)
+            : this.updateSettingUsecase.execute(key, value);
+    }
+
+    private auditContext(
+        actor: AdminAuditActor | undefined,
+        action: string,
+        branchId?: string,
+        allowSystemActor = false,
+        source = "backend",
+    ): SystemSettingAuditContext | undefined {
+        if (!this.auditWriter && !actor) return undefined;
+        if (!this.auditWriter) {
+            throw new Error("Admin audit writer is required for audited setting mutations");
+        }
+        if (!allowSystemActor && !actor?.userId) {
+            throw new Error("Authenticated actor is required for audited setting mutations");
+        }
+        return { actor: actor ?? null, branchId, action, source };
     }
 
     /**

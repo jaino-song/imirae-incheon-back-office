@@ -592,6 +592,32 @@ model system_setting {
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 }
 
+// Append-only authority mutation ledger. Identity fields are scalar snapshots
+// so deleting a user or branch never erases historical actor/target context.
+model admin_audit_event {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorUserId     String?  @map("actor_user_id") @db.Uuid
+  actorGlobalRole String?  @map("actor_global_role") @db.VarChar(40)
+  actorBranchRole String?  @map("actor_branch_role") @db.VarChar(40)
+  tenantId        String?  @map("tenant_id") @db.Uuid
+  branchId        String?  @map("branch_id") @db.Uuid
+  action          String   @db.VarChar(100)
+  targetType      String   @map("target_type") @db.VarChar(80)
+  targetId        String?  @map("target_id") @db.VarChar(255)
+  beforePayload   Json?    @map("before_payload")
+  afterPayload    Json?    @map("after_payload")
+  outcome         String   @db.VarChar(40)
+  reason          String?  @db.VarChar(500)
+  correlationId   String?  @map("correlation_id") @db.VarChar(255)
+  source          String?  @db.VarChar(80)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([actorUserId, createdAt], map: "idx_admin_audit_event_actor_created")
+  @@index([branchId, createdAt], map: "idx_admin_audit_event_branch_created")
+  @@index([targetType, targetId, createdAt], map: "idx_admin_audit_event_target_created")
+  @@index([action, createdAt], map: "idx_admin_audit_event_action_created")
+}
+
 model system_template {
   id              String                    @id @default(dbgenerated("(gen_random_uuid())::text"))
   templateKey     String                    @unique @map("template_key")

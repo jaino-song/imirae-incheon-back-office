@@ -15,6 +15,9 @@ import {
 } from "application/usecases/user";
 import { UserEntity } from "domain/entities/user.entity";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { AdminAuditActor, AdminAuditEventWriter } from "application/services/admin-audit-event.service";
+import { UserMapper } from "infrastructure/database/mapper/user.mapper";
+import { currentAdminAuditActor } from "application/services/admin-audit-context";
 
 const MAX_ACCOUNT_ASSIGNMENT_TRANSACTION_ATTEMPTS = 3;
 
@@ -62,6 +65,7 @@ export class UserService {
         private readonly updateUserUsecase: UpdateUserUsecase,
         private readonly deleteUserUsecase: DeleteUserUsecase,
         private readonly prismaService: PrismaService,
+        private readonly auditWriter?: AdminAuditEventWriter,
     ) {}
 
     create(params: { kakaoId: string, name?: string, email?: string, profileImage?: string }): Promise<UserEntity> {
@@ -84,7 +88,15 @@ export class UserService {
         branchRole?: string;
         callerRole?: string;
         branchId?: string;
+        actor?: AdminAuditActor;
     }): Promise<UserEntity> {
+        const actor = params.actor ?? currentAdminAuditActor();
+        if (params.branchId && params.branchRole !== undefined) {
+            return this.updateBranchMembership(id, params.branchId, params.branchRole, params.callerRole, actor);
+        }
+        if (actor) {
+            return this.updateGlobalUser(id, params, actor);
+        }
         return this.updateUserUsecase.execute(id, params);
     }
 
@@ -96,6 +108,7 @@ export class UserService {
             expectedRole: "admin" | "manager" | "user";
             expectedBranchIds: string[];
             callerRole: string;
+            actor?: AdminAuditActor;
         },
     ): Promise<UserApprovalSummary> {
         if (params.callerRole !== "owner") {
@@ -147,6 +160,9 @@ export class UserService {
             });
             if (!target) {
                 throw new NotFoundException("User not found");
+            }
+            for (const ownedBranch of target.ownedBranches) {
+                await this.lockRow(tx, "branch", ownedBranch.id);
             }
             if (target.role === "owner") {
                 throw new ForbiddenException("오너 계정의 역할은 변경할 수 없습니다.");
@@ -233,6 +249,7 @@ export class UserService {
             }
 
             const effectiveBranchIdSet = new Set(effectiveBranchIds);
+            const ownedBranchIdSet = new Set(target.ownedBranches.map((branch) => branch.id));
             const membershipSetMatches = currentBranchIds.length === effectiveBranchIds.length
                 && currentBranchIds.every(
                     (branchId) => effectiveBranchIdSet.has(branchId),
@@ -287,8 +304,9 @@ export class UserService {
                 },
             });
             for (const branchId of effectiveBranchIds) {
-                const membershipRole = currentMembershipRoleByBranchId.get(branchId)
-                    ?? params.role;
+                const membershipRole = ownedBranchIdSet.has(branchId)
+                    ? "admin"
+                    : currentMembershipRoleByBranchId.get(branchId) ?? params.role;
                 await tx.user_branch.upsert({
                     where: {
                         userId_branchId: { userId: id, branchId },
@@ -307,6 +325,22 @@ export class UserService {
                 data: {
                     revokedAt: new Date(),
                     revokedReason: "account_assignment_changed",
+                },
+            });
+
+            await this.appendAudit(tx, params.actor ?? currentAdminAuditActor(), {
+                action: "user.account_assignment.updated",
+                targetType: "user",
+                targetId: id,
+                before: {
+                    id,
+                    role: target.role,
+                    branchIds: currentBranchIds,
+                },
+                after: {
+                    id,
+                    role: params.role,
+                    branchIds: effectiveBranchIds,
                 },
             });
 
@@ -417,13 +451,247 @@ export class UserService {
         });
     }
 
-    delete(id: string, branchId?: string) {
-        return this.deleteUserUsecase.execute(id, branchId);
+    async delete(id: string, branchId?: string, actor?: AdminAuditActor): Promise<void> {
+        actor = actor ?? currentAdminAuditActor();
+        if (!branchId) {
+            await this.deleteGlobalUser(id, actor);
+            return;
+        }
+        await this.deleteBranchMembership(id, branchId, actor);
+    }
+
+    private async updateGlobalUser(
+        id: string,
+        params: {
+            name?: string;
+            email?: string;
+            profileImage?: string;
+            role?: string | null;
+            callerRole?: string;
+        },
+        actor: AdminAuditActor,
+    ): Promise<UserEntity> {
+        return runSerializableTransaction(this.prismaService, async (tx) => {
+            await this.lockRow(tx, "user", id);
+            const current = await tx.user.findUnique({ where: { id } });
+            if (!current) throw new NotFoundException("User not found");
+            if (params.role !== undefined && params.callerRole !== "owner") {
+                throw new ForbiddenException("역할 변경은 소유자만 가능합니다.");
+            }
+            if (params.role !== undefined && current.role === "owner") {
+                throw new ForbiddenException("오너 계정의 역할은 변경할 수 없습니다.");
+            }
+
+            const roleChanged = params.role !== undefined && params.role !== current.role;
+            const data: Prisma.userUpdateInput = {
+                ...(params.name !== undefined ? { name: params.name } : {}),
+                ...(params.email !== undefined ? { email: params.email } : {}),
+                ...(params.profileImage !== undefined ? { profileImage: params.profileImage } : {}),
+                ...(params.role !== undefined ? { role: params.role } : {}),
+                ...(roleChanged ? { tokenVersion: { increment: 1 } } : {}),
+            };
+            const updated = await tx.user.update({ where: { id }, data });
+
+            if (roleChanged && current.role === "admin" && params.role !== "admin") {
+                const ownedBranches = await tx.branch.findMany({
+                    where: { ownerId: id },
+                    select: { id: true },
+                });
+                if (ownedBranches.length > 0) {
+                    const branchIds = ownedBranches.map((branch) => branch.id);
+                    await tx.branch.updateMany({
+                        where: { id: { in: branchIds }, ownerId: id },
+                        data: { ownerId: null },
+                    });
+                    await tx.user_branch.updateMany({
+                        where: { userId: id, branchId: { in: branchIds }, role: "admin" },
+                        data: { role: params.role === "manager" ? "manager" : "user" },
+                    });
+                }
+                await tx.auth_session.updateMany({
+                    where: { userId: id, revokedAt: null },
+                    data: { revokedAt: new Date(), revokedReason: "role_changed" },
+                });
+            }
+
+            await this.appendAudit(tx, actor ?? currentAdminAuditActor(), {
+                action: roleChanged ? "user.role.updated" : "user.profile.updated",
+                targetType: "user",
+                targetId: id,
+                before: { id, role: current.role, name: current.name, profileImage: current.profileImage },
+                after: { id, role: updated.role, name: updated.name, profileImage: updated.profileImage },
+            });
+            return UserMapper.toDomain(updated);
+        });
+    }
+
+    private async updateBranchMembership(
+        id: string,
+        branchId: string,
+        branchRole: string,
+        callerRole: string | undefined,
+        actor?: AdminAuditActor,
+    ): Promise<UserEntity> {
+        return runSerializableTransaction(this.prismaService, async (tx) => {
+            await this.lockRow(tx, "branch", branchId);
+            const branch = await tx.branch.findUnique({ where: { id: branchId }, select: { ownerId: true } });
+            if (!branch) throw new NotFoundException("User not found");
+            const current = await tx.user.findUnique({ where: { id } });
+            if (!current) throw new NotFoundException("User not found");
+            if (current.role === "owner" && callerRole !== "owner") {
+                throw new NotFoundException("User not found");
+            }
+            if (current.role === "owner" && branchRole !== "admin") {
+                throw new ConflictException("오너 계정의 역할은 변경할 수 없습니다.");
+            }
+            if (branch.ownerId === id && branchRole !== "admin") {
+                throw new ConflictException("지점 소유권을 먼저 다른 승인된 계정으로 이전해야 합니다.");
+            }
+
+            const membership = await tx.user_branch.findUnique({
+                where: { userId_branchId: { userId: id, branchId } },
+            });
+            if (!membership && branch.ownerId !== id) {
+                throw new NotFoundException("User not found");
+            }
+            const beforeRole = membership?.role ?? null;
+            if (membership || branch.ownerId !== id) {
+                const updatedMembership = await tx.user_branch.updateMany({
+                    where: { userId: id, branchId },
+                    data: { role: branchRole },
+                });
+                if (updatedMembership.count !== 1) throw new NotFoundException("User not found");
+            } else {
+                await tx.user_branch.upsert({
+                    where: { userId_branchId: { userId: id, branchId } },
+                    create: { userId: id, branchId, role: branchRole },
+                    update: { role: branchRole },
+                });
+            }
+            const persisted = await tx.user.findUnique({ where: { id } });
+            if (!persisted) throw new NotFoundException("User not found");
+            await this.appendAudit(tx, actor ?? currentAdminAuditActor(), {
+                action: "user.membership_role.updated",
+                branchId,
+                targetType: "user_branch",
+                targetId: `${id}:${branchId}`,
+                before: { userId: id, branchId, role: beforeRole, ownerId: branch.ownerId },
+                after: { userId: id, branchId, role: branchRole, ownerId: branch.ownerId },
+            });
+            return UserMapper.toDomain(persisted);
+        });
+    }
+
+    private async deleteGlobalUser(id: string, actor?: AdminAuditActor): Promise<void> {
+        await runSerializableTransaction(this.prismaService, async (tx) => {
+            let target = await tx.user.findUnique({
+                where: { id },
+                select: { id: true, role: true, approvalStatus: true, ownedBranches: { select: { id: true } } },
+            });
+            if (!target) throw new NotFoundException("User not found");
+            if (target.role === "owner") {
+                const effectiveActor = actor ?? currentAdminAuditActor();
+                if (!effectiveActor?.userId || effectiveActor.userId === id) {
+                    throw new ConflictException(
+                        "글로벌 소유자 계정은 독립적으로 인증된 successor를 통해서만 삭제할 수 있습니다.",
+                    );
+                }
+                const owners = await tx.user.findMany({
+                    where: { role: "owner" },
+                    select: { id: true },
+                });
+                // Lock every owner in deterministic order so concurrent deletes
+                // cannot both observe a two-owner world and leave zero owners.
+                for (const owner of owners.map(({ id: ownerId }) => ownerId).sort()) {
+                    await this.lockRow(tx, "user", owner);
+                }
+                target = await tx.user.findUnique({
+                    where: { id },
+                    select: { id: true, role: true, approvalStatus: true, ownedBranches: { select: { id: true } } },
+                });
+                if (!target) throw new NotFoundException("User not found");
+                const lockedOwners = await tx.user.findMany({
+                    where: { role: "owner" },
+                    select: { id: true },
+                });
+                if (lockedOwners.length <= 1) {
+                    throw new ConflictException("마지막 글로벌 소유자는 삭제할 수 없습니다. 먼저 승인된 successor를 지정하세요.");
+                }
+                if (target.ownedBranches.length > 0) {
+                    throw new ConflictException("지점 소유권을 먼저 다른 승인된 계정으로 이전해야 합니다.");
+                }
+            } else {
+                await this.lockRow(tx, "user", id);
+            }
+            await this.appendAudit(tx, actor ?? currentAdminAuditActor(), {
+                action: "user.deleted",
+                targetType: "user",
+                targetId: id,
+                before: { id, role: target.role, approvalStatus: target.approvalStatus, ownedBranchCount: target.ownedBranches.length },
+                after: null,
+            });
+            await tx.user.delete({ where: { id } });
+        });
+    }
+
+    private async deleteBranchMembership(
+        id: string,
+        branchId: string,
+        actor?: AdminAuditActor,
+    ): Promise<void> {
+        await runSerializableTransaction(this.prismaService, async (tx) => {
+            await this.lockRow(tx, "branch", branchId);
+            const branch = await tx.branch.findUnique({ where: { id: branchId }, select: { ownerId: true } });
+            if (!branch) throw new NotFoundException("User not found");
+            if (branch.ownerId === id) {
+                throw new ConflictException("지점 소유권을 먼저 다른 승인된 계정으로 이전해야 합니다.");
+            }
+            const deleted = await tx.user_branch.deleteMany({ where: { userId: id, branchId } });
+            if (deleted.count !== 1) throw new NotFoundException("User not found");
+            await this.appendAudit(tx, actor ?? currentAdminAuditActor(), {
+                action: "user.membership.deleted",
+                branchId,
+                targetType: "user_branch",
+                targetId: `${id}:${branchId}`,
+                before: { userId: id, branchId, ownerId: branch.ownerId },
+                after: null,
+            });
+        });
+    }
+
+    private async lockRow(
+        tx: Prisma.TransactionClient,
+        table: "branch" | "user",
+        id: string,
+    ): Promise<void> {
+        if (typeof tx.$queryRawUnsafe !== "function") return;
+        await tx.$queryRawUnsafe(`SELECT "id" FROM "${table}" WHERE "id" = $1 FOR UPDATE`, id);
+    }
+
+    private async appendAudit(
+        tx: Prisma.TransactionClient,
+        actor: AdminAuditActor | undefined,
+        event: Omit<Parameters<AdminAuditEventWriter["append"]>[1], "actor" | "outcome" | "source">,
+    ): Promise<void> {
+        if (!this.auditWriter) {
+            if (actor) throw new Error("Admin audit writer is required for audited user mutations");
+            return;
+        }
+        if (!actor?.userId) {
+            throw new Error("Authenticated actor is required for audited user mutations");
+        }
+        await this.auditWriter.append(tx, { ...event, actor: actor ?? null, outcome: "success", source: "backend" });
     }
 
     approve(
         id: string,
-        params: { role: string, approvedBy: string, branchId: string, ownerBranchId?: string },
+        params: {
+            role: string;
+            approvedBy: string;
+            branchId: string;
+            ownerBranchId?: string;
+            actor?: AdminAuditActor;
+        },
     ): Promise<UserApprovalSummary> {
         return this.prismaService.$transaction(async (tx) => {
             const branch = await tx.branch.findUnique({
@@ -438,6 +706,8 @@ export class UserService {
                 if (!params.ownerBranchId) {
                     throw new BadRequestException("지점장 승인은 임명할 지점이 필요합니다.");
                 }
+
+                await this.lockRow(tx, "branch", params.ownerBranchId);
 
                 const ownerBranch = await tx.branch.findUnique({
                     where: { id: params.ownerBranchId },
@@ -517,11 +787,27 @@ export class UserService {
                 },
             });
 
+            await this.appendAudit(tx, params.actor ?? currentAdminAuditActor(), {
+                action: params.role === "admin" && params.ownerBranchId
+                    ? "branch.owner_assigned"
+                    : "user.approved",
+                branchId: params.ownerBranchId ?? params.branchId,
+                targetType: "user",
+                targetId: id,
+                before: { id, role: null, approvalStatus: "pending" },
+                after: {
+                    id,
+                    role: user.role,
+                    approvalStatus: user.approvalStatus,
+                    ownerBranchId: params.ownerBranchId ?? null,
+                },
+            });
+
             return user;
         });
     }
 
-    reject(id: string): Promise<UserApprovalSummary> {
+    reject(id: string, actor?: AdminAuditActor): Promise<UserApprovalSummary> {
         return this.prismaService.$transaction(async (tx) => {
             const user = await tx.user.update({
                 where: { id },
@@ -548,6 +834,13 @@ export class UserService {
                     revokedReason: "approval_rejected",
                 },
             });
+            await this.appendAudit(tx, actor ?? currentAdminAuditActor(), {
+                action: "user.rejected",
+                targetType: "user",
+                targetId: id,
+                before: { id, approvalStatus: "pending" },
+                after: { id, approvalStatus: "rejected" },
+            });
             return user;
         });
     }
@@ -558,4 +851,22 @@ function isPrismaTransactionWriteConflict(error: unknown): boolean {
         && error !== null
         && "code" in error
         && error.code === "P2034";
+}
+
+async function runSerializableTransaction<T>(
+    prisma: PrismaService,
+    callback: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+    for (let attempt = 1; attempt <= MAX_ACCOUNT_ASSIGNMENT_TRANSACTION_ATTEMPTS; attempt += 1) {
+        try {
+            return await prisma.$transaction(callback, {
+                isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            });
+        } catch (error) {
+            if (!isPrismaTransactionWriteConflict(error) || attempt === MAX_ACCOUNT_ASSIGNMENT_TRANSACTION_ATTEMPTS) {
+                throw error;
+            }
+        }
+    }
+    throw new ConflictException("동시 변경이 감지되었습니다. 최신 정보를 확인한 뒤 다시 시도해 주세요.");
 }

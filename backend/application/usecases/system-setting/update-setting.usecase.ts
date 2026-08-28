@@ -4,6 +4,7 @@ import {
     SYSTEM_SETTING_REPOSITORY,
 } from "domain/repositories/system-setting.repository.interface";
 import { SystemSettingEntity } from "domain/entities/system-setting.entity";
+import { SystemSettingAuditContext } from "domain/repositories/system-setting.repository.interface";
 
 @Injectable()
 export class UpdateSettingUsecase {
@@ -12,9 +13,15 @@ export class UpdateSettingUsecase {
         private readonly repository: ISystemSettingRepository
     ) {}
 
-    async execute(key: string, value: string): Promise<SystemSettingEntity> {
+    async execute(
+        key: string,
+        value: string,
+        auditContext?: SystemSettingAuditContext,
+    ): Promise<SystemSettingEntity> {
         const entity = SystemSettingEntity.create(key, value);
-        return this.repository.upsert(entity);
+        return auditContext === undefined
+            ? this.repository.upsert(entity)
+            : this.repository.upsert(entity, auditContext);
     }
 
     async executeIfVersion(
@@ -22,8 +29,11 @@ export class UpdateSettingUsecase {
         value: string,
         expectedVersion: string,
         versionOf: (currentValue: string | null) => string,
+        auditContext?: SystemSettingAuditContext,
     ): Promise<SystemSettingEntity | null> {
         const entity = SystemSettingEntity.create(key, value);
-        return this.repository.compareAndSet(key, expectedVersion, entity, versionOf);
+        return auditContext === undefined
+            ? this.repository.compareAndSet(key, expectedVersion, entity, versionOf)
+            : this.repository.compareAndSet(key, expectedVersion, entity, versionOf, auditContext);
     }
 }
