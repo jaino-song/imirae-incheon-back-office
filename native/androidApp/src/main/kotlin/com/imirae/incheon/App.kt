@@ -29,7 +29,7 @@ import org.koin.dsl.module
 private val phaseFiveAndSixModule = module {
     single { DashboardViewModel(get(), get(), get()) }
     single { ClientListViewModel(get()) }
-    single { ClientDetailViewModel(get(), get()) }
+    single { ClientDetailViewModel(get()) }
     single { EmployeeListViewModel(get()) }
     single { ContractListViewModel(get()) }
 

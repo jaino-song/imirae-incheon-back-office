@@ -21,7 +21,7 @@ import com.imirae.incheon.viewmodel.ClientDetailViewModel
 @Composable
 fun ClientDetailScreen(
     viewModel: ClientDetailViewModel,
-    clientId: String,
+    clientId: Int,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {

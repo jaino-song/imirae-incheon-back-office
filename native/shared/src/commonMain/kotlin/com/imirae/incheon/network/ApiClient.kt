@@ -98,6 +98,17 @@ class ApiClient(
         }
     }
 
+    suspend inline fun <reified T> patch(
+        path: String,
+        endpointCategory: EndpointCategory = if (path.startsWith("/auth")) EndpointCategory.AUTH else EndpointCategory.MUTATION,
+        noinline block: HttpRequestBuilder.() -> Unit = {},
+    ): ApiResult<T> = request(endpointCategory = endpointCategory) {
+        httpClient.patch(path) {
+            addAuth()
+            block()
+        }
+    }
+
     suspend inline fun <reified T> delete(
         path: String,
         endpointCategory: EndpointCategory = if (path.startsWith("/auth")) EndpointCategory.AUTH else EndpointCategory.MUTATION,

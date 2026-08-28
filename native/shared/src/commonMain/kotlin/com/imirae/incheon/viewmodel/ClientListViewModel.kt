@@ -5,10 +5,13 @@ import com.imirae.incheon.domain.models.Client
 import com.imirae.incheon.domain.models.CreateClientRequest
 import com.imirae.incheon.domain.utils.KoreanSearch
 import com.imirae.incheon.network.ApiResult
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 data class ClientListUiState(
     val isLoading: Boolean = true,
@@ -21,7 +24,7 @@ data class ClientListUiState(
     val totalCount: Int = 0,
     val error: String? = null,
     val isCreating: Boolean = false,
-    val createSuccess: Boolean = false
+    val createSuccess: Boolean = false,
 )
 
 class ClientListViewModel(private val clientService: ClientService) {
@@ -40,12 +43,15 @@ class ClientListViewModel(private val clientService: ClientService) {
                         isLoading = false,
                         clients = clients,
                         filteredClients = applyFilters(clients, _uiState.value.searchQuery, _uiState.value.statusFilter),
-                        currentPage = page,
-                        totalPages = (result.data.total + pageSize - 1) / pageSize,
-                        totalCount = result.data.total
+                        currentPage = result.data.page,
+                        totalPages = result.data.totalPages.coerceAtLeast(1),
+                        totalCount = result.data.total,
                     )
                 }
-                is ApiResult.Error -> _uiState.value = _uiState.value.copy(isLoading = false, error = result.error.userMessage())
+                is ApiResult.Error -> _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = result.error.userMessage(),
+                )
             }
         }
     }
@@ -53,39 +59,53 @@ class ClientListViewModel(private val clientService: ClientService) {
     fun search(query: String) {
         _uiState.value = _uiState.value.copy(
             searchQuery = query,
-            filteredClients = applyFilters(_uiState.value.clients, query, _uiState.value.statusFilter)
+            filteredClients = applyFilters(_uiState.value.clients, query, _uiState.value.statusFilter),
         )
     }
 
     fun filterByStatus(status: String?) {
         _uiState.value = _uiState.value.copy(
             statusFilter = status,
-            filteredClients = applyFilters(_uiState.value.clients, _uiState.value.searchQuery, status)
+            filteredClients = applyFilters(_uiState.value.clients, _uiState.value.searchQuery, status),
         )
     }
 
-    fun nextPage() { if (_uiState.value.currentPage < _uiState.value.totalPages) loadClients(_uiState.value.currentPage + 1) }
-    fun previousPage() { if (_uiState.value.currentPage > 1) loadClients(_uiState.value.currentPage - 1) }
+    fun nextPage() {
+        if (_uiState.value.currentPage < _uiState.value.totalPages) {
+            loadClients(_uiState.value.currentPage + 1)
+        }
+    }
+
+    fun previousPage() {
+        if (_uiState.value.currentPage > 1) {
+            loadClients(_uiState.value.currentPage - 1)
+        }
+    }
+
     fun refresh() = loadClients(_uiState.value.currentPage)
 
     fun createClient(request: CreateClientRequest) {
         scope.launch {
-            _uiState.value = _uiState.value.copy(isCreating = true, createSuccess = false)
+            _uiState.value = _uiState.value.copy(isCreating = true, createSuccess = false, error = null)
             when (val result = clientService.createClient(request)) {
                 is ApiResult.Success -> {
                     _uiState.value = _uiState.value.copy(isCreating = false, createSuccess = true)
                     loadClients(1)
                 }
-                is ApiResult.Error -> _uiState.value = _uiState.value.copy(isCreating = false, error = result.error.userMessage())
+                is ApiResult.Error -> _uiState.value = _uiState.value.copy(
+                    isCreating = false,
+                    error = result.error.userMessage(),
+                )
             }
         }
     }
 
-    fun deleteClient(id: String) {
+    fun deleteClient(id: Int) {
         scope.launch {
-            when (clientService.deleteClient(id)) {
+            _uiState.value = _uiState.value.copy(error = null)
+            when (val result = clientService.deleteClient(id)) {
                 is ApiResult.Success -> loadClients(_uiState.value.currentPage)
-                is ApiResult.Error -> {}
+                is ApiResult.Error -> _uiState.value = _uiState.value.copy(error = result.error.userMessage())
             }
         }
     }
@@ -95,12 +115,12 @@ class ClientListViewModel(private val clientService: ClientService) {
         if (query.isNotBlank()) {
             filtered = filtered.filter { client ->
                 KoreanSearch.matchesChosung(query, client.name) ||
-                client.phone?.contains(query) == true ||
-                client.email?.contains(query, ignoreCase = true) == true
+                    client.phone?.contains(query) == true ||
+                    client.address?.contains(query, ignoreCase = true) == true
             }
         }
         if (status != null) {
-            filtered = filtered.filter { it.status == status }
+            filtered = filtered.filter { it.serviceStatus == status }
         }
         return filtered
     }

@@ -1,4 +1,17 @@
 package com.imirae.incheon.domain.models
+
 import kotlinx.serialization.Serializable
-@Serializable data class Employee(val id: String, val name: String, val phone: String? = null, val email: String? = null, val role: String = "caregiver", val status: String = "active", val branchId: String? = null, val createdAt: String? = null, val updatedAt: String? = null)
-@Serializable data class EmployeeListResponse(val data: List<Employee>, val total: Int, val page: Int, val limit: Int)
+
+/** Canonical employee response returned by GET /employees. */
+@Serializable
+data class Employee(
+    val id: Int,
+    val name: String,
+    val workArea: List<String> = emptyList(),
+    val phone: String,
+    val grade: String,
+    val openToNextWork: Boolean,
+    val registeredDate: String? = null,
+    val birthday: String? = null,
+    val status: String? = null,
+)

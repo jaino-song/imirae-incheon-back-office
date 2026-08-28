@@ -34,11 +34,11 @@ class DashboardViewModel(
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
                 val clientsResult = clientService.getClients(page = 1, limit = 5)
-                val employeesResult = employeeService.getEmployees(page = 1, limit = 1)
+                val employeesResult = employeeService.getEmployees()
                 val contractsResult = documentService.getContracts(page = 1, limit = 5)
 
                 val totalClients = when (clientsResult) { is ApiResult.Success -> clientsResult.data.total; else -> 0 }
-                val totalEmployees = when (employeesResult) { is ApiResult.Success -> employeesResult.data.total; else -> 0 }
+                val totalEmployees = when (employeesResult) { is ApiResult.Success -> employeesResult.data.size; else -> 0 }
                 val recentClients = when (clientsResult) { is ApiResult.Success -> clientsResult.data.data; else -> emptyList() }
                 val contracts = when (contractsResult) { is ApiResult.Success -> contractsResult.data.data; else -> emptyList() }
                 val activeContracts = contracts.count { it.status == "active" || it.status == "signed" }
