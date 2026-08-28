@@ -1,4 +1,5 @@
-import { Injectable, Inject, Logger } from "@nestjs/common";
+import { Injectable, Inject, Logger, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { EFORMSIGN_CLIENT_REPOSITORY, IEformsignClientRepository } from "domain/repositories/eformsign.client.interface";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
@@ -6,6 +7,7 @@ import { CreateEformsignDocUsecase } from "./create-eformsign-doc.usecase";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
+import { EformsignDispatchBoundaryService } from "application/services/eformsign-dispatch-boundary.service";
 
 export interface CreateAndSendContractParams {
     clientId: number;
@@ -58,6 +60,7 @@ export class CreateAndSendContractUsecase {
         private readonly getAccessTokenUsecase: GetEformsignAccessTokenUsecase,
         private readonly createEformsignDocUsecase: CreateEformsignDocUsecase,
         private readonly assignmentGuard: ContractClientAssignmentGuardService,
+        @Optional() private readonly dispatchBoundary?: EformsignDispatchBoundaryService,
     ) {}
 
     async execute(
@@ -77,8 +80,86 @@ export class CreateAndSendContractUsecase {
 
         let remoteDocumentId: string | undefined;
         let providerAttempted = false;
+        let dispatchIntent: Awaited<ReturnType<EformsignDispatchBoundaryService["claim"]>>["intent"] | undefined;
         try {
-            await this.assignmentGuard.assertAssignedClient(branchid, clientId);
+            const assignment = await this.assignmentGuard.assertAssignedClient(branchid, clientId);
+            if (this.dispatchBoundary) {
+                // Approval-bound agent calls supply an immutable target version; direct callers
+                // fall back to the current client projection. Hashing the generation keeps
+                // caller-provided request keys out of operator-facing persistence while making
+                // the same logical request stable across retries.
+                const startDate = typeof client.startDate === "string"
+                    ? client.startDate
+                    : client.startDate?.toISOString() ?? null;
+                const endDate = typeof client.endDate === "string"
+                    ? client.endDate
+                    : client.endDate?.toISOString() ?? null;
+                const generationSource = idempotencyKey?.trim()
+                    || params.clientTargetVersion
+                    || JSON.stringify({
+                        clientId,
+                        name: client.name,
+                        phone: client.phone,
+                        address: client.address,
+                        birthday: client.birthday,
+                        startDate,
+                        endDate,
+                        fullPrice: client.fullPrice,
+                        grant: client.grant,
+                        actualPrice: client.actualPrice,
+                        duration: client.duration,
+                    });
+                const generation = createHash("sha256").update(generationSource).digest("hex");
+                const fingerprint = createHash("sha256")
+                    .update(JSON.stringify({
+                        clientId,
+                        client: {
+                            name: client.name,
+                            phone: client.phone,
+                            address: client.address,
+                            birthday: client.birthday,
+                            startDate,
+                            endDate,
+                            fullPrice: client.fullPrice,
+                            grant: client.grant,
+                            actualPrice: client.actualPrice,
+                            duration: client.duration,
+                        },
+                        templateId,
+                        templateName: templateName ?? null,
+                        generation,
+                    }))
+                    .digest("hex");
+                const claim = await this.dispatchBoundary.claim({
+                    branchId: branchid,
+                    clientId,
+                    assignmentId: assignment?.scheduleId ?? null,
+                    templateId,
+                    action: "create",
+                    generation,
+                    fingerprint,
+                });
+                if (claim.disposition === "already_accepted") {
+                    return claim.intent.providerDocumentId
+                        ? { success: true, documentId: claim.intent.providerDocumentId }
+                        : {
+                            success: false,
+                            error: "계약서 발송 결과를 확인할 수 없습니다",
+                            uncertain: true,
+                        };
+                }
+                if (claim.disposition === "uncertain") {
+                    return {
+                        success: false,
+                        error: "계약서 발송 결과 확인이 필요합니다",
+                        ...(claim.intent.providerDocumentId
+                            ? { remoteDocumentId: claim.intent.providerDocumentId }
+                            : {}),
+                        uncertain: true,
+                    };
+                }
+                dispatchIntent = claim.intent;
+            }
             const executionTime = Date.now();
             const tokenResponse = await this.getAccessTokenUsecase.execute(executionTime);
             const accessToken = tokenResponse.oauth_token.access_token;
@@ -134,7 +215,9 @@ export class CreateAndSendContractUsecase {
             providerAttempted = true;
             const result = await this.eformsignClient.createDocument(accessToken, {
                 templateId,
-                idempotencyKey,
+                // The durable intent key is the fallback when a direct caller did not supply
+                // one. Agent action ids remain provider keys when present for compatibility.
+                idempotencyKey: idempotencyKey?.trim() || dispatchIntent?.businessKey,
                 prefillFields,
                 recipient: {
                     name: client.name,
@@ -142,6 +225,21 @@ export class CreateAndSendContractUsecase {
                 },
             });
             remoteDocumentId = result.documentId;
+            if (dispatchIntent && this.dispatchBoundary) {
+                const accepted = await this.dispatchBoundary.markAccepted(
+                    dispatchIntent,
+                    result.documentId,
+                    { documentName: result.documentName ?? null },
+                );
+                if (!accepted || accepted.status !== "accepted") {
+                    return {
+                        success: false,
+                        error: "계약서 발송 결과 확인이 필요합니다",
+                        remoteDocumentId: result.documentId,
+                        uncertain: true,
+                    };
+                }
+            }
             const documentName = result.documentName ?? fallbackDocumentName;
 
             await this.createEformsignDocUsecase.execute(branchid, {
@@ -177,6 +275,22 @@ export class CreateAndSendContractUsecase {
                 && error.status >= 400
                 && error.status < 500
                 && error.status !== 408;
+            if (dispatchIntent) {
+                if (providerAttempted && !certainProviderRejection) {
+                    await this.dispatchBoundary?.markUncertain(
+                        dispatchIntent,
+                        error instanceof Error ? error.message : "provider outcome unavailable",
+                        remoteDocumentId,
+                    ).catch((persistError) => {
+                        this.logger.error(`Failed to persist uncertain eformsign contract outcome: ${persistError}`);
+                    });
+                } else {
+                    await this.dispatchBoundary?.releaseBeforeSend(
+                        dispatchIntent,
+                        error instanceof Error ? error.message : "contract dispatch did not start",
+                    ).catch(() => undefined);
+                }
+            }
             return {
                 success: false,
                 error: error instanceof Error ? error.message : "계약서 생성에 실패했습니다",

@@ -1,4 +1,5 @@
-import { Injectable, Logger, Optional } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import {
     EformsignDocumentWorkflowState,
     EformsignService,
@@ -7,6 +8,14 @@ import { EformsignHeadlessService } from "infrastructure/automation/eformsign-he
 import { EformsignHeadlessProgressService } from "application/services/eformsign-headless-progress.service";
 import type { EformsignHeadlessProgressStep } from "application/services/eformsign-headless-progress.service";
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
+import { EformsignDispatchBoundaryService } from "application/services/eformsign-dispatch-boundary.service";
+import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
+import {
+    EFORMSIGN_DOC_REPOSITORY,
+    IEformsignDocRepository,
+} from "domain/repositories/eformsign-doc.repository.interface";
+import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
+import type { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
 import {
     EFORMSIGN_COMPLETED_STATUS_CODES,
@@ -21,6 +30,8 @@ import {
 
 export interface FinalizeHeadlessParams {
     documentId: string;
+    /** Authenticated tenant branch. Direct unit callers may omit this for compatibility. */
+    branchId?: string;
     prefillEndDate?: string;
     progressId?: string;
     onProgress?: (step: EformsignHeadlessProgressStep) => void | Promise<void>;
@@ -49,6 +60,7 @@ export interface FinalizeHeadlessFailure {
     fallbackHint: "iframe" | "manual_check";
     durationMs: number;
     failedStep?: EformsignHeadlessProgressStep;
+    dispatchIntentId?: string;
 }
 
 export type FinalizeHeadlessResult =
@@ -100,6 +112,11 @@ export class FinalizeDocumentHeadlessUsecase {
         private readonly progressService: EformsignHeadlessProgressService,
         @Optional() private readonly operationLock?: EformsignOperationLockService,
         @Optional() private readonly documentMirrorService?: EformsignDocumentMirrorService,
+        @Optional()
+        @Inject(EFORMSIGN_DOC_REPOSITORY)
+        private readonly eformsignDocRepository?: IEformsignDocRepository,
+        @Optional() private readonly assignmentGuard?: ContractClientAssignmentGuardService,
+        @Optional() private readonly dispatchBoundary?: EformsignDispatchBoundaryService,
     ) {}
 
     async execute(params: FinalizeHeadlessParams): Promise<FinalizeHeadlessResult> {
@@ -140,7 +157,61 @@ export class FinalizeDocumentHeadlessUsecase {
     ): Promise<FinalizeHeadlessResult> {
         const start = Date.now();
         let latestProgressStep: EformsignHeadlessProgressStep | undefined;
+        let dispatchIntent: Awaited<ReturnType<EformsignDispatchBoundaryService["claim"]>>["intent"] | undefined;
+        let sendWasAttempted = false;
         try {
+            const target = await this.assertOwnedTarget(params);
+            if (!target.ok) {
+                return {
+                    ok: false,
+                    reason: "authorization_denied",
+                    fallbackHint: "manual_check",
+                    durationMs: Date.now() - start,
+                };
+            }
+
+            if (this.dispatchBoundary && target.document) {
+                const generation = target.document.updatedDate.toISOString();
+                const fingerprint = createHash("sha256")
+                    .update(JSON.stringify({
+                        documentId: params.documentId,
+                        prefillEndDate: params.prefillEndDate ?? null,
+                        templateId: target.document.templateId,
+                        generation,
+                    }))
+                    .digest("hex");
+                const claim = await this.dispatchBoundary.claim({
+                    branchId: params.branchId!,
+                    clientId: target.document.clientId,
+                    localDocumentId: target.document.id ?? null,
+                    assignmentId: target.document.employeeScheduleId,
+                    providerDocumentId: params.documentId,
+                    templateId: target.document.templateId,
+                    action: "finalize",
+                    generation,
+                    fingerprint,
+                });
+                if (claim.disposition === "already_accepted") {
+                    return {
+                        ok: false,
+                        reason: "dispatch_already_accepted",
+                        fallbackHint: "manual_check",
+                        dispatchIntentId: claim.intent.id,
+                        durationMs: Date.now() - start,
+                    };
+                }
+                if (claim.disposition === "uncertain") {
+                    return {
+                        ok: false,
+                        reason: "dispatch_uncertain_manual_reconciliation_required",
+                        fallbackHint: "manual_check",
+                        dispatchIntentId: claim.intent.id,
+                        durationMs: Date.now() - start,
+                    };
+                }
+                dispatchIntent = claim.intent;
+            }
+
             const tokenResponse = await this.getAccessTokenUsecase.execute(Date.now());
             const accessToken = tokenResponse.oauth_token.access_token;
             const refreshToken = tokenResponse.oauth_token.refresh_token;
@@ -160,10 +231,17 @@ export class FinalizeDocumentHeadlessUsecase {
             )) as Record<string, unknown>;
 
             if (lease && !lease.isHeld()) {
+                if (dispatchIntent) {
+                    await this.dispatchBoundary?.releaseBeforeSend(
+                        dispatchIntent,
+                        "operation_lock_lost",
+                    ).catch(() => undefined);
+                }
                 return {
                     ok: false,
                     reason: "operation_lock_lost",
                     fallbackHint: "manual_check",
+                    dispatchIntentId: dispatchIntent?.id,
                     durationMs: Date.now() - start,
                 };
             }
@@ -182,14 +260,18 @@ export class FinalizeDocumentHeadlessUsecase {
                     }
                 },
             });
-            const sendWasAttempted =
+            sendWasAttempted =
                 latestProgressStep === "creating" || latestProgressStep === "sent";
             if (!result.ok && !sendWasAttempted) {
+                if (dispatchIntent) {
+                    await this.dispatchBoundary?.releaseBeforeSend(dispatchIntent, result.reason).catch(() => undefined);
+                }
                 this.progressService.emit(params.progressId, "failed", result.reason, latestProgressStep);
                 return {
                     ok: false,
                     reason: result.reason,
                     fallbackHint: "iframe",
+                    dispatchIntentId: dispatchIntent?.id,
                     durationMs: result.durationMs,
                     failedStep: latestProgressStep,
                 };
@@ -203,6 +285,15 @@ export class FinalizeDocumentHeadlessUsecase {
                 || !result.ok
                 || result.gateOutcome === "success-latched";
             if (!mustConfirmWithVendor) {
+                if (dispatchIntent) {
+                    await this.dispatchBoundary?.markAccepted(
+                        dispatchIntent,
+                        params.documentId,
+                        { outcome: "sdk_send_confirmed" },
+                    ).catch((error) => {
+                        this.logger.error(`Failed to persist eformsign finalize outcome: ${error}`);
+                    });
+                }
                 return this.buildSuccessfulResult(params.documentId, result.durationMs);
             }
 
@@ -218,12 +309,26 @@ export class FinalizeDocumentHeadlessUsecase {
                     );
                 }
                 this.progressService.emit(params.progressId, "sent");
+                if (dispatchIntent) {
+                    await this.dispatchBoundary?.markAccepted(dispatchIntent, params.documentId, {
+                        outcome: "completed",
+                    }).catch((error) => {
+                        this.logger.error(`Failed to persist eformsign finalize outcome: ${error}`);
+                    });
+                }
                 return this.buildSuccessfulResult(params.documentId, result.durationMs);
             }
             if (settled === "advanced") {
                 this.logger.log(
                     `Headless finalize advanced ${params.documentId} to the next provider step.`,
                 );
+                if (dispatchIntent) {
+                    await this.dispatchBoundary?.markAccepted(dispatchIntent, params.documentId, {
+                        outcome: "advanced",
+                    }).catch((error) => {
+                        this.logger.error(`Failed to persist eformsign finalize outcome: ${error}`);
+                    });
+                }
                 return { ok: true, completed: false, durationMs: result.durationMs };
             }
 
@@ -236,25 +341,96 @@ export class FinalizeDocumentHeadlessUsecase {
                 `Headless finalize for ${params.documentId}: ${reason} (vendor status: ${settled}).`,
             );
             this.progressService.emit(params.progressId, "failed", reason, latestProgressStep);
+            if (dispatchIntent && sendWasAttempted) {
+                await this.dispatchBoundary?.markUncertain(dispatchIntent, reason, params.documentId).catch((error) => {
+                    this.logger.error(`Failed to persist uncertain eformsign finalize outcome: ${error}`);
+                });
+            } else if (dispatchIntent) {
+                await this.dispatchBoundary?.releaseBeforeSend(dispatchIntent, reason).catch(() => undefined);
+            }
             return {
                 ok: false,
                 reason,
                 fallbackHint: settled === "pending" ? "iframe" : "manual_check",
+                dispatchIntentId: dispatchIntent?.id,
                 durationMs: result.durationMs,
                 failedStep: latestProgressStep,
             };
         } catch (error) {
             const reason = error instanceof Error ? error.message : "unknown headless finalize error";
+            if (dispatchIntent) {
+                if (sendWasAttempted) {
+                    await this.dispatchBoundary?.markUncertain(dispatchIntent, reason, params.documentId).catch((persistError) => {
+                        this.logger.error(`Failed to persist uncertain eformsign finalize outcome: ${persistError}`);
+                    });
+                } else {
+                    await this.dispatchBoundary?.releaseBeforeSend(dispatchIntent, reason).catch(() => undefined);
+                }
+            }
             this.logger.error(`FinalizeDocumentHeadlessUsecase failed: ${reason}`);
             this.progressService.emit(params.progressId, "failed", reason, latestProgressStep);
             return {
                 ok: false,
                 reason,
                 fallbackHint: "iframe",
+                dispatchIntentId: dispatchIntent?.id,
                 durationMs: Date.now() - start,
                 failedStep: latestProgressStep,
             };
         }
+    }
+
+    /**
+     * The provider document id is not an ownership proof. The only acceptable
+     * target is a live local row selected through the authenticated branch.
+     */
+    private async assertOwnedTarget(
+        params: FinalizeHeadlessParams,
+    ): Promise<{ ok: true; document?: EformsignDocEntity } | { ok: false }> {
+        // Existing direct usecase tests and narrowly scoped callers predate the
+        // tenant boundary. HTTP and worker paths always provide branchId.
+        if (!params.branchId && !this.eformsignDocRepository) return { ok: true, document: undefined as never };
+        if (!params.branchId || !this.eformsignDocRepository || !this.assignmentGuard) return { ok: false };
+
+        let document: EformsignDocEntity | null;
+        try {
+            document = await this.eformsignDocRepository.findByDocumentId(
+                params.branchId,
+                params.documentId,
+            );
+        } catch {
+            // A repository outage is not evidence of ownership. Keep the
+            // provider boundary closed and expose the same safe denial as a
+            // missing or cross-branch row.
+            return { ok: false };
+        }
+        if (!document
+            || !document.id
+            || !document.documentKind
+            || ![
+                EFORMSIGN_DOCUMENT_KIND.CONTRACT,
+                EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
+            ].includes(document.documentKind)
+            || TERMINAL_STATUS_CODES.has(document.statusType)
+            || document.expired
+            || document.clientId === null) {
+            return { ok: false };
+        }
+
+        try {
+            const assignment = await this.assignmentGuard.assertAssignedClient(
+                params.branchId,
+                document.clientId,
+            );
+            if (document.employeeScheduleId !== null
+                && assignment.scheduleId !== document.employeeScheduleId) {
+                return { ok: false };
+            }
+        } catch {
+            return { ok: false };
+        }
+
+        return { ok: true, document };
     }
 
     private buildSuccessfulResult(

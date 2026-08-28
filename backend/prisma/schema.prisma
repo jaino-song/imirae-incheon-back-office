@@ -431,6 +431,41 @@ model eformsign_document_job {
   @@index([clientId], map: "idx_eformsign_document_job_client_id")
 }
 
+/// Durable at-most-once boundary for every provider-changing eformsign action.
+/// A started or uncertain row is intentionally not replayable; only an explicit
+/// operator reconciliation to `not_delivered` permits another claim attempt.
+model eformsign_dispatch_intent {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId             String    @map("branch_id") @db.Uuid
+  clientId             Int?      @map("client_id")
+  localDocumentId      Int?      @map("local_document_id")
+  assignmentId         Int?      @map("assignment_id")
+  providerDocumentId   String?   @map("provider_document_id")
+  templateId           String?   @map("template_id")
+  action               String    @db.VarChar(32)
+  generation           String    @db.VarChar(128)
+  businessKey          String    @map("business_key") @db.Char(64)
+  fingerprint          String    @db.Char(64)
+  status               String    @default("prepared") @db.VarChar(32)
+  attemptCount         Int       @default(0) @map("attempt_count")
+  startedAt            DateTime? @map("started_at") @db.Timestamptz(6)
+  providerAcceptedAt   DateTime? @map("provider_accepted_at") @db.Timestamptz(6)
+  uncertainAt          DateTime? @map("uncertain_at") @db.Timestamptz(6)
+  uncertainReason      String?   @map("uncertain_reason")
+  providerReceipt      Json?     @map("provider_receipt") @db.JsonB
+  reconciledAt         DateTime? @map("reconciled_at") @db.Timestamptz(6)
+  reconciledOutcome    String?   @map("reconciled_outcome") @db.VarChar(24)
+  reconciledByUserId   String?   @map("reconciled_by_user_id") @db.Uuid
+  reconciliationReason String?   @map("reconciliation_reason")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  branch               branch    @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([businessKey], map: "eformsign_dispatch_intent_business_key")
+  @@index([branchId, status], map: "idx_eformsign_dispatch_intent_branch_status")
+  @@index([branchId, localDocumentId], map: "idx_eformsign_dispatch_intent_branch_document")
+}
+
 model eformsign_doc_file {
   id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   eformsignDocId     Int           @map("eformsign_doc_id")
@@ -574,6 +609,7 @@ model branch {
   messageTriggerJobs            message_trigger_job[]
   notifications                 notification[]
   eformsignDocumentJobs         eformsign_document_job[]
+  eformsignDispatchIntents      eformsign_dispatch_intent[]
   consultationInquiries         consultation_inquiry[]
   callIngestTokens              call_ingest_token[]
   callRecords                   call_record[]

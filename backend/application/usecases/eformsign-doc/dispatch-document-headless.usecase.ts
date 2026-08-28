@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { ContractDataDto } from "application/dto/contract.dto";
 import { EformsignService } from "application/services/eformsign.service";
 import { EformsignHeadlessService } from "infrastructure/automation/eformsign-headless.service";
@@ -13,6 +14,7 @@ import { FetchAllEformsignDocsFromApiUsecase } from "./fetch-all-eformsign-docs-
 import { EformsignHeadlessProgressService } from "application/services/eformsign-headless-progress.service";
 import type { EformsignHeadlessProgressStep } from "application/services/eformsign-headless-progress.service";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
+import { EformsignDispatchBoundaryService } from "application/services/eformsign-dispatch-boundary.service";
 import { eformsignExpiryDateFromRemainingDays } from "domain/utils/eformsign-expiry-date";
 import {
     EformsignOperationAlreadyRunningError,
@@ -56,6 +58,7 @@ export interface DispatchHeadlessFailure {
     failedStep?: EformsignHeadlessProgressStep;
     remoteDocumentId?: string;
     existingDocumentId?: string;
+    dispatchIntentId?: string;
 }
 
 export type DispatchHeadlessResult = DispatchHeadlessSuccess | DispatchHeadlessFailure;
@@ -95,6 +98,7 @@ export class DispatchDocumentHeadlessUsecase {
         @Inject(EFORMSIGN_DOC_REPOSITORY) private readonly eformsignDocRepository: IEformsignDocRepository,
         private readonly fetchAllEformsignDocsFromApiUsecase: FetchAllEformsignDocsFromApiUsecase,
         @Optional() private readonly operationLock?: EformsignOperationLockService,
+        @Optional() private readonly dispatchBoundary?: EformsignDispatchBoundaryService,
     ) {}
 
     async execute(branchId: string, params: DispatchHeadlessParams): Promise<DispatchHeadlessResult> {
@@ -136,15 +140,13 @@ export class DispatchDocumentHeadlessUsecase {
     ): Promise<DispatchHeadlessResult> {
         const start = Date.now();
         let latestProgressStep: EformsignHeadlessProgressStep | undefined;
+        let dispatchIntent: Awaited<ReturnType<EformsignDispatchBoundaryService["claim"]>>["intent"] | undefined;
         try {
-            await this.assignmentGuard.assertAssignedProvider(
+            const assignment = await this.assignmentGuard.assertAssignedProvider(
                 branchId,
                 params.clientId,
                 params.contractData.caretaker1Contact,
             );
-            const tokenResponse = await this.getAccessTokenUsecase.execute(Date.now());
-            const accessToken = tokenResponse.oauth_token.access_token;
-            const refreshToken = tokenResponse.oauth_token.refresh_token;
 
             let templateId: string | undefined;
             let templateName: string | null = null;
@@ -154,8 +156,11 @@ export class DispatchDocumentHeadlessUsecase {
                 templateName = areaTemplate?.templateName ?? null;
             }
 
+            const localDocuments = await this.eformsignDocRepository.findByClientId(branchId, params.clientId);
+            const latestLocalDocument = [...localDocuments]
+                .sort((left, right) => right.createdDate.getTime() - left.createdDate.getTime())[0];
             if (!params.force) {
-                const duplicate = (await this.eformsignDocRepository.findByClientId(branchId, params.clientId))
+                const duplicate = localDocuments
                     .find((document) => (
                         document.templateId === (templateId ?? null)
                         && !TERMINAL_STATUS_CODES.has(document.statusType)
@@ -172,6 +177,48 @@ export class DispatchDocumentHeadlessUsecase {
                 }
             }
 
+            if (this.dispatchBoundary) {
+                const generation = latestLocalDocument?.documentId ?? (params.force ? "force-initial" : "initial");
+                const fingerprint = createHash("sha256")
+                    .update(JSON.stringify({ contractData: params.contractData, templateId, generation }))
+                    .digest("hex");
+                const claim = await this.dispatchBoundary.claim({
+                    branchId,
+                    clientId: params.clientId,
+                    localDocumentId: latestLocalDocument?.id ?? null,
+                    assignmentId: assignment?.scheduleId ?? null,
+                    templateId: templateId ?? null,
+                    action: "create",
+                    generation,
+                    fingerprint,
+                });
+                if (claim.disposition === "already_accepted") {
+                    return {
+                        ok: false,
+                        reason: "dispatch_already_accepted",
+                        remoteDocumentId: claim.intent.providerDocumentId ?? undefined,
+                        fallbackHint: "adopt-or-manual",
+                        dispatchIntentId: claim.intent.id,
+                        durationMs: Date.now() - start,
+                    };
+                }
+                if (claim.disposition === "uncertain") {
+                    return {
+                        ok: false,
+                        reason: "dispatch_uncertain_manual_reconciliation_required",
+                        remoteDocumentId: claim.intent.providerDocumentId ?? undefined,
+                        fallbackHint: "manual_check",
+                        dispatchIntentId: claim.intent.id,
+                        durationMs: Date.now() - start,
+                    };
+                }
+                dispatchIntent = claim.intent;
+            }
+
+            const tokenResponse = await this.getAccessTokenUsecase.execute(Date.now());
+            const accessToken = tokenResponse.oauth_token.access_token;
+            const refreshToken = tokenResponse.oauth_token.refresh_token;
+
             const documentOption = this.eformsignService.generateDocumentOptions(
                 params.contractData,
                 accessToken,
@@ -183,10 +230,17 @@ export class DispatchDocumentHeadlessUsecase {
             )?.document_name;
 
             if (lease && !lease.isHeld()) {
+                if (dispatchIntent) {
+                    await this.dispatchBoundary?.releaseBeforeSend(
+                        dispatchIntent,
+                        "operation_lock_lost",
+                    ).catch(() => undefined);
+                }
                 return {
                     ok: false,
                     reason: "operation_lock_lost",
                     fallbackHint: "manual_check",
+                    dispatchIntentId: dispatchIntent?.id,
                     durationMs: Date.now() - start,
                 };
             }
@@ -211,14 +265,41 @@ export class DispatchDocumentHeadlessUsecase {
             const sendWasAttempted = latestProgressStep === "creating" || latestProgressStep === "sent";
 
             if (!result.ok && !sendWasAttempted) {
+                if (dispatchIntent) {
+                    await this.dispatchBoundary?.releaseBeforeSend(dispatchIntent, result.reason).catch(() => undefined);
+                }
                 this.progressService.emit(params.progressId, "failed", result.reason, latestProgressStep);
                 return {
                     ok: false,
                     reason: result.reason,
                     fallbackHint: "iframe",
+                    dispatchIntentId: dispatchIntent?.id,
                     durationMs: result.durationMs,
                     failedStep: latestProgressStep,
                 };
+            }
+
+            if (dispatchIntent && this.dispatchBoundary) {
+                try {
+                    if (result.ok && result.documentId) {
+                        await this.dispatchBoundary.markAccepted(dispatchIntent, result.documentId, result);
+                    } else if (result.ok) {
+                        await this.dispatchBoundary.markUncertain(
+                            dispatchIntent,
+                            "provider_success_without_document_id",
+                        );
+                    } else {
+                        await this.dispatchBoundary.markUncertain(
+                            dispatchIntent,
+                            result.reason,
+                            result.documentId,
+                        );
+                    }
+                } catch (error) {
+                    // The started claim is the safety boundary even if the provider-result
+                    // write itself fails. Retrying must remain blocked for reconciliation.
+                    this.logger.error(`Failed to persist eformsign dispatch outcome: ${error}`);
+                }
             }
             // A post-send failure falls through to the same reconciliation as a run
             // that finished without a document_id: look the document up remotely,
@@ -249,9 +330,24 @@ export class DispatchDocumentHeadlessUsecase {
                     ok: false,
                     reason: "remote_unconfirmed",
                     fallbackHint: reconciliation?.available === false ? "adopt-or-manual" : "manual_check",
+                    dispatchIntentId: dispatchIntent?.id,
                     durationMs: result.durationMs,
                     failedStep: latestProgressStep,
                 };
+            }
+
+            // A successful remote reconciliation is the authoritative provider
+            // receipt when the SDK callback omitted its document id. Promote the
+            // durable claim only after that lookup, never merely because local
+            // persistence later succeeds.
+            if (dispatchIntent && reconciliation?.documentId) {
+                await this.dispatchBoundary?.markAccepted(
+                    dispatchIntent,
+                    reconciliation.documentId,
+                    { source: "remote_reconciliation" },
+                ).catch((error) => {
+                    this.logger.error(`Failed to persist reconciled eformsign dispatch outcome: ${error}`);
+                });
             }
 
             if (params.clientId && documentId) {
@@ -288,6 +384,7 @@ export class DispatchDocumentHeadlessUsecase {
                         reason: "local_persist_failed",
                         remoteDocumentId: documentId,
                         fallbackHint: "adopt",
+                        dispatchIntentId: dispatchIntent?.id,
                         durationMs: result.durationMs,
                         failedStep: latestProgressStep,
                     };
@@ -301,12 +398,22 @@ export class DispatchDocumentHeadlessUsecase {
             };
         } catch (error) {
             const reason = error instanceof Error ? error.message : "unknown headless dispatch error";
+            if (dispatchIntent) {
+                if (latestProgressStep === "creating" || latestProgressStep === "sent") {
+                    await this.dispatchBoundary?.markUncertain(dispatchIntent, reason).catch((persistError) => {
+                        this.logger.error(`Failed to persist uncertain eformsign dispatch outcome: ${persistError}`);
+                    });
+                } else {
+                    await this.dispatchBoundary?.releaseBeforeSend(dispatchIntent, reason).catch(() => undefined);
+                }
+            }
             this.logger.error(`DispatchDocumentHeadlessUsecase failed: ${reason}`);
             this.progressService.emit(params.progressId, "failed", reason, latestProgressStep);
             return {
                 ok: false,
                 reason,
                 fallbackHint: "iframe",
+                dispatchIntentId: dispatchIntent?.id,
                 durationMs: Date.now() - start,
                 failedStep: latestProgressStep,
             };

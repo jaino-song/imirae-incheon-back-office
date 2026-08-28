@@ -5,11 +5,15 @@ import {
     HttpCode,
     HttpStatus,
     ConflictException,
+    ForbiddenException,
     Logger,
     MessageEvent,
     Post,
+    Param,
+    ParseUUIDPipe,
     Query,
     Req,
+    Optional,
     ServiceUnavailableException,
     Sse,
     UseGuards,
@@ -24,6 +28,7 @@ import { ListClientNamesByBranchUsecase } from "application/usecases/eformsign-d
 import { ListReviewStageContractsUsecase } from "application/usecases/eformsign-doc/list-review-stage-contracts.usecase";
 import { DispatchDocumentHeadlessUsecase } from "application/usecases/eformsign-doc/dispatch-document-headless.usecase";
 import { FinalizeDocumentHeadlessUsecase } from "application/usecases/eformsign-doc/finalize-document-headless.usecase";
+import { EformsignDispatchBoundaryService } from "application/services/eformsign-dispatch-boundary.service";
 import { AdoptEformsignDocUsecase } from "application/usecases/eformsign-doc/adopt-eformsign-doc.usecase";
 import type { CreateEformsignDocResult } from "application/usecases/eformsign-doc/create-eformsign-doc.usecase";
 import { SERVICE_RECORD_TEMPLATE_TIER_ENV_KEYS } from "application/usecases/eformsign-doc/service-record-field-ids";
@@ -35,6 +40,8 @@ import {
     DispatchHeadlessResponseDto,
     FinalizeHeadlessRequestDto,
     FinalizeHeadlessResponseDto,
+    ReconcileEformsignDispatchIntentDto,
+    EformsignDispatchIntentResponseDto,
     AdoptEformsignDocDto,
     ReviewNeededContractDto,
 } from "interface/dto/eformsign-doc.dto";
@@ -65,6 +72,7 @@ export class EformsignDocController {
         private readonly headlessProgressService: EformsignHeadlessProgressService,
         private readonly configService: ConfigService,
         private readonly documentJobService: EformsignDocumentJobService,
+        @Optional() private readonly dispatchBoundary?: EformsignDispatchBoundaryService,
     ) {}
 
     /**
@@ -318,6 +326,7 @@ export class EformsignDocController {
                 fallbackHint: result.fallbackHint,
                 remoteDocumentId: result.remoteDocumentId,
                 existingDocumentId: result.existingDocumentId,
+                dispatchIntentId: result.dispatchIntentId,
             };
         }
         return {
@@ -332,9 +341,13 @@ export class EformsignDocController {
      * Run the staff-finalize iframe gate sequence (mode:"02") off-screen.
      */
     @Post("finalize-headless")
-    async finalizeHeadless(@Body() dto: FinalizeHeadlessRequestDto): Promise<FinalizeHeadlessResponseDto> {
+    async finalizeHeadless(
+        @CurrentTenant() tenant: { branchId?: string },
+        @Body() dto: FinalizeHeadlessRequestDto,
+    ): Promise<FinalizeHeadlessResponseDto> {
         this.logger.log(`[POST /eformsign-docs/finalize-headless] documentId=${dto.documentId}`);
         const result = await this.finalizeHeadlessUsecase.execute({
+            branchId: tenant.branchId ?? "",
             documentId: dto.documentId,
             prefillEndDate: dto.prefillEndDate,
             progressId: dto.progressId,
@@ -348,12 +361,82 @@ export class EformsignDocController {
                 durationMs: result.durationMs,
                 reason: result.reason,
                 fallbackHint: result.fallbackHint,
+                dispatchIntentId: result.dispatchIntentId,
             };
         }
         return {
             ok: true,
             completed: result.completed,
             durationMs: result.durationMs,
+        };
+    }
+
+    /**
+     * GET /eformsign-docs/dispatch-intents/:intentId
+     * Read the branch-scoped receipt for an eformsign provider call. Started/
+     * uncertain calls are never replayed automatically; an authorized operator
+     * can use the companion reconciliation route below to unblock a retry.
+     */
+    @Get("dispatch-intents/:intentId")
+    async getDispatchIntent(
+        @CurrentTenant() tenant: {
+            branchId?: string;
+            globalRole?: string;
+            branchRole?: string;
+        },
+        @Param("intentId", new ParseUUIDPipe()) intentId: string,
+    ): Promise<EformsignDispatchIntentResponseDto> {
+        const isOperator = tenant.globalRole === "owner" || tenant.branchRole === "admin";
+        if (!isOperator || !this.dispatchBoundary) {
+            throw new ForbiddenException("전자문서 작업을 확인할 권한이 없습니다.");
+        }
+        const result = await this.dispatchBoundary.findById(
+            tenant.branchId ?? "",
+            intentId,
+        );
+        // Do not reveal whether an intent exists in another branch.
+        if (!result) {
+            throw new ForbiddenException("전자문서 작업을 확인할 권한이 없습니다.");
+        }
+        return {
+            intentId: result.id,
+            status: result.status,
+            outcome: result.reconciledOutcome,
+            providerDocumentId: result.providerDocumentId,
+        };
+    }
+
+    @Post("dispatch-intents/:intentId/reconcile")
+    @HttpCode(HttpStatus.OK)
+    async reconcileDispatchIntent(
+        @CurrentTenant() tenant: {
+            branchId?: string;
+            userId?: string;
+            globalRole?: string;
+            branchRole?: string;
+        },
+        @Req() request: { user?: { userId?: string } },
+        @Param("intentId", new ParseUUIDPipe()) intentId: string,
+        @Body() dto: ReconcileEformsignDispatchIntentDto,
+    ): Promise<EformsignDispatchIntentResponseDto> {
+        const isOperator = tenant.globalRole === "owner" || tenant.branchRole === "admin";
+        if (!isOperator || !this.dispatchBoundary) {
+            throw new ForbiddenException("전자문서 작업을 확인할 권한이 없습니다.");
+        }
+
+        const result = await this.dispatchBoundary.reconcile({
+            branchId: tenant.branchId ?? "",
+            intentId: intentId.trim(),
+            outcome: dto.outcome,
+            actorUserId: tenant.userId ?? request.user?.userId ?? "",
+            reason: dto.reason,
+            providerDocumentId: dto.providerDocumentId?.trim() || undefined,
+        });
+        return {
+            intentId: result.id,
+            status: result.status,
+            outcome: result.reconciledOutcome ?? dto.outcome,
+            providerDocumentId: result.providerDocumentId,
         };
     }
 

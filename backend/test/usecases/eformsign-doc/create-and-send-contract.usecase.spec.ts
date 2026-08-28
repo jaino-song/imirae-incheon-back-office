@@ -225,4 +225,139 @@ describe("CreateAndSendContractUsecase", () => {
             idempotencyKey: "action-approved",
         }));
     });
+
+    it("does not cross the provider boundary for an uncertain durable intent", async () => {
+        const getAccessToken = jest.fn();
+        const createDocument = jest.fn();
+        const dispatchBoundary = {
+            claim: jest.fn().mockResolvedValue({
+                disposition: "uncertain",
+                intent: { id: "intent-uncertain", providerDocumentId: null },
+            }),
+        };
+        const usecase = new CreateAndSendContractUsecase(
+            { createDocument } as never,
+            { findById: jest.fn().mockResolvedValue({
+                id: 7,
+                name: "김고객",
+                phone: "010-1111-2222",
+                startDate: null,
+                endDate: null,
+            }) } as never,
+            { execute: getAccessToken } as never,
+            { execute: jest.fn() } as never,
+            { assertAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
+            dispatchBoundary as never,
+        );
+
+        await expect(usecase.execute("branch-1", {
+            clientId: 7,
+            templateId: "template-1",
+            idempotencyKey: "request-1",
+        })).resolves.toEqual(expect.objectContaining({
+            success: false,
+            uncertain: true,
+        }));
+
+        expect(getAccessToken).not.toHaveBeenCalled();
+        expect(createDocument).not.toHaveBeenCalled();
+    });
+
+    it("persists an accepted durable intent before local mirror persistence", async () => {
+        const createDocument = jest.fn().mockResolvedValue({ documentId: "remote-1" });
+        const persistDocument = jest.fn().mockResolvedValue({ documentId: "remote-1" });
+        const dispatchBoundary = {
+            claim: jest.fn().mockResolvedValue({
+                disposition: "claimed",
+                intent: {
+                    id: "intent-1",
+                    businessKey: "provider-key",
+                    providerDocumentId: null,
+                },
+            }),
+            markAccepted: jest.fn().mockResolvedValue({ status: "accepted" }),
+            markUncertain: jest.fn(),
+            releaseBeforeSend: jest.fn(),
+        };
+        const usecase = new CreateAndSendContractUsecase(
+            { createDocument } as never,
+            { findById: jest.fn().mockResolvedValue({
+                id: 7,
+                name: "김고객",
+                phone: "010-1111-2222",
+                startDate: null,
+                endDate: null,
+            }) } as never,
+            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            { execute: persistDocument } as never,
+            { assertAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
+            dispatchBoundary as never,
+        );
+
+        await expect(usecase.execute("branch-1", {
+            clientId: 7,
+            templateId: "template-1",
+        })).resolves.toEqual({ success: true, documentId: "remote-1" });
+
+        expect(dispatchBoundary.claim).toHaveBeenCalledWith(expect.objectContaining({
+            branchId: "branch-1",
+            assignmentId: 13,
+            action: "create",
+        }));
+        expect(createDocument).toHaveBeenCalledWith("token", expect.objectContaining({
+            idempotencyKey: "provider-key",
+        }));
+        expect(dispatchBoundary.markAccepted).toHaveBeenCalledWith(
+            expect.objectContaining({ id: "intent-1" }),
+            "remote-1",
+            expect.objectContaining({ documentName: null }),
+        );
+        expect(dispatchBoundary.markAccepted.mock.invocationCallOrder[0])
+            .toBeLessThan(persistDocument.mock.invocationCallOrder[0]!);
+    });
+
+    it("records provider uncertainty instead of making a retryable success claim", async () => {
+        const providerError = new Error("provider timeout");
+        const dispatchBoundary = {
+            claim: jest.fn().mockResolvedValue({
+                disposition: "claimed",
+                intent: {
+                    id: "intent-1",
+                    businessKey: "provider-key",
+                    providerDocumentId: null,
+                },
+            }),
+            markAccepted: jest.fn(),
+            markUncertain: jest.fn().mockResolvedValue({ status: "uncertain" }),
+            releaseBeforeSend: jest.fn(),
+        };
+        const usecase = new CreateAndSendContractUsecase(
+            { createDocument: jest.fn().mockRejectedValue(providerError) } as never,
+            { findById: jest.fn().mockResolvedValue({
+                id: 7,
+                name: "김고객",
+                phone: "010-1111-2222",
+                startDate: null,
+                endDate: null,
+            }) } as never,
+            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            { execute: jest.fn() } as never,
+            { assertAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
+            dispatchBoundary as never,
+        );
+
+        await expect(usecase.execute("branch-1", {
+            clientId: 7,
+            templateId: "template-1",
+        })).resolves.toEqual(expect.objectContaining({
+            success: false,
+            uncertain: true,
+        }));
+        expect(dispatchBoundary.markUncertain).toHaveBeenCalledWith(
+            expect.objectContaining({ id: "intent-1" }),
+            "provider timeout",
+            undefined,
+        );
+        expect(dispatchBoundary.releaseBeforeSend).not.toHaveBeenCalled();
+    });
 });

@@ -229,6 +229,7 @@ export class EformsignDocumentJobWorkerService {
         let latestProgressStep: EformsignHeadlessProgressStep | undefined;
         for (let step = 0; step < MAX_CONSECUTIVE_FINALIZE_STEPS; step += 1) {
             const result = await this.finalizeUsecase.execute({
+                branchId: job.branchId,
                 documentId,
                 prefillEndDate: payload.prefillEndDate,
                 progressId: payload.progressId,

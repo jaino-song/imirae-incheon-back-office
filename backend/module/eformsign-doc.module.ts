@@ -71,6 +71,9 @@ import { EFORMSIGN_DOCUMENT_JOB_REPOSITORY } from "domain/repositories/eformsign
 import { EMPLOYEE_REPOSITORY } from "domain/repositories/employee.repository.interface";
 import { SbEformsignDocumentJobRepository } from "infrastructure/database/repositories/sb.eformsign-document-job.repository";
 import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.employee.repository";
+import { EFORMSIGN_DISPATCH_INTENT_REPOSITORY } from "domain/repositories/eformsign-dispatch-intent.repository.interface";
+import { SbEformsignDispatchIntentRepository } from "infrastructure/database/repositories/sb.eformsign-dispatch-intent.repository";
+import { EformsignDispatchBoundaryService } from "application/services/eformsign-dispatch-boundary.service";
 
 @Module({
     imports: [
@@ -135,6 +138,7 @@ import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.em
         EformsignDocumentJobService,
         EformsignDocumentJobWorkerService,
         EformsignDocumentJobReconciliationService,
+        EformsignDispatchBoundaryService,
         // Repository bindings
         {
             provide: EFORMSIGN_DOC_REPOSITORY,
@@ -162,6 +166,10 @@ import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.em
             useClass: SbEformsignDocumentJobRepository,
         },
         {
+            provide: EFORMSIGN_DISPATCH_INTENT_REPOSITORY,
+            useClass: SbEformsignDispatchIntentRepository,
+        },
+        {
             provide: EFORMSIGN_BACKFILL_REDIS_CLIENT,
             inject: [ConfigService],
             useFactory: createEformsignBackfillRedisClient,
@@ -185,6 +193,7 @@ import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.em
         LinkMirroredEformsignDocByPhoneUsecase,
         GetContractClientCandidateUsecase,
         EformsignDocumentJobService,
+        EformsignDispatchBoundaryService,
     ],
 })
 export class EformsignDocModule {}
