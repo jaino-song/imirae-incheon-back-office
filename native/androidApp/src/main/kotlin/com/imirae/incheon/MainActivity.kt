@@ -106,6 +106,9 @@ class MainActivity : ComponentActivity() {
                     return
                 }
                 controller.navigate(route) {
+                    // A protected notification continuation replaces auth screens
+                    // so Back cannot reveal Login or branch selection underneath.
+                    popUpTo(0) { inclusive = true }
                     // A repeated PendingIntent must not add another copy of
                     // the same destination to the back stack.
                     launchSingleTop = true

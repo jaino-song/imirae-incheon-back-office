@@ -105,6 +105,19 @@ require_text "$MAIN_ACTIVITY" "navigationGate.enqueue(parsedNavigation.intent, p
 require_text "$MAIN_ACTIVITY" "launchSingleTop = true" \
     "navigation does not guard against duplicate back-stack entries"
 
+protected_navigation_block() {
+    awk '
+        /is NotificationNavigationDecision.NavigateProtected -> \{/ { in_block = 1 }
+        in_block { print }
+        in_block && /NotificationNavigationDecision.Login ->/ { exit }
+    ' "$MAIN_ACTIVITY"
+}
+
+if ! protected_navigation_block | grep -Fq -- "popUpTo(0) { inclusive = true }"; then
+    echo "Android push intent contract failure: protected notification continuation leaves auth screens on the back stack" >&2
+    exit 1
+fi
+
 # Protected routes must wait for the shared session restoration state machine.
 require_text "$AUTH_VIEW_MODEL" "fun restoreSession() = authManager.restoreSession()" \
     "the Android lifecycle cannot initiate shared session restoration"
