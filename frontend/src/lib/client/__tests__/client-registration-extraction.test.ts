@@ -122,6 +122,34 @@ describe("extractClientRegistrationDraft", () => {
         expect(extractClientRegistrationDraft(`산모 등록. ${message}.`).dueDate).toBe(expectedDueDate);
     });
 
+    it.each([
+        [
+            "생년월일은 2000년 1월 1일이고 출산 예정일은 2026년 2월 1일이에요",
+            "000101",
+            "260201",
+        ],
+        [
+            "생년월일은 2000년 1월 1일이며 출산 예정일은 2026년 2월 1일입니다",
+            "000101",
+            "260201",
+        ],
+    ])("accepts recognized Korean sentence endings after labeled dates: %s", (message, expectedBirthday, expectedDueDate) => {
+        const draft = extractClientRegistrationDraft(`산모 등록. ${message}.`);
+
+        expect(draft.birthday).toBe(expectedBirthday);
+        expect(draft.dueDate).toBe(expectedDueDate);
+    });
+
+    it.each([
+        "생년월일은 2000년 1월 1일이고2 출산 예정일은 2026년 2월 1일",
+        "생년월일은 2000년 1월 1일연락처는 010-1234-5678, 출산 예정일은 2026년 2월 1일",
+    ])("does not cross malformed or unrelated Korean text after a labeled date: %s", (message) => {
+        const draft = extractClientRegistrationDraft(`산모 등록. ${message}.`);
+
+        expect(draft.birthday).toBeUndefined();
+        expect(draft.dueDate).toBe("260201");
+    });
+
     it("parses a complete birthday 일자 label without leaving its particle in the value", () => {
         const draft = extractClientRegistrationDraft("산모 등록. 생년월일자는 2000-01-01.");
 
@@ -284,6 +312,22 @@ describe("extractClientRegistrationDraft", () => {
         ["관리사는 김나이 담당해.", "김나이"],
     ])("preserves a complete provider name ending in a particle-like syllable: %s", (message, expectedName) => {
         expect(extractClientRegistrationDraft(message).employeeName).toBe(expectedName);
+    });
+
+    it("skips a provider field label and scans a later provider label for the name", () => {
+        const draft = extractClientRegistrationDraft(
+            "산모 등록. 제공인력 연락처는 01012345678이고 관리사는 김영희야.",
+        );
+
+        expect(draft.employeeName).toBe("김영희");
+    });
+
+    it.each([
+        "제공인력 전화는 01012345678이야.",
+        "제공인력 등급은 VIP야.",
+        "제공인력 주소는 인천이야.",
+    ])("does not treat a provider field noun as an employee name: %s", (message) => {
+        expect(extractClientRegistrationDraft(`산모 등록. ${message}`).employeeName).toBeUndefined();
     });
 
     it.each([

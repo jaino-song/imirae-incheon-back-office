@@ -19,9 +19,10 @@ const REGISTRATION_COMMANDS = /산모\s*등록|고객\s*등록|등록해줘|추�
 // A date token must contain a complete year/month/day shape. The month/day
 // ranges are intentionally broad here; calendar validity is checked after
 // extraction so malformed values cannot be replaced by a later date.
-const DATE_TOKEN_PATTERN = /(?<!\d)(?:(?:19|20)\d{2}(?:(?:[-./]\s*\d{1,2}\s*[-./]\s*\d{1,2}일?)|(?:년\s*\d{1,2}월\s*\d{1,2}일?)|(?:\s+\d{1,2}\s+\d{1,2}일?)|\d{4})|\d{2}(?:(?:[-./]\s*\d{1,2}\s*[-./]\s*\d{1,2}일?)|(?:년\s*\d{1,2}월\s*\d{1,2}일?)|(?:\s+\d{1,2}\s+\d{1,2}일?))|\d{6}일?)(?![\dA-Za-z가-힣]|[-./](?=[\dA-Za-z가-힣]))/g;
+const DATE_TOKEN_PATTERN = /(?<!\d)(?:(?:19|20)\d{2}(?:(?:[-./]\s*\d{1,2}\s*[-./]\s*\d{1,2}일?)|(?:년\s*\d{1,2}월\s*\d{1,2}일?)|(?:\s+\d{1,2}\s+\d{1,2}일?)|\d{4})|\d{2}(?:(?:[-./]\s*\d{1,2}\s*[-./]\s*\d{1,2}일?)|(?:년\s*\d{1,2}월\s*\d{1,2}일?)|(?:\s+\d{1,2}\s+\d{1,2}일?))|\d{6}일?)(?![\dA-Za-z]|[-./](?=[\dA-Za-z가-힣]))/g;
 const ISO_DATE_PARTS_PATTERN = /^((?:19|20)\d{2})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2})(?:일)?$/;
 const SHORT_DATE_PARTS_PATTERN = /^(\d{2})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2})(?:일)?$/;
+const DATE_KOREAN_ENDING_PATTERN = /^(?:이고요?|이며요?|이에요|예요|입니다|이야|야|인데요?|이구요?)(?=$|[\s,.;:!?])/;
 
 const DUE_DATE_LABEL_PATTERN = /(?:출산\s*(?:예정\s*(?:일자?|날짜)|날짜|일자?)|분만\s*(?:예정\s*(?:일자?|날짜)|날짜|일자?))/;
 const BIRTHDAY_LABEL_PATTERN = /(?:생년월일자?|생일|태어난\s*(?:날짜|날)?)/;
@@ -29,7 +30,38 @@ const LABEL_VALUE_PREFIX = /^\s*(?:(?:은|는|이|가|을|를)\s*)?[:：=]?\s*/;
 const BIRTHDAY_CALENDAR_QUALIFIER_PREFIX = /^(?:[,，]\s*)?(양력|음력)(?:으로)?\s*(?:[:：=]\s*|[,，]\s*(?=\d)|(?=\d))/;
 
 const PROVIDER_LABEL_PATTERN = /(?:제공인력|관리사님?|이모님)/;
+const PROVIDER_LABEL_OCCURRENCE_PATTERN = /(?:제공인력|관리사님?|이모님)/g;
 const PROVIDER_SUBJECT_PARTICLE_PATTERN = /^(?:은|는|이|가|을|를|으로|로)/;
+const PROVIDER_NON_NAME_FIELDS = new Set([
+    "연락처",
+    "전화",
+    "전화번호",
+    "등급",
+    "주소",
+    "생년월일",
+    "생일",
+    "나이",
+    "성별",
+    "경력",
+    "급여",
+    "근무지",
+    "소속",
+    "이름",
+    "성함",
+    "보호자",
+    "서비스",
+    "기간",
+    "시간",
+    "지역",
+    "센터",
+    "기관",
+    "병원",
+    "계좌",
+    "계좌번호",
+    "은행",
+    "메모",
+    "비고",
+]);
 const PROVIDER_SUFFIXES = [
     "이에요",
     "예요",
@@ -135,11 +167,31 @@ function normalizeDateCandidate(value: string): string | undefined {
     return isValidCompactDateInput(compact) ? compact : undefined;
 }
 
+function isDateTokenBoundary(message: string, index: number, length: number): boolean {
+    const remainder = message.slice(index + length);
+    if (/^[\dA-Za-z]/.test(remainder)) return false;
+    if (/^[-./](?=[\dA-Za-z가-힣])/.test(remainder)) return false;
+    if (/^[가-힣]/.test(remainder)) return DATE_KOREAN_ENDING_PATTERN.test(remainder);
+
+    return true;
+}
+
+function findDateToken(message: string): DateToken | undefined {
+    for (const match of message.matchAll(DATE_TOKEN_PATTERN)) {
+        const index = match.index ?? -1;
+        if (index >= 0 && isDateTokenBoundary(message, index, match[0].length)) {
+            return { raw: match[0], index };
+        }
+    }
+
+    return undefined;
+}
+
 function collectDateTokens(message: string): DateToken[] {
     return Array.from(message.matchAll(DATE_TOKEN_PATTERN), (match) => ({
         raw: match[0],
         index: match.index ?? -1,
-    }));
+    })).filter(({ index, raw }) => index >= 0 && isDateTokenBoundary(message, index, raw.length));
 }
 
 function extractLabeledDate(
@@ -166,16 +218,16 @@ function extractLabeledDate(
         afterLabel = afterLabel.replace(BIRTHDAY_CALENDAR_QUALIFIER_PREFIX, "");
     }
 
-    const candidate = afterLabel.match(DATE_TOKEN_PATTERN);
+    const candidate = findDateToken(afterLabel);
 
     // The value must begin immediately after the label (apart from the
     // allowed particle/separator prefix). A later unrelated date is never a
     // substitute for an absent or invalid labeled value.
-    if (!candidate || !afterLabel.startsWith(candidate[0])) return { found: true };
+    if (!candidate || !afterLabel.startsWith(candidate.raw)) return { found: true };
 
     return {
         found: true,
-        value: normalizeDateCandidate(candidate[0]),
+        value: normalizeDateCandidate(candidate.raw),
     };
 }
 
@@ -263,16 +315,12 @@ function isParticlePhonologicallyCompatible(name: string, suffix: string): boole
     }
 }
 
-function extractEmployeeName(message: string): EmployeeExtraction {
-    const labelMatch = message.match(PROVIDER_LABEL_PATTERN);
-    if (!labelMatch || labelMatch.index === undefined) return { hasLabel: false };
-
-    let afterLabel = message.slice(labelMatch.index + labelMatch[0].length);
+function extractEmployeeNameFromProviderTail(afterLabel: string): string | undefined {
     afterLabel = afterLabel.replace(PROVIDER_SUBJECT_PARTICLE_PATTERN, "");
     afterLabel = afterLabel.replace(/^\s*[:：=]?\s*/, "");
 
     const tokenMatch = afterLabel.match(/^([가-힣]+)/);
-    if (!tokenMatch) return { hasLabel: true };
+    if (!tokenMatch) return undefined;
 
     const token = tokenMatch[1];
 
@@ -286,7 +334,7 @@ function extractEmployeeName(message: string): EmployeeExtraction {
 
             const remainder = afterLabel.slice(length);
             if (consumeProviderSuffix(remainder, suffix) !== undefined) {
-                return { hasLabel: true, name: candidate };
+                return candidate;
             }
         }
     }
@@ -347,7 +395,7 @@ function extractEmployeeName(message: string): EmployeeExtraction {
 
             return rightEffectiveConsumption - leftEffectiveConsumption || right.name.length - left.name.length;
         })[0];
-    if (selectedParticleMatch) return { hasLabel: true, name: selectedParticleMatch.name };
+    if (selectedParticleMatch) return selectedParticleMatch.name;
 
     const hasAmbiguousBareName = (PROVIDER_AMBIGUOUS_PARTICLE_SUFFIXES as readonly string[]).some(
         (suffix) => token.endsWith(suffix),
@@ -361,11 +409,35 @@ function extractEmployeeName(message: string): EmployeeExtraction {
         // punctuation boundary: it can be either a complete name or a name
         // followed by a comitative particle. Rejecting it is safer than
         // forwarding a bogus employee name and creating the wrong provider.
-        return { hasLabel: true };
+        return undefined;
     }
 
     const bareName = afterLabel.match(/^([가-힣]{2,4})(?=$|[\s,.;:!?])/);
-    return { hasLabel: true, name: bareName?.[1] };
+    return bareName?.[1];
+}
+
+function isProviderNonNameField(value: string): boolean {
+    const withoutParticle = value.replace(/(?:은|는|이|가|을|를)$/, "");
+    return PROVIDER_NON_NAME_FIELDS.has(value) || PROVIDER_NON_NAME_FIELDS.has(withoutParticle);
+}
+
+function extractEmployeeName(message: string): EmployeeExtraction {
+    let hasLabel = false;
+
+    for (const labelMatch of message.matchAll(PROVIDER_LABEL_OCCURRENCE_PATTERN)) {
+        hasLabel = true;
+        const labelIndex = labelMatch.index ?? -1;
+        if (labelIndex < 0) continue;
+
+        const candidate = extractEmployeeNameFromProviderTail(
+            message.slice(labelIndex + labelMatch[0].length),
+        );
+        if (candidate && !isProviderNonNameField(candidate)) {
+            return { hasLabel: true, name: candidate };
+        }
+    }
+
+    return { hasLabel };
 }
 
 export function extractClientRegistrationDraft(
