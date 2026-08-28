@@ -342,7 +342,76 @@ describe("ClientRegistrationWizard", () => {
         fireEvent.click(screen.getByRole("button", { name: "이전" }));
         fireEvent.click(screen.getByRole("button", { name: "이전" }));
         expect(screen.getByLabelText("제공인력 선택")).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "다음" })).toBeDisabled();
+        const resolutionNextButton = screen.getByRole("button", { name: "다음" });
+        expect(resolutionNextButton).toBeDisabled();
+
+        fireEvent.click(screen.getByLabelText("제공인력 선택"));
+        fireEvent.click(await screen.findByRole("option", { name: "김제공 (010-3333-3333)" }));
+        expect(resolutionNextButton).not.toBeDisabled();
+        fireEvent.click(resolutionNextButton);
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        fireEvent.click(screen.getByRole("button", { name: "제출" }));
+
+        await waitFor(() => {
+            expect(mockCreateClientMutateAsync).toHaveBeenCalledWith(
+                expect.objectContaining({ primaryEmployeeId: 12 }),
+            );
+        });
+    });
+
+    test("allows employee registration when every same-name match disappears", async () => {
+        mockEmployees = [
+            { id: 10, name: "김제공", phone: "010-1111-1111" },
+            { id: 11, name: "김제공", phone: "010-2222-2222" },
+        ];
+        mockCreateEmployeeMutateAsync.mockResolvedValue({ id: 12, name: "김제공" });
+        const initialDraft = {
+            name: "홍길동",
+            phone: "01012345678",
+            birthday: "900101",
+            address: "인천 연수구",
+            dueDate: "260201",
+            employeeName: "김제공",
+        };
+        const { rerender } = render(<ClientRegistrationWizard initialDraft={initialDraft} />);
+
+        fireEvent.click(screen.getByLabelText("제공인력 선택"));
+        fireEvent.click(await screen.findByRole("option", { name: "김제공 (010-2222-2222)" }));
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        fireEvent.click(await screen.findByRole("checkbox", { name: "바우처 대상" }));
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+
+        // The explicitly selected employee disappears and no same-name provider remains.
+        mockEmployees = [];
+        rerender(<ClientRegistrationWizard initialDraft={initialDraft} />);
+
+        fireEvent.click(screen.getByRole("button", { name: "이전" }));
+        fireEvent.click(screen.getByRole("button", { name: "이전" }));
+        await waitFor(() => {
+            expect(screen.queryByLabelText("제공인력 선택")).not.toBeInTheDocument();
+            expect(screen.getByRole("button", { name: "다음" })).not.toBeDisabled();
+        });
+
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        expect(await screen.findByLabelText("제공인력 이름")).toHaveValue("김제공");
+
+        fireEvent.change(screen.getByLabelText("연락처"), {
+            target: { value: "01012345678" },
+        });
+        const registerButton = screen.getByRole("button", { name: "제공인력 등록" });
+        expect(registerButton).not.toBeDisabled();
+        fireEvent.click(registerButton);
+
+        await waitFor(() => {
+            expect(mockCreateEmployeeMutateAsync).toHaveBeenCalledWith({
+                name: "김제공",
+                workArea: ["인천 연수구"],
+                phone: "01012345678",
+                grade: "스탠다드",
+                openToNextWork: true,
+            });
+        });
+        expect(await screen.findByRole("checkbox", { name: "바우처 대상" })).toBeInTheDocument();
     });
 
     test("submits with a created provider id even when the follow-up employee lookup fails", async () => {

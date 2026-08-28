@@ -1,4 +1,5 @@
 import { extractClientRegistrationDraft } from "../client-registration-extraction";
+import { normalizeCompactDateForSubmit } from "../client-registration-formats";
 
 describe("extractClientRegistrationDraft", () => {
     it("extracts a name-only registration request and lists missing fields", () => {
@@ -116,9 +117,37 @@ describe("extractClientRegistrationDraft", () => {
         ["출산 예정일: 2026. 2. 1", "260201"],
         ["출산일 = 260201일", "260201"],
         ["분만 예정일 26-2-1", "260201"],
+        ["출산 예정일자는 2026-02-01", "260201"],
     ])("parses explicit due-date labels and Korean date forms: %s", (message, expectedDueDate) => {
         expect(extractClientRegistrationDraft(`산모 등록. ${message}.`).dueDate).toBe(expectedDueDate);
     });
+
+    it("parses a complete birthday 일자 label without leaving its particle in the value", () => {
+        const draft = extractClientRegistrationDraft("산모 등록. 생년월일자는 2000-01-01.");
+
+        expect(draft.birthday).toBe("000101");
+        expect(draft.dueDate).toBeUndefined();
+    });
+
+    it.each([
+        ["2069-12-31", "691231", "2069-12-31"],
+        ["1970-01-01", "700101", "1970-01-01"],
+    ])("keeps explicit due-date years representable by the YYMMDD wizard contract: %s", (isoDate, expectedCompact, expectedIso) => {
+        const draft = extractClientRegistrationDraft(`산모 등록. 출산 예정일 ${isoDate}.`);
+
+        expect(draft.dueDate).toBe(expectedCompact);
+        expect(normalizeCompactDateForSubmit(draft.dueDate ?? "")).toBe(expectedIso);
+    });
+
+    it.each(["2070-01-01", "2099-12-31", "20700101", "20991231"])(
+        "does not silently pivot an unsupported explicit due-date year into the wrong century: %s",
+        (isoDate) => {
+            const draft = extractClientRegistrationDraft(`산모 등록. 출산 예정일 ${isoDate}.`);
+
+            expect(draft.dueDate).toBeUndefined();
+            expect(draft.missingFields).toContain("dueDate");
+        },
+    );
 
     it.each([
         "출산 예정일 2026-02-31, 생년월일 2000-01-01",
@@ -172,6 +201,7 @@ describe("extractClientRegistrationDraft", () => {
         ["관리사는 남궁민수님,", "남궁민수"],
         ["관리사는 김영희로 해줘.", "김영희"],
         ["관리사는 김영희가 담당해.", "김영희"],
+        ["관리사는 김영희가.", "김영희"],
         ["관리사는 김영희를 선택해.", "김영희"],
         ["관리사는 김영희는 담당해.", "김영희"],
         ["관리사는 김영희은 담당해.", "김영희"],
@@ -185,7 +215,16 @@ describe("extractClientRegistrationDraft", () => {
         ["이모님이 김영희야.", "김영희"],
         ["관리사를 김영희로 지정해.", "김영희"],
         ["관리사는 남궁민수예요!", "남궁민수"],
+        ["관리사는 김가은, ...", "김가은"],
+        ["관리사는 김가은이 담당해.", "김가은"],
     ])("strips the provider suffix from %s", (message, expectedName) => {
+        expect(extractClientRegistrationDraft(message).employeeName).toBe(expectedName);
+    });
+
+    it.each([
+        ["관리사는 김가은.", "김가은"],
+        ["관리사는 김나이 담당해.", "김나이"],
+    ])("preserves a complete provider name ending in a particle-like syllable: %s", (message, expectedName) => {
         expect(extractClientRegistrationDraft(message).employeeName).toBe(expectedName);
     });
 

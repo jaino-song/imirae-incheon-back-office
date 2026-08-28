@@ -23,8 +23,8 @@ const DATE_TOKEN_PATTERN = /(?<!\d)(?:(?:19|20)\d{2}(?:(?:[-./]\s*\d{1,2}\s*[-./
 const ISO_DATE_PARTS_PATTERN = /^((?:19|20)\d{2})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2})(?:일)?$/;
 const SHORT_DATE_PARTS_PATTERN = /^(\d{2})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2})(?:일)?$/;
 
-const DUE_DATE_LABEL_PATTERN = /(?:출산\s*(?:예정\s*(?:일|날짜)|날짜|일)|분만\s*(?:예정\s*(?:일|날짜)|날짜|일))/;
-const BIRTHDAY_LABEL_PATTERN = /(?:생년월일|생일|태어난\s*(?:날짜|날)?)/;
+const DUE_DATE_LABEL_PATTERN = /(?:출산\s*(?:예정\s*(?:일자?|날짜)|날짜|일자?)|분만\s*(?:예정\s*(?:일자?|날짜)|날짜|일자?))/;
+const BIRTHDAY_LABEL_PATTERN = /(?:생년월일자?|생일|태어난\s*(?:날짜|날)?)/;
 const LABEL_VALUE_PREFIX = /^\s*(?:(?:은|는|이|가|을|를)\s*)?[:：=]?\s*/;
 
 const PROVIDER_LABEL_PATTERN = /(?:제공인력|관리사님?|이모님)/;
@@ -45,6 +45,12 @@ const PROVIDER_SUFFIXES = [
     "야",
 ] as const;
 const PROVIDER_PARTICLE_SUFFIXES = ["으로", "로", "가", "를", "은", "는", "이"] as const;
+const PROVIDER_FIXED_SUFFIXES = PROVIDER_SUFFIXES.filter(
+    (suffix) => !(PROVIDER_PARTICLE_SUFFIXES as readonly string[]).includes(suffix),
+).sort((left, right) => right.length - left.length);
+
+const COMPACT_YEAR_MIN = 1970;
+const COMPACT_YEAR_MAX = 2069;
 
 type DateLabelPattern = RegExp;
 
@@ -83,6 +89,9 @@ function normalizeDateCandidate(value: string): string | undefined {
     const isoMatch = value.match(ISO_DATE_PARTS_PATTERN);
     if (isoMatch) {
         const [, year, month, day] = isoMatch;
+        const numericYear = Number(year);
+        if (numericYear < COMPACT_YEAR_MIN || numericYear > COMPACT_YEAR_MAX) return undefined;
+
         const compact = `${year.slice(2)}${month.padStart(2, "0")}${day.padStart(2, "0")}`;
         return isValidCompactDateInput(compact) ? compact : undefined;
     }
@@ -152,12 +161,8 @@ function isProviderNameBoundary(value: string): boolean {
     return value.length === 0 || /^[\s,.;:!?]/.test(value);
 }
 
-function isProviderParticle(value: string): boolean {
-    return (PROVIDER_PARTICLE_SUFFIXES as readonly string[]).includes(value);
-}
-
-function canConsumeProviderSuffix(remainder: string, suffix: string): boolean {
-    if (!remainder.startsWith(suffix)) return false;
+function consumeProviderSuffix(remainder: string, suffix: string): string | undefined {
+    if (!remainder.startsWith(suffix)) return undefined;
 
     let tail = remainder.slice(suffix.length);
     while (true) {
@@ -167,7 +172,45 @@ function canConsumeProviderSuffix(remainder: string, suffix: string): boolean {
         tail = tail.slice(particle.length);
     }
 
-    return isProviderNameBoundary(tail) || (isProviderParticle(suffix) && /^[가-힣]/.test(tail));
+    return isProviderNameBoundary(tail) ? tail : undefined;
+}
+
+function hasProviderFollowingContext(tail: string): boolean {
+    return /^\s*[가-힣]/.test(tail);
+}
+
+function hasFinalConsonant(value: string): boolean {
+    const lastSyllable = value.codePointAt(value.length - 1);
+    if (lastSyllable === undefined || lastSyllable < 0xac00 || lastSyllable > 0xd7a3) return false;
+
+    return (lastSyllable - 0xac00) % 28 !== 0;
+}
+
+function isParticlePhonologicallyCompatible(name: string, suffix: string): boolean {
+    // Three- and four-syllable names are common enough that an intentionally
+    // spoken particle can be retained even when the input is not perfectly
+    // grammatical (for example, "김영희이"). Keep that existing tolerance,
+    // while using Korean particle rules to protect short names that end in a
+    // particle-like syllable (for example, "김가은" or "김나이").
+    if (name.length >= 3) return true;
+
+    const finalConsonant = hasFinalConsonant(name);
+    switch (suffix) {
+        case "은":
+        case "이":
+        case "을":
+            return finalConsonant;
+        case "는":
+        case "가":
+        case "를":
+            return !finalConsonant;
+        case "으로":
+            return finalConsonant;
+        case "로":
+            return !finalConsonant;
+        default:
+            return true;
+    }
 }
 
 function extractEmployeeName(message: string): EmployeeExtraction {
@@ -178,19 +221,63 @@ function extractEmployeeName(message: string): EmployeeExtraction {
     afterLabel = afterLabel.replace(PROVIDER_SUBJECT_PARTICLE_PATTERN, "");
     afterLabel = afterLabel.replace(/^\s*[:：=]?\s*/, "");
 
-    // Parse suffixes before a bare name so that endings such as 이야 and
-    // particles such as 로/가 cannot be swallowed by the 2-4 syllable name.
-    for (let length = 2; length <= 4; length += 1) {
-        for (const suffix of PROVIDER_SUFFIXES) {
-            const candidate = afterLabel.slice(0, length);
+    const tokenMatch = afterLabel.match(/^([가-힣]+)/);
+    if (!tokenMatch) return { hasLabel: true };
+
+    const token = tokenMatch[1];
+
+    // Copular endings and honorifics are unambiguous even when they are
+    // attached directly to the name (e.g. "김민이야" or "김민님,"). Prefer
+    // the longest ending before considering a shorter one such as 야.
+    for (const suffix of PROVIDER_FIXED_SUFFIXES) {
+        for (let length = Math.min(4, token.length - suffix.length); length >= 2; length -= 1) {
+            const candidate = token.slice(0, length);
             if (!/^[가-힣]+$/.test(candidate)) continue;
 
             const remainder = afterLabel.slice(length);
-            if (canConsumeProviderSuffix(remainder, suffix)) {
+            if (consumeProviderSuffix(remainder, suffix) !== undefined) {
                 return { hasLabel: true, name: candidate };
             }
         }
     }
+
+    // Evaluate longer name candidates first. A particle is removed only when
+    // its complete chain is followed by grammatical context or an explicit
+    // boundary. The short-name phonology check below prevents a real name such
+    // as "김가은" from being shortened to "김가" merely because 은 is also a
+    // topic particle.
+    const particleMatches: Array<{ name: string; consumedLength: number }> = [];
+    for (let length = Math.min(4, token.length - 1); length >= 2; length -= 1) {
+        const candidate = token.slice(0, length);
+        if (!/^[가-힣]+$/.test(candidate)) continue;
+
+        const remainder = afterLabel.slice(length);
+        for (const suffix of PROVIDER_PARTICLE_SUFFIXES) {
+            const tail = consumeProviderSuffix(remainder, suffix);
+            if (
+                tail !== undefined
+                && isParticlePhonologicallyCompatible(candidate, suffix)
+                && (
+                    token.length > 4
+                    || hasProviderFollowingContext(tail)
+                    || (candidate.length >= 3 && isProviderNameBoundary(tail))
+                )
+            ) {
+                particleMatches.push({
+                    name: candidate,
+                    consumedLength: remainder.length - tail.length,
+                });
+            }
+        }
+    }
+
+    // A consecutive particle chain (e.g. 이+는 in "김영희이는") is stronger
+    // evidence than a one-syllable particle attached to a longer candidate.
+    // Otherwise retain the longest candidate to avoid shortening names such
+    // as 김가은 or 김나이.
+    const selectedParticleMatch = particleMatches
+        .sort((left, right) => right.consumedLength - left.consumedLength || right.name.length - left.name.length)[0];
+    if (selectedParticleMatch) return { hasLabel: true, name: selectedParticleMatch.name };
 
     const bareName = afterLabel.match(/^([가-힣]{2,4})(?=$|[\s,.;:!?])/);
     return { hasLabel: true, name: bareName?.[1] };

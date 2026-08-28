@@ -135,7 +135,10 @@ export function ClientRegistrationWizard({
         && selectedEmployeeId !== null
         && selectedEmployee === undefined;
     const hasAmbiguousEmployeeMatch = createdEmployeeId === null
-        && (hasInvalidEmployeeSelection || (matchingEmployees.length > 1 && !selectedEmployee));
+        // A stale explicit id must block while any same-name option remains,
+        // but zero matches should expose the registration path instead.
+        && ((matchingEmployees.length > 0 && hasInvalidEmployeeSelection)
+            || (matchingEmployees.length > 1 && !selectedEmployee));
     const isEmployeeLookupBlocked = createdEmployeeId === null
         && employeeName.trim().length > 0
         && (isEmployeesLoading || isEmployeesFetching || isEmployeesError || isEmployeeRetrying);
@@ -145,7 +148,6 @@ export function ClientRegistrationWizard({
         && !isEmployeesError
         && !isEmployeeRetrying
         && matchingEmployees.length === 0
-        && !hasInvalidEmployeeSelection
         && createdEmployeeId === null;
     const canRegisterEmployee = employeeName.trim().length >= 2
         && employeePhone.replace(/\D/g, "").length === 11
@@ -391,7 +393,7 @@ export function ClientRegistrationWizard({
                                 onChange={(e) => setAddress(e.target.value)}
                             />
                         </div>
-                        {createdEmployeeId === null && (matchingEmployees.length > 1 || hasInvalidEmployeeSelection) && (
+                        {createdEmployeeId === null && matchingEmployees.length > 0 && (matchingEmployees.length > 1 || hasInvalidEmployeeSelection) && (
                             <div className="space-y-2">
                                 <Label htmlFor="employee-selection">제공인력 선택</Label>
                                 <Select
