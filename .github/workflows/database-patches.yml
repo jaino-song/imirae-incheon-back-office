@@ -330,6 +330,13 @@ jobs:
           DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql
 
+      - name: Apply message trigger job canceled-by-user patch
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql
+
       - name: Apply eformsign document jobs patch
         working-directory: backend
         env:
@@ -344,12 +351,19 @@ jobs:
           DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-document-jobs.sql
 
-      - name: Apply message trigger job canceled-by-user patch
+      - name: Apply eformsign auto-registered client patch
         working-directory: backend
         env:
           DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260819000000_track_eformsign_auto_registered_client/migration.sql
+
+      - name: Apply document visibility scope patch
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260820050000_add_document_visibility_scope/migration.sql
 
       - name: Apply call-processing claim lease patch
         working-directory: backend
@@ -843,6 +857,13 @@ jobs:
           DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql
 
+      - name: Apply message trigger job canceled-by-user patch
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql
+
       - name: Apply eformsign document jobs patch
         working-directory: backend
         env:
@@ -857,12 +878,19 @@ jobs:
           DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-document-jobs.sql
 
-      - name: Apply message trigger job canceled-by-user patch
+      - name: Apply eformsign auto-registered client patch
         working-directory: backend
         env:
           DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
           DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
-        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260819000000_track_eformsign_auto_registered_client/migration.sql
+
+      - name: Apply document visibility scope patch
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260820050000_add_document_visibility_scope/migration.sql
 
       - name: Apply call-processing claim lease patch
         working-directory: backend
@@ -1325,6 +1353,13 @@ jobs:
           DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql
 
+      - name: Apply message trigger job canceled-by-user patch
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql
+
       - name: Apply eformsign document jobs patch
         working-directory: backend
         env:
@@ -1339,12 +1374,19 @@ jobs:
           DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-document-jobs.sql
 
-      - name: Apply message trigger job canceled-by-user patch
+      - name: Apply eformsign auto-registered client patch
         working-directory: backend
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
           DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260819000000_track_eformsign_auto_registered_client/migration.sql
+
+      - name: Apply document visibility scope patch
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260820050000_add_document_visibility_scope/migration.sql
 
       - name: Apply call-processing claim lease patch
         working-directory: backend

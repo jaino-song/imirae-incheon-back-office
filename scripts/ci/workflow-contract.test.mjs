@@ -441,43 +441,43 @@ test("database patch jobs apply the call-processing claim lease migration after 
     }
 });
 
-test("database patch jobs apply every schema migration introduced after the lease patch", async () => {
+test("database patch jobs apply every schema migration after the pre-applied baseline", async () => {
     const fileName = "database-patches.yml";
     const workflow = await readWorkflow(fileName);
-    const leasePath = "prisma/migrations/20260827090000_add_call_processing_claim_lease/migration.sql";
+    const baselinePath = "prisma/migrations/20260813000000_add_eformsign_document_jobs/migration.sql";
     const migrationRoot = resolve(WORKSPACE_ROOT, "backend/prisma/migrations");
     const migrationEntries = await readdir(migrationRoot, { withFileTypes: true });
     const migrationNames = migrationEntries
         .filter((entry) => entry.isDirectory() && /^\d+_/.test(entry.name))
         .map((entry) => entry.name)
         .sort();
-    const leaseName = "20260827090000_add_call_processing_claim_lease";
-    const leaseNameIndex = migrationNames.indexOf(leaseName);
-    assert.notEqual(leaseNameIndex, -1, `${fileName} must retain the lease migration directory`);
-    const postLeaseMigrations = migrationNames
-        .slice(leaseNameIndex + 1)
+    const baselineName = "20260813000000_add_eformsign_document_jobs";
+    const baselineNameIndex = migrationNames.indexOf(baselineName);
+    assert.notEqual(baselineNameIndex, -1, `${fileName} must retain the pre-applied baseline migration directory`);
+    const postBaselineMigrations = migrationNames
+        .slice(baselineNameIndex + 1)
         .map((name) => `prisma/migrations/${name}/migration.sql`);
-    assert.ok(postLeaseMigrations.length > 0, `${fileName} must have post-lease migrations to verify`);
+    assert.ok(postBaselineMigrations.length > 0, `${fileName} must have post-baseline migrations to verify`);
 
     for (const jobId of ["apply-dev", "apply-preview", "apply-production"]) {
         const job = jobBlock(workflow, jobId, fileName);
         const steps = stepBlocks(job, jobId, fileName);
-        const leaseIndex = steps.findIndex((step) => step.join("\n").includes(leasePath));
-        assert.notEqual(leaseIndex, -1, `${fileName} ${jobId} must apply the lease migration before post-lease migrations`);
+        const baselineIndex = steps.findIndex((step) => step.join("\n").includes(baselinePath));
+        assert.notEqual(baselineIndex, -1, `${fileName} ${jobId} must apply the pre-applied baseline before post-baseline migrations`);
         const jobText = job.join("\n");
-        let previousMigrationOffset = jobText.indexOf(leasePath);
+        let previousMigrationOffset = jobText.indexOf(baselinePath);
 
-        for (const migrationPath of postLeaseMigrations) {
+        for (const migrationPath of postBaselineMigrations) {
             const migrationSteps = steps.filter((step) => step.join("\n").includes(migrationPath));
             assert.equal(migrationSteps.length, 1, `${fileName} ${jobId} must apply ${migrationPath} exactly once`);
             const migrationIndex = steps.indexOf(migrationSteps[0]);
-            assert.ok(migrationIndex > leaseIndex, `${fileName} ${jobId} must apply ${migrationPath} after the lease migration`);
+            assert.ok(migrationIndex > baselineIndex, `${fileName} ${jobId} must apply ${migrationPath} after the pre-applied baseline`);
             const migrationOffset = jobText.indexOf(migrationPath);
-            assert.ok(migrationOffset > previousMigrationOffset, `${fileName} ${jobId} must apply ${migrationPath} in migration order`);
+            assert.ok(migrationOffset > previousMigrationOffset, `${fileName} ${jobId} must apply ${migrationPath} in chronological migration order`);
             previousMigrationOffset = migrationOffset;
             const migrationText = migrationSteps[0].join("\n");
             assert.match(migrationText, /working-directory: backend/);
-            assert.match(migrationText, /run: \|/);
+            assert.match(migrationText, /run:\s*(?:\||\.\/scripts\/run-prisma-db-execute\.sh)/);
             assert.match(migrationText, /run-prisma-db-execute\.sh/);
         }
     }
