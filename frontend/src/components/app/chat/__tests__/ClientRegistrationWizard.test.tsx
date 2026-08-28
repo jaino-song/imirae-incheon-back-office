@@ -3,7 +3,7 @@ import { ClientRegistrationWizard } from "../ClientRegistrationWizard";
 
 const mockCreateClientMutateAsync = jest.fn();
 const mockCreateEmployeeMutateAsync = jest.fn();
-let mockEmployees: Array<{ id: number; name: string }> = [];
+let mockEmployees: Array<{ id: number; name: string; phone?: string }> = [];
 let mockEmployeesLoading = false;
 let mockEmployeesError = false;
 
@@ -51,6 +51,13 @@ jest.mock("@/hooks/useEmployees", () => ({
 }));
 
 describe("ClientRegistrationWizard", () => {
+    beforeAll(() => {
+        Object.defineProperty(Element.prototype, "scrollIntoView", {
+            configurable: true,
+            value: jest.fn(),
+        });
+    });
+
     beforeEach(() => {
         mockCreateClientMutateAsync.mockReset();
         mockCreateEmployeeMutateAsync.mockReset();
@@ -191,10 +198,10 @@ describe("ClientRegistrationWizard", () => {
             .toBeInTheDocument();
     });
 
-    test("does not auto-bind an employee when multiple employees share the extracted name", async () => {
+    test("requires an explicit employee choice when names are ambiguous", async () => {
         mockEmployees = [
-            { id: 10, name: "김제공" },
-            { id: 11, name: "김제공" },
+            { id: 10, name: "김제공", phone: "010-1111-1111" },
+            { id: 11, name: "김제공", phone: "010-2222-2222" },
         ];
         mockCreateClientMutateAsync.mockResolvedValue({ id: 123, name: "홍길동" });
         render(
@@ -210,14 +217,19 @@ describe("ClientRegistrationWizard", () => {
             />,
         );
 
-        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        const nextButton = screen.getByRole("button", { name: "다음" });
+        expect(nextButton).toBeDisabled();
+        fireEvent.click(screen.getByLabelText("제공인력 선택"));
+        fireEvent.click(await screen.findByRole("option", { name: "김제공 (010-2222-2222)" }));
+        expect(nextButton).not.toBeDisabled();
+        fireEvent.click(nextButton);
         fireEvent.click(await screen.findByRole("checkbox", { name: "바우처 대상" }));
         fireEvent.click(screen.getByRole("button", { name: "다음" }));
         fireEvent.click(screen.getByRole("button", { name: "제출" }));
 
         await waitFor(() => {
             expect(mockCreateClientMutateAsync).toHaveBeenCalledWith(
-                expect.objectContaining({ primaryEmployeeId: null }),
+                expect.objectContaining({ primaryEmployeeId: 11 }),
             );
         });
     });

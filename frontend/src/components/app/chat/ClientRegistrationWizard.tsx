@@ -81,6 +81,7 @@ export function ClientRegistrationWizard({
     const [isRegisteringEmployee, setIsRegisteringEmployee] = useState(false);
     const [employeeName, setEmployeeName] = useState(initialDraft?.employeeName ?? "");
     const [createdEmployeeId, setCreatedEmployeeId] = useState<number | null>(null);
+    const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
     const [employeePhone, setEmployeePhone] = useState("");
     const [employeeGrade, setEmployeeGrade] = useState("스탠다드");
     const [employeeWorkArea, setEmployeeWorkArea] = useState<string>(WORK_AREAS[0]);
@@ -122,7 +123,12 @@ export function ClientRegistrationWizard({
     const matchingEmployees = employees.filter(
         (candidate: Employee) => candidate.name === employeeName.trim(),
     );
-    const matchedEmployee = matchingEmployees.length === 1 ? matchingEmployees[0] : undefined;
+    const selectedEmployee = selectedEmployeeId === null
+        ? undefined
+        : matchingEmployees.find((employee) => employee.id === selectedEmployeeId);
+    const matchedEmployee = selectedEmployee
+        ?? (matchingEmployees.length === 1 ? matchingEmployees[0] : undefined);
+    const hasAmbiguousEmployeeMatch = matchingEmployees.length > 1 && !selectedEmployee;
     const needsEmployeeRegistration = Boolean(employeeName)
         && !isEmployeesLoading
         && !isEmployeesError
@@ -142,14 +148,15 @@ export function ClientRegistrationWizard({
         if (activeStep === 0) {
             return Boolean(name.trim() && phone.trim() && birthday.trim() && address.trim())
                 && (isValidCompactDateInput(dueDate) || initialDraft?.skippedFields?.includes("dueDate"))
-                && !(employeeName && (isEmployeesLoading || isEmployeesError));
+                && !(employeeName && (isEmployeesLoading || isEmployeesError))
+                && !hasAmbiguousEmployeeMatch;
         }
         if (activeStep === 1) {
             if (!voucherClient) return true;
             return isVoucherInfoComplete;
         }
         return true;
-    }, [activeStep, name, phone, birthday, address, dueDate, employeeName, isEmployeesError, isEmployeesLoading, initialDraft?.skippedFields, voucherClient, isVoucherInfoComplete]);
+    }, [activeStep, name, phone, birthday, address, dueDate, employeeName, hasAmbiguousEmployeeMatch, isEmployeesError, isEmployeesLoading, initialDraft?.skippedFields, voucherClient, isVoucherInfoComplete]);
 
     const handleNext = () => {
         if (!canGoNext) return;
@@ -342,6 +349,26 @@ export function ClientRegistrationWizard({
                                 onChange={(e) => setAddress(e.target.value)}
                             />
                         </div>
+                        {matchingEmployees.length > 1 && (
+                            <div className="space-y-2">
+                                <Label htmlFor="employee-selection">제공인력 선택</Label>
+                                <Select
+                                    value={selectedEmployeeId?.toString() ?? ""}
+                                    onValueChange={(value) => setSelectedEmployeeId(Number(value))}
+                                >
+                                    <SelectTrigger id="employee-selection" aria-label="제공인력 선택">
+                                        <SelectValue placeholder="동명이인 중 선택" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {matchingEmployees.map((employee) => (
+                                            <SelectItem key={employee.id} value={employee.id.toString()}>
+                                                {employee.name} ({employee.phone})
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
                     </div>
                 )}
 
