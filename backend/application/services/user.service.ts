@@ -287,8 +287,12 @@ export class UserService {
                 },
             });
             for (const branchId of effectiveBranchIds) {
-                const membershipRole = currentMembershipRoleByBranchId.get(branchId)
-                    ?? params.role;
+                const currentMembershipRole = currentMembershipRoleByBranchId.get(branchId);
+                const membershipRole = target.role === "admin"
+                    && params.role !== "admin"
+                    && currentMembershipRole === "admin"
+                    ? params.role
+                    : currentMembershipRole ?? params.role;
                 await tx.user_branch.upsert({
                     where: {
                         userId_branchId: { userId: id, branchId },
