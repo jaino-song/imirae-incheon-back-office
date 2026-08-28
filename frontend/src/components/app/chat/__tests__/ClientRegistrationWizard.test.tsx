@@ -5,6 +5,7 @@ const mockCreateClientMutateAsync = jest.fn();
 const mockCreateEmployeeMutateAsync = jest.fn();
 let mockEmployees: Array<{ id: number; name: string }> = [];
 let mockEmployeesLoading = false;
+let mockEmployeesError = false;
 
 jest.mock("@/hooks/useVoucherData", () => ({
     useAvailableClientAreas: () => ({ data: [], isLoading: false }),
@@ -42,7 +43,11 @@ jest.mock("@/hooks/useEmployees", () => ({
         mutateAsync: (...args: unknown[]) => mockCreateEmployeeMutateAsync(...args),
         isPending: false,
     }),
-    useEmployees: () => ({ data: mockEmployees, isLoading: mockEmployeesLoading }),
+    useEmployees: () => ({
+        data: mockEmployees,
+        isLoading: mockEmployeesLoading,
+        isError: mockEmployeesError,
+    }),
 }));
 
 describe("ClientRegistrationWizard", () => {
@@ -51,6 +56,7 @@ describe("ClientRegistrationWizard", () => {
         mockCreateEmployeeMutateAsync.mockReset();
         mockEmployees = [];
         mockEmployeesLoading = false;
+        mockEmployeesError = false;
     });
 
     test("submits minimal required payload to /api/clients", async () => {
@@ -282,6 +288,29 @@ describe("ClientRegistrationWizard", () => {
         expect(await screen.findByRole("checkbox", { name: "바우처 대상" }))
             .toBeInTheDocument();
         expect(screen.queryByLabelText("제공인력 이름")).not.toBeInTheDocument();
+    });
+
+    test("does not offer employee registration when employee lookup fails", async () => {
+        mockEmployeesError = true;
+        render(
+            <ClientRegistrationWizard
+                initialDraft={{
+                    name: "홍길동",
+                    phone: "01012345678",
+                    birthday: "900101",
+                    address: "인천 연수구",
+                    dueDate: "260201",
+                    employeeName: "김제공",
+                }}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+
+        expect(await screen.findByRole("checkbox", { name: "바우처 대상" }))
+            .toBeInTheDocument();
+        expect(screen.queryByLabelText("제공인력 이름")).not.toBeInTheDocument();
+        expect(mockCreateEmployeeMutateAsync).not.toHaveBeenCalled();
     });
 
     test("shows inline error on API failure", async () => {

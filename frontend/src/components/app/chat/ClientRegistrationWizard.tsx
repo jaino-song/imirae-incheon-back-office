@@ -65,7 +65,11 @@ export function ClientRegistrationWizard({
 }: ClientRegistrationWizardProps) {
     const createClientMutation = useCreateClient();
     const createEmployeeMutation = useCreateEmployee();
-    const { data: employees = [], isLoading: isEmployeesLoading } = useEmployees();
+    const {
+        data: employees = [],
+        isLoading: isEmployeesLoading,
+        isError: isEmployeesError,
+    } = useEmployees();
     const [activeStep, setActiveStep] = useState(0);
 
     const [name, setName] = useState(initialDraft?.name ?? "");
@@ -121,6 +125,7 @@ export function ClientRegistrationWizard({
     const matchedEmployee = matchingEmployees.length === 1 ? matchingEmployees[0] : undefined;
     const needsEmployeeRegistration = Boolean(employeeName)
         && !isEmployeesLoading
+        && !isEmployeesError
         && matchingEmployees.length === 0
         && createdEmployeeId === null;
     const canRegisterEmployee = employeeName.trim().length >= 2
@@ -128,10 +133,10 @@ export function ClientRegistrationWizard({
         && Boolean(employeeWorkArea);
 
     useEffect(() => {
-        if (isRegisteringEmployee && matchingEmployees.length > 0) {
+        if (isRegisteringEmployee && (matchingEmployees.length > 0 || isEmployeesError)) {
             setIsRegisteringEmployee(false);
         }
-    }, [isRegisteringEmployee, matchingEmployees.length]);
+    }, [isEmployeesError, isRegisteringEmployee, matchingEmployees.length]);
 
     const canGoNext = useMemo(() => {
         if (activeStep === 0) {
