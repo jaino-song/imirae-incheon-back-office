@@ -341,10 +341,41 @@ describe("extractClientRegistrationDraft", () => {
     });
 
     it.each([
-        ["관리사는 가나야.", "가나"],
         ["관리사는 가나다입니다.", "가나다"],
         ["관리사는 가나다라님.", "가나다라"],
     ])("accepts provider names from two through four syllables: %s", (message, expectedName) => {
+        expect(extractClientRegistrationDraft(message).employeeName).toBe(expectedName);
+    });
+
+    it.each([
+        ["관리사: 이서야.", "이서야"],
+        ["관리사: 가나야.", "가나야"],
+    ])("preserves a short provider token when a final 야 may be part of the name: %s", (message, expectedName) => {
+        expect(extractClientRegistrationDraft(message).employeeName).toBe(expectedName);
+    });
+
+    it.each([
+        "관리사는 이서야.",
+        "관리사는 이서야!",
+        "관리사는 이서야, 계속해.",
+        "관리사는 이서야 담당해.",
+        "관리사는 이서야가 담당해.",
+        "관리사는 이서야에게 맡겨.",
+    ])("rejects a short provider token when a final 야 is ambiguous without a value separator: %s", (message) => {
+        expect(extractClientRegistrationDraft(message).employeeName).toBeUndefined();
+    });
+
+    it("keeps the complete ambiguous name before a trailing particle after an explicit separator", () => {
+        expect(extractClientRegistrationDraft("관리사: 이서야가 담당해.").employeeName).toBe("이서야");
+    });
+
+    it.each([
+        ["관리사는 김민이야.", "김민"],
+        ["관리사는 홍길동이에요.", "홍길동"],
+        ["관리사는 홍길동예요.", "홍길동"],
+        ["관리사는 남궁민수야.", "남궁민수"],
+        ["관리사는 남궁민수님.", "남궁민수"],
+    ])("still strips a clearly marked provider ending when the full token cannot be the name: %s", (message, expectedName) => {
         expect(extractClientRegistrationDraft(message).employeeName).toBe(expectedName);
     });
 

@@ -111,6 +111,13 @@ const PROVIDER_STRONG_PARTICLE_SUFFIXES = ["에게", "이랑", "한테", "께", 
 const PROVIDER_FIXED_SUFFIXES = PROVIDER_SUFFIXES.filter(
     (suffix) => !(PROVIDER_PARTICLE_SUFFIXES as readonly string[]).includes(suffix),
 ).sort((left, right) => right.length - left.length);
+// Unlike multi-syllable copular endings ("이야", "이에요", etc.) and the
+// honorific "님", a final "야" can be either a sentence ending or the last
+// syllable of a perfectly valid Korean name (for example, 이서야). Treat a
+// short token ending in 야 as ambiguous when only a punctuation boundary
+// follows it; returning the complete token is safer than silently binding the
+// shortened candidate to another provider.
+const PROVIDER_AMBIGUOUS_FIXED_SUFFIXES = ["야"] as const;
 
 const COMPACT_YEAR_MIN = 1970;
 const COMPACT_YEAR_MAX = 2069;
@@ -263,10 +270,8 @@ function isProviderNameBoundary(value: string): boolean {
     return value.length === 0 || /^[\s,.;:!?]/.test(value);
 }
 
-function consumeProviderSuffix(remainder: string, suffix: string): string | undefined {
-    if (!remainder.startsWith(suffix)) return undefined;
-
-    let tail = remainder.slice(suffix.length);
+function consumeProviderParticleChain(remainder: string): string | undefined {
+    let tail = remainder;
     while (true) {
         const particle = PROVIDER_PARTICLE_SUFFIXES.find((candidate) => tail.startsWith(candidate));
         if (!particle) break;
@@ -277,8 +282,18 @@ function consumeProviderSuffix(remainder: string, suffix: string): string | unde
     return isProviderNameBoundary(tail) ? tail : undefined;
 }
 
+function consumeProviderSuffix(remainder: string, suffix: string): string | undefined {
+    if (!remainder.startsWith(suffix)) return undefined;
+
+    return consumeProviderParticleChain(remainder.slice(suffix.length));
+}
+
 function hasProviderFollowingContext(tail: string): boolean {
     return /^\s*[가-힣]/.test(tail);
+}
+
+function hasProviderValueSeparator(value: string): boolean {
+    return /^\s*[:：=]/.test(value);
 }
 
 function hasFinalConsonant(value: string): boolean {
@@ -316,6 +331,7 @@ function isParticlePhonologicallyCompatible(name: string, suffix: string): boole
 }
 
 function extractEmployeeNameFromProviderTail(afterLabel: string): string | undefined {
+    const hasExplicitValueSeparator = hasProviderValueSeparator(afterLabel);
     afterLabel = afterLabel.replace(PROVIDER_SUBJECT_PARTICLE_PATTERN, "");
     afterLabel = afterLabel.replace(/^\s*[:：=]?\s*/, "");
 
@@ -323,6 +339,22 @@ function extractEmployeeNameFromProviderTail(afterLabel: string): string | undef
     if (!tokenMatch) return undefined;
 
     const token = tokenMatch[1];
+
+    // A two-syllable name followed by a single 야 is ambiguous at a sentence
+    // boundary: 이서야 can be either the full provider name or 이서 + the
+    // copular ending. An explicit field-value separator makes the complete
+    // token the safer interpretation; without one, reject the candidate so
+    // the wizard can require a deliberate provider choice instead of binding
+    // the shortened name to an unrelated employee.
+    const ambiguousShortCopularName = token.slice(0, 3);
+    const ambiguousShortCopularTail = token.length >= 3
+        && ambiguousShortCopularName.length === 3
+        && (PROVIDER_AMBIGUOUS_FIXED_SUFFIXES as readonly string[]).some((suffix) => ambiguousShortCopularName.endsWith(suffix))
+        ? consumeProviderParticleChain(afterLabel.slice(3))
+        : undefined;
+    if (ambiguousShortCopularTail !== undefined) {
+        return hasExplicitValueSeparator ? ambiguousShortCopularName : undefined;
+    }
 
     // Copular endings and honorifics are unambiguous even when they are
     // attached directly to the name (e.g. "김민이야" or "김민님,"). Prefer
@@ -333,7 +365,8 @@ function extractEmployeeNameFromProviderTail(afterLabel: string): string | undef
             if (!/^[가-힣]+$/.test(candidate)) continue;
 
             const remainder = afterLabel.slice(length);
-            if (consumeProviderSuffix(remainder, suffix) !== undefined) {
+            const tail = consumeProviderSuffix(remainder, suffix);
+            if (tail !== undefined) {
                 return candidate;
             }
         }
