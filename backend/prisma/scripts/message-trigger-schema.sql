@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS "message_trigger_job" (
   "rule_id" TEXT NOT NULL,
   "status" TEXT NOT NULL DEFAULT 'pending',
   "scheduled_for" TIMESTAMPTZ(6) NOT NULL,
+  "claim_token" TEXT,
   "sent_at" TIMESTAMPTZ(6),
   "canceled_at" TIMESTAMPTZ(6),
   "cancel_reason" TEXT,

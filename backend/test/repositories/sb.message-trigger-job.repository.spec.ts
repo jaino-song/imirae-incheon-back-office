@@ -93,6 +93,15 @@ describe("MessageTriggerJobEntity", () => {
         expect(job.status).toBe("sent");
         expect(job.nextAttemptAt).toBeNull();
     });
+
+    it("binds processing state to the immutable claim token", () => {
+        const job = createJob();
+
+        job.markProcessing("claim-a");
+
+        expect(job.status).toBe("processing");
+        expect(job.claimToken).toBe("claim-a");
+    });
 });
 
 describe("SbMessageTriggerJobRepository", () => {
@@ -119,6 +128,7 @@ describe("SbMessageTriggerJobRepository", () => {
         createdAt: Date;
         updatedAt: Date;
         canceledByUser: boolean;
+        claimToken: string | null;
     };
 
     const createMockPrismaMessageTriggerJob = () => ({
@@ -157,6 +167,7 @@ describe("SbMessageTriggerJobRepository", () => {
         createdAt: new Date("2026-07-08T00:00:00.000Z"),
         updatedAt: new Date("2026-07-08T00:00:00.000Z"),
         canceledByUser: false,
+        claimToken: null,
     });
 
     const createRow = (overrides: Partial<MockMessageTriggerJobRow> = {}): MockMessageTriggerJobRow => ({
@@ -248,7 +259,7 @@ describe("SbMessageTriggerJobRepository", () => {
 
         expect(messageTriggerJobModel.updateMany).toHaveBeenCalledWith({
             where: { id: "job-1", status: "pending" },
-            data: { status: "processing" },
+            data: { status: "processing", claimToken: expect.any(String) },
         });
     });
 
@@ -256,9 +267,9 @@ describe("SbMessageTriggerJobRepository", () => {
         queryRaw
             .mockResolvedValueOnce([{ rule_id: "rule-1", branch_id: "branch-1" }])
             .mockResolvedValueOnce([{ id: "rule-1", jobs_stale: false }])
-            .mockResolvedValueOnce([{ id: "job-1" }]);
+            .mockResolvedValueOnce([{ id: "job-1", claim_token: "claim-a" }]);
 
-        await expect(repository.claimPendingWithRuleFence("job-1", "branch-1")).resolves.toBe(true);
+        await expect(repository.claimPendingWithRuleFence("job-1", "branch-1")).resolves.toBe("claim-a");
         expect(queryRaw).toHaveBeenCalledTimes(3);
         expect(getSqlText(queryRaw.mock.calls[1][0])).toContain('FROM "message_trigger_rule"');
         expect(getSqlText(queryRaw.mock.calls[1][0])).toContain("FOR UPDATE");
@@ -267,8 +278,27 @@ describe("SbMessageTriggerJobRepository", () => {
         queryRaw.mockReset();
         queryRaw.mockResolvedValueOnce([{ rule_id: "rule-1", branch_id: "branch-1" }])
             .mockResolvedValueOnce([{ id: "rule-1", jobs_stale: true }]);
-        await expect(repository.claimPendingWithRuleFence("job-1", "branch-1")).resolves.toBe(false);
+        await expect(repository.claimPendingWithRuleFence("job-1", "branch-1")).resolves.toBeNull();
         expect(queryRaw).toHaveBeenCalledTimes(2);
+    });
+
+    it("uses the claim token as a CAS so a stale completion cannot overwrite a newer claim", async () => {
+        const staleAttempt = createJob();
+        staleAttempt.claimToken = "claim-a";
+        messageTriggerJobModel.updateMany.mockResolvedValue({ count: 0 });
+        messageTriggerJobModel.findUnique.mockResolvedValue(createRow({
+            status: "processing",
+            claimToken: "claim-b",
+        }));
+
+        const result = await repository.update(staleAttempt);
+
+        expect(messageTriggerJobModel.updateMany).toHaveBeenCalledWith({
+            where: { id: staleAttempt.id, claimToken: "claim-a" },
+            data: expect.objectContaining({ claimToken: "claim-a" }),
+        });
+        expect(messageTriggerJobModel.update).not.toHaveBeenCalled();
+        expect(result.claimToken).toBe("claim-b");
     });
 
     it("claims a branch job through a global rule without widening the job branch fence", async () => {
@@ -282,9 +312,9 @@ describe("SbMessageTriggerJobRepository", () => {
                 jobs_stale: false,
                 branch_id: null,
             }])
-            .mockResolvedValueOnce([{ id: "job-1" }]);
+            .mockResolvedValueOnce([{ id: "job-1", claim_token: "claim-b" }]);
 
-        await expect(repository.claimPendingWithRuleFence("job-1", "branch-1")).resolves.toBe(true);
+        await expect(repository.claimPendingWithRuleFence("job-1", "branch-1")).resolves.toBe("claim-b");
 
         const ruleFenceSql = getSqlText(queryRaw.mock.calls[1][0]);
         const jobClaimSql = getSqlText(queryRaw.mock.calls[2][0]);
@@ -468,12 +498,12 @@ describe("SbMessageTriggerJobRepository", () => {
         expect(queryRaw).toHaveBeenCalledTimes(1);
         const sqlText = getSqlText(queryRaw.mock.calls[0][0]);
         expect(sqlText).toMatch(
-            /INSERT INTO "message_trigger_job" \([\s\S]*next_attempt_at,\s*updated_at[\s\S]*\)\s*VALUES/,
+            /INSERT INTO "message_trigger_job" \([\s\S]*next_attempt_at,\s*claim_token,\s*updated_at[\s\S]*\)\s*VALUES/,
         );
         // branch_id is the ONLY uuid-cast parameter: rule_id is a text column and system rules
         // use non-uuid ids ("system:service_record_link") — casting it to uuid breaks the insert.
         expect(sqlText.match(/::uuid/g)).toHaveLength(1);
-        expect(sqlText).toMatch(/0,\s*NULL,\s*date_trunc\('milliseconds', clock_timestamp\(\)\)/);
+        expect(sqlText).toMatch(/0,\s*NULL,\s*NULL,\s*date_trunc\('milliseconds', clock_timestamp\(\)\)/);
         const normalizedSqlText = sqlText.replace(/\s+/g, " ");
         expect(normalizedSqlText).toContain('ON CONFLICT ("dedupe_key") DO UPDATE SET');
         expect(normalizedSqlText).toContain(
@@ -818,7 +848,7 @@ describe("SbMessageTriggerJobRepository", () => {
         expect(getSqlText(queryRaw.mock.calls[0][0])).toContain("FOR UPDATE");
         const updateSql = getSqlText(queryRaw.mock.calls[1][0]);
         expect(updateSql).toContain('UPDATE "message_trigger_job"');
-        expect(updateSql).toContain("status = 'pending'");
+        expect(updateSql).toContain("status IN ('pending', 'processing')");
         expect(updateSql).toContain("client_id =");
         expect(updateSql).toContain("branch_id =");
         expect(updateSql).toContain("date_trunc('milliseconds', clock_timestamp())");
@@ -970,11 +1000,12 @@ describe("SbMessageTriggerJobRepository", () => {
         await expect(repository.cancelPendingByRuleId("rule-1", "rule disabled")).resolves.toBe(3);
 
         expect(messageTriggerJobModel.updateMany).toHaveBeenCalledWith({
-            where: { ruleId: "rule-1", status: "pending" },
+            where: { ruleId: "rule-1", status: { in: ["pending", "processing"] } },
             data: {
                 status: "canceled",
                 canceledAt: now,
                 cancelReason: "rule disabled",
+                claimToken: null,
             },
         });
     });
@@ -989,7 +1020,7 @@ describe("SbMessageTriggerJobRepository", () => {
         expect(messageTriggerJobModel.updateMany).toHaveBeenCalledWith({
             where: {
                 branchId: "branch-1",
-                status: "pending",
+                status: { in: ["pending", "processing"] },
                 OR: [
                     { clientId: 42 },
                     { employeeSchedule: { is: { clientId: 42 } } },
@@ -999,6 +1030,7 @@ describe("SbMessageTriggerJobRepository", () => {
                 status: "canceled",
                 canceledAt: now,
                 cancelReason: "Client deleted",
+                claimToken: null,
             },
         });
     });
@@ -1013,7 +1045,7 @@ describe("SbMessageTriggerJobRepository", () => {
         expect(messageTriggerJobModel.updateMany).toHaveBeenCalledWith({
             where: {
                 branchId: "branch-1",
-                status: "pending",
+                status: { in: ["pending", "processing"] },
                 clientId: null,
                 employeeScheduleId: null,
                 NOT: { ruleId: { startsWith: "agent-sms:" } },
@@ -1022,6 +1054,7 @@ describe("SbMessageTriggerJobRepository", () => {
                 status: "canceled",
                 canceledAt: now,
                 cancelReason: "Related client or schedule deleted",
+                claimToken: null,
             },
         });
     });
@@ -1084,13 +1117,14 @@ describe("SbMessageTriggerJobRepository", () => {
         expect(messageTriggerJobModel.updateMany).toHaveBeenCalledWith({
             where: {
                 ruleId: "rule-1",
-                status: "pending",
+                status: { in: ["pending", "processing"] },
                 scheduledFor: { lt: cutoff },
             },
             data: {
                 status: "canceled",
                 canceledAt: now,
                 cancelReason: "승인 전 예정 시각 경과",
+                claimToken: null,
             },
         });
     });
@@ -1112,13 +1146,14 @@ describe("SbMessageTriggerJobRepository", () => {
         ).resolves.toBe(false);
 
         expect(messageTriggerJobModel.updateMany).toHaveBeenCalledWith({
-            where: { id: "job-1", branchId: "branch-1", status: "pending" },
+            where: { id: "job-1", branchId: "branch-1", status: { in: ["pending", "processing"] } },
             data: {
                 status: "canceled",
                 canceledAt: now,
                 cancelReason: "사용자가 발송을 취소함",
                 canceledByUser: true,
                 nextAttemptAt: null,
+                claimToken: null,
             },
         });
     });

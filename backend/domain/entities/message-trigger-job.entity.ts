@@ -59,6 +59,8 @@ export class MessageTriggerJobEntity {
         public nextAttemptAt: Date | null,
         public createdAt: Date,
         public updatedAt: Date,
+        /** Immutable token for the currently claimed processing attempt. */
+        public claimToken: string | null = null,
     ) {}
 
     static create(params: {
@@ -94,6 +96,7 @@ export class MessageTriggerJobEntity {
             null,
             now,
             now,
+            null,
         );
     }
 
@@ -117,6 +120,7 @@ export class MessageTriggerJobEntity {
         updatedAt: Date,
         attempts = 0,
         nextAttemptAt: Date | null = null,
+        claimToken: string | null = null,
     ): MessageTriggerJobEntity {
         return new MessageTriggerJobEntity(
             id,
@@ -138,11 +142,15 @@ export class MessageTriggerJobEntity {
             nextAttemptAt,
             createdAt,
             updatedAt,
+            claimToken,
         );
     }
 
-    markProcessing(): void {
+    markProcessing(claimToken?: string | null): void {
         this.status = "processing";
+        if (claimToken !== undefined) {
+            this.claimToken = claimToken;
+        }
         this.updatedAt = new Date();
     }
 

@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import {
     IMessageTriggerJobRepository,
@@ -40,6 +40,7 @@ type MessageTriggerJobPrismaRow = {
     payload: Prisma.JsonValue;
     createdAt: Date;
     updatedAt: Date;
+    claimToken: string | null;
 };
 
 type MessageTriggerJobRawRow = {
@@ -62,7 +63,12 @@ type MessageTriggerJobRawRow = {
     payload: Prisma.JsonValue | string;
     created_at: Date | string;
     updated_at: Date | string;
+    claim_token: string | null;
 };
+
+function cryptoRandomToken(): string {
+    return randomUUID();
+}
 
 function stableJson(value: unknown): string {
     if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -133,6 +139,24 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
     }
 
     async update(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity> {
+        if (job.claimToken) {
+            const result = await this.prisma.message_trigger_job.updateMany({
+                where: { id: job.id, claimToken: job.claimToken },
+                data: this.toUpdate(job),
+            });
+            if (result.count !== 1) {
+                const current = await this.prisma.message_trigger_job.findUnique({ where: { id: job.id } });
+                if (!current) {
+                    throw new Error(`Message trigger job not found: ${job.id}`);
+                }
+                return this.toDomain(current);
+            }
+            const current = await this.prisma.message_trigger_job.findUnique({ where: { id: job.id } });
+            if (!current) {
+                throw new Error(`Message trigger job not found: ${job.id}`);
+            }
+            return this.toDomain(current);
+        }
         const row = await this.prisma.message_trigger_job.update({
             where: { id: job.id },
             data: this.toUpdate(job),
@@ -148,12 +172,12 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
     async claimPending(id: string): Promise<boolean> {
         const result = await this.prisma.message_trigger_job.updateMany({
             where: { id, status: "pending" },
-            data: { status: "processing" },
+            data: { status: "processing", claimToken: cryptoRandomToken() },
         });
         return result.count === 1;
     }
 
-    async claimPendingWithRuleFence(id: string, branchId: string | null): Promise<boolean> {
+    async claimPendingWithRuleFence(id: string, branchId: string | null): Promise<string | null> {
         const jobBranchPredicate = branchId === null
             ? Prisma.sql`branch_id IS NULL`
             : Prisma.sql`branch_id = ${branchId}::uuid`;
@@ -171,7 +195,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                   AND status = 'pending'
             `);
             const job = jobs[0];
-            if (!job || job.branch_id !== branchId) return false;
+            if (!job || job.branch_id !== branchId) return null;
 
             const rules = await transaction.$queryRaw<Array<{ id: string; jobs_stale: boolean }>>(Prisma.sql`
                 SELECT id, jobs_stale
@@ -181,18 +205,20 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 FOR UPDATE
             `);
             const rule = rules[0];
-            if (!rule || rule.jobs_stale) return false;
+            if (!rule || rule.jobs_stale) return null;
 
-            const claimed = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+            const claimed = await transaction.$queryRaw<Array<{ id: string; claim_token: string }>>(Prisma.sql`
                 UPDATE "message_trigger_job"
-                SET status = 'processing', updated_at = now()
+                SET status = 'processing',
+                    claim_token = gen_random_uuid()::text,
+                    updated_at = now()
                 WHERE id = ${id}
                   AND rule_id = ${job.rule_id}
                   AND ${jobBranchPredicate}
                   AND status = 'pending'
-                RETURNING id
+                RETURNING id, claim_token
             `);
-            return claimed.length === 1;
+            return claimed[0]?.claim_token ?? null;
         });
     }
 
@@ -353,7 +379,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
             where: {
                 ruleId: { in: ruleIds },
                 clientId,
-                status: "pending",
+                status: { in: ["pending", "processing"] },
             },
         });
         return rows.map((row) => this.toDomain(row));
@@ -368,7 +394,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
             where: {
                 ruleId: { in: ruleIds },
                 employeeScheduleId,
-                status: "pending",
+                status: { in: ["pending", "processing"] },
             },
         });
         return rows.map((row) => this.toDomain(row));
@@ -396,7 +422,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         const result = await this.prisma.message_trigger_job.updateMany({
             where: {
                 branchId,
-                status: "pending",
+                status: { in: ["pending", "processing"] },
                 OR: [
                     { clientId },
                     { employeeSchedule: { is: { clientId } } },
@@ -406,6 +432,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 status: "canceled",
                 canceledAt: new Date(),
                 cancelReason: reason,
+                claimToken: null,
             },
         });
         return result.count;
@@ -415,7 +442,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         const result = await this.prisma.message_trigger_job.updateMany({
             where: {
                 ...(branchId ? { branchId } : {}),
-                status: "pending",
+                status: { in: ["pending", "processing"] },
                 clientId: null,
                 employeeScheduleId: null,
                 NOT: { ruleId: { startsWith: AGENT_SMS_RULE_ID_PREFIX } },
@@ -424,6 +451,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 status: "canceled",
                 canceledAt: new Date(),
                 cancelReason: reason,
+                claimToken: null,
             },
         });
         return result.count;
@@ -478,11 +506,12 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
 
     async cancelPendingByRuleId(ruleId: string, reason: string): Promise<number> {
         const result = await this.prisma.message_trigger_job.updateMany({
-            where: { ruleId, status: "pending" },
+            where: { ruleId, status: { in: ["pending", "processing"] } },
             data: {
                 status: "canceled",
                 canceledAt: new Date(),
                 cancelReason: reason,
+                claimToken: null,
             },
         });
         return result.count;
@@ -492,13 +521,14 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         const result = await this.prisma.message_trigger_job.updateMany({
             where: {
                 ruleId,
-                status: "pending",
+                status: { in: ["pending", "processing"] },
                 scheduledFor: { lt: cutoff },
             },
             data: {
                 status: "canceled",
                 canceledAt: new Date(),
                 cancelReason: reason,
+                claimToken: null,
             },
         });
         return result.count;
@@ -506,13 +536,14 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
 
     async cancelPendingByUser(id: string, branchId: string, reason: string): Promise<boolean> {
         const result = await this.prisma.message_trigger_job.updateMany({
-            where: { id, branchId, status: "pending" },
+            where: { id, branchId, status: { in: ["pending", "processing"] } },
             data: {
                 status: "canceled",
                 canceledAt: new Date(),
                 cancelReason: reason,
                 canceledByUser: true,
                 nextAttemptAt: null,
+                claimToken: null,
             },
         });
         return result.count === 1;
@@ -556,7 +587,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
             const predicates = [
                 Prisma.sql`branch_id = ${branchId}::uuid`,
                 Prisma.sql`rule_id = ${ruleId}`,
-                Prisma.sql`status = 'pending'`,
+                Prisma.sql`status IN ('pending', 'processing')`,
             ];
             if (scope.clientId !== undefined) {
                 predicates.push(Prisma.sql`client_id = ${scope.clientId}`);
@@ -573,6 +604,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 SET status = 'canceled',
                     canceled_at = date_trunc('milliseconds', clock_timestamp()),
                     cancel_reason = ${reason},
+                    claim_token = NULL,
                     updated_at = date_trunc('milliseconds', clock_timestamp())
                 WHERE ${Prisma.join(predicates, " AND ")}
                 RETURNING id
@@ -613,6 +645,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 payload = ${JSON.stringify(job.payload)}::jsonb,
                 attempts = 0,
                 next_attempt_at = NULL,
+                claim_token = NULL,
                 updated_at = clock_timestamp()
             WHERE id = ${markerId}
               AND branch_id = ${job.branchId}::uuid
@@ -690,6 +723,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 payload = EXCLUDED.payload,
                 attempts = 0,
                 next_attempt_at = NULL,
+                claim_token = NULL,
                 updated_at = date_trunc('milliseconds', clock_timestamp())
             WHERE "message_trigger_job"."status" = 'canceled'
               AND "message_trigger_job"."canceled_by_user" = false
@@ -706,6 +740,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 payload = EXCLUDED.payload,
                 attempts = 0,
                 next_attempt_at = NULL,
+                claim_token = NULL,
                 updated_at = date_trunc('milliseconds', clock_timestamp())
             WHERE "message_trigger_job"."status" IN ('pending', 'canceled')
               AND NOT ("message_trigger_job"."status" = 'canceled' AND "message_trigger_job"."canceled_by_user" = true)`;
@@ -727,6 +762,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 payload,
                 attempts,
                 next_attempt_at,
+                claim_token,
                 updated_at
             )
             VALUES (
@@ -745,6 +781,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 ${job.dedupeKey},
                 ${JSON.stringify(job.payload)}::jsonb,
                 0,
+                NULL,
                 NULL,
                 date_trunc('milliseconds', clock_timestamp())
             )
@@ -831,6 +868,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
             payload: job.payload as unknown as Prisma.InputJsonValue,
             attempts: job.attempts,
             nextAttemptAt: job.nextAttemptAt,
+            claimToken: job.claimToken,
         };
     }
 
@@ -847,6 +885,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
             payload: job.payload as unknown as Prisma.InputJsonValue,
             attempts: job.attempts,
             nextAttemptAt: job.nextAttemptAt,
+            claimToken: job.claimToken,
         };
     }
 
@@ -876,6 +915,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
             row.updatedAt,
             row.attempts,
             row.nextAttemptAt,
+            row.claimToken,
         );
     }
 
@@ -900,6 +940,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
             this.toDate(row.updated_at),
             row.attempts,
             this.toNullableDate(row.next_attempt_at),
+            row.claim_token,
         );
     }
 

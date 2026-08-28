@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { MessageTriggerService } from "./message-trigger.service";
+import { MessageAutomationIntentService } from "./message-automation-intent.service";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
 import { ServiceRecordLifecycleService } from "./service-record-lifecycle.service";
 import {
@@ -37,6 +38,7 @@ export class ClientDueDateSchedulerService {
         private readonly prisma: PrismaService,
         @Optional() private readonly triggerService?: MessageTriggerService,
         @Optional() private readonly serviceRecordLifecycleService?: ServiceRecordLifecycleService,
+        @Optional() private readonly messageAutomationIntentService?: MessageAutomationIntentService,
     ) {}
 
     @Cron("0 * * * *", { timeZone: KOREA_TIME_ZONE })
@@ -82,7 +84,7 @@ export class ClientDueDateSchedulerService {
 
         let updatedCount = 0;
         for (const client of candidates) {
-            const result = this.serviceRecordLifecycleService
+            const result = this.serviceRecordLifecycleService || this.messageAutomationIntentService
                 ? await this.prisma.$transaction(async (tx) => {
                     const updated = await tx.client.updateMany({
                         where: {
@@ -93,7 +95,18 @@ export class ClientDueDateSchedulerService {
                         data: { startDate: client.dueDate },
                     });
                     if (updated.count > 0) {
-                        await this.serviceRecordLifecycleService!.ensureForClient(client.id, tx);
+                        if (this.serviceRecordLifecycleService) {
+                            await this.serviceRecordLifecycleService.ensureForClient(client.id, tx);
+                        }
+                        if (this.messageAutomationIntentService && client.branchId && client.dueDate) {
+                            await this.messageAutomationIntentService.persistClientIntent(tx, {
+                                branchId: client.branchId,
+                                clientId: client.id,
+                                includePast: false,
+                                suppressGreeting: false,
+                                intentAt: client.dueDate,
+                            });
+                        }
                     }
                     return updated;
                 })
@@ -120,12 +133,21 @@ export class ClientDueDateSchedulerService {
     }
 
     private async syncTriggerRules(branchId: string, clientId: number): Promise<void> {
-        if (!this.triggerService) {
+        if (!this.triggerService && !this.messageAutomationIntentService) {
             return;
         }
 
         try {
-            await this.triggerService.syncClientRulesForClient(branchId, clientId, false);
+            if (this.messageAutomationIntentService) {
+                await this.messageAutomationIntentService.fulfillClientIntent({
+                    branchId,
+                    clientId,
+                    includePast: false,
+                    suppressGreeting: false,
+                });
+                return;
+            }
+            await this.triggerService!.syncClientRulesForClient(branchId, clientId, false);
         } catch (error) {
             this.logger.error(
                 `[Client Due Date] Failed to sync trigger rules for client ${clientId}`,

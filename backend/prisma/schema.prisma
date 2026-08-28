@@ -1007,6 +1007,7 @@ model message_trigger_job {
   scheduledFor       DateTime             @map("scheduled_for") @db.Timestamptz(6)
   attempts           Int                  @default(0)
   nextAttemptAt      DateTime?            @map("next_attempt_at") @db.Timestamptz(6)
+  claimToken         String?              @map("claim_token")
   sentAt             DateTime?            @map("sent_at") @db.Timestamptz(6)
   canceledAt         DateTime?            @map("canceled_at") @db.Timestamptz(6)
   cancelReason       String?              @map("cancel_reason")

@@ -804,13 +804,13 @@ export class MessageTriggerService {
     }
 
     /**
-     * Cancel a scheduled trigger job on the user's behalf. Only a `pending`
-     * job scoped to the caller's branch can be canceled; the repository call
-     * is a single atomic conditional update, so there is no separate
+     * Cancel a scheduled trigger job on the user's behalf. Pending and
+     * processing jobs scoped to the caller's branch are canceled atomically;
+     * a processing claim is invalidated before the provider fence. The
+     * repository call is a single conditional update, so there is no separate
      * existence/branch pre-check to race against it. Every other outcome
-     * (already sent, currently processing, already canceled, or no such job)
-     * collapses to the same conflict-style failure — the caller does not
-     * need to know which.
+     * (already sent, already canceled, or no such job) collapses to the same
+     * conflict-style failure — the caller does not need to know which.
      */
     async cancelJobByUser(branchId: string, id: string): Promise<{ id: string; status: "canceled" }> {
         await this.ensureTriggerSchemaReady();
@@ -1404,6 +1404,16 @@ export class MessageTriggerService {
             const rule = rulesById.get(job.ruleId);
             if (!rule) continue;
 
+            // A client mutation can race a job that was already claimed for
+            // delivery. Invalidate that active claim before refreshing the
+            // pending payload; the CAS update is intentionally skipped when
+            // another worker has already replaced the token.
+            if (job.status === "processing") {
+                job.cancel("Client data changed");
+                await this.jobRepository.update(job);
+                continue;
+            }
+
             const refreshedJob = this.buildClientJob(rule, client);
             if (!refreshedJob) continue;
 
@@ -1948,6 +1958,11 @@ export class MessageTriggerService {
             return;
         }
 
+        // The SQL claim returns the immutable attempt token. A claim without
+        // one is not safe to deliver: the pre-provider fence fails closed.
+        const claimToken = claimed;
+        job.claimToken = claimToken;
+
         if (sentIds.has(job.id)) {
             job.markSent();
             await this.persistTriggerJobStatus(job, "persist sent trigger job reconciliation");
@@ -1970,31 +1985,33 @@ export class MessageTriggerService {
             return;
         }
 
-        job.markProcessing();
-        if (job.templateKey === MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED && job.employeeScheduleId !== null) {
-            const shouldPersist = await this.prisma.$transaction(async (transaction) => {
-                const fence = await this.fenceEmployeeAssignmentBeforeProviderSend(job, transaction);
-                if (fence.kind === "lost") {
-                    return false;
-                }
-                if (fence.kind === "stale") {
-                    job.cancel(fence.reason);
-                    return true;
-                }
-                await this.deliverClaimedJob(job);
-                return true;
-            }, {
-                maxWait: 5_000,
-                timeout: EMPLOYEE_ASSIGNMENT_PROVIDER_FENCE_TIMEOUT_MS,
-            });
-            if (shouldPersist) {
-                await this.persistTriggerJobStatus(job, "persist dispatched employee assignment trigger job");
+        job.markProcessing(claimToken);
+        const shouldPersist = await this.prisma.$transaction(async (transaction) => {
+            const tokenFence = await this.fenceClaimTokenBeforeProviderSend(job, transaction);
+            if (tokenFence.kind === "lost") {
+                return false;
             }
-            return;
-        }
 
-        await this.deliverClaimedJob(job);
-        await this.persistTriggerJobStatus(job, "persist dispatched trigger job");
+            const fence = job.templateKey === MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED
+                && job.employeeScheduleId !== null
+                ? await this.fenceEmployeeAssignmentBeforeProviderSend(job, transaction)
+                : { kind: "allow" as const };
+            if (fence.kind === "lost") {
+                return false;
+            }
+            if (fence.kind === "stale") {
+                job.cancel(fence.reason);
+                return true;
+            }
+            await this.deliverClaimedJob(job);
+            return true;
+        }, {
+            maxWait: 5_000,
+            timeout: EMPLOYEE_ASSIGNMENT_PROVIDER_FENCE_TIMEOUT_MS,
+        });
+        if (shouldPersist) {
+            await this.persistTriggerJobStatus(job, "persist dispatched trigger job");
+        }
     }
 
     private async deliverClaimedJob(job: MessageTriggerJobEntity): Promise<void> {
@@ -2040,6 +2057,7 @@ export class MessageTriggerService {
             || currentJob.recipientType !== job.recipientType
             || currentJob.templateKey !== job.templateKey
             || currentJob.payload.employeeScheduleFingerprint !== job.payload.employeeScheduleFingerprint
+            || currentJob.claimToken !== job.claimToken
         ) {
             return { kind: "lost" };
         }
@@ -2185,6 +2203,59 @@ export class MessageTriggerService {
                 kind: "stale",
                 reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
             };
+        }
+
+        return { kind: "allow" };
+    }
+
+    /**
+     * Lock and re-read the active claim immediately before entering any
+     * provider-facing delivery path. The lock makes cancellation/source
+     * mutation and provider acceptance serialize on the same row: a mutation
+     * that wins before this check clears the token and fails closed, while a
+     * mutation arriving after the lock is explicitly ordered after the send.
+     */
+    private async fenceClaimTokenBeforeProviderSend(
+        job: MessageTriggerJobEntity,
+        transaction: Prisma.TransactionClient,
+    ): Promise<PreProviderSendFenceResult> {
+        if (!job.claimToken) return { kind: "lost" };
+
+        const rows = await transaction.$queryRaw<Array<{
+            status: string;
+            claim_token: string | null;
+            branch_id?: string | null;
+            rule_id?: string;
+            client_id?: number | null;
+            employee_schedule_id?: number | null;
+            recipient_type?: string;
+            template_key?: string;
+        }>>(Prisma.sql`
+            SELECT status,
+                   claim_token,
+                   branch_id,
+                   rule_id,
+                   client_id,
+                   employee_schedule_id,
+                   recipient_type,
+                   template_key
+            FROM "message_trigger_job"
+            WHERE id = ${job.id}
+            FOR UPDATE
+        `);
+        const current = rows[0];
+        if (
+            !current
+            || current.status !== "processing"
+            || current.claim_token !== job.claimToken
+            || (current.branch_id !== undefined && current.branch_id !== job.branchId)
+            || (current.rule_id !== undefined && current.rule_id !== job.ruleId)
+            || (current.client_id !== undefined && current.client_id !== job.clientId)
+            || (current.employee_schedule_id !== undefined && current.employee_schedule_id !== job.employeeScheduleId)
+            || (current.recipient_type !== undefined && current.recipient_type !== job.recipientType)
+            || (current.template_key !== undefined && current.template_key !== job.templateKey)
+        ) {
+            return { kind: "lost" };
         }
 
         return { kind: "allow" };

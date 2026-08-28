@@ -402,7 +402,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
                 return stagedRetry;
             }),
             claimPending: jest.fn().mockImplementation(async (id: string) => id === stagedRetry?.id),
-            claimPendingWithRuleFence: jest.fn().mockImplementation(async (id: string) => id === stagedRetry?.id),
+            claimPendingWithRuleFence: jest.fn().mockImplementation(async (id: string) => id === stagedRetry?.id ? "claim-a" : null),
             update: jest.fn().mockResolvedValue(undefined),
             findSentTriggerJobIds: jest.fn().mockResolvedValue(new Set<string>()),
         };
@@ -437,7 +437,12 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             ensureApproved: jest.fn().mockResolvedValue(undefined),
         };
         const triggerService = new MessageTriggerService(
-            {} as never,
+            {
+                $transaction: jest.fn().mockImplementation(async (work: (transaction: unknown) => Promise<unknown>) =>
+                    work({
+                        $queryRaw: jest.fn().mockResolvedValue([{ status: "processing", claim_token: "claim-a" }]),
+                    })),
+            } as never,
             triggerDelivery,
             senderApproval as never,
             {} as never,

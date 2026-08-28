@@ -294,7 +294,7 @@ describe("MessageTriggerService", () => {
             findById: jest.fn().mockResolvedValue(null),
             findStaleProcessing: jest.fn().mockResolvedValue([]),
             claimPending: jest.fn().mockResolvedValue(true),
-            claimPendingWithRuleFence: jest.fn().mockResolvedValue(true),
+            claimPendingWithRuleFence: jest.fn().mockResolvedValue("claim-a"),
             update: jest.fn().mockResolvedValue(undefined),
             cancelPendingByRuleId: jest.fn().mockResolvedValue(0),
             cancelPendingOlderThan: jest.fn().mockResolvedValue(0),
@@ -324,7 +324,7 @@ describe("MessageTriggerService", () => {
             employee_schedule: { findFirst: jest.Mock };
         };
         const transaction: DispatchTransaction = {
-            $queryRaw: jest.fn().mockResolvedValue([{ id: 77 }]),
+            $queryRaw: jest.fn().mockResolvedValue([{ status: "processing", claim_token: "claim-a" }]),
             employee_schedule: {
                 findFirst: employeeScheduleFindFirst,
             },
@@ -1158,7 +1158,7 @@ describe("MessageTriggerService", () => {
                 return updatedRule;
             });
         });
-        dispatcher.jobRepository.claimPendingWithRuleFence.mockImplementation(async () => !mutationWon);
+        dispatcher.jobRepository.claimPendingWithRuleFence.mockImplementation(async () => mutationWon ? null : "claim-a");
 
         const updatePromise = mutation.service.updateRuleApprovedTarget(
             branchId,
@@ -1409,6 +1409,38 @@ describe("MessageTriggerService", () => {
         expect(jobRepository.update).toHaveBeenCalledWith(job);
     });
 
+    it("does not call the provider when cancellation invalidates a claim before the fence", async () => {
+        const { service, deliveryService, jobRepository, transaction } = createDispatchService();
+        const job = createJob();
+        jobRepository.findDuePending.mockResolvedValue([job]);
+        jobRepository.claimPendingWithRuleFence.mockResolvedValue("claim-a");
+        transaction.$queryRaw.mockResolvedValueOnce([{
+            status: "canceled",
+            claim_token: null,
+        }]);
+
+        await service.dispatchDueJobs();
+
+        expect(deliveryService.sendJob).not.toHaveBeenCalled();
+        expect(jobRepository.update).not.toHaveBeenCalled();
+    });
+
+    it("does not call the provider when a newer claim token replaced the active attempt", async () => {
+        const { service, deliveryService, jobRepository, transaction } = createDispatchService();
+        const job = createJob();
+        jobRepository.findDuePending.mockResolvedValue([job]);
+        jobRepository.claimPendingWithRuleFence.mockResolvedValue("claim-a");
+        transaction.$queryRaw.mockResolvedValueOnce([{
+            status: "processing",
+            claim_token: "claim-b",
+        }]);
+
+        await service.dispatchDueJobs();
+
+        expect(deliveryService.sendJob).not.toHaveBeenCalled();
+        expect(jobRepository.update).not.toHaveBeenCalled();
+    });
+
     it("dispatchPendingJobNow claims and sends only the requested job", async () => {
         const { service, deliveryService, jobRepository, messageSenderApprovalService } =
             createDispatchService();
@@ -1460,9 +1492,14 @@ describe("MessageTriggerService", () => {
         });
         dispatcher.jobRepository.claimPendingWithRuleFence.mockImplementation(async () => {
             events.push("claim");
-            return true;
+            return "claim-a";
         });
+        let queryCount = 0;
         dispatcher.transaction.$queryRaw.mockImplementation(async () => {
+            queryCount += 1;
+            if (queryCount === 1) {
+                return [{ status: "processing", claim_token: "claim-a" }];
+            }
             events.push("schedule-lock");
             return [{ id: schedule.id }];
         });
@@ -1580,7 +1617,12 @@ describe("MessageTriggerService", () => {
         const replacementDone = new Promise<void>((resolve) => {
             replacementCommitted = resolve;
         });
+        let queryCount = 0;
         dispatcher.transaction.$queryRaw.mockImplementation(async () => {
+            queryCount += 1;
+            if (queryCount === 1) {
+                return [{ status: "processing", claim_token: "claim-a" }];
+            }
             lockWaitStarted();
             await replacementDone;
             return [{ id: schedule.id }];
@@ -1629,7 +1671,7 @@ describe("MessageTriggerService", () => {
         });
         dispatcher.jobRepository.claimPendingWithRuleFence.mockImplementation(async () => {
             events.push("claim");
-            return true;
+            return "claim-a";
         });
         dispatcher.prisma.employee_schedule.findFirst.mockImplementation(async () => {
             events.push("schedule-read");
