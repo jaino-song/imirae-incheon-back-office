@@ -1,6 +1,7 @@
 import { Transform } from "class-transformer";
-import { IsArray, IsBoolean, IsDateString, IsIn, IsOptional, IsString } from "class-validator";
+import { IsArray, IsBoolean, IsDateString, IsIn, IsNotEmpty, IsOptional, IsString, ValidateIf } from "class-validator";
 import { EMPLOYEE_GRADES, normalizeEmployeeGrade } from "domain/constants/employee-grade.constants";
+import { IsCanonicalPhone } from "./canonical-phone.validator";
 
 export class CreateEmployeeDto {
     @IsString()
@@ -11,6 +12,8 @@ export class CreateEmployeeDto {
     workArea!: string[];
 
     @IsString()
+    @IsNotEmpty()
+    @IsCanonicalPhone()
     phone!: string;
 
     @IsString()
@@ -40,8 +43,10 @@ export class UpdateEmployeeDto {
     @IsString({ each: true })
     workArea?: string[];
 
-    @IsOptional()
+    @ValidateIf((_, value) => value !== undefined)
     @IsString()
+    @IsNotEmpty()
+    @IsCanonicalPhone()
     phone?: string;
 
     @IsOptional()

@@ -22,6 +22,7 @@ import {
     assertAllowedClientArea,
     assertAllowedServiceStatus,
     assertClientDurationMatchesDates,
+    assertClientPhoneInput,
     deriveClientDuration,
     findClientByNormalizedPhone,
     mergeAndValidateClientServicePeriod,
@@ -948,6 +949,9 @@ export class ClientService {
         reuseExistingClient?: boolean;
         source?: string;
     }): Promise<ClientEntity> {
+        // Reject malformed identity input before settings lookups, duplicate
+        // checks, automation, or any other write/provider side effect.
+        assertClientPhoneInput(params.phone);
         const startDate = parseClientDate(params.startDate) ?? null;
         const endDate = parseClientDate(params.endDate) ?? null;
         const dueDate = parseClientDate(params.dueDate) ?? null;
@@ -1497,6 +1501,9 @@ export class ClientService {
         eDocId?: string | null;
         areaId?: string | null;
     }): Promise<ClientEntity> {
+        // Keep invalid phone input from reaching lifecycle/provider work or a
+        // transaction that could partially mutate schedule state.
+        assertClientPhoneInput(params.phone);
         // Get existing client
         const existingClient = await this.findClientByIdUsecase.execute(branchid, id);
         if (!existingClient) {

@@ -107,6 +107,7 @@ describe("CallInboxService", () => {
         ["invalid service status", { serviceStatus: "not-a-status" }],
         ["invalid area form", { areaId: 123 }],
         ["invalid numeric form", { duration: "7" }],
+        ["malformed phone", { phone: "not-a-phone" }],
         ["invalid phone form", { phone: { value: "01012345678" } }],
         ["invalid pricing form", { fullPrice: 12345 }],
         ["unknown nested key", { unexpected: "reject-me" }],
@@ -384,6 +385,18 @@ describe("CallInboxService", () => {
             service.confirm("branch-1", "user-1", "draft-1", { changes: { hairColor: "blonde" } }),
         ).rejects.toThrow(BadRequestException);
         expect(prisma.client_draft.updateMany).not.toHaveBeenCalled();
+        expect(clientService.update).not.toHaveBeenCalled();
+    });
+
+    it("confirmClientUpdate: rejects a malformed phone before claiming the draft", async () => {
+        prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+        prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+
+        await expect(service.confirm("branch-1", "user-1", "draft-1", {
+            changes: { phone: "not-a-phone" },
+        })).rejects.toThrow(BadRequestException);
+        expect(prisma.client_draft.updateMany).not.toHaveBeenCalled();
+        expect(prisma.client_draft.update).not.toHaveBeenCalled();
         expect(clientService.update).not.toHaveBeenCalled();
     });
 
@@ -669,5 +682,16 @@ describe("CallInboxService", () => {
         await expect(service.patchDraftApprovedTarget("branch-1", "draft-race", { proposals: [] }, expected))
             .rejects.toThrow(ConflictException);
         expect(prisma.client_draft.update).not.toHaveBeenCalled();
+    });
+
+    it("patchDraft rejects malformed phone proposals before persisting the draft", async () => {
+        prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
+
+        await expect(service.patchDraft("branch-1", "draft-1", {
+            proposals: [{ field: "phone", value: "not-a-phone", evidence: "e", confidence: "high" }],
+        })).rejects.toThrow(BadRequestException);
+
+        expect(prisma.client_draft.update).not.toHaveBeenCalled();
+        expect(prisma.client.findFirst).not.toHaveBeenCalled();
     });
 });

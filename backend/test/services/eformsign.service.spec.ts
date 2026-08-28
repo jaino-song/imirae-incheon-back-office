@@ -39,6 +39,22 @@ describe("EformsignService", () => {
         jest.restoreAllMocks();
     });
 
+    it("rejects a malformed outsider phone override before reading or calling the provider", async () => {
+        const service = new EformsignService(createConfigService());
+        const getDocument = jest.spyOn(service, "getDocumentById");
+
+        await expect(service.reRequestOutsiderDocument(
+            "access-token",
+            "doc-1",
+            "05",
+            "1",
+            "재요청",
+            { countryCode: "+82", phoneNumber: "not-a-phone" },
+        )).rejects.toThrow("valid Korean phone number");
+
+        expect(getDocument).not.toHaveBeenCalled();
+    });
+
     it("aborts a mirrored PDF request that does not return before the deadline", async () => {
         jest.useFakeTimers();
         const service = new EformsignService(createConfigService());

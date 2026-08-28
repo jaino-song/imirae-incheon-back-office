@@ -3,7 +3,7 @@ import {
     isAutomaticServiceStatusTransitionAllowed,
     ServiceStatusType,
 } from "domain/value-objects/service-status.vo";
-import { normalizePhone } from "domain/utils/normalize-phone";
+import { assertValidPhone, normalizePhone } from "domain/utils/normalize-phone";
 import { normalizeKoreanWon } from "domain/value-objects/money.vo";
 import { countBusinessDaysKr } from "domain/utils/business-days";
 
@@ -151,6 +151,7 @@ export class ClientEntity {
     static create(
         props: CreateClientProps,
     ): ClientEntity {
+        const phoneNormalized = assertValidPhone(props.phone);
         const duration = deriveCreatedClientDuration(
             props.startDate,
             props.endDate,
@@ -180,7 +181,7 @@ export class ClientEntity {
             null,
             props.suppressGreetingSms ?? false,
             props.birthDate,
-            normalizePhone(props.phone),
+            phoneNormalized,
         );
     }
 
@@ -227,8 +228,9 @@ export class ClientEntity {
         if (props.name !== undefined) this.name = props.name;
         if (props.address !== undefined) this.address = props.address;
         if (props.phone !== undefined) {
+            const phoneNormalized = assertValidPhone(props.phone);
             this.phone = props.phone;
-            this.phoneNormalized = normalizePhone(props.phone);
+            this.phoneNormalized = phoneNormalized;
         }
         if (props.type !== undefined) this.type = props.type;
         if (nextStartDate && nextEndDate) {

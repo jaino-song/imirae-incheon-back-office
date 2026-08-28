@@ -10,6 +10,35 @@ const createBoundary = () => ({
 });
 
 describe("CreateAndSendContractUsecase", () => {
+    it("rejects a malformed persisted client phone before assignment, credentials, or provider work", async () => {
+        const createDocument = jest.fn();
+        const withCredentials = createBoundary();
+        const assignmentGuard = { assertAssignedClient: jest.fn() };
+        const usecase = new CreateAndSendContractUsecase(
+            { createDocument } as never,
+            { findById: jest.fn().mockResolvedValue({
+                id: 55,
+                name: "잘못된 고객",
+                phone: "not-a-phone",
+            }) } as never,
+            withCredentials as never,
+            { execute: jest.fn() } as never,
+            assignmentGuard as never,
+        );
+
+        await expect(usecase.execute("branch-1", {
+            clientId: 55,
+            templateId: "template-1",
+        }, TEST_PRINCIPAL)).resolves.toEqual({
+            success: false,
+            error: "고객 연락처가 유효하지 않습니다",
+        });
+
+        expect(assignmentGuard.assertAssignedClient).not.toHaveBeenCalled();
+        expect(withCredentials.withCredentials).not.toHaveBeenCalled();
+        expect(createDocument).not.toHaveBeenCalled();
+    });
+
     it("does not create an external document for an unassigned client", async () => {
         const eformsignClient = { createDocument: jest.fn() };
         const clientRepository = {

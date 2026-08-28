@@ -195,6 +195,42 @@ describe("CallProcessingService", () => {
         expect(prisma.client_draft.createMany).not.toHaveBeenCalled();
     });
 
+    it("marks FAILED and does not persist a draft when extraction returns a malformed caller phone", async () => {
+        extractionPort.extract.mockResolvedValue(extraction({
+            category: "NEW_CONSULTATION",
+            callerPhoneCandidates: ["not-a-phone"],
+            proposals: [{ field: "name", value: "김서연", evidence: "e", confidence: "high" }],
+        }));
+
+        await expect(service.processCallRecord("rec-1")).resolves.toBe("failed");
+
+        expect(prisma.client_draft.createMany).not.toHaveBeenCalled();
+        expect(prisma.call_record.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+            data: expect.objectContaining({
+                processingStatus: "FAILED",
+                failureReason: expect.stringContaining("valid Korean phone number"),
+            }),
+        }));
+    });
+
+    it("marks FAILED and does not persist a draft when a phone proposal is malformed", async () => {
+        extractionPort.extract.mockResolvedValue(extraction({
+            category: "CLIENT_SERVICE",
+            callerPhoneCandidates: [],
+            proposals: [{ field: "phone", value: "not-a-phone", evidence: "e", confidence: "high" }],
+        }));
+
+        await expect(service.processCallRecord("rec-1")).resolves.toBe("failed");
+
+        expect(prisma.client_draft.createMany).not.toHaveBeenCalled();
+        expect(prisma.call_record.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+            data: expect.objectContaining({
+                processingStatus: "FAILED",
+                failureReason: expect.stringContaining("valid Korean phone number"),
+            }),
+        }));
+    });
+
     it("skips records that are not RECEIVED/FAILED (already extracted)", async () => {
         prisma.call_record.findUnique.mockResolvedValue({ ...record, processingStatus: "EXTRACTED" });
         await service.processCallRecord("rec-1");

@@ -1,4 +1,10 @@
-import { normalizePhone, extractPhoneCandidates } from "application/utils/normalize-phone";
+import {
+    assertRequiredPhone,
+    assertValidPhone,
+    extractPhoneCandidates,
+    InvalidPhoneError,
+    normalizePhone,
+} from "application/utils/normalize-phone";
 import { normalizePhone as normalizeDomainPhone } from "domain/utils/normalize-phone";
 
 describe("normalizePhone", () => {
@@ -22,6 +28,14 @@ describe("normalizePhone", () => {
         const formatted = "010-1234-5678";
         expect(normalizeDomainPhone(formatted)).toBe(normalizePhone(formatted));
         expect(normalizeDomainPhone("+82 10 1234 5678")).toBe("01012345678");
+    });
+
+    it("rejects malformed present values while allowing an explicit null clear", () => {
+        expect(assertValidPhone(null)).toBeNull();
+        expect(assertValidPhone("010 1234 5678")).toBe("01012345678");
+        expect(() => assertValidPhone("not-a-phone")).toThrow(InvalidPhoneError);
+        expect(() => assertValidPhone("   ")).toThrow(InvalidPhoneError);
+        expect(() => assertRequiredPhone(null)).toThrow(InvalidPhoneError);
     });
 });
 

@@ -22,6 +22,44 @@ export function normalizePhone(raw: string | null | undefined): string | null {
     return digits;
 }
 
+/**
+ * Raised when a write path receives a present phone value that cannot be
+ * represented by the canonical identity key.  Read/reconstitution paths may
+ * still encounter legacy rows, but every new or changed identity must pass
+ * this guard before persistence or provider work.
+ */
+export class InvalidPhoneError extends Error {
+    readonly code = "INVALID_PHONE" as const;
+
+    constructor() {
+        super("Phone number must be a valid Korean phone number");
+        this.name = "InvalidPhoneError";
+    }
+}
+
+/**
+ * Validate an optional client phone while preserving the caller's display
+ * formatting. Explicit null/undefined means "no phone" and remains allowed;
+ * an empty or malformed string is never silently converted to null.
+ */
+export function assertValidPhone(raw: string | null | undefined): string | null {
+    if (raw === null || raw === undefined) return null;
+    if (typeof raw !== "string" || raw.trim().length === 0) {
+        throw new InvalidPhoneError();
+    }
+
+    const normalized = normalizePhone(raw);
+    if (normalized === null) throw new InvalidPhoneError();
+    return normalized;
+}
+
+/** Validate a required employee/provider phone and return its canonical key. */
+export function assertRequiredPhone(raw: string | null | undefined): string {
+    const normalized = assertValidPhone(raw);
+    if (normalized === null) throw new InvalidPhoneError();
+    return normalized;
+}
+
 /** Pull every plausible phone number out of free text (e.g. a recording file name). */
 export function extractPhoneCandidates(text: string | null | undefined): string[] {
     if (!text) return [];

@@ -12,6 +12,7 @@ import {
     EformsignProviderPrincipal,
 } from "application/services/eformsign-credential-boundary.service";
 import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
+import { assertValidPhone, InvalidPhoneError } from "application/utils/normalize-phone";
 import { normalizeKoreanWon } from "domain/value-objects/money.vo";
 
 export interface CreateAndSendContractParams {
@@ -87,6 +88,14 @@ export class CreateAndSendContractUsecase {
 
         if (!client.phone) {
             return { success: false, error: "고객 연락처가 없습니다" };
+        }
+        try {
+            assertValidPhone(client.phone);
+        } catch (error) {
+            if (error instanceof InvalidPhoneError) {
+                return { success: false, error: "고객 연락처가 유효하지 않습니다" };
+            }
+            throw error;
         }
         const clientPhone = client.phone;
 

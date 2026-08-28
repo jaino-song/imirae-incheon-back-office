@@ -9,6 +9,7 @@ import {
     Min,
     ValidateNested,
 } from "class-validator";
+import { IsCanonicalPhone } from "./canonical-phone.validator";
 
 export class GenerateSignatureRequestDto {
     @Type(() => Number)
@@ -31,6 +32,7 @@ class RecipientPhoneDto {
 
     @IsString()
     @IsNotEmpty()
+    @IsCanonicalPhone()
     phoneNumber!: string;
 }
 

@@ -13,6 +13,7 @@ import {
 } from "class-validator";
 import { ContractDataDto } from "application/dto/contract.dto";
 import { KOREAN_WON_INPUT_PATTERN } from "domain/value-objects/money.vo";
+import { IsCanonicalPhone } from "./canonical-phone.validator";
 import type {
     EformsignDocumentJobSource,
     EformsignDocumentJobStatus,
@@ -38,6 +39,7 @@ export class EformsignDocumentJobContractDataDto implements ContractDataDto {
     @IsString() @IsNotEmpty() @MaxLength(EFORMSIGN_DOCUMENT_JOB_TEXT_MAX_LENGTH)
     customerName!: string;
     @IsString() @IsNotEmpty() @MaxLength(EFORMSIGN_DOCUMENT_JOB_TEXT_MAX_LENGTH)
+    @IsCanonicalPhone()
     customerContact!: string;
     @IsString() @IsNotEmpty() @MaxLength(EFORMSIGN_DOCUMENT_JOB_TEXT_MAX_LENGTH)
     customerDOB!: string;
@@ -46,6 +48,7 @@ export class EformsignDocumentJobContractDataDto implements ContractDataDto {
     @IsString() @IsNotEmpty() @MaxLength(EFORMSIGN_DOCUMENT_JOB_TEXT_MAX_LENGTH)
     caretaker1Name!: string;
     @IsString() @IsNotEmpty() @MaxLength(EFORMSIGN_DOCUMENT_JOB_TEXT_MAX_LENGTH)
+    @IsCanonicalPhone()
     caretaker1Contact!: string;
     @IsString() @IsNotEmpty() @MaxLength(EFORMSIGN_DOCUMENT_JOB_TEXT_MAX_LENGTH)
     type!: string;
@@ -90,6 +93,7 @@ export class EformsignDocumentJobContractDataDto implements ContractDataDto {
     @Matches(KOREAN_WON_INPUT_PATTERN, { message: KOREAN_WON_VALIDATION_MESSAGE })
     actualPrice!: string;
     @IsOptional() @IsString() @MaxLength(EFORMSIGN_DOCUMENT_JOB_TEXT_MAX_LENGTH)
+    @IsCanonicalPhone()
     issuerPhone?: string;
 }
 

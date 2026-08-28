@@ -2,6 +2,7 @@ import { IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Matches, Va
 import { Transform } from "class-transformer";
 import { SERVICE_STATUS_VALUES } from "domain/value-objects/service-status.vo";
 import { KOREAN_WON_INPUT_PATTERN } from "domain/value-objects/money.vo";
+import { IsCanonicalPhone, trimNullablePhone } from "./canonical-phone.validator";
 
 const KOREAN_WON_VALIDATION_MESSAGE = "금액은 정수 원 단위(예: 1,000원)만 입력할 수 있습니다.";
 
@@ -27,6 +28,8 @@ export class CreateClientDto {
 
     @IsOptional()
     @IsString()
+    @Transform(trimNullablePhone)
+    @IsCanonicalPhone()
     phone?: string | null;
 
     @IsOptional()
@@ -134,6 +137,8 @@ export class UpdateClientDto {
 
     @IsOptional()
     @IsString()
+    @Transform(trimNullablePhone)
+    @IsCanonicalPhone()
     phone?: string | null;
 
     @IsOptional()

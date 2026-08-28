@@ -12,7 +12,13 @@ import {
     formatNormalizedKoreanPhone,
     toEformsignDocumentDetail,
 } from "application/utils/eformsign-contract-client-candidate";
-import { extractPhoneCandidates, normalizePhone } from "application/utils/normalize-phone";
+import {
+    assertRequiredPhone,
+    assertValidPhone,
+    extractPhoneCandidates,
+    InvalidPhoneError,
+    normalizePhone,
+} from "application/utils/normalize-phone";
 import {
     configuredServiceRecordTemplateIds,
     isServiceRecordEformsignDocument,
@@ -172,6 +178,14 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             ?? singleLegacyPhone(document.stepRecipientSms, detail !== null);
         if (!phone) {
             return "no_match";
+        }
+        try {
+            assertValidPhone(phone);
+        } catch (error) {
+            if (error instanceof InvalidPhoneError) {
+                throw new BadRequestException("customerPhone must be a valid Korean phone number");
+            }
+            throw error;
         }
 
         if (
@@ -343,6 +357,14 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                         if (!currentPhone || currentPhone !== params.phone) {
                             return { status: "no_match" };
                         }
+                        try {
+                            assertRequiredPhone(currentPhone);
+                        } catch (error) {
+                            if (error instanceof InvalidPhoneError) {
+                                throw new BadRequestException("customerPhone must be a valid Korean phone number");
+                            }
+                            throw error;
+                        }
 
                         const phoneSuffix = params.phone.slice(-PHONE_LOOKUP_SUFFIX_LENGTH);
                         const clients = await transaction.client.findMany({
@@ -386,6 +408,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                         if (!candidate || candidate.phone !== params.phone) {
                             return { status: "no_match" };
                         }
+                        assertRequiredPhone(candidate.phone);
                         if (
                             !params.canCreate
                             || params.creationBranchId !== creationBranchId

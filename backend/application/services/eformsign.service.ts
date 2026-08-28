@@ -25,6 +25,7 @@ import {
 } from "infrastructure/api/eformsign-api.error";
 import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 import { normalizeKoreanWon } from "domain/value-objects/money.vo";
+import { assertRequiredPhone, InvalidPhoneError } from "domain/utils/normalize-phone";
 
 export interface EformsignDocumentWorkflowState {
     statusCode?: string;
@@ -44,6 +45,17 @@ export const EFORMSIGN_DELETE_TIMEOUT_MS = 30_000;
 function normalizeEformsignAmount(value: string): string {
     if (value.trim() === "") return "";
     return normalizeKoreanWon(value) ?? "";
+}
+
+function assertEformPhone(phone: string | null | undefined, field: string): void {
+    try {
+        assertRequiredPhone(phone);
+    } catch (error) {
+        if (error instanceof InvalidPhoneError) {
+            throw new BadRequestException(`${field} must be a valid Korean phone number`);
+        }
+        throw error;
+    }
 }
 
 export function getDocumentCreatedTimestamp(document: { created_date?: unknown; createdDate?: unknown }): number {
@@ -155,6 +167,11 @@ export class EformsignService {
     }
 
     generateDocumentOptions(contractData: ContractDataDto, accessToken: string, refreshToken: string, templateId?: string) {
+        assertEformPhone(contractData.customerContact, "customerContact");
+        assertEformPhone(contractData.caretaker1Contact, "caretaker1Contact");
+        if (contractData.issuerPhone?.trim()) {
+            assertEformPhone(contractData.issuerPhone, "issuerPhone");
+        }
         this.assertConfigured();
         const fullPrice = normalizeEformsignAmount(contractData.fullPrice);
         const grant = normalizeEformsignAmount(contractData.grant);
@@ -701,6 +718,9 @@ export class EformsignService {
             phoneNumber?: string;
         }
     ): Promise<any> {
+        if (recipientPhone) {
+            assertEformPhone(recipientPhone.phoneNumber, "recipientPhone.phoneNumber");
+        }
         if (this.vendorStubsEnabled) {
             const result = buildEformsignStubReRequestResponse(documentId);
             await this.bumpDocumentSnapshotVersions([documentId]);

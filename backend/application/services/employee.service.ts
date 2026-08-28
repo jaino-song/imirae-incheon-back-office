@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
     ChangeEmployeeOpenStatusUsecase,
@@ -24,11 +24,22 @@ import {
     IEmployeeRepository,
     PaginatedEmployeeWorkHistory,
 } from "domain/repositories/employee.repository.interface";
-import { normalizePhone } from "application/utils/normalize-phone";
+import { assertRequiredPhone, InvalidPhoneError, normalizePhone } from "application/utils/normalize-phone";
 import { MessageAutomationIntentService } from "./message-automation-intent.service";
 import { MessageTriggerService } from "./message-trigger.service";
 
 const EMPLOYEE_BRANCH_PHONE_UNIQUE_CONSTRAINT = "employee_branch_id_phone_normalized_key";
+
+function assertEmployeePhoneInput(phone: string | null | undefined): string {
+    try {
+        return assertRequiredPhone(phone);
+    } catch (error) {
+        if (error instanceof InvalidPhoneError) {
+            throw new BadRequestException("Phone number must be a valid Korean phone number");
+        }
+        throw error;
+    }
+}
 
 export type EmployeeUpdateParams = {
     name?: string;
@@ -68,6 +79,7 @@ export class EmployeeService {
         branchid: string,
         params: { name: string; workArea: string[]; phone: string; grade: string; openToNextWork: boolean; registeredDate?: string; birthday?: string }
     ): Promise<EmployeeEntity> {
+        assertEmployeePhoneInput(params.phone);
         try {
             return await this.createEmployeeUsecase.execute(
                 branchid,
@@ -102,6 +114,7 @@ export class EmployeeService {
     }
 
     async update(branchid: string, id: number, params: EmployeeUpdateParams): Promise<EmployeeEntity> {
+        if (params.phone !== undefined) assertEmployeePhoneInput(params.phone);
         const profileSupplied = params.name !== undefined || params.phone !== undefined;
 
         let updatedEmployee: EmployeeEntity;

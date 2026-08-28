@@ -12,7 +12,7 @@ import {
     CALL_EXTRACTION_PROMPT_VERSION,
     PROPOSAL_FIELDS,
 } from "application/services/call-extraction.prompt";
-import { extractPhoneCandidates, normalizePhone } from "application/utils/normalize-phone";
+import { assertValidPhone, extractPhoneCandidates, normalizePhone } from "application/utils/normalize-phone";
 
 const BOOLEAN_FIELDS = new Set(["careCenter", "voucherClient", "breastPump"]);
 const NUMBER_FIELDS = new Set(["duration"]);
@@ -227,8 +227,11 @@ export class CallProcessingService {
     /** transcript-spoken numbers win over filename-parsed ones */
     private resolveCallerPhone(extraction: CallExtractionResult, fileName: string): string | null {
         for (const candidate of extraction.callerPhoneCandidates) {
-            const normalized = normalizePhone(candidate);
-            if (normalized) return normalized;
+            // A model-supplied phone is an identity write, not a best-effort
+            // search hint. Reject malformed present values instead of silently
+            // dropping them and persisting a misleading null callerPhone.
+            const normalized = assertValidPhone(candidate);
+            if (normalized !== null) return normalized;
         }
         return extractPhoneCandidates(fileName)[0] ?? null;
     }
@@ -253,6 +256,12 @@ export class CallProcessingService {
                 throw new BadRequestException(`${proposal.field} is non-nullable`);
             }
             let value: string | number | boolean | null = proposal.value;
+            if (proposal.field === "phone" && proposal.value !== null) {
+                if (typeof proposal.value !== "string") {
+                    throw new BadRequestException("phone must be a valid Korean phone number");
+                }
+                assertValidPhone(proposal.value);
+            }
             if (typeof value === "string") {
                 if (BOOLEAN_FIELDS.has(proposal.field)) {
                     value = value.trim().toLowerCase() === "true";

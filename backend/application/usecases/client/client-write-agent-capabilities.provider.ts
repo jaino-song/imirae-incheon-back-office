@@ -17,6 +17,7 @@ import {
     assertAllowedClientArea,
     assertAllowedServiceStatus,
     assertPhoneAvailable,
+    assertClientPhoneInput,
     deriveClientDuration,
     mergeAndValidateClientServicePeriod,
     parseClientDate,
@@ -132,6 +133,17 @@ function isClientBranchPhoneUniqueViolation(error: unknown): boolean {
 
 function clientPhoneConflictError(): AgentActionCertainFailureError {
     return new AgentActionCertainFailureError("A client with this phone already exists in this branch");
+}
+
+function assertAgentClientPhone(phone: string | null | undefined): void {
+    try {
+        assertClientPhoneInput(phone);
+    } catch (error) {
+        if (error instanceof BadRequestException) {
+            throw new AgentActionCertainFailureError(error.message);
+        }
+        throw error;
+    }
 }
 
 function sameClientValue(actual: unknown, expected: unknown): boolean {
@@ -299,6 +311,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 outputSchema: ClientWriteOutputSchema,
                 formFields: CLIENT_FORM_FIELDS,
                 canonicalizeInput: (_context, input: CreateClientInput) => {
+                    assertAgentClientPhone(input.phone);
                     if (isVoucherServiceLabel(input.type)) {
                         if (input.voucherClient === false) {
                             return Promise.reject(new AgentActionCertainFailureError("voucherClient=false conflicts with a voucher type; remove the contradiction or provide a non-voucher type"));
@@ -336,6 +349,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 },
                 execute: async (context, rawInput) => {
                     const input = CreateClientSchema.parse(rawInput);
+                    assertAgentClientPhone(input.phone);
                     const dates = {
                         startDate: parseClientDate(input.startDate) ?? null,
                         endDate: parseClientDate(input.endDate) ?? null,
@@ -400,6 +414,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 outputSchema: ClientWriteOutputSchema,
                 formFields: CLIENT_UPDATE_FORM_FIELDS,
                 canonicalizeInput: async (context, input: UpdateClientInput) => {
+                    assertAgentClientPhone(input.phone);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);
                     if (!existing) throw new AgentActionCertainFailureError("Client no longer exists");
                     const normalizedPricing = normalizeMergedClientPricing(existing, input);
@@ -413,6 +428,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 },
                 inspect: async (context, rawInput) => {
                     const input = UpdateClientSchema.parse(rawInput);
+                    assertAgentClientPhone(input.phone);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);
                     if (!existing) throw new AgentActionCertainFailureError("Client no longer exists");
                     const updates = input;
@@ -440,6 +456,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 },
                 revalidate: async (context, rawInput, expectedTargetVersion) => {
                     const input = UpdateClientSchema.parse(rawInput);
+                    assertAgentClientPhone(input.phone);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);
                     const currentVersion = clientAgentTargetVersion(existing);
                     return {
@@ -450,6 +467,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 },
                 execute: async (context, rawInput) => {
                     const input = UpdateClientSchema.parse(rawInput);
+                    assertAgentClientPhone(input.phone);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);
                     if (!existing) throw new AgentActionCertainFailureError("Client no longer exists");
                     const { id, targetVersion, ...updates } = input;
@@ -489,6 +507,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 },
                 executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
                     const input = UpdateClientSchema.parse(rawInput);
+                    assertAgentClientPhone(input.phone);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);
                     if (!existing) throw new AgentActionCertainFailureError("Client no longer exists");
                     const { id, targetVersion, ...updates } = input;
@@ -542,6 +561,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 },
                 reconcile: async (context, rawInput) => {
                     const input = UpdateClientSchema.parse(rawInput);
+                    assertAgentClientPhone(input.phone);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);
                     if (!existing) return { status: "failed", reason: "Client no longer exists" };
                     const { id, targetVersion, ...updates } = input;

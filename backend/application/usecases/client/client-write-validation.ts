@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException } from "@nestjs/common";
 
-import { normalizePhone } from "application/utils/normalize-phone";
+import { assertValidPhone, normalizePhone } from "application/utils/normalize-phone";
 import { ClientEntity } from "domain/entities/client.entity";
 import { IClientRepository } from "domain/repositories/client.repository.interface";
 import { isServiceStatus, SERVICE_STATUS_VALUES } from "domain/value-objects/service-status.vo";
@@ -34,6 +34,18 @@ export interface MergedClientServicePeriod {
 export interface ClientPhoneMatch {
     normalizedPhone: string | null;
     existingClient: ClientEntity | null;
+}
+
+/** Validate a client write before any lookup or side effect. */
+export function assertClientPhoneInput(phone: string | null | undefined): string | null {
+    try {
+        return assertValidPhone(phone);
+    } catch (error) {
+        if (error instanceof Error && error.name === "InvalidPhoneError") {
+            throw new BadRequestException("Phone number must be a valid Korean phone number");
+        }
+        throw error;
+    }
 }
 
 /**
@@ -189,7 +201,10 @@ export async function assertPhoneAvailable(
     phone: string | null | undefined,
     currentClientId?: number,
 ): Promise<string | null> {
-    const { normalizedPhone, existingClient } = await findClientByNormalizedPhone(repository, branchId, phone);
+    const normalizedPhone = assertClientPhoneInput(phone);
+    const existingClient = normalizedPhone
+        ? await repository.findByPhone(branchId, normalizedPhone)
+        : null;
     if (existingClient && existingClient.id !== currentClientId) {
         throw new ConflictException({
             statusCode: 409,

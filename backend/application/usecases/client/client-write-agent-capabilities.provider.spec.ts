@@ -183,6 +183,39 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         expect(capability.inputSchema.safeParse({ ...input, dueDate: "2026-02-31" }).success).toBe(false);
     });
 
+    it.each(["not-a-phone", "123"])("rejects malformed client create phones before lookups or writes (%j)", async (phone) => {
+        const { capabilities, createClient, clientRepository, voucherServiceSelection, prisma } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.create")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        await expect(capability.execute(context, { name: "홍길동", phone })).rejects.toThrow(
+            "Phone number must be a valid Korean phone number",
+        );
+        expect(clientRepository.findByPhone).not.toHaveBeenCalled();
+        expect(voucherServiceSelection.execute).not.toHaveBeenCalled();
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        expect(createClient.execute).not.toHaveBeenCalled();
+    });
+
+    it("rejects malformed client update phones before reading the target or starting a transaction", async () => {
+        const { capabilities, updateClient, findClient, prisma } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        await expect(capability.execute(context, { id: 1, phone: "not-a-phone" })).rejects.toThrow(
+            "Phone number must be a valid Korean phone number",
+        );
+        expect(findClient.execute).not.toHaveBeenCalled();
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        expect(updateClient.execute).not.toHaveBeenCalled();
+    });
+
     it("rolls client creation and its action receipt through one transaction", async () => {
         const { capabilities, prisma, transaction } = setup();
         const capability = capabilities.find((entry) => entry.meta.name === "clients.create")!;

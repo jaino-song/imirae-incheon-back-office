@@ -1,6 +1,6 @@
 // Employee status type - active schedules take precedence over availability.
 import { isoDateInKorea } from "domain/utils/business-days";
-import { normalizePhone } from "domain/utils/normalize-phone";
+import { assertRequiredPhone, normalizePhone } from "domain/utils/normalize-phone";
 
 export type EmployeeStatus = 'available' | 'working' | 'unavailable';
 
@@ -68,8 +68,9 @@ export class EmployeeEntity {
         this.name = name ?? this.name;
         this.workArea = workArea ?? this.workArea;
         if (phone !== undefined) {
+            const phoneNormalized = assertRequiredPhone(phone);
             this.phone = phone;
-            this.phoneNormalized = normalizePhone(phone);
+            this.phoneNormalized = phoneNormalized;
         }
         this.grade = grade ?? this.grade;
         this.openToNextWork = openToNextWork ?? this.openToNextWork;
@@ -85,6 +86,7 @@ export class EmployeeEntity {
         registeredDate?: Date | null,
         birthday?: string,
     ): EmployeeEntity {
+        const phoneNormalized = assertRequiredPhone(phone);
         return new EmployeeEntity(
             0,
             name,
@@ -94,6 +96,8 @@ export class EmployeeEntity {
             openToNextWork,
             registeredDate === undefined ? currentRegistrationDate() : registeredDate,
             birthday,
+            undefined,
+            phoneNormalized,
         );
     }
 

@@ -132,6 +132,18 @@ describe("EmployeeService", () => {
     // create
     // ============================================
     describe("create", () => {
+        it("rejects malformed phone before invoking the create usecase", async () => {
+            await expect(service.create(branchId, {
+                name: "잘못된 직원",
+                workArea: ["서울"],
+                phone: "not-a-phone",
+                grade: "베스트",
+                openToNextWork: true,
+            })).rejects.toThrow("valid Korean phone number");
+
+            expect(createUsecase.execute).not.toHaveBeenCalled();
+        });
+
         it("should map a branch phone unique conflict to 409", async () => {
             const error = new Prisma.PrismaClientKnownRequestError("duplicate", {
                 code: "P2002",
@@ -290,6 +302,14 @@ describe("EmployeeService", () => {
     // update
     // ============================================
     describe("update", () => {
+        it("rejects malformed phone before invoking the update usecase or refresh", async () => {
+            await expect(service.update(branchId, 1, { phone: "not-a-phone" }))
+                .rejects.toThrow("valid Korean phone number");
+
+            expect(updateUsecase.execute).not.toHaveBeenCalled();
+            expect(triggerService.syncEmployeeAssignmentRulesForEmployee).not.toHaveBeenCalled();
+        });
+
         it("should map a branch phone unique conflict to 409", async () => {
             const error = new Prisma.PrismaClientKnownRequestError("duplicate", {
                 code: "P2002",

@@ -108,6 +108,16 @@ describe("EmployeeEntity", () => {
             expect(employee.registeredDate).toEqual(customDate);
         });
 
+        it("should reject malformed phone values on create", () => {
+            expect(() => EmployeeEntity.create(
+                "테스트 직원",
+                ["서울"],
+                "not-a-phone",
+                "베스트",
+                false,
+            )).toThrow("valid Korean phone number");
+        });
+
         it("should handle empty workArea array", () => {
             // Act
             const employee = EmployeeEntity.create(
@@ -361,6 +371,22 @@ describe("EmployeeEntity", () => {
 
                 // Assert
                 expect(employee.phone).toBe("010-9999-8888");
+            });
+
+            it("should reject malformed phone updates without changing the profile", () => {
+                const employee = EmployeeEntity.reconstitute(
+                    1,
+                    "직원",
+                    ["서울"],
+                    "010-1111-1111",
+                    "프리미엄",
+                    true,
+                    new Date("2024-01-01"),
+                );
+
+                expect(() => employee.updateProfile(undefined, undefined, "not-a-phone")).toThrow("valid Korean phone number");
+                expect(employee.phone).toBe("010-1111-1111");
+                expect(employee.phoneNormalized).toBe("01011111111");
             });
 
             it("should update only grade when provided", () => {

@@ -19,6 +19,71 @@ function createCredentialBoundary() {
 }
 
 describe("DispatchDocumentHeadlessUsecase", () => {
+    it("rejects a malformed customer contact before assignment or headless provider work", async () => {
+        const assignmentGuard = { assertAssignedProvider: jest.fn() };
+        const headless = { dispatchCreation: jest.fn() };
+        const usecase = new DispatchDocumentHeadlessUsecase(
+            { generateDocumentOptions: jest.fn() } as never,
+            headless as never,
+            { findByArea: jest.fn() } as never,
+            createCredentialBoundary() as never,
+            { execute: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+            { emit: jest.fn() } as never,
+            { findById: jest.fn() } as never,
+            assignmentGuard as never,
+            { findByClientId: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+        );
+
+        await expect(usecase.execute("branch-1", {
+            clientId: 7,
+            contractData: {
+                customerContact: "not-a-phone",
+                caretaker1Contact: "010-1111-2222",
+            } as never,
+        }, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({
+            ok: false,
+            reason: "invalid_customer_phone",
+        }));
+
+        expect(assignmentGuard.assertAssignedProvider).not.toHaveBeenCalled();
+        expect(headless.dispatchCreation).not.toHaveBeenCalled();
+    });
+
+    it.each(["caretaker1Contact", "issuerPhone"])("rejects malformed %s before assignment or headless provider work", async (field) => {
+        const assignmentGuard = { assertAssignedProvider: jest.fn() };
+        const headless = { dispatchCreation: jest.fn() };
+        const usecase = new DispatchDocumentHeadlessUsecase(
+            { generateDocumentOptions: jest.fn() } as never,
+            headless as never,
+            { findByArea: jest.fn() } as never,
+            createCredentialBoundary() as never,
+            { execute: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+            { emit: jest.fn() } as never,
+            { findById: jest.fn() } as never,
+            assignmentGuard as never,
+            { findByClientId: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+        );
+
+        await expect(usecase.execute("branch-1", {
+            clientId: 7,
+            contractData: {
+                customerContact: "010-1111-2222",
+                caretaker1Contact: "010-3333-4444",
+                [field]: "not-a-phone",
+            } as never,
+        }, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({
+            ok: false,
+            reason: "invalid_provider_phone",
+        }));
+
+        expect(assignmentGuard.assertAssignedProvider).not.toHaveBeenCalled();
+        expect(headless.dispatchCreation).not.toHaveBeenCalled();
+    });
+
     it("persists the current eformsign status after headless creation", async () => {
         const eformsignService = {
             generateDocumentOptions: jest.fn().mockReturnValue({

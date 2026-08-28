@@ -20,6 +20,7 @@ import { ContractClientAssignmentGuardService } from "application/services/contr
 import { EformsignDispatchBoundaryService } from "application/services/eformsign-dispatch-boundary.service";
 import { eformsignExpiryDateFromRemainingDays } from "domain/utils/eformsign-expiry-date";
 import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
+import { assertRequiredPhone, InvalidPhoneError } from "application/utils/normalize-phone";
 import {
     EformsignOperationAlreadyRunningError,
     EformsignOperationLease,
@@ -39,6 +40,27 @@ const HEADLESS_CREATE_RECONCILIATION_DEADLINE_MS = 130_000;
 const CREATED_DOCUMENT_DETAIL_READ_TIMEOUT_MS = 5_000;
 
 class CreatedDocumentReconciliationDeadlineError extends Error {}
+
+function invalidContractPhoneField(contractData: ContractDataDto): string | null {
+    const phoneFields: Array<[string, unknown]> = [
+        ["customerContact", contractData.customerContact],
+        ["caretaker1Contact", contractData.caretaker1Contact],
+        ["issuerPhone", contractData.issuerPhone],
+    ];
+    for (const [field, value] of phoneFields) {
+        // Missing optional/internal fields are handled by the existing flow;
+        // a supplied value must still be a canonicalizable Korean phone.
+        if (value === undefined || value === null) continue;
+        if (typeof value !== "string" || value.trim().length === 0) return field;
+        try {
+            assertRequiredPhone(value);
+        } catch (error) {
+            if (error instanceof InvalidPhoneError) return field;
+            throw error;
+        }
+    }
+    return null;
+}
 
 export interface DispatchHeadlessParams {
     contractData: ContractDataDto;
@@ -110,6 +132,17 @@ export class DispatchDocumentHeadlessUsecase {
         params: DispatchHeadlessParams,
         principal: EformsignProviderPrincipal,
     ): Promise<DispatchHeadlessResult> {
+        const invalidPhoneField = invalidContractPhoneField(params.contractData);
+        if (invalidPhoneField) {
+            return {
+                ok: false,
+                reason: invalidPhoneField === "customerContact"
+                    ? "invalid_customer_phone"
+                    : "invalid_provider_phone",
+                fallbackHint: "manual_check",
+                durationMs: 0,
+            };
+        }
         if (!this.operationLock) {
             return this.executeUnlocked(branchId, params, principal);
         }

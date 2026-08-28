@@ -10,7 +10,7 @@ import { plainToInstance } from "class-transformer";
 import { validate as validateDto } from "class-validator";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { ClientService } from "application/services/client.service";
-import { normalizePhone } from "application/utils/normalize-phone";
+import { assertValidPhone, InvalidPhoneError, normalizePhone } from "application/utils/normalize-phone";
 import { PROPOSAL_FIELDS } from "application/services/call-extraction.prompt";
 import {
     ConfirmDraftDto,
@@ -22,6 +22,23 @@ import { UpdateClientDto } from "interface/dto/client.dto";
 import { createHash } from "node:crypto";
 
 const DRAFT_STATUSES = ["PENDING", "CONFIRMED", "DISCARDED"] as const;
+
+function assertPhoneProposalValues(proposals: ReadonlyArray<{ field: string; value: unknown }>): void {
+    for (const proposal of proposals) {
+        if (proposal.field !== "phone" || proposal.value === null || proposal.value === undefined) continue;
+        if (typeof proposal.value !== "string") {
+            throw new BadRequestException("phone must be a valid Korean phone number");
+        }
+        try {
+            assertValidPhone(proposal.value);
+        } catch (error) {
+            if (error instanceof InvalidPhoneError) {
+                throw new BadRequestException(error.message);
+            }
+            throw error;
+        }
+    }
+}
 
 @Injectable()
 export class CallInboxService {
@@ -221,6 +238,7 @@ export class CallInboxService {
 
     async patchDraft(branchId: string, id: string, dto: PatchClientDraftDto) {
         await this.requirePendingDraft(branchId, id);
+        if (dto.proposals !== undefined) assertPhoneProposalValues(dto.proposals);
         if (dto.clientId != null) {
             const client = await this.prismaService.client.findFirst({
                 where: { id: dto.clientId, branchId },
@@ -245,6 +263,7 @@ export class CallInboxService {
         dto: PatchClientDraftDto,
         expectedTargetVersion: string,
     ) {
+        if (dto.proposals !== undefined) assertPhoneProposalValues(dto.proposals);
         await this.prismaService.$transaction(async (transaction) => {
             await this.lockDraftForUpdate(transaction, branchId, id);
             const draft = await transaction.client_draft.findFirst({ where: { id, branchId } });

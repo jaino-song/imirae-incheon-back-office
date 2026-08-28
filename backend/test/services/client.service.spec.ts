@@ -312,6 +312,39 @@ describe("ClientService", () => {
     // create
     // ============================================
     describe("create", () => {
+        it("rejects malformed phone before settings, repository, or automation work", async () => {
+            await expect(service.create(branchId, {
+                name: "Malformed",
+                phone: "not-a-phone",
+                careCenter: false,
+                voucherClient: false,
+                breastPump: false,
+            })).rejects.toThrow("valid Korean phone number");
+
+            expect(systemSettingService.getClientAutoRegistrationEnabled).not.toHaveBeenCalled();
+            expect(clientRepository.findByPhone).not.toHaveBeenCalled();
+            expect(createClientUsecase.execute).not.toHaveBeenCalled();
+            expect(triggerService.syncClientRulesForClient).not.toHaveBeenCalled();
+        });
+
+        it("allows an explicit null phone clear on create", async () => {
+            const client = createClientEntity();
+            createClientUsecase.execute.mockResolvedValue(client);
+
+            await expect(service.create(branchId, {
+                name: "No Phone",
+                phone: null,
+                careCenter: false,
+                voucherClient: false,
+                breastPump: false,
+                applyMessageAutomation: false,
+            })).resolves.toBe(client);
+            expect(createClientUsecase.execute).toHaveBeenCalledWith(
+                branchId,
+                expect.objectContaining({ phone: null }),
+                expect.anything(),
+            );
+        });
         describe("given valid client data with primary employee", () => {
             it("should create the client and employee schedule atomically", async () => {
                 // Arrange
@@ -1371,6 +1404,16 @@ describe("ClientService", () => {
     // update
     // ============================================
     describe("update", () => {
+        it("rejects malformed phone before reading or mutating the client", async () => {
+            await expect(service.update(branchId, 1, { phone: "not-a-phone" }))
+                .rejects.toThrow("valid Korean phone number");
+
+            expect(findClientByIdUsecase.execute).not.toHaveBeenCalled();
+            expect(clientRepository.findByPhone).not.toHaveBeenCalled();
+            expect(prismaService.$transaction).not.toHaveBeenCalled();
+            expect(triggerService.syncClientRulesForClient).not.toHaveBeenCalled();
+        });
+
         describe("given existing client and no employee change", () => {
             it("should update client without creating new schedule", async () => {
                 // Arrange
