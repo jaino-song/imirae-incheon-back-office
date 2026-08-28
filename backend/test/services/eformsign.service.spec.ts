@@ -170,32 +170,6 @@ describe("EformsignService", () => {
             .rejects.toMatchObject({ status: 400, vendorCode: "4000164" });
     });
 
-    it("surfaces a vendor rejection of an access-token request as an api error", async () => {
-        const service = new EformsignService(createConfigService({
-            EFORMSIGN_PRIVATE_KEY: generateEformsignPrivateKeyHex(),
-        }));
-        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
-            JSON.stringify({ code: "4010001", ErrorMessage: "unauthorized" }),
-            { status: 401, headers: { "Content-Type": "application/json" } },
-        ));
-
-        await expect(service.getAccessToken(Date.now()))
-            .rejects.toMatchObject({ status: 401, vendorCode: "4010001" });
-    });
-
-    it("surfaces a vendor rejection of a refresh-token request as an api error", async () => {
-        const service = new EformsignService(createConfigService({
-            EFORMSIGN_PRIVATE_KEY: generateEformsignPrivateKeyHex(),
-        }));
-        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
-            JSON.stringify({ code: "4010002", ErrorMessage: "expired refresh token" }),
-            { status: 401, headers: { "Content-Type": "application/json" } },
-        ));
-
-        await expect(service.refreshAccessToken(Date.now(), "stale-refresh-token"))
-            .rejects.toMatchObject({ status: 401, vendorCode: "4010002" });
-    });
-
     it("reads the normalized status from the vendor detail current_status shape", async () => {
         const service = new EformsignService(createConfigService());
         const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response(
@@ -428,7 +402,7 @@ describe("EformsignService", () => {
         ]));
     });
 
-    it("uses e2e vendor stubs for token fetches and document listing without network access", async () => {
+    it("uses e2e vendor stubs for document listing without network access", async () => {
         const fetchSpy = jest.spyOn(global, "fetch");
         const service = new EformsignService(createConfigService({
             E2E_VENDOR_STUBS: "1",
@@ -440,13 +414,6 @@ describe("EformsignService", () => {
             EFORMSIGN_COMPANY_ID: undefined,
             EFORMSIGN_TEMPLATE_ID: undefined,
         }));
-
-        await expect(service.getAccessToken(Date.now())).resolves.toMatchObject({
-            oauth_token: {
-                access_token: "e2e-stub-token",
-                refresh_token: "e2e-stub-refresh-token",
-            },
-        });
 
         const documents = await service.getAllDocuments("ignored-token");
 

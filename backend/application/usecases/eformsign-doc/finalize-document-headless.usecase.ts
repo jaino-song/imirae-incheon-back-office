@@ -16,7 +16,11 @@ import {
 } from "domain/repositories/eformsign-doc.repository.interface";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import type { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
-import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
+import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
+import {
+    EformsignCredentialBoundary,
+    type EformsignProviderPrincipal,
+} from "application/services/eformsign-credential-boundary.service";
 import {
     EFORMSIGN_COMPLETED_STATUS_CODES,
     TERMINAL_STATUS_CODES,
@@ -108,7 +112,7 @@ export class FinalizeDocumentHeadlessUsecase {
     constructor(
         private readonly eformsignService: EformsignService,
         private readonly headlessService: EformsignHeadlessService,
-        private readonly getAccessTokenUsecase: GetEformsignAccessTokenUsecase,
+        private readonly credentialBoundary: EformsignCredentialBoundary,
         private readonly progressService: EformsignHeadlessProgressService,
         @Optional() private readonly operationLock?: EformsignOperationLockService,
         @Optional() private readonly documentMirrorService?: EformsignDocumentMirrorService,
@@ -119,15 +123,18 @@ export class FinalizeDocumentHeadlessUsecase {
         @Optional() private readonly dispatchBoundary?: EformsignDispatchBoundaryService,
     ) {}
 
-    async execute(params: FinalizeHeadlessParams): Promise<FinalizeHeadlessResult> {
+    async execute(
+        params: FinalizeHeadlessParams,
+        principal: EformsignProviderPrincipal,
+    ): Promise<FinalizeHeadlessResult> {
         if (!this.operationLock) {
-            return this.executeUnlocked(params);
+            return this.executeUnlocked(params, principal);
         }
         const start = Date.now();
         try {
             return await this.operationLock.runExclusive(
                 `finalize:${params.documentId}`,
-                (lease) => this.executeUnlocked(params, lease),
+                (lease) => this.executeUnlocked(params, principal, lease),
             );
         } catch (error) {
             if (error instanceof EformsignOperationAlreadyRunningError) {
@@ -139,7 +146,7 @@ export class FinalizeDocumentHeadlessUsecase {
                 };
             }
             if (error instanceof EformsignOperationLockUnavailableError) {
-                this.logger.error(error.message);
+                this.logger.error(sanitizeEformsignErrorMessage(error));
                 return {
                     ok: false,
                     reason: "operation_lock_unavailable",
@@ -153,6 +160,7 @@ export class FinalizeDocumentHeadlessUsecase {
 
     private async executeUnlocked(
         params: FinalizeHeadlessParams,
+        principal: EformsignProviderPrincipal,
         lease?: EformsignOperationLease,
     ): Promise<FinalizeHeadlessResult> {
         const start = Date.now();
@@ -211,10 +219,10 @@ export class FinalizeDocumentHeadlessUsecase {
                 }
                 dispatchIntent = claim.intent;
             }
-
-            const tokenResponse = await this.getAccessTokenUsecase.execute(Date.now());
-            const accessToken = tokenResponse.oauth_token.access_token;
-            const refreshToken = tokenResponse.oauth_token.refresh_token;
+            return await this.credentialBoundary.withCredentials(
+                principal,
+                "contract.finalize",
+                async ({ accessToken, refreshToken }) => {
 
             // A contract can contain consecutive provider-owned steps
             // (제공기관 확인 -> 제공기관 검토). Each HTTP request handles one
@@ -262,14 +270,15 @@ export class FinalizeDocumentHeadlessUsecase {
             });
             sendWasAttempted =
                 latestProgressStep === "creating" || latestProgressStep === "sent";
+            const resultReason = result.ok ? undefined : sanitizeEformsignErrorMessage(result.reason);
             if (!result.ok && !sendWasAttempted) {
                 if (dispatchIntent) {
-                    await this.dispatchBoundary?.releaseBeforeSend(dispatchIntent, result.reason).catch(() => undefined);
+                    await this.dispatchBoundary?.releaseBeforeSend(dispatchIntent, resultReason!).catch(() => undefined);
                 }
-                this.progressService.emit(params.progressId, "failed", result.reason, latestProgressStep);
+                this.progressService.emit(params.progressId, "failed", resultReason, latestProgressStep);
                 return {
                     ok: false,
-                    reason: result.reason,
+                    reason: resultReason!,
                     fallbackHint: "iframe",
                     dispatchIntentId: dispatchIntent?.id,
                     durationMs: result.durationMs,
@@ -294,7 +303,7 @@ export class FinalizeDocumentHeadlessUsecase {
                         this.logger.error(`Failed to persist eformsign finalize outcome: ${error}`);
                     });
                 }
-                return this.buildSuccessfulResult(params.documentId, result.durationMs);
+                return this.buildSuccessfulResult(params.documentId, result.durationMs, principal);
             }
 
             const settled = await this.waitForVendorOutcome(
@@ -305,7 +314,7 @@ export class FinalizeDocumentHeadlessUsecase {
             if (settled === "completed") {
                 if (!result.ok) {
                     this.logger.log(
-                        `Headless finalize for ${params.documentId} reported "${result.reason}" but eformsign completed the document.`,
+                        `Headless finalize for ${params.documentId} reported "${resultReason}" but eformsign completed the document.`,
                     );
                 }
                 this.progressService.emit(params.progressId, "sent");
@@ -316,7 +325,7 @@ export class FinalizeDocumentHeadlessUsecase {
                         this.logger.error(`Failed to persist eformsign finalize outcome: ${error}`);
                     });
                 }
-                return this.buildSuccessfulResult(params.documentId, result.durationMs);
+                return this.buildSuccessfulResult(params.documentId, result.durationMs, principal);
             }
             if (settled === "advanced") {
                 this.logger.log(
@@ -336,7 +345,7 @@ export class FinalizeDocumentHeadlessUsecase {
                 ? "eformsign_terminal_failure"
                 : result.ok
                     ? "eformsign reported success without submitting the document"
-                    : result.reason;
+                    : resultReason!;
             this.logger.warn(
                 `Headless finalize for ${params.documentId}: ${reason} (vendor status: ${settled}).`,
             );
@@ -356,12 +365,14 @@ export class FinalizeDocumentHeadlessUsecase {
                 durationMs: result.durationMs,
                 failedStep: latestProgressStep,
             };
+                },
+            );
         } catch (error) {
-            const reason = error instanceof Error ? error.message : "unknown headless finalize error";
+            const reason = sanitizeEformsignErrorMessage(error || "unknown headless finalize error");
             if (dispatchIntent) {
                 if (sendWasAttempted) {
                     await this.dispatchBoundary?.markUncertain(dispatchIntent, reason, params.documentId).catch((persistError) => {
-                        this.logger.error(`Failed to persist uncertain eformsign finalize outcome: ${persistError}`);
+                        this.logger.error(`Failed to persist uncertain eformsign finalize outcome: ${sanitizeEformsignErrorMessage(persistError)}`);
                     });
                 } else {
                     await this.dispatchBoundary?.releaseBeforeSend(dispatchIntent, reason).catch(() => undefined);
@@ -436,6 +447,7 @@ export class FinalizeDocumentHeadlessUsecase {
     private buildSuccessfulResult(
         documentId: string,
         durationMs: number,
+        principal: EformsignProviderPrincipal,
     ): FinalizeHeadlessSuccess {
         // Finalization and our document mirror are separate systems. Trigger an
         // exact-document refresh as soon as eformsign confirms completion so
@@ -443,17 +455,17 @@ export class FinalizeDocumentHeadlessUsecase {
         // without waiting for a broad periodic reconciliation. A mirror delay
         // must not turn a confirmed vendor completion back into a UI failure.
         if (this.documentMirrorService) {
-            this.queueMirrorSync(documentId);
+            this.queueMirrorSync(documentId, principal);
         }
 
         return { ok: true, completed: true, durationMs };
     }
 
-    private queueMirrorSync(documentId: string): void {
+    private queueMirrorSync(documentId: string, principal: EformsignProviderPrincipal): void {
         const previous = this.mirrorSyncs.get(documentId) ?? Promise.resolve();
         const queued = previous
             .catch(() => undefined)
-            .then(() => this.syncMirrorWithRetry(documentId));
+            .then(() => this.syncMirrorWithRetry(documentId, principal));
         this.mirrorSyncs.set(documentId, queued);
         void queued.finally(() => {
             if (this.mirrorSyncs.get(documentId) === queued) {
@@ -462,7 +474,10 @@ export class FinalizeDocumentHeadlessUsecase {
         });
     }
 
-    private async syncMirrorWithRetry(documentId: string): Promise<void> {
+    private async syncMirrorWithRetry(
+        documentId: string,
+        principal: EformsignProviderPrincipal,
+    ): Promise<void> {
         if (!this.documentMirrorService) return;
         let lastError: unknown;
         for (const delayMs of POST_FINALIZE_MIRROR_RETRY_DELAYS_MS) {
@@ -470,7 +485,7 @@ export class FinalizeDocumentHeadlessUsecase {
                 await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
             }
             try {
-                await this.documentMirrorService.syncDocument(documentId, {
+                await this.documentMirrorService.syncDocument(documentId, principal, {
                     force: true,
                     suppressOutboundAutomation: true,
                     // A ready PDF is not enough: contract end-date projection and
@@ -484,7 +499,7 @@ export class FinalizeDocumentHeadlessUsecase {
                 lastError = error;
             }
         }
-        const reason = lastError instanceof Error ? lastError.message : String(lastError);
+        const reason = sanitizeEformsignErrorMessage(lastError);
         this.logger.warn(`Post-finalize mirror sync failed for ${documentId}: ${reason}`);
     }
 
@@ -527,7 +542,7 @@ export class FinalizeDocumentHeadlessUsecase {
             if (EFORMSIGN_COMPLETED_STATUS_CODES.has(statusCode)) return "completed";
             return TERMINAL_STATUS_CODES.has(statusCode) ? "failed" : "pending";
         } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
+            const reason = sanitizeEformsignErrorMessage(error);
             this.logger.warn(`Could not read eformsign status for ${documentId}: ${reason}`);
             return "unknown";
         }
@@ -573,7 +588,7 @@ export class FinalizeDocumentHeadlessUsecase {
                 ? state
                 : null;
         } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
+            const reason = sanitizeEformsignErrorMessage(error);
             this.logger.warn(`Could not capture starting eformsign workflow for ${documentId}: ${reason}`);
             return null;
         }

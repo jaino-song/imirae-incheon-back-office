@@ -39,7 +39,13 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
     function setup(currentClient = client(), currentTemplates = [template()]) {
         const createAndSend = { execute: jest.fn().mockResolvedValue({ success: true, documentId: "remote-1" }) };
         const adoptEformsignDoc = { execute: jest.fn().mockResolvedValue({ documentId: "remote-1" }) };
-        const getAccessToken = { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) };
+        const credentialBoundary = {
+            withCredentials: jest.fn(async (
+                _principal: unknown,
+                _capability: unknown,
+                operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+            ) => operation({ accessToken: "token", refreshToken: "refresh-token" })),
+        };
         const fetchDocument = { execute: jest.fn() };
         const transaction = { agent_action: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
         const prisma = {
@@ -49,14 +55,14 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
         const provider = new ContractExternalAgentCapabilitiesProvider(
             createAndSend as never,
             adoptEformsignDoc as never,
-            getAccessToken as never,
+            credentialBoundary as never,
             fetchDocument as never,
             { execute: jest.fn().mockResolvedValue(currentClient) } as never,
             areaTemplateService as never,
             { findByIdForUpdate: jest.fn().mockResolvedValue(currentClient) } as never,
             prisma as never,
         );
-        return { provider, createAndSend, adoptEformsignDoc, getAccessToken, fetchDocument, transaction, prisma, areaTemplateService };
+        return { provider, createAndSend, adoptEformsignDoc, credentialBoundary, fetchDocument, transaction, prisma, areaTemplateService };
     }
 
     async function inspectDispatch(
@@ -116,7 +122,7 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
             templateId: "template-1",
             templateName: "지점 표준 계약서",
             idempotencyKey: "action-a",
-        }));
+        }), context.principal);
     });
 
     it("rejects direct execution for a removed template before any provider call", async () => {
@@ -210,7 +216,7 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
             templateId: "template-1",
             templateName: "지점 표준 계약서",
             idempotencyKey: "action-a",
-        }));
+        }), context.principal);
     });
 
     it("rejects approved execution when a template is removed or changed after inspection", async () => {
@@ -287,7 +293,7 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
         expect(adoptEformsignDoc.execute).toHaveBeenCalledWith("branch-a", {
             documentId: "remote-1",
             clientId: 7,
-        });
+        }, context.principal);
     });
 
     it("reconciles a dispatched participant request as a successful dispatch", async () => {

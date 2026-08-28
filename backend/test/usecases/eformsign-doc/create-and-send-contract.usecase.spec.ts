@@ -1,5 +1,14 @@
 import { CreateAndSendContractUsecase } from "application/usecases/eformsign-doc/create-and-send-contract.usecase";
 
+const TEST_PRINCIPAL = { branchId: "branch-1", globalRole: "owner" };
+const createBoundary = () => ({
+    withCredentials: jest.fn((
+        _principal: unknown,
+        _capability: unknown,
+        operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+    ) => operation({ accessToken: "token", refreshToken: "refresh-token" })),
+});
+
 describe("CreateAndSendContractUsecase", () => {
     it("does not create an external document for an unassigned client", async () => {
         const eformsignClient = { createDocument: jest.fn() };
@@ -18,7 +27,7 @@ describe("CreateAndSendContractUsecase", () => {
         const usecase = new CreateAndSendContractUsecase(
             eformsignClient as never,
             clientRepository as never,
-            { execute: jest.fn() } as never,
+            createBoundary() as never,
             { execute: jest.fn() } as never,
             assignmentGuard as never,
         );
@@ -26,7 +35,7 @@ describe("CreateAndSendContractUsecase", () => {
         await expect(usecase.execute("branch-1", {
             clientId: 55,
             templateId: "template-1",
-        })).resolves.toEqual({
+        }, TEST_PRINCIPAL)).resolves.toEqual({
             success: false,
             error: "고객의 제공인력 배정을 먼저 저장해 주세요.",
         });
@@ -45,7 +54,7 @@ describe("CreateAndSendContractUsecase", () => {
                 startDate: null,
                 endDate: null,
             }) } as never,
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createBoundary() as never,
             { execute: jest.fn().mockRejectedValue(new Error("local db unavailable")) } as never,
             { assertAssignedClient: jest.fn() } as never,
         );
@@ -53,7 +62,7 @@ describe("CreateAndSendContractUsecase", () => {
         await expect(usecase.execute("branch-1", {
             clientId: 7,
             templateId: "template-1",
-        })).resolves.toEqual(expect.objectContaining({
+        }, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({
             success: false,
             remoteDocumentId: "remote-1",
         }));
@@ -79,7 +88,7 @@ describe("CreateAndSendContractUsecase", () => {
                 startDate: null,
                 endDate: null,
             }) } as never,
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createBoundary() as never,
             { execute: persistDocument } as never,
             { assertAssignedClient: jest.fn() } as never,
         );
@@ -88,7 +97,7 @@ describe("CreateAndSendContractUsecase", () => {
             clientId: 7,
             templateId: "template-1",
             templateName: "표준계약서",
-        });
+        }, TEST_PRINCIPAL);
 
         expect(createDocument).toHaveBeenCalledWith(
             "token",
@@ -116,7 +125,7 @@ describe("CreateAndSendContractUsecase", () => {
                 startDate: null,
                 endDate: null,
             }) } as never,
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createBoundary() as never,
             { execute: persistDocument } as never,
             { assertAssignedClient: jest.fn() } as never,
         );
@@ -125,7 +134,7 @@ describe("CreateAndSendContractUsecase", () => {
             clientId: 7,
             templateId: "template-1",
             templateName: "표준계약서",
-        });
+        }, TEST_PRINCIPAL);
 
         expect(persistDocument).toHaveBeenCalledWith(
             "branch-1",
@@ -144,7 +153,7 @@ describe("CreateAndSendContractUsecase", () => {
                 startDate: null,
                 endDate: null,
             }) } as never,
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createBoundary() as never,
             { execute: jest.fn().mockResolvedValue({ documentId: "remote-1" }) } as never,
             { assertAssignedClient: jest.fn() } as never,
         );
@@ -153,7 +162,7 @@ describe("CreateAndSendContractUsecase", () => {
             clientId: 7,
             templateId: "template-1",
             templateName: "표준계약서",
-        });
+        }, TEST_PRINCIPAL);
 
         // `client` has no email column, so the recipient must be identifiable by phone only.
         expect(createDocument).toHaveBeenCalledWith(
@@ -196,7 +205,7 @@ describe("CreateAndSendContractUsecase", () => {
         const usecase = new CreateAndSendContractUsecase(
             { createDocument } as never,
             { findById } as never,
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createBoundary() as never,
             { execute: jest.fn().mockResolvedValue({ documentId: "remote-approved" }) } as never,
             { assertAssignedClient: jest.fn() } as never,
         );
@@ -208,7 +217,7 @@ describe("CreateAndSendContractUsecase", () => {
             idempotencyKey: "action-approved",
             clientSnapshot: snapshot,
             clientTargetVersion: "target-approved",
-        })).resolves.toEqual({ success: true, documentId: "remote-approved" });
+        }, TEST_PRINCIPAL)).resolves.toEqual({ success: true, documentId: "remote-approved" });
 
         expect(findById).not.toHaveBeenCalled();
         expect(createDocument).toHaveBeenCalledWith("token", expect.objectContaining({

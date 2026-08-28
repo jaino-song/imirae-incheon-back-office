@@ -9,7 +9,6 @@ import { api } from "@/lib/api/client";
  */
 const HEADLESS_DISPATCH_CLIENT_TIMEOUT_MS = 180_000;
 const MAX_PROVIDER_FINALIZE_STEPS = 3;
-import { safeStorageSetItem } from "@/lib/safe-storage";
 import type { RegisterRequest } from "@babyjamjam/shared";
 import { ContractDataDto } from '@/backend/application/dto/contract.dto';
 import {
@@ -213,9 +212,9 @@ export const eformsignApi = {
         const { data } = await api.post('/generate-signature', { executionTime });
         return data;
     },
-    // Authenticates and stores token in httpOnly cookie (returns { success: true })
-    authenticate: async (executionTime: number, memberEmail?: string): Promise<{ success: boolean }> => {
-        const { data } = await api.post('/access-token', { executionTime, memberEmail });
+    /** @deprecated Provider authentication is server-custodied; this path is a 410 tombstone. */
+    authenticate: async (executionTime: number): Promise<{ success: boolean }> => {
+        const { data } = await api.post('/access-token', { executionTime });
         return data;
     },
     getAuthStatus: async (): Promise<EformsignAuthStatusResponse> => {
@@ -257,16 +256,10 @@ export const eformsignApi = {
         const { data } = await api.post('/generate-document', { contractData, clientId });
         return data;
     },
-    generateStaffDocument: async (
-        documentId: string,
-        accessToken?: string,
-        refreshToken?: string,
-        prefillEndDate?: string,
-    ) => {
+    /** @deprecated Browser provider primitives are tombstoned; use finalizeHeadless. */
+    generateStaffDocument: async (documentId: string, prefillEndDate?: string) => {
         const { data } = await api.post('/generate-staff-document', {
             documentId,
-            accessToken,
-            refreshToken,
             prefillEndDate,
         });
         return data;
@@ -423,23 +416,10 @@ export const eformsignApi = {
 }
 
 export async function withEformsignReauth<T>(fn: () => Promise<T>): Promise<T> {
-    try {
-        return await fn();
-    } catch (error) {
-        if (!axios.isAxiosError(error)) throw error;
-
-        const status = error.response?.status;
-        if (status !== 401 && status !== 403) throw error;
-
-        try {
-            const executionTime = Date.now();
-            await eformsignApi.authenticate(executionTime);
-            safeStorageSetItem("session", "eformsign_auth_time", executionTime.toString());
-            return await fn();
-        } catch {
-            throw error;
-        }
-    }
+    // Provider credentials are not browser state.  Application-session
+    // recovery belongs to the authenticated API client; retrying a retired
+    // provider-token route here would only reintroduce the legacy boundary.
+    return fn();
 }
 
 export type MessageSenderApprovalStatus = "not_requested" | "pending" | "approved";

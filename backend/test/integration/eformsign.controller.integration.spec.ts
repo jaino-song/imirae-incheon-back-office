@@ -13,6 +13,7 @@ import { EformsignDocumentSnapshotService } from "application/services/eformsign
 import { EformsignListShadowCompareService } from "application/services/eformsign-list-shadow-compare.service";
 import { EformsignMirrorListService } from "application/services/eformsign-mirror-list.service";
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
+import { EformsignCredentialBoundary } from "application/services/eformsign-credential-boundary.service";
 import { EFORMSIGN_DOC_REPOSITORY } from "domain/repositories/eformsign-doc.repository.interface";
 import { EFORMSIGN_DOCUMENT_MIRROR_REPOSITORY } from "domain/repositories/eformsign-document-mirror.repository.interface";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
@@ -35,8 +36,6 @@ describe("EformsignController (Integration)", () => {
     let eformsignService: jest.Mocked<Pick<
         EformsignService,
         | "generateSignature"
-        | "getAccessToken"
-        | "refreshAccessToken"
         | "generateDocumentOptions"
         | "deleteDocuments"
         | "cancelDocuments"
@@ -98,6 +97,13 @@ describe("EformsignController (Integration)", () => {
         findUnreadyCompletedDocumentIds: jest.fn().mockResolvedValue([]),
         findPermanentPurgeRequestedDocumentIds: jest.fn().mockResolvedValue([]),
     };
+    const credentialBoundary = {
+        withCredentials: jest.fn(async (
+            _principal: unknown,
+            _capability: string,
+            operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+        ) => operation({ accessToken: "server-access-token", refreshToken: "server-refresh-token" })),
+    };
 
     beforeEach(async () => {
         shadowCompareService.compareInBackground.mockClear();
@@ -123,8 +129,6 @@ describe("EformsignController (Integration)", () => {
                     provide: EformsignService,
                     useValue: {
                         generateSignature: jest.fn(),
-                        getAccessToken: jest.fn(),
-                        refreshAccessToken: jest.fn(),
                         generateDocumentOptions: jest.fn(),
                         deleteDocuments: jest.fn(),
                         cancelDocuments: jest.fn(),
@@ -168,6 +172,10 @@ describe("EformsignController (Integration)", () => {
                 {
                     provide: GetContractClientCandidateUsecase,
                     useValue: { execute: jest.fn() },
+                },
+                {
+                    provide: EformsignCredentialBoundary,
+                    useValue: credentialBoundary,
                 },
                 // 실제 구현을 그대로 쓴다. VALKEY_URL이 없는 테스트 환경에서는 프로세스
                 // 로컬 in-memory 스토어로 동작하고, 인스턴스는 테스트마다 새로 만들어진다.
@@ -251,49 +259,40 @@ describe("EformsignController (Integration)", () => {
         await app.close();
     });
 
-    it("rejects non-numeric signature execution time before service execution", async () => {
+    it("tombstones the legacy signature endpoint without service execution", async () => {
         const response = await request(app.getHttpServer())
             .post("/api/generate-signature")
             .send({ executionTime: "abc" });
 
-        expect(response.status).toBe(400);
+        expect(response.status).toBe(410);
         expect(eformsignService.generateSignature).not.toHaveBeenCalled();
     });
 
-    it("rejects missing refresh token before service execution", async () => {
+    it("tombstones the legacy refresh endpoint without service execution", async () => {
         const response = await request(app.getHttpServer())
             .post("/api/refresh-token")
             .send({ executionTime: 1780000000000 });
 
-        expect(response.status).toBe(400);
-        expect(eformsignService.refreshAccessToken).not.toHaveBeenCalled();
+        expect(response.status).toBe(410);
     });
 
-    it("propagates the vendor's real status when refresh-token fails", async () => {
-        eformsignService.refreshAccessToken.mockRejectedValue(
-            new EformsignApiError("expired refresh token", 401),
-        );
-
+    it("does not invoke the provider when refresh-token is called", async () => {
         const response = await request(app.getHttpServer())
             .post("/api/refresh-token")
             .send({ executionTime: 1780000000000, refreshToken: "stale-token" });
 
-        expect(response.status).toBe(401);
+        expect(response.status).toBe(410);
     });
 
-    it("propagates the vendor's real status when access-token fails", async () => {
-        eformsignService.getAccessToken.mockRejectedValue(
-            new EformsignApiError("unauthorized", 401),
-        );
-
+    it("does not invoke the provider when access-token is called", async () => {
         const response = await request(app.getHttpServer())
             .post("/api/access-token")
             .send({ executionTime: 1780000000000 });
 
-        expect(response.status).toBe(401);
+        expect(response.status).toBe(410);
     });
 
-    it("rejects malformed contract data before generating document options", async () => {
+    it("tombstones the legacy document generation endpoint", async () => {
         const response = await request(app.getHttpServer())
             .post("/api/generate-document")
             .send({
@@ -304,12 +303,12 @@ describe("EformsignController (Integration)", () => {
                 refreshToken: "refresh-token",
             });
 
-        expect(response.status).toBe(400);
+        expect(response.status).toBe(410);
         expect(areaTemplateService.findByArea).not.toHaveBeenCalled();
         expect(eformsignService.generateDocumentOptions).not.toHaveBeenCalled();
     });
 
-    it("rejects document generation before calling eformsign when the client has no assignment", async () => {
+    it("does not accept caller credentials on the legacy document generation endpoint", async () => {
         assignmentGuard.assertAssignedProvider.mockRejectedValue(
             new BadRequestException("고객의 제공인력 배정을 먼저 저장해 주세요."),
         );
@@ -348,12 +347,8 @@ describe("EformsignController (Integration)", () => {
                 },
             });
 
-        expect(response.status).toBe(400);
-        expect(assignmentGuard.assertAssignedProvider).toHaveBeenCalledWith(
-            "branch-1",
-            55,
-            "010-9999-8888",
-        );
+        expect(response.status).toBe(410);
+        expect(assignmentGuard.assertAssignedProvider).not.toHaveBeenCalled();
         expect(eformsignService.generateDocumentOptions).not.toHaveBeenCalled();
     });
 
@@ -385,7 +380,7 @@ describe("EformsignController (Integration)", () => {
         // A delete cancels at the vendor rather than deleting: cancelling expires the
         // recipient's signing link while eformsign keeps the document and its audit trail.
         expect(eformsignService.cancelDocuments).toHaveBeenCalledWith(
-            "access-token",
+            "server-access-token",
             ["doc-1"],
         );
         expect(eformsignService.deleteDocuments).not.toHaveBeenCalled();
@@ -772,6 +767,12 @@ describe("EformsignController (Integration)", () => {
         expect(documentMirrorService.syncDocument).toHaveBeenCalledWith(
             "branch-1-doc",
             {
+                branchId: "branch-1",
+                globalRole: "owner",
+                branchRole: "owner",
+                userId: "user-1",
+            },
+            {
                 skipBranchOwnedProjection: true,
                 skipClientReconciliation: true,
                 skipHealthySameVersionFileRepair: true,
@@ -802,6 +803,12 @@ describe("EformsignController (Integration)", () => {
         expect(response.headers["content-type"]).toContain("application/pdf");
         expect(documentMirrorService.syncDocument).toHaveBeenCalledWith(
             "branch-1-doc",
+            {
+                branchId: "branch-1",
+                globalRole: "owner",
+                branchRole: "owner",
+                userId: "user-1",
+            },
             {
                 skipBranchOwnedProjection: true,
                 skipClientReconciliation: true,
@@ -1089,6 +1096,10 @@ describe("EformsignController (Integration)", () => {
                     {
                         provide: EformsignDocumentMirrorService,
                         useValue: documentMirrorService,
+                    },
+                    {
+                        provide: EformsignCredentialBoundary,
+                        useValue: credentialBoundary,
                     },
                 ],
             })

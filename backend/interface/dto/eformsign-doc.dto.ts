@@ -15,56 +15,6 @@ import type { EformsignHeadlessProgressStep } from "application/services/eformsi
 import { EFORMSIGN_DOCUMENT_KIND, type EformsignDocumentKind } from "domain/entities/eformsign-doc.entity";
 
 /**
- * DTO for getting access token
- */
-export class GetAccessTokenDto {
-    @IsNumber()
-    executionTime!: number;
-
-    @IsOptional()
-    @IsString()
-    memberEmail?: string;
-}
-
-/**
- * DTO for refreshing access token
- */
-export class RefreshAccessTokenDto {
-    @IsNumber()
-    executionTime!: number;
-
-    @IsString()
-    refreshToken!: string;
-}
-
-/**
- * DTO for fetching documents from API
- */
-export class FetchDocumentsDto {
-    @IsString()
-    accessToken!: string;
-}
-
-/**
- * DTO for fetching a single document from API
- */
-export class FetchDocumentByIdDto {
-    @IsString()
-    accessToken!: string;
-
-    @IsString()
-    documentId!: string;
-}
-
-export class SyncEformsignDocStatusDto {
-    @IsString()
-    accessToken!: string;
-
-    @IsString()
-    documentId!: string;
-}
-
-/**
  * DTO for creating a new eformsign doc record in local DB
  */
 export class CreateEformsignDocLocalDto {

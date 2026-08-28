@@ -15,7 +15,6 @@ import {
     buildEformsignStubListResponse,
     buildEformsignStubPdf,
     buildEformsignStubReRequestResponse,
-    buildEformsignStubTokenResponse,
 } from "infrastructure/vendor-stubs/e2e-vendor-stubs";
 import { ContractDataDto } from "../dto/contract.dto";
 import { EFORMSIGN_END_DATE_FIELD_IDS } from "../usecases/eformsign-doc/eformsign-end-date-field-ids";
@@ -25,13 +24,6 @@ import {
     extractEformsignVendorCode,
 } from "infrastructure/api/eformsign-api.error";
 import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
-
-export interface EformsignTokenResponse {
-    oauth_token: {
-        access_token: string;
-        refresh_token: string;
-    };
-}
 
 export interface EformsignDocumentWorkflowState {
     statusCode?: string;
@@ -154,76 +146,6 @@ export class EformsignService {
 
         // Return as hex string
         return signature.toString("hex");
-    }
-
-    async getAccessToken(executionTime: number, memberEmail?: string): Promise<EformsignTokenResponse> {
-        if (this.vendorStubsEnabled) {
-            return buildEformsignStubTokenResponse();
-        }
-
-        this.assertConfigured();
-        const signature = this.generateSignature(executionTime);
-        const email = memberEmail || this.USER_EMAIL;
-
-        // API key must be Base64 encoded according to eformsign docs
-        const encodedApiKey = Buffer.from(this.EFORMSIGN_API_KEY).toString("base64");
-
-        const response = await fetch(`${this.EFORMSIGN_API_URL}/v2.0/api_auth/access_token`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "eformsign_signature": signature,
-                "Authorization": `Bearer ${encodedApiKey}`,
-            },
-            body: JSON.stringify({
-                execution_time: executionTime,
-                member_id: email,
-            }),
-        });
-
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new EformsignApiError(
-                `Failed to get access token: ${response.status} - ${errorData}`,
-                response.status,
-                extractEformsignVendorCode(errorData),
-            );
-        }
-
-        return await response.json();
-    }
-
-    async refreshAccessToken(executionTime: number, refreshToken: string): Promise<EformsignTokenResponse> {
-        if (this.vendorStubsEnabled) {
-            return buildEformsignStubTokenResponse();
-        }
-
-        this.assertConfigured();
-        const signature = this.generateSignature(executionTime);
-
-        const response = await fetch(`${this.EFORMSIGN_API_URL}/v2.0/api_auth/refresh_token`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "eformsign_signature": signature,
-                "api_key": this.EFORMSIGN_API_KEY,
-            },
-            body: JSON.stringify({
-                execution_time: executionTime,
-                refresh_token: refreshToken,
-            }),
-        });
-
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new EformsignApiError(
-                `Failed to refresh token: ${response.status} - ${errorData}`,
-                response.status,
-                extractEformsignVendorCode(errorData),
-            );
-        }
-
-        return await response.json();
     }
 
     generateDocumentOptions(contractData: ContractDataDto, accessToken: string, refreshToken: string, templateId?: string) {

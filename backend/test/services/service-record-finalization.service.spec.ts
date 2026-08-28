@@ -7,6 +7,7 @@ import { CreateAndSendServiceRecordSnapshotUsecase } from "application/usecases/
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 const mockCaptureServiceRecordError = jest.fn();
+const workerPrincipal = { branchId: "branch-1", source: "worker" as const };
 
 jest.mock("infrastructure/observability/service-record-sentry", () => ({
     captureServiceRecordError: (...args: unknown[]) => mockCaptureServiceRecordError(...args),
@@ -78,7 +79,7 @@ describe("ServiceRecordFinalizationService", () => {
 
         await expect(service.processDueCases(new Date("2026-07-13T00:00:00.000Z"))).resolves.toBe(1);
 
-        expect(snapshot.executeCase).toHaveBeenCalledWith("branch-1", "case-1");
+        expect(snapshot.executeCase).toHaveBeenCalledWith("branch-1", "case-1", workerPrincipal);
         expect(prisma.service_record_case.updateMany).toHaveBeenCalledWith(
             expect.objectContaining({
                 where: expect.objectContaining({ id: "case-1" }),

@@ -10,6 +10,7 @@ import {
     LegacyChatConfirmationToken,
     redactSensitiveLegacyChatContent,
 } from "application/ai-chat/legacy-chat-confirmation.service";
+import type { EformsignProviderPrincipal } from "application/services/eformsign-credential-boundary.service";
 
 /**
  * Interface for Gemini gateway implementations.
@@ -404,6 +405,7 @@ export class AIChatService {
         userId: string,
         userMessage: string,
         branchid: string,
+        principal?: EformsignProviderPrincipal,
         callerSignal?: AbortSignal,
         actor?: Pick<LegacyChatToolContext, "globalRole" | "branchRole">,
     ): AsyncGenerator<ChatStreamEvent> {
@@ -430,7 +432,7 @@ export class AIChatService {
                 branchId: branchid,
                 sessionId: session.id,
                 ...actor,
-            }, "getDashboardStats", {});
+            }, "getDashboardStats", {}, principal);
 
             if (dashboardResult.success && this.isDashboardStatsData(dashboardResult.data)) {
                 const responseText = this.formatDashboardResponse(userMessage, dashboardResult.data);
@@ -489,7 +491,7 @@ export class AIChatService {
                                     branchId: branchid,
                                     sessionId: session.id,
                                     ...actor,
-                                }, name, args);
+                                }, name, args, principal);
 
                                 if (result.requiresConfirmation) {
                                     yield {
@@ -630,6 +632,7 @@ export class AIChatService {
         branchId: string,
         token: LegacyChatConfirmationToken,
         sessionId?: string,
+        principal?: EformsignProviderPrincipal,
     ): Promise<ToolExecutionResult> {
         if (!this.confirmationService) {
             throw new Error("Confirmation service is not configured");
@@ -647,6 +650,7 @@ export class AIChatService {
                 intent.toolName,
                 intent.payload,
                 intent,
+                principal,
             ),
         );
     }

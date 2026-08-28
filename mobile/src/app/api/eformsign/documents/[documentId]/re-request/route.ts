@@ -6,9 +6,9 @@ import { proxyPostRequest } from "@/lib/api/route-utils";
 type RouteParams = { params: Promise<{ documentId: string }> };
 
 // Mirrors backend ReRequestOutsiderDocumentRequestDto (eformsign.dto.ts):
-// stepType + stepSeq are @IsString() @IsNotEmpty() required; accessToken is
-// also required there but proxyPostRequest injects it server-side. comment and
-// recipientPhone are optional, so passthrough carries them through unchanged.
+// stepType + stepSeq are required; comment and recipientPhone are optional.
+// Passthrough keeps forward-compatible fields while the shared proxy strips
+// provider credential-shaped fields before forwarding.
 const reRequestSchema = z
     .object({
         stepType: z.string().min(1),

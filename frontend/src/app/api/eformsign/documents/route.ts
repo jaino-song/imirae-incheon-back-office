@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
     errorResponse,
-    getAccessToken,
     getAuthHeaders,
     getAuthToken,
+    sanitizeUpstreamClientError,
     unauthorizedResponse,
 } from "@/lib/api/route-utils";
 import { serverAPIClient } from "@/lib/api/server";
@@ -61,8 +61,10 @@ export async function GET(request: NextRequest) {
         });
 
         if (response.status >= 400) {
-            const errorMessage = response.data?.error || response.data?.message || `Backend returned ${response.status}`;
-            return NextResponse.json({ error: errorMessage }, { status: response.status });
+            return NextResponse.json(
+                sanitizeUpstreamClientError(response.data, "Failed to fetch all eformsign documents"),
+                { status: response.status },
+            );
         }
 
         return NextResponse.json(response.data);
@@ -73,33 +75,27 @@ export async function GET(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
     const authToken = getAuthToken(request);
-    const accessToken = getAccessToken(request);
 
     if (!authToken) {
         return unauthorizedResponse("Authentication required. Please log in.");
     }
 
-    if (!accessToken) {
-        return unauthorizedResponse("eFormsign access token required. Please authenticate with eFormsign first.");
-    }
-
     const { searchParams } = new URL(request.url);
-    const isPermanent = searchParams.get("is_permanent") || "false";
+    const isPermanent = searchParams.get("is_permanent");
     try {
         const body = await request.json().catch(() => ({}));
 
         const response = await serverAPIClient.delete("/api/documents", {
-            params: {
-                accessToken,
-                is_permanent: isPermanent,
-            },
+            params: isPermanent ? { is_permanent: isPermanent } : {},
             data: body,
             headers: getAuthHeaders(authToken),
         });
 
         if (response.status >= 400) {
-            const errorMessage = response.data?.error || response.data?.message || `Backend returned ${response.status}`;
-            return NextResponse.json({ error: errorMessage }, { status: response.status });
+            return NextResponse.json(
+                sanitizeUpstreamClientError(response.data, "Failed to delete eformsign documents"),
+                { status: response.status },
+            );
         }
 
         return NextResponse.json(response.data);

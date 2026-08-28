@@ -1,4 +1,9 @@
-import { ToolExecutorService } from "../tool-executor.service";
+import { ToolExecutorService, type ToolExecutionResult } from "../tool-executor.service";
+
+const TEST_PRINCIPAL = { branchId: "branch-1", globalRole: "owner" };
+type TestExecutor = Omit<ToolExecutorService, "execute"> & {
+    execute(branchId: string, toolName: string, args: Record<string, unknown>): Promise<ToolExecutionResult>;
+};
 
 type ServiceMocks = {
     clientService: {
@@ -53,7 +58,7 @@ type ServiceMocks = {
     };
 };
 
-function createExecutor(): { executor: ToolExecutorService; mocks: ServiceMocks } {
+function createExecutor(): { executor: TestExecutor; mocks: ServiceMocks } {
     const mocks: ServiceMocks = {
         clientService: {
             findAllPaginated: jest.fn().mockResolvedValue({
@@ -112,7 +117,7 @@ function createExecutor(): { executor: ToolExecutorService; mocks: ServiceMocks 
         },
     };
 
-    const executor = new ToolExecutorService(
+    const realExecutor = new ToolExecutorService(
         mocks.clientService as never,
         mocks.employeeService as never,
         mocks.messageService as never,
@@ -121,6 +126,15 @@ function createExecutor(): { executor: ToolExecutorService; mocks: ServiceMocks 
         mocks.voucherPriceInfoService as never,
         mocks.bankAccountInfoService as never,
         mocks.employeeScheduleService as never,
+    );
+
+    const executeWithPrincipal = realExecutor.execute.bind(realExecutor);
+    const executor = realExecutor as unknown as TestExecutor;
+    executor.execute = (branchId, toolName, args) => executeWithPrincipal(
+        branchId,
+        toolName,
+        args,
+        TEST_PRINCIPAL,
     );
 
     return { executor, mocks };

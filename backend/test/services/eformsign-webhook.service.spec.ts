@@ -118,6 +118,13 @@ describe("EformsignWebhookService", () => {
         getAccessToken: jest.fn(),
         getDocument: jest.fn(),
     };
+    const credentialBoundary = {
+        withCredentials: jest.fn((
+            _principal: unknown,
+            _capability: unknown,
+            operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+        ) => operation({ accessToken: "test-access-token", refreshToken: "test-refresh-token" })),
+    };
     const notificationService = {
         sendToBranchUsers: jest.fn(),
     };
@@ -134,6 +141,7 @@ describe("EformsignWebhookService", () => {
     };
     const mirrorUnassignedDocUsecase = {
         execute: jest.fn(),
+        mirrorRemoteDocument: jest.fn(),
     };
     const employeeScheduleRepository = {
         findByClientId: jest.fn(),
@@ -171,6 +179,7 @@ describe("EformsignWebhookService", () => {
             eventBus as never,
             notificationService as never,
             eformsignApiClient as never,
+            credentialBoundary as never,
             clientRepository as never,
             eformsignDocRepository as never,
             employeeScheduleRepository as never,
@@ -193,6 +202,7 @@ describe("EformsignWebhookService", () => {
             eventBus as never,
             notificationService as never,
             eformsignApiClient as never,
+            credentialBoundary as never,
             clientRepository as never,
             eformsignDocRepository as never,
             employeeScheduleRepository as never,
@@ -413,6 +423,7 @@ describe("EformsignWebhookService", () => {
             eventBus as never,
             notificationService as never,
             eformsignApiClient as never,
+            credentialBoundary as never,
             clientRepository as never,
             eformsignDocRepository as never,
             employeeScheduleRepository as never,
@@ -603,7 +614,10 @@ describe("EformsignWebhookService", () => {
 
         await expect(service.processWebhook(createDocumentPayload())).resolves.toBeUndefined();
 
-        expect(mirrorUnassignedDocUsecase.execute).toHaveBeenCalledWith(documentId);
+        expect(mirrorUnassignedDocUsecase.execute).toHaveBeenCalledWith(
+            documentId,
+            expect.objectContaining({ branchId: "__system__:webhook", source: "worker" }),
+        );
         expect(eformsignDocRepository.claimCompletionStatus).not.toHaveBeenCalled();
         expect(updateStatusUsecase.executeWithOutcome).not.toHaveBeenCalled();
         expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
@@ -1286,7 +1300,10 @@ describe("EformsignWebhookService", () => {
 
         await expect(service.processWebhook(createDocumentPayload())).resolves.toBeUndefined();
 
-        expect(mirrorUnassignedDocUsecase.execute).toHaveBeenCalledWith(documentId);
+        expect(mirrorUnassignedDocUsecase.execute).toHaveBeenCalledWith(
+            documentId,
+            expect.objectContaining({ branchId: "__system__:webhook", source: "worker" }),
+        );
         expect(updateStatusUsecase.executeWithOutcome).not.toHaveBeenCalled();
         expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
         expect(syncClientEndDateUsecase.execute).not.toHaveBeenCalled();
@@ -1479,6 +1496,7 @@ describe("EformsignWebhookService", () => {
             eventBus as never,
             notificationService as never,
             eformsignApiClient as never,
+            credentialBoundary as never,
             statefulClientRepository as never,
             statefulDocRepository as never,
             employeeScheduleRepository as never,
@@ -1696,6 +1714,7 @@ describe("EformsignWebhookService", () => {
             eventBus as never,
             notificationService as never,
             eformsignApiClient as never,
+            credentialBoundary as never,
             clientRepository as never,
             eformsignDocRepository as never,
             employeeScheduleRepository as never,

@@ -8,8 +8,8 @@ import type { AgentContext } from "application/agent/agent-context";
 import type { AgentFormField } from "@babyjamjam/shared";
 import { CreateAndSendContractUsecase, ContractClientSnapshot } from "./create-and-send-contract.usecase";
 import { AdoptEformsignDocUsecase } from "./adopt-eformsign-doc.usecase";
-import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
 import { FetchEformsignDocFromApiUsecase } from "./fetch-eformsign-doc-from-api.usecase";
+import { EformsignCredentialBoundary } from "application/services/eformsign-credential-boundary.service";
 import { EFORMSIGN_COMPLETED_STATUS_CODES, TERMINAL_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
 import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 import { FindClientByIdUsecase } from "application/usecases/client/find-client-by-id.usecase";
@@ -61,7 +61,7 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
     constructor(
         private readonly createAndSend: CreateAndSendContractUsecase,
         private readonly adoptEformsignDoc: AdoptEformsignDocUsecase,
-        private readonly getAccessToken: GetEformsignAccessTokenUsecase,
+        private readonly credentialBoundary: EformsignCredentialBoundary,
         private readonly fetchDocument: FetchEformsignDocFromApiUsecase,
         private readonly findClientById: FindClientByIdUsecase,
         private readonly areaTemplateService: AreaTemplateService,
@@ -105,7 +105,7 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
                         const result = await this.createAndSend.execute(context.principal.branchId, {
                             ...this.bindTemplateInput(input, template),
                             idempotencyKey: context.actionId,
-                        });
+                        }, context.principal);
                         if (!result.success && (result.uncertain || result.remoteDocumentId)) {
                             throw new AgentActionUncertainError("Contract provider result is uncertain", { remoteDocumentId: result.remoteDocumentId });
                         }
@@ -125,7 +125,7 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
                             idempotencyKey: context.actionId,
                             clientSnapshot: staged.clientSnapshot,
                             clientTargetVersion: staged.targetVersion,
-                        });
+                        }, context.principal);
                         if (!result.success && (result.uncertain || result.remoteDocumentId)) {
                             throw new AgentActionUncertainError("Contract provider result is uncertain", { remoteDocumentId: result.remoteDocumentId });
                         }
@@ -143,17 +143,24 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
                     const input = ContractInputSchema.parse(rawInput);
                     let document: Awaited<ReturnType<FetchEformsignDocFromApiUsecase["execute"]>>;
                     try {
-                        const token = await this.getAccessToken.execute(Date.now());
-                        document = await this.fetchDocument.execute(token.oauth_token.access_token, remoteDocumentId);
+                        document = await this.credentialBoundary.withCredentials(
+                            context.principal,
+                            "contract.adopt",
+                            ({ accessToken }) => this.fetchDocument.execute(accessToken, remoteDocumentId),
+                        );
                     } catch {
                         return { status: "uncertain" as const, reason: "Provider status lookup failed" };
                     }
 
                     try {
-                        const repaired = await this.adoptEformsignDoc.execute(context.principal.branchId, {
-                            documentId: remoteDocumentId,
-                            clientId: input.clientId,
-                        });
+                        const repaired = await this.adoptEformsignDoc.execute(
+                            context.principal.branchId,
+                            {
+                                documentId: remoteDocumentId,
+                                clientId: input.clientId,
+                            },
+                            context.principal,
+                        );
                         if (repaired.warnings?.length) {
                             return { status: "uncertain" as const, reason: "Local contract projection repair is incomplete" };
                         }

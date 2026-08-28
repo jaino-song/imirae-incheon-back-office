@@ -347,7 +347,7 @@
       "approvalPolicy": "strong",
       "idempotencyPolicy": "provider-key",
       "sourceFile": "application/usecases/eformsign-doc/contract-external-agent-capabilities.provider.ts",
-      "sourceDigest": "5425f39e484922ff48ae8f806ba7f91bbb535474e8ac48f28753ba3e0d3cd5d3"
+      "sourceDigest": "efe25d9a027fccfa7192f03d31e11c3581ef55ed9655b989ecb8e78cfc5cf40f"
     },
     {
       "name": "contracts.status",

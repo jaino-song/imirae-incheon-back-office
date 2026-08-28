@@ -60,11 +60,10 @@ describe("EformsignDocService", () => {
     const createEformsignDocUsecase = { execute: jest.fn() };
     const updateEformsignDocStatusUsecase = { execute: jest.fn() };
     const linkDocumentToClientUsecase = { execute: jest.fn() };
-    const getEformsignAccessTokenUsecase = { execute: jest.fn() };
-    const refreshEformsignAccessTokenUsecase = { execute: jest.fn() };
     const fetchAllEformsignDocsFromApiUsecase = { execute: jest.fn() };
     const fetchEformsignDocFromApiUsecase = { execute: jest.fn() };
     const createAndSendContractUsecase = { execute: jest.fn() };
+    const principal = { branchId, globalRole: "owner" };
 
     let service: EformsignDocService;
 
@@ -79,8 +78,6 @@ describe("EformsignDocService", () => {
             createEformsignDocUsecase as never,
             updateEformsignDocStatusUsecase as never,
             linkDocumentToClientUsecase as never,
-            getEformsignAccessTokenUsecase as never,
-            refreshEformsignAccessTokenUsecase as never,
             fetchAllEformsignDocsFromApiUsecase as never,
             fetchEformsignDocFromApiUsecase as never,
             createAndSendContractUsecase as never,
@@ -145,7 +142,6 @@ describe("EformsignDocService", () => {
             await expect(service.findByClientId(branchId, 9)).resolves.toBe(docs);
 
             expect(findEformsignDocsByClientIdUsecase.execute).toHaveBeenCalledWith(branchId, 9);
-            expect(getEformsignAccessTokenUsecase.execute).not.toHaveBeenCalled();
             expect(fetchEformsignDocFromApiUsecase.execute).not.toHaveBeenCalled();
         });
 
@@ -186,33 +182,15 @@ describe("EformsignDocService", () => {
             createAndSendContractUsecase.execute.mockResolvedValue(result);
             const params = { clientId: 9, templateId: "tpl-1", templateName: "계약서" };
 
-            await expect(service.createAndSendContract(branchId, params)).resolves.toBe(result);
+            await expect(service.createAndSendContract(branchId, params, principal)).resolves.toBe(result);
 
-            expect(createAndSendContractUsecase.execute).toHaveBeenCalledWith(branchId, params);
+            expect(createAndSendContractUsecase.execute).toHaveBeenCalledWith(branchId, params, principal);
         });
     });
 
     // ============ External API facade: token + fetch (no branch scoping) ============
 
     describe("external API delegation", () => {
-        it("getAccessToken passes executionTime and optional member email through", async () => {
-            const token = { oauth_token: { access_token: "a", refresh_token: "r" } };
-            getEformsignAccessTokenUsecase.execute.mockResolvedValue(token);
-
-            await expect(service.getAccessToken(1000, "staff@example.com")).resolves.toBe(token);
-
-            expect(getEformsignAccessTokenUsecase.execute).toHaveBeenCalledWith(1000, "staff@example.com");
-        });
-
-        it("refreshAccessToken passes executionTime and refresh token through", async () => {
-            const token = { oauth_token: { access_token: "a2", refresh_token: "r2" } };
-            refreshEformsignAccessTokenUsecase.execute.mockResolvedValue(token);
-
-            await expect(service.refreshAccessToken(2000, "refresh-token")).resolves.toBe(token);
-
-            expect(refreshEformsignAccessTokenUsecase.execute).toHaveBeenCalledWith(2000, "refresh-token");
-        });
-
         it("fetchAllFromApi delegates with the access token", async () => {
             const docs = [createApiDocument({ status_type: "060" })];
             fetchAllEformsignDocsFromApiUsecase.execute.mockResolvedValue(docs);

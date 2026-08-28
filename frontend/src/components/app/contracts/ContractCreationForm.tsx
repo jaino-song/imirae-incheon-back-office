@@ -931,13 +931,6 @@ export const ContractCreationForm = ({
           return;
         }
 
-        const executionTime = Date.now();
-        const authResult = await eformsignApi.authenticate(executionTime);
-
-        if (!authResult.success) {
-          throw new Error("Failed to authenticate");
-        }
-
         // BJJ-90: when the flag is on, drive the iframe gate sequence on the
         // backend via Playwright. Failures stay on the processing step so the
         // user can retry the backend run or choose the manual iframe fallback.

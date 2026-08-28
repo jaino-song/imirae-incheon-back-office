@@ -129,7 +129,7 @@ describe("eformsignApi.authenticate", () => {
         );
 
         await expect(
-            apiModule.eformsignApi.authenticate(5, undefined, { force: true }),
+            apiModule.eformsignApi.authenticate(5, { force: true }),
         ).resolves.toEqual({ success: true });
         await expect(apiModule.eformsignApi.authenticate(6)).resolves.toEqual({ success: true });
         expect(mockPost).toHaveBeenCalledTimes(5);

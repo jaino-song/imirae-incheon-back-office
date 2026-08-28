@@ -1,6 +1,23 @@
 import { DispatchDocumentHeadlessUsecase } from "application/usecases/eformsign-doc/dispatch-document-headless.usecase";
 import { EformsignOperationAlreadyRunningError } from "infrastructure/locking/eformsign-operation-lock.service";
 
+const TEST_PRINCIPAL = {
+    userId: "test-user",
+    branchId: "branch-1",
+    globalRole: "owner",
+    branchRole: "owner",
+} as const;
+
+function createCredentialBoundary() {
+    return {
+        withCredentials: jest.fn(async (
+            _principal: unknown,
+            _capability: unknown,
+            operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+        ) => operation({ accessToken: "access-token", refreshToken: "refresh-token" })),
+    };
+}
+
 describe("DispatchDocumentHeadlessUsecase", () => {
     it("persists the current eformsign status after headless creation", async () => {
         const eformsignService = {
@@ -63,7 +80,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             eformsignService as never,
             headlessService as never,
             areaTemplateService as never,
-            getAccessTokenUsecase as never,
+            createCredentialBoundary() as never,
             createEformsignDocUsecase as never,
             fetchEformsignDocFromApiUsecase as never,
             progressService as never,
@@ -80,7 +97,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
                 customerName: "김고객",
                 customerContact: "010-1234-5678",
             } as never,
-        })).resolves.toEqual({
+        }, TEST_PRINCIPAL)).resolves.toEqual({
             ok: true,
             documentId: "doc-1",
             durationMs: 1200,
@@ -145,7 +162,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             eformsignService as never,
             headlessService as never,
             areaTemplateService as never,
-            getAccessTokenUsecase as never,
+            createCredentialBoundary() as never,
             createEformsignDocUsecase as never,
             fetchEformsignDocFromApiUsecase as never,
             progressService as never,
@@ -161,7 +178,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
                 customerName: "이고객",
                 customerContact: "010-0000-0000",
             } as never,
-        })).resolves.toEqual({
+        }, TEST_PRINCIPAL)).resolves.toEqual({
             ok: true,
             documentId: "doc-2",
             durationMs: 900,
@@ -194,7 +211,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             { generateDocumentOptions: jest.fn() } as never,
             headlessService as never,
             { findByArea: jest.fn() } as never,
-            getAccessTokenUsecase as never,
+            createCredentialBoundary() as never,
             { execute: jest.fn() } as never,
             { execute: jest.fn() } as never,
             { emit: jest.fn() } as never,
@@ -209,7 +226,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             contractData: {
                 caretaker1Contact: "010-1111-2222",
             } as never,
-        })).resolves.toEqual(expect.objectContaining({
+        }, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({
             ok: false,
             reason: "고객의 제공인력 배정을 먼저 저장해 주세요.",
         }));
@@ -228,7 +245,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             { generateDocumentOptions: jest.fn().mockReturnValue({}) } as never,
             { dispatchCreation: jest.fn().mockResolvedValue({ ok: true, documentId: "remote-1", durationMs: 50 }) } as never,
             { findByArea: jest.fn().mockResolvedValue({ templateId: "template-1" }) } as never,
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "a", refresh_token: "r" } }) } as never,
+            createCredentialBoundary() as never,
             { execute: jest.fn().mockRejectedValue(new Error("db down")) } as never,
             { execute: jest.fn().mockRejectedValue(new Error("not found")) } as never,
             { emit: jest.fn() } as never,
@@ -241,7 +258,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
         await expect(usecase.execute("branch-1", {
             clientId: 7,
             contractData: { area: "seoul", customerName: "고객" } as never,
-        })).resolves.toEqual(expect.objectContaining({
+        }, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({
             ok: false,
             reason: "local_persist_failed",
             remoteDocumentId: "remote-1",
@@ -263,7 +280,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             { generateDocumentOptions: jest.fn().mockReturnValue({}) } as never,
             { dispatchCreation: overrides.dispatchCreation } as never,
             { findByArea: jest.fn().mockResolvedValue(null) } as never,
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "a", refresh_token: "r" } }) } as never,
+            createCredentialBoundary() as never,
             { execute: overrides.createDoc ?? jest.fn().mockResolvedValue(undefined) } as never,
             {
                 execute: overrides.fetchOne ?? jest.fn().mockRejectedValue(new Error("not found")),
@@ -292,7 +309,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
                 return { ok: false, reason: "Timed out ... no gate became actionable", durationMs: 70_000 };
             });
 
-            await expect(buildUsecase({ dispatchCreation }).execute("branch-1", params))
+            await expect(buildUsecase({ dispatchCreation }).execute("branch-1", params, TEST_PRINCIPAL))
                 .resolves.toEqual(expect.objectContaining({
                     ok: false,
                     fallbackHint: "iframe",
@@ -322,7 +339,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
                         document_name: "김고객 산모신생아건강관리서비스 계약서",
                     },
                 ],
-            }).execute("branch-1", params);
+            }).execute("branch-1", params, TEST_PRINCIPAL);
 
             // Reopening the editor here is what duplicates a contract that may
             // already have gone out, so this hint must never be "iframe".
@@ -348,7 +365,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
                     created_date: Date.now(),
                     document_name: "김고객 산모신생아건강관리서비스 계약서",
                 }],
-            }).execute("branch-1", params);
+            }).execute("branch-1", params, TEST_PRINCIPAL);
 
             expect(result).toEqual(expect.objectContaining({ ok: true, documentId: "recovered-1" }));
             expect(createDoc).toHaveBeenCalledWith("branch-1", expect.objectContaining({
@@ -381,11 +398,11 @@ describe("DispatchDocumentHeadlessUsecase", () => {
                     created_date: Date.now(),
                     document_name: "산모신생아건강관리서비스 계약서",
                 }],
-            }).execute("branch-1", params)).resolves.toEqual(expect.objectContaining({
+            }).execute("branch-1", params, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({
                 ok: true,
                 documentId: "fixed-title-1",
             }));
-            expect(fetchOne).toHaveBeenCalledWith("a", "fixed-title-1");
+            expect(fetchOne).toHaveBeenCalledWith("access-token", "fixed-title-1");
         });
 
         it("waits for a newly created document to become visible before reporting failure", async () => {
@@ -404,7 +421,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
                     }]);
 
                 const resultPromise = buildUsecase({ dispatchCreation, fetchAll })
-                    .execute("branch-1", params);
+                    .execute("branch-1", params, TEST_PRINCIPAL);
                 await jest.advanceTimersByTimeAsync(500);
 
                 await expect(resultPromise).resolves.toEqual(expect.objectContaining({
@@ -433,7 +450,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
                     }]);
 
                 const resultPromise = buildUsecase({ dispatchCreation, fetchAll })
-                    .execute("branch-1", params);
+                    .execute("branch-1", params, TEST_PRINCIPAL);
                 await jest.advanceTimersByTimeAsync(500);
 
                 await expect(resultPromise).resolves.toEqual(expect.objectContaining({
@@ -464,7 +481,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
                 let settled = false;
 
                 void buildUsecase({ dispatchCreation, fetchAll, fetchOne })
-                    .execute("branch-1", params)
+                    .execute("branch-1", params, TEST_PRINCIPAL)
                     .then(() => { settled = true; });
                 await jest.advanceTimersByTimeAsync(160_000);
                 await Promise.resolve();
@@ -488,7 +505,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             { generateDocumentOptions: jest.fn().mockReturnValue({}) } as never,
             { dispatchCreation } as never,
             { findByArea: jest.fn().mockResolvedValue({ templateId: "template-1" }) } as never,
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "a", refresh_token: "r" } }) } as never,
+            createCredentialBoundary() as never,
             { execute: jest.fn() } as never,
             { execute: jest.fn() } as never,
             { emit: jest.fn() } as never,
@@ -499,11 +516,11 @@ describe("DispatchDocumentHeadlessUsecase", () => {
         );
         const params = { clientId: 7, contractData: { area: "seoul" } as never };
 
-        await expect(usecase.execute("branch-1", params)).resolves.toEqual(expect.objectContaining({
+        await expect(usecase.execute("branch-1", params, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({
             reason: "duplicate_pending_document",
             existingDocumentId: "existing-1",
         }));
-        await usecase.execute("branch-1", { ...params, force: true });
+        await usecase.execute("branch-1", { ...params, force: true }, TEST_PRINCIPAL);
         expect(dispatchCreation).toHaveBeenCalledTimes(1);
     });
 
@@ -517,7 +534,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             { generateDocumentOptions: jest.fn() } as never,
             headlessService as never,
             { findByArea: jest.fn() } as never,
-            getAccessTokenUsecase as never,
+            createCredentialBoundary() as never,
             { execute: jest.fn() } as never,
             { execute: jest.fn() } as never,
             { emit: jest.fn() } as never,
@@ -531,7 +548,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
         await expect(usecase.execute("branch-1", {
             clientId: 7,
             contractData: {} as never,
-        })).resolves.toEqual(expect.objectContaining({
+        }, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({
             ok: false,
             reason: "operation_in_progress",
             fallbackHint: "manual_check",

@@ -35,6 +35,10 @@ import {
 } from "domain/repositories/eformsign-doc.repository.interface";
 import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
+import {
+    EformsignCredentialBoundary,
+    EformsignProviderPrincipal,
+} from "./eformsign-credential-boundary.service";
 
 const FILE_TYPES: readonly EformsignDocumentFileType[] = [
     "document",
@@ -134,6 +138,7 @@ export class EformsignDocumentMirrorService {
     constructor(
         @Inject(EFORMSIGN_CLIENT_REPOSITORY)
         private readonly eformsignClient: IEformsignClientRepository,
+        private readonly credentialBoundary: EformsignCredentialBoundary,
         @Inject(EFORMSIGN_DOCUMENT_MIRROR_REPOSITORY)
         private readonly mirrorRepository: IEformsignDocumentMirrorRepository,
         private readonly mirrorDocumentUsecase: MirrorUnassignedEformsignDocUsecase,
@@ -179,11 +184,17 @@ export class EformsignDocumentMirrorService {
      * Completion webhooks must obtain current fields before consuming their durable
      * completion claim, but must not project status 050 until the claim succeeds.
      */
-    async fetchCurrentDetail(documentId: string): Promise<EformsignApiDocumentResponse> {
-        const token = await this.eformsignClient.getAccessToken(Date.now());
-        const remote = await this.eformsignClient.getDocument(
-            token.oauth_token.access_token,
-            documentId,
+    async fetchCurrentDetail(
+        documentId: string,
+        principal: EformsignProviderPrincipal,
+    ): Promise<EformsignApiDocumentResponse> {
+        const remote = await this.credentialBoundary.withCredentials(
+            principal,
+            "document.read",
+            ({ accessToken }) => this.eformsignClient.getDocument(
+                accessToken,
+                documentId,
+            ),
         );
         return redactCredentialFields(remote);
     }
@@ -306,13 +317,17 @@ export class EformsignDocumentMirrorService {
 
     async syncDocument(
         documentId: string,
+        principal: EformsignProviderPrincipal,
         options: SyncEformsignDocumentOptions = {},
     ): Promise<SyncEformsignDocumentResult> {
-        const token = await this.eformsignClient.getAccessToken(Date.now());
-        const result = await this.syncDocumentWithToken(
-            token.oauth_token.access_token,
-            documentId,
-            options,
+        const result = await this.credentialBoundary.withCredentials(
+            principal,
+            "document.read",
+            ({ accessToken }) => this.syncDocumentWithToken(
+                accessToken,
+                documentId,
+                options,
+            ),
         );
         if (options.publishChangeReason && this.docsEventBus) {
             await this.publishDocumentChange(documentId, options.publishChangeReason);

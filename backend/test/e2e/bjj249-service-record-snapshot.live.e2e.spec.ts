@@ -17,6 +17,7 @@ import {
 } from "domain/repositories/eformsign.client.interface";
 import { chunkSessionsByTier } from "application/usecases/eformsign-doc/service-record-field-mapper";
 import { SERVICE_RECORD_TEMPLATE_TIER_ENV_KEYS } from "application/usecases/eformsign-doc/service-record-field-ids";
+import { createEformsignWorkerPrincipal } from "application/services/eformsign-credential-boundary.service";
 
 /**
  * LIVE E2E for BJJ-249: runs the REAL case-based 제공기록지 pipeline against the shared dev DB and
@@ -327,7 +328,7 @@ const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
         expect(before?.eDocId).toBeNull();
 
         for (const documentId of createdDocumentIds) {
-            await expect(finalizeDocumentHeadless.execute({ documentId })).resolves.toMatchObject({ ok: true });
+            await expect(finalizeDocumentHeadless.execute({ documentId }, createEformsignWorkerPrincipal(branchId))).resolves.toMatchObject({ ok: true });
         }
 
         const deadline = Date.now() + 60_000;

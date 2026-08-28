@@ -2,6 +2,13 @@ import { AIChatService } from "application/services/ai-chat.service";
 import type { GeminiStreamChunk } from "infrastructure/api/gemini-chat.gateway";
 import { ChatSessionEntity } from "domain/entities/chat-session.entity";
 
+const TEST_PRINCIPAL = {
+    userId: "user-1",
+    branchId: "org-1",
+    globalRole: "owner",
+    branchRole: "owner",
+};
+
 describe("AIChatService.chatStream", () => {
     test("uses direct dashboard tool path for employee count query", async () => {
         const geminiGateway = {
@@ -39,7 +46,7 @@ describe("AIChatService.chatStream", () => {
         const service = new AIChatService(geminiGateway, toolExecutor, sessionRepository);
 
         const events: any[] = [];
-        for await (const evt of service.chatStream(undefined, "user-1", "현재 등록된 제공인력은 몇명이야?", "org-1")) {
+        for await (const evt of service.chatStream(undefined, "user-1", "현재 등록된 제공인력은 몇명이야?", "org-1", TEST_PRINCIPAL)) {
             events.push(evt);
         }
 
@@ -48,6 +55,7 @@ describe("AIChatService.chatStream", () => {
             expect.objectContaining({ userId: "user-1", branchId: "org-1", sessionId: "test-session" }),
             "getDashboardStats",
             {},
+            TEST_PRINCIPAL,
         );
         expect(events.some((e) => e.type === "tool_call" && e.toolName === "getDashboardStats")).toBe(true);
         expect(events.some((e) => e.type === "chunk" && String(e.content).includes("7명"))).toBe(true);
@@ -91,7 +99,7 @@ describe("AIChatService.chatStream", () => {
         const service = new AIChatService(geminiGateway, toolExecutor, sessionRepository);
 
         const events = [] as any[];
-        for await (const evt of service.chatStream(undefined, "user-1", "hello", "org-1")) {
+        for await (const evt of service.chatStream(undefined, "user-1", "hello", "org-1", TEST_PRINCIPAL)) {
             events.push(evt);
         }
 
@@ -177,7 +185,7 @@ describe("AIChatService.chatStream", () => {
         const service = new AIChatService(geminiGateway, toolExecutor, sessionRepository);
 
         const events = [] as any[];
-        for await (const evt of service.chatStream("existing-session", "user-1", "hello", "org-1")) {
+        for await (const evt of service.chatStream("existing-session", "user-1", "hello", "org-1", TEST_PRINCIPAL)) {
             events.push(evt);
         }
 

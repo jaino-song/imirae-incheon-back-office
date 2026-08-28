@@ -15,6 +15,7 @@ import {
     BackfillEformsignDocsUsecase,
     EformsignDocsBackfillSummary,
 } from "../usecases/eformsign-doc/backfill-eformsign-docs.usecase";
+import { createEformsignGlobalWorkerPrincipal } from "./eformsign-credential-boundary.service";
 import { describeEformsignBackfillError } from "../utils/eformsign-backfill-error";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
 
@@ -141,7 +142,7 @@ export class EformsignDocReconcileSchedulerService {
             return this.lockService.runExclusive((lease) =>
                 this.backfillUsecase.execute({
                     shouldContinue: () => withinDeadline() && lease.isHeld(),
-                }));
+                }, createEformsignGlobalWorkerPrincipal("reconciliation")));
         }
 
         // The caller reached this path only after an explicit single-replica approval.
@@ -155,7 +156,10 @@ export class EformsignDocReconcileSchedulerService {
             );
         }
 
-        return this.backfillUsecase.execute({ shouldContinue: withinDeadline });
+        return this.backfillUsecase.execute(
+            { shouldContinue: withinDeadline },
+            createEformsignGlobalWorkerPrincipal("reconciliation"),
+        );
     }
 
     private isEnabled(): boolean {

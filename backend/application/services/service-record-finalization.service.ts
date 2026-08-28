@@ -6,6 +6,7 @@ import {
     SERVICE_RECORD_CASE_STATUS,
     ServiceRecordLifecycleService,
 } from "./service-record-lifecycle.service";
+import { createEformsignWorkerPrincipal } from "./eformsign-credential-boundary.service";
 
 const CASE_BATCH_SIZE = 10;
 const MAX_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
@@ -70,6 +71,7 @@ export class ServiceRecordFinalizationService {
                 const result = await this.createSnapshotUsecase.executeCase(
                     candidate.branchId,
                     candidate.id,
+                    createEformsignWorkerPrincipal(candidate.branchId),
                 );
                 if (result.chunkCount < 1 || result.documentIds.length !== result.chunkCount) {
                     throw new Error("Snapshot finalization returned an incomplete document set");

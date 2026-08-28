@@ -5,8 +5,8 @@ import { proxyDeleteRequest, proxyLocalGetRequest } from "@/lib/api/route-utils"
 
 // Mirrors backend DeleteDocumentsRequestDto (eformsign.dto.ts):
 // document_ids is @IsArray() @ArrayNotEmpty() @IsString({ each: true }).
-// accessToken is forwarded as a query param by proxyDeleteRequest, not in the
-// body. Passthrough preserves forward-compatible fields (e.g. is_permanent).
+// Passthrough preserves forward-compatible fields (e.g. is_permanent), while
+// the shared proxy strips provider credential-shaped fields before forwarding.
 const deleteDocumentsSchema = z
     .object({
         document_ids: z.array(z.string()).nonempty(),

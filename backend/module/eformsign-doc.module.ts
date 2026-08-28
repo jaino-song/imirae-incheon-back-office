@@ -7,8 +7,6 @@ import {
     ListEformsignDocsUsecase,
     ListOtherBranchDocumentIdsUsecase,
     ListEformsignDocDisplayFieldsUsecase,
-    GetEformsignAccessTokenUsecase,
-    RefreshEformsignAccessTokenUsecase,
     FetchAllEformsignDocsFromApiUsecase,
     FetchEformsignDocFromApiUsecase,
     UpdateEformsignDocStatusUsecase,
@@ -35,6 +33,7 @@ import { SbClientRepository } from "infrastructure/database/repositories/sb.clie
 import { createEformsignClientRepository } from "infrastructure/vendor-stubs/e2e-vendor-stubs";
 import { EformsignDocService } from "application/services/eformsign-doc.service";
 import { EformsignService } from "application/services/eformsign.service";
+import { EformsignCredentialBoundary } from "application/services/eformsign-credential-boundary.service";
 import { EformsignDocsEventBus } from "application/services/eformsign-docs-event-bus.service";
 import { EformsignHeadlessProgressService } from "application/services/eformsign-headless-progress.service";
 import { EformsignHeadlessService } from "infrastructure/automation/eformsign-headless.service";
@@ -101,8 +100,6 @@ import { EformsignDispatchBoundaryService } from "application/services/eformsign
         FindClientByIdUsecase,
         SyncClientEndDateUsecase,
         // Use cases - External API
-        GetEformsignAccessTokenUsecase,
-        RefreshEformsignAccessTokenUsecase,
         FetchAllEformsignDocsFromApiUsecase,
         FetchEformsignDocFromApiUsecase,
         // Use cases - Contract creation
@@ -121,6 +118,7 @@ import { EformsignDispatchBoundaryService } from "application/services/eformsign
         // Services
         EformsignDocService,
         EformsignService,
+        EformsignCredentialBoundary,
         EformsignHeadlessService,
         EformsignDocsEventBus,
         EformsignHeadlessProgressService,
@@ -177,6 +175,7 @@ import { EformsignDispatchBoundaryService } from "application/services/eformsign
     ],
     exports: [
         EformsignDocService,
+        EformsignCredentialBoundary,
         SyncClientEndDateUsecase,
         EformsignDocsEventBus,
         EformsignHeadlessProgressService,

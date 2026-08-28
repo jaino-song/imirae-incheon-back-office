@@ -27,18 +27,15 @@ import { ChatFeedbackRepository } from "infrastructure/database/repositories/cha
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 import { redactSensitiveLegacyChatContent } from "application/ai-chat/legacy-chat-confirmation.service";
+import type { VerifiedTenantPrincipal } from "infrastructure/tenant/tenant.context";
+import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
 
 interface JwtUser {
     userId: string;
     role: string;
 }
 
-interface ChatTenant {
-    userId: string;
-    branchId: string;
-    globalRole: string;
-    branchRole: string;
-}
+type ChatTenant = VerifiedTenantPrincipal;
 
 @Controller("ai/chat")
 @UseGuards(JwtGuard)
@@ -62,7 +59,7 @@ export class AIChatController {
         @Body() dto: ChatStreamDto,
         @Req() req: Request,
         @Res() res: Response,
-        @CurrentTenant() tenant: ChatTenant,
+        @CurrentTenant() tenant: VerifiedTenantPrincipal,
     ): Promise<void> {
         const user = req.user as JwtUser;
         const userId = user.userId;
@@ -85,6 +82,7 @@ export class AIChatController {
                 userId,
                 dto.message,
                 tenant.branchId,
+                tenant,
                 streamAbortController.signal,
                 tenant,
             );
@@ -103,7 +101,7 @@ export class AIChatController {
                 return;
             }
             this.logger.error(`Stream error: ${error}`);
-            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+            const errorMessage = sanitizeEformsignErrorMessage(error);
             const safeErrorMessage = redactSensitiveLegacyChatContent(errorMessage);
             res.write(`event: error\ndata: ${JSON.stringify({ type: "error", error: safeErrorMessage })}\n\n`);
             res.end();
@@ -259,6 +257,7 @@ export class AIChatController {
             tenant.branchId,
             { intentId: dto.intentId, nonce: dto.nonce },
             dto.sessionId,
+            tenant,
         );
     }
 }

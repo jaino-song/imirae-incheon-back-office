@@ -24,4 +24,26 @@ describe("logUpstreamError", () => {
             body: expect.anything(),
         }));
     });
+
+    it("redacts provider credentials and member identity from upstream bodies", () => {
+        const errorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+
+        logUpstreamError(
+            "proxy",
+            new Error("provider failed"),
+            JSON.stringify({
+                access_token: "access-secret",
+                refreshToken: "refresh-secret",
+                memberEmail: "staff@example.com",
+                safe: "kept",
+            }),
+        );
+
+        const logged = JSON.stringify(errorSpy.mock.calls);
+        expect(logged).toContain("[REDACTED]");
+        expect(logged).not.toContain("access-secret");
+        expect(logged).not.toContain("refresh-secret");
+        expect(logged).not.toContain("staff@example.com");
+        expect(logged).toContain("safe");
+    });
 });

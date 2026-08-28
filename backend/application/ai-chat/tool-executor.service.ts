@@ -7,6 +7,8 @@ import { EformsignDocService } from "application/services/eformsign-doc.service"
 import { VoucherPriceInfoService } from "application/services/voucher-price-info.service";
 import { BankAccountInfoService } from "application/services/bank-account-info.service";
 import { EmployeeScheduleService } from "application/services/employee-schedule.service";
+import type { EformsignProviderPrincipal } from "application/services/eformsign-credential-boundary.service";
+import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
 import { isCUDTool } from "./tools";
 import {
     ConsumedLegacyChatConfirmationIntent,
@@ -93,11 +95,14 @@ export class ToolExecutorService {
         contextOrBranchId: ToolExecutionContext,
         toolName: string,
         args: ToolArgs,
+        principal?: EformsignProviderPrincipal,
     ): Promise<ToolExecutionResult> {
         const context = this.normalizeContext(contextOrBranchId);
+        const branchid = context.branchId;
         const argKeys = Object.keys(args || {}).sort();
+        const confirmed = args && typeof args["confirmed"] === "boolean" ? args["confirmed"] : undefined;
         this.logger.log(
-            `Executing tool: ${toolName} argKeys=[${argKeys.join(',')}]`
+            `Executing tool: ${toolName} confirmed=${confirmed ?? "n/a"} argKeys=[${argKeys.join(",")}]`
         );
 
         if (isCUDTool(toolName)) {
@@ -106,16 +111,18 @@ export class ToolExecutorService {
                 return { success: false, error: validationError };
             }
 
-            if (!this.isBoundContext(context) || !this.confirmationService) {
+            if (args["confirmed"] !== true && (!this.isBoundContext(context) || !this.confirmationService)) {
                 return this.requestConfirmation(toolName, args);
             }
 
-            const intent = await this.confirmationService.createIntent(
-                context,
-                toolName,
-                sanitizeLegacyChatToolPayload(args),
-            );
-            return this.requestConfirmation(toolName, args, intent);
+            if (args["confirmed"] !== true) {
+                const intent = await this.confirmationService!.createIntent(
+                    context,
+                    toolName,
+                    sanitizeLegacyChatToolPayload(args),
+                );
+                return this.requestConfirmation(toolName, args, intent);
+            }
         }
 
         try {
@@ -151,7 +158,7 @@ export class ToolExecutorService {
                 case "listAvailableTemplates":
                     return await this.listAvailableTemplates(context.branchId);
                 case "createAndSendContract":
-                    return await this.createAndSendContract(context.branchId, args);
+                    return await this.createAndSendContract(branchid, args, principal);
                 case "getContractStatus":
                     return await this.getContractStatus(context.branchId, args);
                 case "getDashboardStats":
@@ -194,11 +201,12 @@ export class ToolExecutorService {
                     return { success: false, error: `Unknown tool: ${toolName}` };
             }
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : "unknown error";
-            this.logger.error(`Tool execution failed: ${errorMessage.replace(/\d[\d\s-]{7,}\d/g, "[REDACTED]")}`);
+            const safeError = sanitizeEformsignErrorMessage(error);
+            const errorMessage = redactSensitiveLegacyChatContent(safeError);
+            this.logger.error(`Tool execution failed: ${errorMessage}`);
             return {
                 success: false,
-                error: errorMessage.replace(/\d[\d\s-]{7,}\d/g, "[REDACTED]"),
+                error: error instanceof Error ? errorMessage : "도구 실행에 실패했습니다",
             };
         }
     }
@@ -209,6 +217,7 @@ export class ToolExecutorService {
         toolName: string,
         args: ToolArgs,
         intent?: ConsumedLegacyChatConfirmationIntent,
+        principal?: EformsignProviderPrincipal,
     ): Promise<ToolExecutionResult> {
         if (
             !isCUDTool(toolName)
@@ -238,15 +247,15 @@ export class ToolExecutorService {
                 case "createMessage": return await this.createMessage(context.branchId, sanitizedArgs);
                 case "updateMessage": return await this.updateMessage(context.branchId, sanitizedArgs);
                 case "deleteMessage": return await this.deleteMessage(context.branchId, sanitizedArgs);
-                case "createAndSendContract": return await this.createAndSendContract(context.branchId, sanitizedArgs);
+                case "createAndSendContract": return await this.createAndSendContract(context.branchId, sanitizedArgs, principal);
                 default: return { success: false, error: `Unknown tool: ${toolName}` };
             }
         } catch (error) {
             this.logger.error(`Confirmed tool execution failed: ${toolName}`);
-            const errorMessage = error instanceof Error ? error.message : "unknown error";
+            const errorMessage = redactSensitiveLegacyChatContent(sanitizeEformsignErrorMessage(error));
             return {
                 success: false,
-                error: errorMessage.replace(/\d[\d\s-]{7,}\d/g, "[REDACTED]"),
+                error: error instanceof Error ? errorMessage : "도구 실행에 실패했습니다",
             };
         }
     }
@@ -887,7 +896,11 @@ export class ToolExecutorService {
         };
     }
 
-    private async createAndSendContract(branchid: string, args: ToolArgs): Promise<ToolExecutionResult> {
+    private async createAndSendContract(
+        branchid: string,
+        args: ToolArgs,
+        principal: EformsignProviderPrincipal,
+    ): Promise<ToolExecutionResult> {
         const clientId = this.parseRequiredIntegerArg(args, "clientId", { min: 1 });
         const areaId = this.parseRequiredStringArg(args, "areaId");
 
@@ -900,7 +913,7 @@ export class ToolExecutorService {
             clientId,
             templateId: template.templateId,
             templateName: template.templateName || undefined,
-        });
+        }, principal);
 
         if (!result.success) {
             return { success: false, error: result.error };
