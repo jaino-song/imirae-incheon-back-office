@@ -3,6 +3,8 @@ package com.imirae.incheon.navigation
 import android.content.Intent
 import com.imirae.incheon.deeplink.DeepLinkRouter
 import com.imirae.incheon.deeplink.NavigationIntent
+import com.imirae.incheon.notification.NotificationDeliveryIdentity
+import java.util.UUID
 
 /**
  * The single Android entry point for notification and app-link navigation.
@@ -15,6 +17,7 @@ import com.imirae.incheon.deeplink.NavigationIntent
 object NotificationNavigation {
     const val EXTRA_DEEP_LINK = "com.imirae.incheon.notification.deep_link"
     const val EXTRA_NOTIFICATION_ID = "com.imirae.incheon.notification.id"
+    const val EXTRA_DELIVERY_KEY = "com.imirae.incheon.notification.delivery_key"
     const val DATA_NOTIFICATION_ID = "notificationId"
 
     private const val LEGACY_EXTRA_DEEP_LINK = "deepLink"
@@ -48,16 +51,28 @@ object NotificationNavigation {
                 return null
             }
 
+            val notificationId = firstNonBlank(
+                intent.getStringExtra(EXTRA_NOTIFICATION_ID),
+                intent.getStringExtra(DATA_NOTIFICATION_ID),
+                intent.getStringExtra(LEGACY_DATA_NOTIFICATION_ID),
+            )
+            val embeddedDeliveryKey = firstNonBlank(
+                intent.getStringExtra(EXTRA_DELIVERY_KEY),
+            )
+            val parsedDeliveryKey = embeddedDeliveryKey ?: deliveryKey(
+                navigationIntent,
+                notificationId,
+            )
+            // Direct app links do not have a provider id. Keep the generated
+            // receipt key on this Intent so re-processing the same delivery is
+            // suppressed, while a later tap receives a fresh Intent/key.
+            if (embeddedDeliveryKey == null && notificationId == null) {
+                intent.putExtra(EXTRA_DELIVERY_KEY, parsedDeliveryKey)
+            }
+
             ParsedNavigation(
                 intent = navigationIntent,
-                deliveryKey = deliveryKey(
-                    navigationIntent,
-                    firstNonBlank(
-                        intent.getStringExtra(EXTRA_NOTIFICATION_ID),
-                        intent.getStringExtra(DATA_NOTIFICATION_ID),
-                        intent.getStringExtra(LEGACY_DATA_NOTIFICATION_ID),
-                    ),
-                ),
+                deliveryKey = parsedDeliveryKey,
             )
         } catch (_: Exception) {
             // Malformed/malicious extras must never prevent the app from opening.
@@ -112,29 +127,36 @@ object NotificationNavigation {
         data[LEGACY_DATA_NOTIFICATION_ID],
     )
 
-    /** Stable request code and duplicate-delivery key for a validated intent. */
-    fun deliveryKey(intent: NavigationIntent, notificationId: String?): String {
-        val identity = notificationId?.let { "notification:$it" } ?: "navigation:${identityFor(intent)}"
-        return identity
-    }
+    /**
+     * Select the duplicate-delivery key for one receipt.
+     *
+     * The route is intentionally not used as an identity. The fallback is a
+     * generated receipt id, which is stable once carried by an Intent but does
+     * not suppress a later id-less app-link delivery to the same route.
+     */
+    fun deliveryKey(
+        @Suppress("UNUSED_PARAMETER")
+        intent: NavigationIntent,
+        notificationId: String?,
+        providerMessageId: String? = null,
+        receiptId: String = newReceiptId(),
+    ): String = NotificationDeliveryIdentity.key(
+        notificationId = notificationId,
+        providerMessageId = providerMessageId,
+        receiptId = receiptId,
+    )
 
-    fun requestCode(intent: NavigationIntent, notificationId: String?): Int =
-        deliveryKey(intent, notificationId).hashCode() and Int.MAX_VALUE
+    fun requestCode(deliveryKey: String): Int = deliveryKey.hashCode() and Int.MAX_VALUE
 
-    private fun identityFor(intent: NavigationIntent): String = when (intent) {
-        NavigationIntent.Dashboard -> "dashboard"
-        is NavigationIntent.ClientDetail -> "client:${intent.clientId}"
-        is NavigationIntent.EmployeeDetail -> "employee:${intent.employeeId}"
-        is NavigationIntent.ContractDetail -> "contract:${intent.contractId}"
-        is NavigationIntent.MessageTemplateDetail -> "message-template:${intent.templateId}"
-        NavigationIntent.Chat -> "chat"
-        NavigationIntent.ClientList -> "clients"
-        NavigationIntent.EmployeeList -> "employees"
-        NavigationIntent.ContractList -> "contracts"
-        NavigationIntent.Messages -> "messages"
-        NavigationIntent.Settings -> "settings"
-        NavigationIntent.Unknown -> "unknown"
-    }
+    fun requestCode(
+        intent: NavigationIntent,
+        notificationId: String?,
+        providerMessageId: String? = null,
+        receiptId: String = newReceiptId(),
+    ): Int = requestCode(deliveryKey(intent, notificationId, providerMessageId, receiptId))
+
+    /** Generate an identity once per received delivery. */
+    fun newReceiptId(): String = UUID.randomUUID().toString()
 
     private fun firstNonBlank(vararg values: String?): String? = values
         .asSequence()

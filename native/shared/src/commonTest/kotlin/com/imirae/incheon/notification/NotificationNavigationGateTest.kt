@@ -130,6 +130,65 @@ class NotificationNavigationGateTest {
     }
 
     @Test
+    fun distinctExplicitIdsForTheSameRouteAreAccepted() {
+        val gate = NotificationNavigationGate()
+
+        assertEquals(
+            NotificationNavigationDecision.Deferred,
+            gate.enqueue(
+                protectedIntent,
+                NotificationDeliveryIdentity.key("notification-1", null, "receipt-1"),
+            ),
+        )
+        assertEquals(
+            NotificationNavigationDecision.Deferred,
+            gate.enqueue(
+                protectedIntent,
+                NotificationDeliveryIdentity.key("notification-2", null, "receipt-2"),
+            ),
+        )
+    }
+
+    @Test
+    fun sameProviderDeliveryIdIsIgnoredAsDuplicate() {
+        val gate = NotificationNavigationGate()
+        val deliveryKey = NotificationDeliveryIdentity.key(
+            notificationId = null,
+            providerMessageId = "provider-42",
+            receiptId = "receipt-1",
+        )
+
+        assertEquals(
+            NotificationNavigationDecision.Deferred,
+            gate.enqueue(protectedIntent, deliveryKey),
+        )
+        assertEquals(
+            NotificationNavigationDecision.Duplicate,
+            gate.enqueue(NavigationIntent.Settings, deliveryKey),
+        )
+    }
+
+    @Test
+    fun idlessDirectDeliveriesUseDistinctReceiptKeysButReprocessingOneKeyIsDuplicate() {
+        val gate = NotificationNavigationGate()
+        val firstReceiptKey = NotificationDeliveryIdentity.key(null, null, "receipt-1")
+        val secondReceiptKey = NotificationDeliveryIdentity.key(null, null, "receipt-2")
+
+        assertEquals(
+            NotificationNavigationDecision.Deferred,
+            gate.enqueue(NavigationIntent.Settings, firstReceiptKey),
+        )
+        assertEquals(
+            NotificationNavigationDecision.Deferred,
+            gate.enqueue(NavigationIntent.Settings, secondReceiptKey),
+        )
+        assertEquals(
+            NotificationNavigationDecision.Duplicate,
+            gate.enqueue(NavigationIntent.Settings, firstReceiptKey),
+        )
+    }
+
+    @Test
     fun deliveredKeyLedgerIsBoundedAndAllowsLaterReusedKey() {
         val gate = NotificationNavigationGate(maxDeliveredKeys = 2)
         gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))

@@ -8,9 +8,10 @@ NAVIGATION="$NATIVE_ROOT/androidApp/src/main/kotlin/com/imirae/incheon/navigatio
 MAIN_ACTIVITY="$NATIVE_ROOT/androidApp/src/main/kotlin/com/imirae/incheon/MainActivity.kt"
 AUTH_VIEW_MODEL="$NATIVE_ROOT/shared/src/commonMain/kotlin/com/imirae/incheon/viewmodel/AuthViewModel.kt"
 AUTH_GATE="$NATIVE_ROOT/shared/src/commonMain/kotlin/com/imirae/incheon/notification/NotificationNavigationGate.kt"
+DELIVERY_IDENTITY="$NATIVE_ROOT/shared/src/commonMain/kotlin/com/imirae/incheon/notification/NotificationDeliveryIdentity.kt"
 NOTIFICATION_MANAGER="$NATIVE_ROOT/shared/src/commonMain/kotlin/com/imirae/incheon/notification/NotificationManager.kt"
 
-for source in "$FCM_SERVICE" "$NAVIGATION" "$MAIN_ACTIVITY" "$AUTH_VIEW_MODEL" "$AUTH_GATE" "$NOTIFICATION_MANAGER"; do
+for source in "$FCM_SERVICE" "$NAVIGATION" "$MAIN_ACTIVITY" "$AUTH_VIEW_MODEL" "$AUTH_GATE" "$DELIVERY_IDENTITY" "$NOTIFICATION_MANAGER"; do
     if [[ ! -f "$source" ]]; then
         echo "Android push intent contract failure: missing source file $source" >&2
         exit 2
@@ -42,13 +43,19 @@ forbidden_text() {
 # Foreground delivery must remain visible and carry only a parsed navigation intent.
 require_text "$FCM_SERVICE" "val navigationIntent = notificationManager.routeNotification(payload)" \
     "foreground messages do not parse their navigation intent"
-require_text "$FCM_SERVICE" "showNotification(context, payload, navigationIntent)" \
+require_text "$FCM_SERVICE" "showNotification(context, payload, navigationIntent, providerMessageId)" \
     "foreground messages are not rendered as system notifications"
 require_text "$FCM_SERVICE" "val safeDeepLink = NotificationNavigation.deepLinkFor(navigationIntent)" \
     "notification extras are not derived from the allowlisted intent"
+require_text "$FCM_SERVICE" "providerMessageId = remoteMessage.messageId" \
+    "FCM provider delivery identity is not carried into notification construction"
+require_text "$FCM_SERVICE" "val deliveryKey = NotificationNavigation.deliveryKey(" \
+    "notification delivery identity is not selected before PendingIntent creation"
+require_text "$FCM_SERVICE" "putExtra(NotificationNavigation.EXTRA_DELIVERY_KEY, deliveryKey)" \
+    "the chosen delivery identity is not embedded in the notification PendingIntent"
 require_text "$FCM_SERVICE" "PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE" \
     "notification PendingIntent flags do not preserve safe extras"
-require_text "$FCM_SERVICE" "NotificationNavigation.requestCode(navigationIntent, notificationId)" \
+require_text "$FCM_SERVICE" "NotificationNavigation.requestCode(deliveryKey)" \
     "notification PendingIntents can reuse another notification's extras"
 forbidden_text "$FCM_SERVICE" "onNewToken" \
     "FCM token registration was reintroduced"
@@ -62,6 +69,22 @@ require_text "$NAVIGATION" "if (navigationIntent is NavigationIntent.Unknown)" \
     "unknown links are not rejected before navigation"
 require_text "$NAVIGATION" "const val EXTRA_DEEP_LINK" \
     "the canonical deep-link extra is not defined"
+require_text "$NAVIGATION" "const val EXTRA_DELIVERY_KEY" \
+    "the canonical delivery identity extra is not defined"
+require_text "$NAVIGATION" "intent.getStringExtra(EXTRA_DELIVERY_KEY)" \
+    "activity intents do not preserve the FCM delivery identity"
+require_text "$NAVIGATION" "intent.putExtra(EXTRA_DELIVERY_KEY, parsedDeliveryKey)" \
+    "id-less direct app links do not receive a per-Intent receipt identity"
+forbidden_text "$NAVIGATION" 'navigation:${identityFor(intent)}' \
+    "route-only navigation identity can permanently suppress same-route deliveries"
+require_text "$NAVIGATION" "NotificationDeliveryIdentity.key(" \
+    "notification delivery identity does not prefer payload/provider ids before receipt fallback"
+require_text "$NAVIGATION" "UUID.randomUUID().toString()" \
+    "id-less deliveries do not receive a generated per-receipt identity"
+require_text "$DELIVERY_IDENTITY" "firstNonBlank(notificationId)?.let { return NOTIFICATION_PREFIX + it }" \
+    "payload notification ids do not take precedence in delivery identity selection"
+require_text "$DELIVERY_IDENTITY" "firstNonBlank(providerMessageId)?.let { return PROVIDER_PREFIX + it }" \
+    "provider message ids do not take precedence over receipt fallback when payload id is absent"
 require_text "$NAVIGATION" "fun deepLinkFor(intent: NavigationIntent): String?" \
     "validated intents are not converted to canonical deep-link paths"
 require_text "$NAVIGATION" "fun routeFor(intent: NavigationIntent): String?" \

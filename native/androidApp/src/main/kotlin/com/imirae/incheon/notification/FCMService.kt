@@ -56,6 +56,7 @@ class FCMService : FirebaseMessagingService() {
             data = data,
             isAppInForeground = isAppInForeground(),
             notificationManager = appNotificationManager,
+            providerMessageId = remoteMessage.messageId,
         )
     }
 
@@ -73,7 +74,8 @@ class FCMService : FirebaseMessagingService() {
         body: String?,
         data: Map<String, String>,
         isAppInForeground: Boolean,
-        notificationManager: com.imirae.incheon.notification.NotificationManager
+        notificationManager: com.imirae.incheon.notification.NotificationManager,
+        providerMessageId: String? = null,
     ) {
         val payload = NotificationPayload(
             title = title ?: "이미래 인천",
@@ -85,9 +87,9 @@ class FCMService : FirebaseMessagingService() {
         val navigationIntent = notificationManager.routeNotification(payload)
         if (navigationIntent is NavigationIntent.Unknown) {
             // Keep invalid/missing links visible while opening the normal app entry point.
-            showNotification(context, payload)
+            showNotification(context, payload, providerMessageId = providerMessageId)
         } else {
-            showNotification(context, payload, navigationIntent)
+            showNotification(context, payload, navigationIntent, providerMessageId)
         }
 
         if (isAppInForeground) {
@@ -95,29 +97,40 @@ class FCMService : FirebaseMessagingService() {
         }
     }
 
-    private fun showNotification(context: Context, payload: NotificationPayload) {
-        showNotification(context, payload, NavigationIntent.Unknown)
+    private fun showNotification(
+        context: Context,
+        payload: NotificationPayload,
+        providerMessageId: String? = null,
+    ) {
+        showNotification(context, payload, NavigationIntent.Unknown, providerMessageId)
     }
 
     private fun showNotification(
         context: Context,
         payload: NotificationPayload,
         navigationIntent: NavigationIntent,
+        providerMessageId: String? = null,
     ) {
         val safeDeepLink = NotificationNavigation.deepLinkFor(navigationIntent)
         val notificationId = NotificationNavigation.notificationId(payload.data)
+        val deliveryKey = NotificationNavigation.deliveryKey(
+            navigationIntent,
+            notificationId = notificationId,
+            providerMessageId = providerMessageId,
+        )
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_CLEAR_TOP or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP
             safeDeepLink?.let { putExtra(NotificationNavigation.EXTRA_DEEP_LINK, it) }
             notificationId?.let { putExtra(NotificationNavigation.EXTRA_NOTIFICATION_ID, it) }
+            putExtra(NotificationNavigation.EXTRA_DELIVERY_KEY, deliveryKey)
         }
-        // Use a route/id-specific request code so two notifications do not
-        // reuse each other's deep-link extras.
+        // Use the delivery identity as the request code so two notifications
+        // do not reuse each other's deep-link extras.
         val pendingIntent = PendingIntent.getActivity(
             context,
-            NotificationNavigation.requestCode(navigationIntent, notificationId),
+            NotificationNavigation.requestCode(deliveryKey),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

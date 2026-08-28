@@ -115,7 +115,7 @@ test("native Android declarations preserve FCM delivery and Kakao callback contr
     assert.match(fcmService, /class\s+FCMService\s*:\s*FirebaseMessagingService\(\)/);
     assert.match(fcmService, /override\s+fun\s+onMessageReceived\(remoteMessage:\s*RemoteMessage\)/);
     assert.match(fcmService, /notificationManager\.routeNotification\(payload\)/);
-    assert.match(fcmService, /showNotification\(context, payload\)/);
+    assert.match(fcmService, /showNotification\(context, payload(?:,|\))/);
     assert.doesNotMatch(fcmService, /onNewToken|registerToken|registerDeviceToken|notifications\/subscribe/);
     assert.match(manifest, /android:scheme="kakao\$\{KAKAO_NATIVE_APP_KEY\}"/);
     assert.doesNotMatch(manifest, /kakao\{NATIVE_APP_KEY\}/, "the Kakao callback must use a Gradle manifest placeholder");
