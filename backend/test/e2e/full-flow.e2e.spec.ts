@@ -28,6 +28,12 @@ import {
     SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON,
 } from "domain/constants/service-record-link-message";
 import { EFORMSIGN_CLIENT_REPOSITORY, IEformsignClientRepository } from "domain/repositories/eformsign.client.interface";
+import {
+    addBusinessDaysKr,
+    countBusinessDaysKr,
+    isoDateInKorea,
+    isBusinessDayKr,
+} from "domain/utils/business-days";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { GlobalValidationPipe } from "infrastructure/pipes/global-validation.pipe";
@@ -45,6 +51,40 @@ interface ScheduleFixture {
     employeeId: number;
     scheduleId: number;
 }
+
+interface TwoBusinessDayServicePeriod {
+    startDate: string;
+    endDate: string;
+}
+
+const createTwoBusinessDayServicePeriod = (anchorDate = isoDateInKorea()): TwoBusinessDayServicePeriod => {
+    const startDate = addBusinessDaysKr(anchorDate, 1);
+    return {
+        startDate,
+        endDate: addBusinessDaysKr(startDate, 1),
+    };
+};
+
+const findNextBusinessFriday = (anchorDate = isoDateInKorea()): string => {
+    const cursor = new Date(`${anchorDate}T00:00:00.000Z`);
+    for (let offset = 0; offset < 56; offset += 1) {
+        const candidate = cursor.toISOString().slice(0, 10);
+        if (cursor.getUTCDay() === 5 && isBusinessDayKr(candidate)) return candidate;
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    throw new Error(`Unable to find a Korean business Friday after ${anchorDate}`);
+};
+
+describe("full-flow service period fixture", () => {
+    it("keeps two contracted sessions after a Friday/weekend boundary", () => {
+        const friday = findNextBusinessFriday();
+        const period = createTwoBusinessDayServicePeriod(friday);
+
+        expect(isBusinessDayKr(period.startDate)).toBe(true);
+        expect(isBusinessDayKr(period.endDate)).toBe(true);
+        expect(countBusinessDaysKr(period.startDate, period.endDate)).toBe(2);
+    });
+});
 
 describeE2E("BJJ-275 full connected flow", () => {
     let app: INestApplication;
@@ -824,17 +864,12 @@ describeE2E("BJJ-275 full connected flow", () => {
         const runId = `${Date.now()}`.slice(-8);
         const employeePhone = `0108${runId}`.slice(0, 11);
         const clientPhone = `0109${runId}`.slice(0, 11);
-        const start = new Date();
-        start.setUTCHours(0, 0, 0, 0);
-        const end = new Date(start);
-        end.setUTCDate(end.getUTCDate() + 1);
-        const startDate = start.toISOString().slice(0, 10);
-        const endDate = end.toISOString().slice(0, 10);
+        const { startDate, endDate } = createTwoBusinessDayServicePeriod();
 
         const clientRes = await request(app.getHttpServer()).post("/clients").send({
             name: `전체흐름고객-${runId}`,
             phone: clientPhone,
-            duration: 1,
+            duration: 2,
             startDate,
             endDate,
             careCenter: false,
