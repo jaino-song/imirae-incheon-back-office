@@ -1,6 +1,12 @@
 package com.imirae.incheon.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -17,6 +23,7 @@ import com.imirae.incheon.ui.chat.ChatScreen
 import com.imirae.incheon.ui.files.FileListScreen
 import com.imirae.incheon.ui.settings.*
 import com.imirae.incheon.ui.admin.AdminFeedbackScreen
+import com.imirae.incheon.auth.AuthState
 import com.imirae.incheon.viewmodel.*
 
 object Routes {
@@ -168,10 +175,27 @@ fun AppNavGraph(
             FileListScreen(viewModel = fileListViewModel)
         }
         composable(Routes.SETTINGS) {
+            val authState by authViewModel.authState.collectAsState()
+            var logoutRequested by remember { mutableStateOf(false) }
+
+            LaunchedEffect(authState, logoutRequested) {
+                if (logoutRequested && authState is AuthState.Unauthenticated) {
+                    navController.navigate(Routes.LOGIN) {
+                        popUpTo(0) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }
+
             SettingsScreen(
                 viewModel = settingsViewModel,
                 onNavigateToVoucherPrices = { navController.navigate(Routes.VOUCHER_PRICES) },
-                onLogout = { navController.navigate(Routes.LOGIN) { popUpTo(0) } }
+                onLogout = {
+                    if (!logoutRequested) {
+                        logoutRequested = true
+                        authViewModel.logout()
+                    }
+                }
             )
         }
         composable(Routes.VOUCHER_PRICES) {

@@ -39,7 +39,8 @@ class ApiClient(
         tokenProviderLazy = lazy { tokenProvider },
     )
 
-    private val tokenProvider: TokenProvider? get() = tokenProviderLazy.value
+    @PublishedApi
+    internal val tokenProvider: TokenProvider? get() = tokenProviderLazy.value
     val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
 
     val httpClient = HttpClient(platformEngine()) {
@@ -64,8 +65,9 @@ class ApiClient(
     suspend inline fun <reified T> get(
         path: String,
         endpointCategory: EndpointCategory = if (path.startsWith("/auth")) EndpointCategory.AUTH else EndpointCategory.READ_HEAVY,
+        retryOnUnauthorized: Boolean = true,
         noinline block: HttpRequestBuilder.() -> Unit = {},
-    ): ApiResult<T> = request(endpointCategory = endpointCategory) {
+    ): ApiResult<T> = request(endpointCategory = endpointCategory, retryOnUnauthorized = retryOnUnauthorized) {
         httpClient.get(path) {
             addAuth()
             block()
@@ -75,8 +77,9 @@ class ApiClient(
     suspend inline fun <reified T> post(
         path: String,
         endpointCategory: EndpointCategory = if (path.startsWith("/auth")) EndpointCategory.AUTH else EndpointCategory.MUTATION,
+        retryOnUnauthorized: Boolean = true,
         noinline block: HttpRequestBuilder.() -> Unit = {},
-    ): ApiResult<T> = request(endpointCategory = endpointCategory) {
+    ): ApiResult<T> = request(endpointCategory = endpointCategory, retryOnUnauthorized = retryOnUnauthorized) {
         httpClient.post(path) {
             addAuth()
             block()
@@ -86,8 +89,9 @@ class ApiClient(
     suspend inline fun <reified T> put(
         path: String,
         endpointCategory: EndpointCategory = if (path.startsWith("/auth")) EndpointCategory.AUTH else EndpointCategory.MUTATION,
+        retryOnUnauthorized: Boolean = true,
         noinline block: HttpRequestBuilder.() -> Unit = {},
-    ): ApiResult<T> = request(endpointCategory = endpointCategory) {
+    ): ApiResult<T> = request(endpointCategory = endpointCategory, retryOnUnauthorized = retryOnUnauthorized) {
         httpClient.put(path) {
             addAuth()
             block()
@@ -97,8 +101,9 @@ class ApiClient(
     suspend inline fun <reified T> delete(
         path: String,
         endpointCategory: EndpointCategory = if (path.startsWith("/auth")) EndpointCategory.AUTH else EndpointCategory.MUTATION,
+        retryOnUnauthorized: Boolean = true,
         noinline block: HttpRequestBuilder.() -> Unit = {},
-    ): ApiResult<T> = request(endpointCategory = endpointCategory) {
+    ): ApiResult<T> = request(endpointCategory = endpointCategory, retryOnUnauthorized = retryOnUnauthorized) {
         httpClient.delete(path) {
             addAuth()
             block()
@@ -107,9 +112,11 @@ class ApiClient(
 
     suspend inline fun <reified T> request(
         endpointCategory: EndpointCategory,
+        retryOnUnauthorized: Boolean = true,
         call: () -> HttpResponse,
     ): ApiResult<T> {
         var attempt = 0
+        var unauthorizedRetried = false
 
         while (true) {
             try {
@@ -120,6 +127,20 @@ class ApiClient(
                 }
 
                 val statusCode = response.status.value
+                if (statusCode == HttpStatusCode.Unauthorized.value && retryOnUnauthorized && !unauthorizedRetried) {
+                    val refreshedAccessToken = try {
+                        tokenProvider?.refreshToken()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (!refreshedAccessToken.isNullOrBlank()) {
+                        unauthorizedRetried = true
+                        continue
+                    }
+                }
+
                 val retryPlan = rateLimitHandler.planRetry(
                     statusCode = statusCode,
                     attempt = attempt,

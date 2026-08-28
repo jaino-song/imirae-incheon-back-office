@@ -66,11 +66,11 @@ class APNsDelegate: NSObject, UNUserNotificationCenterDelegate {
 
         // Extract deep link and route
         if let deepLink = userInfo["deepLink"] as? String ?? userInfo["link"] as? String {
-            NotificationCenter.default.post(
-                name: .init("DeepLinkNotification"),
-                object: nil,
-                userInfo: ["url": deepLink]
-            )
+            if let url = URL(string: deepLink) {
+                Task { @MainActor in
+                    DeepLinkHandler.shared.handle(url: url)
+                }
+            }
         }
 
         completionHandler()

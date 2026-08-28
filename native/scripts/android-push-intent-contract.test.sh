@@ -121,8 +121,14 @@ fi
 # Protected routes must wait for the shared session restoration state machine.
 require_text "$AUTH_VIEW_MODEL" "fun restoreSession() = authManager.restoreSession()" \
     "the Android lifecycle cannot initiate shared session restoration"
+require_text "$AUTH_VIEW_MODEL" "fun onAppResume() = authManager.onAppResume()" \
+    "the Android lifecycle cannot revalidate sessions on foreground"
 require_text "$MAIN_ACTIVITY" "authViewModel.restoreSession()" \
     "cold-start activity does not initiate session restoration"
+require_text "$MAIN_ACTIVITY" "override fun onResume()" \
+    "warm-start activity does not revalidate the shared session"
+require_text "$MAIN_ACTIVITY" "authViewModel.onAppResume()" \
+    "warm-start activity does not invoke the shared resume hook"
 require_text "$MAIN_ACTIVITY" "authViewModel.authState.collectAsState()" \
     "activity does not observe the shared auth state before consuming routes"
 require_text "$MAIN_ACTIVITY" "navigationGate.onAuthStateChanged(authState)" \

@@ -27,20 +27,24 @@ class AuthViewModelWrapper: ObservableObject {
     private let viewModel: AuthViewModel
     private var authCollector: StateFlowCollector?
     private var branchesCollector: StateFlowCollector?
+    private var logoutCollector: StateFlowCollector?
     @Published var authState: AuthState = AuthState.Initial()
     @Published var isLoading: Bool = false
     @Published var errorMessage: String? = nil
     @Published private(set) var branchSelectionState: BranchSelectionState = .idle
+    @Published private(set) var logoutState: LogoutState = LogoutState.Idle()
 
     init(viewModel: AuthViewModel = KoinHelper.shared.authViewModel()) {
         self.viewModel = viewModel
         observeAuthState()
         observeBranchesState()
+        observeLogoutState()
     }
 
     deinit {
         authCollector?.stop()
         branchesCollector?.stop()
+        logoutCollector?.stop()
     }
 
     private func observeAuthState() {
@@ -96,17 +100,43 @@ class AuthViewModelWrapper: ObservableObject {
         }
     }
 
+    private func observeLogoutState() {
+        let collector = StateFlowCollector { [weak self] value in
+            guard let state = value as? LogoutState else {
+                return
+            }
+
+            Task { @MainActor [weak self] in
+                self?.logoutState = state
+            }
+        }
+        logoutCollector = collector
+        viewModel.logoutState.collect(collector: collector) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.logoutCollector?.stop()
+            }
+        }
+    }
+
     func login(email: String, password: String) {
         viewModel.login(email: email, password: password)
     }
 
-    func register(name: String, email: String, password: String, phone: String?) {
-        viewModel.register(name: name, email: email, password: password, phone: phone)
+    func register(name: String, email: String, password: String, phone: String, birthDate: String) {
+        viewModel.register(name: name, email: email, password: password, phone: phone, birthDate: birthDate)
     }
 
     func logout() {
         branchSelectionState = .idle
         viewModel.logout()
+    }
+
+    func restoreSession() {
+        viewModel.restoreSession()
+    }
+
+    func onAppResume() {
+        viewModel.onAppResume()
     }
 
     func forgotPassword(email: String) {

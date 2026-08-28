@@ -16,21 +16,13 @@ private enum AppConstants {
 @main
 struct ImiraeIncheonApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var deepLinkHandler = DeepLinkHandler()
+    @StateObject private var deepLinkHandler = DeepLinkHandler.shared
 
     var body: some Scene {
         WindowGroup {
-            AppNavigation()
+            AppNavigation(deepLinkHandler: deepLinkHandler)
                 .environmentObject(deepLinkHandler)
                 .onOpenURL { url in
-                    deepLinkHandler.handle(url: url)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .deepLinkNotification)) { notification in
-                    guard let rawURL = notification.userInfo?["url"] as? String,
-                        let url = URL(string: rawURL)
-                    else {
-                        return
-                    }
                     deepLinkHandler.handle(url: url)
                 }
         }
@@ -90,24 +82,41 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             return
         }
 
-        NotificationCenter.default.post(
-            name: .deepLinkNotification,
-            object: nil,
-            userInfo: ["url": deepLink]
-        )
+        guard let url = URL(string: deepLink) else {
+            return
+        }
+
+        // Deliver directly to the shared handler so cold-start notification
+        // payloads are retained before SwiftUI installs its observers.
+        Task { @MainActor in
+            DeepLinkHandler.shared.handle(url: url)
+        }
+
     }
 }
 
 @MainActor
 final class DeepLinkHandler: ObservableObject {
+    static let shared = DeepLinkHandler()
+
     @Published private(set) var lastDeepLink: URL?
+    @Published private(set) var pendingRoute: String?
+
+    private let router = DeepLinkRouter()
 
     func handle(url: URL) {
-        guard isSupported(url: url) else {
+        guard isSupported(url: url), let route = router.routePath(uri: url.absoluteString) else {
+            // Fail closed and discard any stale pending protected destination.
+            pendingRoute = nil
+            return
+        }
+
+        if pendingRoute == route, lastDeepLink == url {
             return
         }
 
         lastDeepLink = url
+        pendingRoute = route
         NotificationCenter.default.post(
             name: .appDeepLinkReceived,
             object: nil,
@@ -115,7 +124,24 @@ final class DeepLinkHandler: ObservableObject {
         )
     }
 
+    func consumePendingRoute(_ route: String) {
+        guard pendingRoute == route else {
+            return
+        }
+        pendingRoute = nil
+    }
+
+    func clearPendingRoute() {
+        pendingRoute = nil
+    }
+
     private func isSupported(url: URL) -> Bool {
+        if url.scheme == nil {
+            // Backend notification payloads may carry the canonical path
+            // (for example `/clients/123`) instead of a full URL.
+            return url.path.hasPrefix("/")
+        }
+
         if url.scheme == "imirae" {
             return true
         }
@@ -145,8 +171,8 @@ private final class AppBootstrapper {
     }
 }
 
-extension Notification.Name {
-    static let deepLinkNotification = Notification.Name("DeepLinkNotification")
-    static let appDeepLinkReceived = Notification.Name("AppDeepLinkReceived")
+extension Foundation.Notification.Name {
+    static let deepLinkNotification = Foundation.Notification.Name("DeepLinkNotification")
+    static let appDeepLinkReceived = Foundation.Notification.Name("AppDeepLinkReceived")
 }
 #endif

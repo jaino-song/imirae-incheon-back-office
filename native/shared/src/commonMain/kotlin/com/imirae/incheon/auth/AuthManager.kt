@@ -4,25 +4,12 @@ import com.imirae.incheon.data.remote.AuthService
 import com.imirae.incheon.domain.models.Branch
 import com.imirae.incheon.network.ApiResult
 import com.imirae.incheon.network.TokenProvider
-import com.imirae.incheon.network.platformEngine
-import io.ktor.client.HttpClient
-import io.ktor.client.plugins.*
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.http.contentType
-import io.ktor.http.isSuccess
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.json.Json
 
 sealed class BranchesUiState {
     data object Idle : BranchesUiState()
@@ -31,35 +18,70 @@ sealed class BranchesUiState {
     data class Error(val message: String) : BranchesUiState()
 }
 
-class AuthManager(
+/** Result of the local logout transaction.  Local authority is always removed;
+ * [remoteRevocationSucceeded] records whether the backend acknowledged the
+ * revoke so callers can surface a recoverable warning without retaining a
+ * usable local session. */
+sealed class LogoutState {
+    data object Idle : LogoutState()
+    data object InProgress : LogoutState()
+    data class Completed(val remoteRevocationSucceeded: Boolean) : LogoutState()
+}
+
+internal interface SessionRevoker {
+    suspend fun revoke(accessToken: String?, refreshToken: String?, deviceId: String?): Boolean
+}
+
+class AuthManager private constructor(
     private val authService: AuthService,
-    private val secureStorage: SecureStorage,
-    private val apiBaseUrl: String,
+    private val secureStorage: AuthStorage,
+    private val sessionRevoker: SessionRevoker,
+    private val scope: CoroutineScope,
 ) : TokenProvider {
+    /** Public KMP boundary retained for Android/iOS dependency injection. */
+    constructor(
+        authService: AuthService,
+        secureStorage: SecureStorage,
+        apiBaseUrl: String,
+    ) : this(
+        authService = authService,
+        secureStorage = SecureStorageAdapter(secureStorage),
+        sessionRevoker = HttpSessionRevoker(apiBaseUrl),
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    )
+
+    /** Deterministic constructor for shared lifecycle contract tests. */
+    internal constructor(
+        authService: AuthService,
+        secureStorage: AuthStorage,
+        sessionRevoker: SessionRevoker,
+        scope: CoroutineScope,
+        @Suppress("UNUSED_PARAMETER") testOnly: Unit = Unit,
+    ) : this(authService, secureStorage, sessionRevoker, scope)
+
     private val sessionPolicy = SessionPolicy(secureStorage)
     private val stepUpAuth = StepUpAuth(secureStorage)
     private val _authState = MutableStateFlow<AuthState>(AuthState.Initial)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
     private val _branchesState = MutableStateFlow<BranchesUiState>(BranchesUiState.Idle)
     val branchesState: StateFlow<BranchesUiState> = _branchesState.asStateFlow()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val _logoutState = MutableStateFlow<LogoutState>(LogoutState.Idle)
+    val logoutState: StateFlow<LogoutState> = _logoutState.asStateFlow()
     private val refreshMutex = Mutex()
+    private val lifecycleMutex = Mutex()
+    private val logoutMutex = Mutex()
+    private val sessionOperationMutex = Mutex()
+    private var sessionEpoch = 0L
     private var refreshInFlight: Deferred<String?>? = null
-    private val authJson = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-        encodeDefaults = true
-    }
-    private val sessionHttpClient = HttpClient(platformEngine()) {
-        install(ContentNegotiation) { json(authJson) }
-    }
 
     override suspend fun getAccessToken(): String? {
-        val accessToken = secureStorage.getString(accessTokenKey)
-        if (accessToken != null) {
-            sessionPolicy.updateActivity()
+        return sessionOperationMutex.withLock {
+            val accessToken = secureStorage.getString(accessTokenKey)
+            if (accessToken != null) {
+                sessionPolicy.updateActivity()
+            }
+            accessToken
         }
-        return accessToken
     }
 
     override suspend fun refreshToken(): String? {
@@ -84,14 +106,13 @@ class AuthManager(
 
     fun login(email: String, password: String) {
         scope.launch {
+            val operationEpoch = currentSessionEpoch()
             _authState.value = AuthState.Loading
             updateActivity()
             when (val result = authService.login(email, password)) {
                 is ApiResult.Success -> {
-                    persistTokens(result.data.accessToken, result.data.refreshToken)
-                    runCatching {
-                        val deviceId = sessionPolicy.getOrCreateDeviceId()
-                        registerDeviceWithBackend(result.data.accessToken, deviceId)
+                    if (!persistTokensIfCurrent(operationEpoch, result.data.accessToken, result.data.refreshToken)) {
+                        return@launch
                     }
 
                     if (result.data.requiresBranchSelection) {
@@ -106,11 +127,11 @@ class AuthManager(
         }
     }
 
-    fun register(name: String, email: String, password: String, phone: String?) {
+    fun register(name: String, email: String, password: String, phone: String, birthDate: String) {
         scope.launch {
             _authState.value = AuthState.Loading
             updateActivity()
-            when (val result = authService.register(name, email, password, phone)) {
+            when (val result = authService.register(name, email, password, phone, birthDate)) {
                 is ApiResult.Success -> _authState.value = AuthState.Unauthenticated
                 is ApiResult.Error -> _authState.value = AuthState.Error(result.error.userMessage())
             }
@@ -119,8 +140,29 @@ class AuthManager(
 
     fun logout() {
         scope.launch {
-            forceLogout(revokeRemote = true)
+            logoutMutex.withLock {
+                _logoutState.value = LogoutState.InProgress
+                val remoteRevocationSucceeded = runCatching {
+                    withContext(NonCancellable) {
+                        forceLogout(revokeRemote = true)
+                    }
+                }.getOrDefault(false)
+                _logoutState.value = LogoutState.Completed(remoteRevocationSucceeded)
+            }
         }
+    }
+
+    /** Suspended variant used by deterministic lifecycle tests and hosts that
+     * already own a coroutine. Navigation should still be driven by the
+     * published unauthenticated state after this transaction completes. */
+    suspend fun logoutAndAwait(): LogoutState = logoutMutex.withLock {
+        _logoutState.value = LogoutState.InProgress
+        val remoteRevocationSucceeded = runCatching {
+            withContext(NonCancellable) {
+                forceLogout(revokeRemote = true)
+            }
+        }.getOrDefault(false)
+        LogoutState.Completed(remoteRevocationSucceeded).also { _logoutState.value = it }
     }
 
     fun forgotPassword(email: String) {
@@ -145,11 +187,15 @@ class AuthManager(
 
     fun selectBranch(branchId: String) {
         scope.launch {
+            val operationEpoch = currentSessionEpoch()
             _authState.value = AuthState.Loading
             updateActivity()
             when (val result = authService.selectBranch(branchId)) {
                 is ApiResult.Success -> {
-                    persistTokens(result.data.accessToken, result.data.refreshToken ?: secureStorage.getString(refreshTokenKey).orEmpty())
+                    val refreshToken = result.data.refreshToken ?: secureStorage.getString(refreshTokenKey).orEmpty()
+                    if (!persistTokensIfCurrent(operationEpoch, result.data.accessToken, refreshToken)) {
+                        return@launch
+                    }
                     loadProfile()
                 }
                 is ApiResult.Error -> _authState.value = AuthState.Error(result.error.userMessage())
@@ -173,7 +219,20 @@ class AuthManager(
 
     fun onAppResume() {
         scope.launch {
-            checkSessionOnResume()
+            lifecycleMutex.withLock {
+                val canContinue = checkSessionOnResume()
+                if (!canContinue) {
+                    _authState.value = AuthState.Unauthenticated
+                    return@withLock
+                }
+
+                if (_authState.value is AuthState.Initial ||
+                    _authState.value is AuthState.Loading ||
+                    _authState.value is AuthState.Unauthenticated
+                ) {
+                    loadProfile()
+                }
+            }
         }
     }
 
@@ -189,39 +248,57 @@ class AuthManager(
 
     fun restoreSession() {
         scope.launch {
-            val canContinue = checkSessionOnResume()
-            if (!canContinue) {
-                _authState.value = AuthState.Unauthenticated
-                return@launch
-            }
+            lifecycleMutex.withLock {
+                val canContinue = checkSessionOnResume()
+                if (!canContinue) {
+                    _authState.value = AuthState.Unauthenticated
+                    return@withLock
+                }
 
-            loadProfile()
+                loadProfile()
+            }
         }
     }
 
     private suspend fun loadProfile() {
+        val operationEpoch = currentSessionEpoch()
         updateActivity()
         when (val result = authService.getProfile()) {
             is ApiResult.Success -> {
-                _authState.value = AuthState.Authenticated(
-                    result.data.id,
-                    result.data.role,
-                    result.data.branchName
-                )
-                updateActivity()
+                sessionOperationMutex.withLock {
+                    if (sessionEpoch != operationEpoch) {
+                        return@withLock
+                    }
+                    _authState.value = AuthState.Authenticated(
+                        result.data.id,
+                        result.data.role,
+                        result.data.branchName
+                    )
+                    updateActivity()
+                }
             }
 
             is ApiResult.Error -> {
-                clearLocalSession()
-                _authState.value = AuthState.Unauthenticated
+                clearSessionIfCurrent(operationEpoch)
             }
         }
     }
 
     private suspend fun performRefreshToken(): String? {
-        val refreshToken = secureStorage.getString(refreshTokenKey) ?: return null
-        sessionPolicy.ensureRefreshTokenTracked(refreshToken)
-        if (!sessionPolicy.canUseRefreshToken(refreshToken)) {
+        val operationEpoch = currentSessionEpoch()
+        val refreshToken = secureStorage.getString(refreshTokenKey) ?: run {
+            forceLogout(revokeRemote = false)
+            return null
+        }
+        val refreshTokenUsable = sessionOperationMutex.withLock {
+            if (sessionEpoch != operationEpoch) {
+                false
+            } else {
+                sessionPolicy.ensureRefreshTokenTracked(refreshToken)
+                sessionPolicy.canUseRefreshToken(refreshToken)
+            }
+        }
+        if (!refreshTokenUsable) {
             forceLogout(revokeRemote = false)
             return null
         }
@@ -229,14 +306,13 @@ class AuthManager(
         updateActivity()
         return when (val result = authService.refreshToken(refreshToken)) {
             is ApiResult.Success -> {
-                val rotated = sessionPolicy.rotateRefreshToken(refreshToken, result.data.refreshToken)
-                if (!rotated) {
-                    forceLogout(revokeRemote = true)
-                    null
-                } else {
-                    persistTokens(result.data.accessToken, result.data.refreshToken)
-                    updateActivity()
-                    result.data.accessToken
+                when (commitRefreshIfCurrent(operationEpoch, refreshToken, result.data.accessToken, result.data.refreshToken)) {
+                    RefreshCommit.Success -> result.data.accessToken
+                    RefreshCommit.Stale -> null
+                    RefreshCommit.Rejected -> {
+                        forceLogout(revokeRemote = true)
+                        null
+                    }
                 }
             }
 
@@ -262,7 +338,10 @@ class AuthManager(
             }
         }
 
-        val accessToken = secureStorage.getString(accessTokenKey) ?: return false
+        val accessToken = secureStorage.getString(accessTokenKey) ?: run {
+            forceLogout(revokeRemote = false)
+            return false
+        }
         val expired = try {
             isAccessTokenExpired(accessToken)
         } catch (_: Exception) {
@@ -339,100 +418,99 @@ class AuthManager(
         updateActivity()
     }
 
-    private suspend fun registerDeviceWithBackend(accessToken: String, deviceId: String): Boolean {
-        val payload = mapOf(
-            "deviceId" to deviceId,
-            "device_id" to deviceId,
-        )
+    private suspend fun currentSessionEpoch(): Long = sessionOperationMutex.withLock { sessionEpoch }
 
-        for (endpoint in deviceRegistrationEndpoints) {
-            val isSuccess = runCatching {
-                val response = sessionHttpClient.post("$authBaseUrl$endpoint") {
-                    header(HttpHeaders.Authorization, "Bearer $accessToken")
-                    contentType(ContentType.Application.Json)
-                    setBody(payload)
-                }
-                response.status.isSuccess()
-            }.getOrDefault(false)
-
-            if (isSuccess) {
-                return true
-            }
+    private suspend fun persistTokensIfCurrent(
+        operationEpoch: Long,
+        accessToken: String,
+        refreshToken: String,
+    ): Boolean = sessionOperationMutex.withLock {
+        if (sessionEpoch != operationEpoch) {
+            return@withLock false
         }
-
-        return false
+        persistTokens(accessToken, refreshToken)
+        true
     }
 
-    private suspend fun revokeSessionOnBackend(accessToken: String?, refreshToken: String?, deviceId: String?) {
-        if (accessToken == null && refreshToken == null) {
-            return
+    private suspend fun commitRefreshIfCurrent(
+        operationEpoch: Long,
+        usedRefreshToken: String,
+        accessToken: String,
+        refreshToken: String,
+    ): RefreshCommit = sessionOperationMutex.withLock {
+        if (sessionEpoch != operationEpoch) {
+            return@withLock RefreshCommit.Stale
         }
-
-        val payload = buildMap {
-            if (refreshToken != null) {
-                put("refreshToken", refreshToken)
-                put("refresh_token", refreshToken)
-            }
-            if (deviceId != null) {
-                put("deviceId", deviceId)
-                put("device_id", deviceId)
-            }
+        if (!sessionPolicy.rotateRefreshToken(usedRefreshToken, refreshToken)) {
+            return@withLock RefreshCommit.Rejected
         }
-
-        for (endpoint in logoutEndpoints) {
-            val handled = runCatching {
-                val response = sessionHttpClient.post("$authBaseUrl$endpoint") {
-                    if (accessToken != null) {
-                        header(HttpHeaders.Authorization, "Bearer $accessToken")
-                    }
-                    contentType(ContentType.Application.Json)
-                    setBody(payload)
-                }
-
-                response.status.isSuccess() || response.status.value == 401 || response.status.value == 403
-            }.getOrDefault(false)
-
-            if (handled) {
-                return
-            }
-        }
+        persistTokens(accessToken, refreshToken)
+        RefreshCommit.Success
     }
 
-    private suspend fun forceLogout(revokeRemote: Boolean = true) {
-        val accessToken = secureStorage.getString(accessTokenKey)
-        val refreshToken = secureStorage.getString(refreshTokenKey)
-        val deviceId = sessionPolicy.getDeviceId()
+    private suspend fun clearSessionIfCurrent(operationEpoch: Long): Boolean = sessionOperationMutex.withLock {
+        if (sessionEpoch != operationEpoch) {
+            return@withLock false
+        }
+        sessionEpoch += 1
+        clearLocalSession()
+        _authState.value = AuthState.Unauthenticated
+        true
+    }
 
-        if (revokeRemote) {
-            revokeSessionOnBackend(accessToken, refreshToken, deviceId)
+    /**
+     * Remote revoke is best effort, but the local transaction is fail-closed:
+     * credentials and policy state are cleared even when storage or transport
+     * operations fail.  The Boolean is deliberately returned to the caller so
+     * logout can record a warning without retaining local authority.
+     */
+    private suspend fun forceLogout(revokeRemote: Boolean = true): Boolean = sessionOperationMutex.withLock {
+        // Invalidate all in-flight login/profile/refresh commits before the
+        // remote request. They may finish, but cannot restore local authority
+        // after this logout transaction has begun.
+        sessionEpoch += 1
+        val accessToken = runCatching { secureStorage.getString(accessTokenKey) }.getOrNull()
+        val refreshToken = runCatching { secureStorage.getString(refreshTokenKey) }.getOrNull()
+        val deviceId = runCatching { sessionPolicy.getDeviceId() }.getOrNull()
+
+        val remoteRevocationSucceeded = if (revokeRemote) {
+            runCatching { sessionRevoker.revoke(accessToken, refreshToken, deviceId) }.getOrDefault(false)
+        } else {
+            true
         }
 
         clearLocalSession()
         _authState.value = AuthState.Unauthenticated
+        return@withLock remoteRevocationSucceeded
     }
 
     private fun clearLocalSession() {
-        secureStorage.remove(accessTokenKey)
-        secureStorage.remove(refreshTokenKey)
-        sessionPolicy.clearSessionPolicyState()
-        stepUpAuth.clearStepUp()
+        // Each deletion is isolated so a platform Keychain/Keystore error for
+        // one key cannot leave another usable credential behind.
+        var credentialDeletionFailed = false
+        listOf(accessTokenKey, refreshTokenKey).forEach { key ->
+            runCatching { secureStorage.remove(key) }
+                .onFailure { credentialDeletionFailed = true }
+        }
+        if (credentialDeletionFailed) {
+            // A platform store may fail one item-level deletion (for example,
+            // a transient Keychain status).  Escalate to the store's atomic
+            // clear operation rather than leaving a bearer token behind.
+            runCatching { secureStorage.clear() }
+        }
+        runCatching { sessionPolicy.clearSessionPolicyState() }
+        runCatching { stepUpAuth.clearStepUp() }
     }
-
-    private val authBaseUrl: String get() = apiBaseUrl
 
     private companion object {
         const val accessTokenKey = "access_token"
         const val refreshTokenKey = "refresh_token"
         val expClaimRegex = "\"exp\"\\s*:\\s*(\\d+)".toRegex()
-        val deviceRegistrationEndpoints = listOf(
-            "/auth/devices/register",
-            "/auth/device/register",
-            "/auth/session/register-device",
-        )
-        val logoutEndpoints = listOf(
-            "/auth/logout",
-            "/auth/revoke",
-            "/auth/revoke-session",
-        )
+    }
+
+    private enum class RefreshCommit {
+        Success,
+        Stale,
+        Rejected,
     }
 }

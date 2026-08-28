@@ -2,6 +2,7 @@ package com.imirae.incheon.deeplink
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class DeepLinkRouterTest {
     private val router = DeepLinkRouter()
@@ -32,5 +33,25 @@ class DeepLinkRouterTest {
             NavigationIntent.Unknown,
             router.route("imirae://app/clients/../../settings"),
         )
+    }
+
+    @Test
+    fun emitsOneCanonicalPathForEveryAllowlistedRoute() {
+        assertEquals(
+            "/clients/client-42",
+            router.routePath("https://app.imirae-incheon.com/clients/client-42?source=push"),
+        )
+        assertEquals(
+            "/messages/templates/template-7",
+            router.routePath("imirae://app/messages/templates/template-7#detail"),
+        )
+        assertEquals("/dashboard", router.routePath("imirae://app/dashboard"))
+    }
+
+    @Test
+    fun canonicalPathRejectsUnknownOrForeignDestinations() {
+        assertNull(router.routePath("https://evil.example/settings"))
+        assertNull(router.routePath("imirae://app/clients/../../settings"))
+        assertNull(router.routePath("imirae://app/unknown"))
     }
 }

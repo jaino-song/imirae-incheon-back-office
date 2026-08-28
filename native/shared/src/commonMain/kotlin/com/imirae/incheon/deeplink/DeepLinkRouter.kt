@@ -45,6 +45,26 @@ class DeepLinkRouter {
         }
     }
 
+    /**
+     * Return the canonical allowlisted path for a URI.  Platform navigation
+     * consumes this shared mapping instead of reparsing untrusted URL text.
+     * Unknown, malformed, or foreign-host links return null.
+     */
+    fun routePath(uri: String): String? = when (val intent = route(uri)) {
+        NavigationIntent.Dashboard -> "/dashboard"
+        is NavigationIntent.ClientDetail -> "/clients/${intent.clientId}"
+        is NavigationIntent.EmployeeDetail -> "/employees/${intent.employeeId}"
+        is NavigationIntent.ContractDetail -> "/contracts/${intent.contractId}"
+        is NavigationIntent.MessageTemplateDetail -> "/messages/templates/${intent.templateId}"
+        NavigationIntent.Chat -> "/chat"
+        NavigationIntent.ClientList -> "/clients"
+        NavigationIntent.EmployeeList -> "/employees"
+        NavigationIntent.ContractList -> "/contracts"
+        NavigationIntent.Messages -> "/messages"
+        NavigationIntent.Settings -> "/settings"
+        NavigationIntent.Unknown -> null
+    }
+
     private fun parseUri(uri: String): NavigationIntent {
         // Support both https:// and custom scheme imirae://
         val normalized = when {

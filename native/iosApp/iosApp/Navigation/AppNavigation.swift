@@ -1,5 +1,6 @@
 import SwiftUI
 import shared
+import UIKit
 
 enum AppRoute: Hashable {
     case login
@@ -29,6 +30,13 @@ enum AppRoute: Hashable {
 struct AppNavigation: View {
     @State private var path = NavigationPath()
     @StateObject private var authWrapper = AuthViewModelWrapper()
+    @ObservedObject private var deepLinkHandler: DeepLinkHandler
+    @State private var pendingDeepLinkPrincipal: String?
+    @State private var didRequestSessionRestore = false
+
+    init(deepLinkHandler: DeepLinkHandler) {
+        _deepLinkHandler = ObservedObject(wrappedValue: deepLinkHandler)
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -38,7 +46,8 @@ struct AppNavigation: View {
                 onNavigateToForgotPassword: { path.append(AppRoute.forgotPassword) },
                 onNavigateToVerifyEmail: { path.append(AppRoute.verifyEmail) },
                 onNavigateToDashboard: { path = NavigationPath(); path.append(AppRoute.dashboard) },
-                onNavigateToSelectBranch: { path.append(AppRoute.selectBranch) }
+                onNavigateToSelectBranch: { path.append(AppRoute.selectBranch) },
+                shouldNavigateToDashboard: { deepLinkHandler.pendingRoute == nil }
             )
             .navigationDestination(for: AppRoute.self) { route in
                 switch route {
@@ -54,7 +63,8 @@ struct AppNavigation: View {
                     SelectBranchView(
                         viewModel: authWrapper,
                         onNavigateToDashboard: { path = NavigationPath(); path.append(AppRoute.dashboard) },
-                        onNavigateToLogin: { path = NavigationPath() }
+                        onNavigateToLogin: { path = NavigationPath() },
+                        shouldNavigateToDashboard: { deepLinkHandler.pendingRoute == nil }
                     )
                 case .dashboard:
                     DashboardView(
@@ -95,7 +105,7 @@ struct AppNavigation: View {
                 case .settings:
                     SettingsView(
                         onNavigateToVoucherPrices: { path.append(AppRoute.voucherPrices) },
-                        onLogout: { path = NavigationPath() }
+                        onLogout: { authWrapper.logout() }
                     )
                 case .voucherPrices:
                     VoucherPriceView(onNavigateBack: { path.removeLast() })
@@ -108,10 +118,147 @@ struct AppNavigation: View {
                         onNavigateToForgotPassword: { path.append(AppRoute.forgotPassword) },
                         onNavigateToVerifyEmail: { path.append(AppRoute.verifyEmail) },
                         onNavigateToDashboard: { path = NavigationPath(); path.append(AppRoute.dashboard) },
-                        onNavigateToSelectBranch: { path.append(AppRoute.selectBranch) }
+                        onNavigateToSelectBranch: { path.append(AppRoute.selectBranch) },
+                        shouldNavigateToDashboard: { deepLinkHandler.pendingRoute == nil }
                     )
                 }
             }
+        }
+        .onAppear {
+            guard !didRequestSessionRestore else {
+                return
+            }
+
+            didRequestSessionRestore = true
+            authWrapper.restoreSession()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            authWrapper.onAppResume()
+        }
+        .onChange(of: authWrapper.authState) { oldState, newState in
+            reconcileAuthTransition(from: oldState, to: newState)
+        }
+        .onChange(of: deepLinkHandler.pendingRoute) { _, _ in
+            reconcilePendingDeepLink()
+        }
+    }
+
+    private func reconcileAuthTransition(from oldState: AuthState, to newState: AuthState) {
+        if oldState is AuthState.Authenticated && !(newState is AuthState.Authenticated) {
+            // Once a principal leaves the authenticated state, any queued
+            // route must not survive a failed refresh into another account.
+            deepLinkHandler.clearPendingRoute()
+            pendingDeepLinkPrincipal = nil
+        }
+
+        if let oldAuthenticated = oldState as? AuthState.Authenticated,
+           let newAuthenticated = newState as? AuthState.Authenticated,
+           oldAuthenticated.userId != newAuthenticated.userId {
+            deepLinkHandler.clearPendingRoute()
+            pendingDeepLinkPrincipal = nil
+            path = NavigationPath()
+            return
+        }
+
+        if newState is AuthState.Unauthenticated {
+            // A logout or abandoned branch selection must discard routes that
+            // were bound to the previous principal.  A link received while
+            // already logged out remains queued for the next successful login.
+            if oldState is AuthState.Authenticated || oldState is AuthState.RequiresBranchSelection {
+                deepLinkHandler.clearPendingRoute()
+                pendingDeepLinkPrincipal = nil
+            }
+            path = NavigationPath()
+            return
+        }
+
+        reconcilePendingDeepLink()
+    }
+
+    private func reconcilePendingDeepLink() {
+        guard let canonicalPath = deepLinkHandler.pendingRoute else {
+            return
+        }
+
+        guard let route = appRoute(for: canonicalPath) else {
+            deepLinkHandler.clearPendingRoute()
+            pendingDeepLinkPrincipal = nil
+            return
+        }
+
+        switch authWrapper.authState {
+        case let authenticated as AuthState.Authenticated:
+            if let pendingDeepLinkPrincipal, pendingDeepLinkPrincipal != authenticated.userId {
+                deepLinkHandler.clearPendingRoute()
+                self.pendingDeepLinkPrincipal = nil
+                return
+            }
+
+            if pendingDeepLinkPrincipal == nil {
+                pendingDeepLinkPrincipal = authenticated.userId
+            }
+            path = NavigationPath()
+            path.append(route)
+            deepLinkHandler.consumePendingRoute(canonicalPath)
+
+        case is AuthState.RequiresBranchSelection:
+            path = NavigationPath()
+            path.append(AppRoute.selectBranch)
+
+        case is AuthState.Initial, is AuthState.Loading:
+            // Keep the one pending route until restore/resume settles.
+            return
+
+        case is AuthState.Unauthenticated, is AuthState.Error:
+            // The root LoginView remains visible; the route is replayed after
+            // the user authenticates, without exposing a protected screen.
+            path = NavigationPath()
+
+        default:
+            // Unknown future auth states fail closed at the root until the
+            // shared lifecycle publishes a supported terminal state.
+            path = NavigationPath()
+        }
+    }
+
+    private func appRoute(for canonicalPath: String) -> AppRoute? {
+        let segments = canonicalPath
+            .split(separator: "/")
+            .map(String.init)
+
+        guard let root = segments.first else {
+            return nil
+        }
+
+        switch root {
+        case "dashboard":
+            return segments.count == 1 ? .dashboard : nil
+        case "clients":
+            if segments.count == 1 {
+                return .clientList
+            }
+            return segments.count == 2 ? .clientDetail(id: segments[1]) : nil
+        case "employees":
+            // The current iOS surface exposes the employee list; detail links
+            // safely land there until a detail screen is available.
+            return segments.count == 1 || segments.count == 2 ? .employeeList : nil
+        case "contracts":
+            // The current iOS surface exposes the contract list; detail links
+            // safely land there until a detail screen is available.
+            return segments.count == 1 || segments.count == 2 ? .contractList : nil
+        case "messages":
+            if segments.count == 1 {
+                return .messages
+            }
+            return segments.count == 3 && segments[1] == "templates"
+                ? .messageEdit(id: segments[2])
+                : nil
+        case "chat":
+            return segments.count == 1 ? .chat : nil
+        case "settings":
+            return segments.count == 1 ? .settings : nil
+        default:
+            return nil
         }
     }
 }
@@ -125,10 +272,10 @@ private final class IOSFeatureDependencyContainer {
     let settingsService: SettingsService
 
     private init() {
-        let secureStorage = IosSecureStorage()
+        let secureStorage = SecureStorage()
         let apiBaseURL = IOSApiEndpointConfiguration.requireBaseURL()
         let anonymousClient = ApiClient(baseUrl: apiBaseURL, tokenProvider: nil)
-        let authService = AuthServiceImpl(apiClient: anonymousClient)
+        let authService = AuthServiceImpl(client: anonymousClient)
         let authManager = AuthManager(
             authService: authService,
             secureStorage: secureStorage,
@@ -136,10 +283,10 @@ private final class IOSFeatureDependencyContainer {
         )
         let authenticatedClient = ApiClient(baseUrl: apiBaseURL, tokenProvider: authManager)
 
-        self.templateService = TemplateServiceImpl(apiClient: authenticatedClient)
-        self.chatService = ChatServiceImpl(apiClient: authenticatedClient)
-        self.fileService = FileServiceImpl(apiClient: authenticatedClient)
-        self.settingsService = SettingsServiceImpl(apiClient: authenticatedClient)
+        self.templateService = TemplateServiceImpl(client: authenticatedClient)
+        self.chatService = ChatServiceImpl(client: authenticatedClient)
+        self.fileService = FileServiceImpl(client: authenticatedClient)
+        self.settingsService = SettingsServiceImpl(client: authenticatedClient)
     }
 }
 

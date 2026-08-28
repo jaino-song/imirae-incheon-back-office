@@ -75,6 +75,13 @@ class MainActivity : ComponentActivity() {
         enqueueNotificationIntent(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Foreground transitions re-check the shared session policy and use
+        // the same synchronized refresh path as API 401 retries.
+        authViewModel.onAppResume()
+    }
+
     override fun onDestroy() {
         navigationGate.clearPendingNavigation()
         navController = null

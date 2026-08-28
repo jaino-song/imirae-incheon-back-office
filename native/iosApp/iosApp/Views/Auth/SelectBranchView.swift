@@ -8,6 +8,7 @@ struct SelectBranchView: View {
 
     var onNavigateToDashboard: () -> Void = {}
     var onNavigateToLogin: () -> Void = {}
+    var shouldNavigateToDashboard: () -> Bool = { true }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -41,7 +42,9 @@ struct SelectBranchView: View {
             // AuthViewModel.logout launches asynchronously; only route after
             // AuthManager has cleared the session and published Unauthenticated.
             if !isLoggingOut, newState is AuthState.Authenticated {
-                onNavigateToDashboard()
+                if shouldNavigateToDashboard() {
+                    onNavigateToDashboard()
+                }
             }
 
             if isLoggingOut, newState is AuthState.Unauthenticated {

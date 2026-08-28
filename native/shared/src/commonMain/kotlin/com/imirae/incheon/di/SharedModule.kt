@@ -44,8 +44,8 @@ val authModule = module {
             apiBaseUrl = getProperty("API_BASE_URL"),
         )
     }
-    single { SessionPolicy(get()) }
-    single { StepUpAuth(get()) }
+    single<SessionPolicy> { SessionPolicy(get<com.imirae.incheon.auth.SecureStorage>()) }
+    single<StepUpAuth> { StepUpAuth(get<com.imirae.incheon.auth.SecureStorage>()) }
     single { AuthViewModel(get()) }
 }
 

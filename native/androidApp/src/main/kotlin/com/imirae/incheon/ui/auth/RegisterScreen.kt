@@ -42,11 +42,13 @@ fun RegisterScreen(
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
+    var birthDate by remember { mutableStateOf("") }
     var nameError by remember { mutableStateOf<String?>(null) }
     var emailError by remember { mutableStateOf<String?>(null) }
     var passwordError by remember { mutableStateOf<String?>(null) }
     var confirmPasswordError by remember { mutableStateOf<String?>(null) }
     var phoneError by remember { mutableStateOf<String?>(null) }
+    var birthDateError by remember { mutableStateOf<String?>(null) }
     var passwordVisible by remember { mutableStateOf(false) }
     var isSuccess by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
@@ -57,6 +59,7 @@ fun RegisterScreen(
     val hasUpperCase = password.any { it.isUpperCase() }
     val hasLowerCase = password.any { it.isLowerCase() }
     val hasDigit = password.any { it.isDigit() }
+    val hasSpecial = password.any { !it.isLetterOrDigit() }
 
     LaunchedEffect(authState) {
         if (authState is AuthState.Unauthenticated && isSuccess) {
@@ -68,14 +71,16 @@ fun RegisterScreen(
         val nameResult = Validation.validateName(name)
         val emailResult = Validation.validateEmail(email)
         val passwordResult = Validation.validatePasswordStrength(password)
-        val phoneResult = if (phone.isNotBlank()) Validation.validateKoreanPhoneNumber(phone) else com.imirae.incheon.domain.utils.ValidationResult(true)
+        val phoneResult = Validation.validateKoreanPhoneNumber(phone)
+        val birthDateResult = Validation.validateBirthDate(birthDate)
         nameError = nameResult.errorMessage
         emailError = emailResult.errorMessage
         passwordError = passwordResult.errorMessage
         phoneError = phoneResult.errorMessage
+        birthDateError = birthDateResult.errorMessage
         confirmPasswordError = if (password != confirmPassword) "비밀번호가 일치하지 않습니다" else null
-        if (nameResult.isValid && emailResult.isValid && passwordResult.isValid && phoneResult.isValid && confirmPasswordError == null) {
-            viewModel.register(name, email, password, phone.ifBlank { null })
+        if (nameResult.isValid && emailResult.isValid && passwordResult.isValid && phoneResult.isValid && birthDateResult.isValid && confirmPasswordError == null) {
+            viewModel.register(name, email, password, phone, birthDate)
             isSuccess = true
         }
     }
@@ -193,6 +198,7 @@ fun RegisterScreen(
                         PasswordRequirementRow("대문자 포함", hasUpperCase)
                         PasswordRequirementRow("소문자 포함", hasLowerCase)
                         PasswordRequirementRow("숫자 포함", hasDigit)
+                        PasswordRequirementRow("특수문자 포함", hasSpecial)
                     }
                 }
 
@@ -209,15 +215,27 @@ fun RegisterScreen(
                     shape = RoundedCornerShape(DesignTokens.Radius.md.dp)
                 )
 
-                // Phone (optional)
+                // Phone (required by the backend RegisterDto)
                 OutlinedTextField(
                     value = phone, onValueChange = { phone = it; phoneError = null },
-                    label = { Text("전화번호 (선택)") }, leadingIcon = { Icon(Icons.Default.Phone, null) },
+                    label = { Text("전화번호") }, leadingIcon = { Icon(Icons.Default.Phone, null) },
                     isError = phoneError != null, supportingText = phoneError?.let { { Text(it) } },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); validateAndSubmit() }),
                     singleLine = true, enabled = !isLoading, placeholder = { Text("010-XXXX-XXXX") },
                     modifier = Modifier.fillMaxWidth().testTag("auth-register-phone-field"),
+                    shape = RoundedCornerShape(DesignTokens.Radius.md.dp)
+                )
+
+                // Birth date (required by the backend RegisterDto)
+                OutlinedTextField(
+                    value = birthDate, onValueChange = { birthDate = it; birthDateError = null },
+                    label = { Text("생년월일") }, leadingIcon = { Icon(Icons.Default.CalendarToday, null) },
+                    isError = birthDateError != null, supportingText = birthDateError?.let { { Text(it) } },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); validateAndSubmit() }),
+                    singleLine = true, enabled = !isLoading, placeholder = { Text("YYYY-MM-DD") },
+                    modifier = Modifier.fillMaxWidth().testTag("auth-register-birth-date-field"),
                     shape = RoundedCornerShape(DesignTokens.Radius.md.dp)
                 )
 
