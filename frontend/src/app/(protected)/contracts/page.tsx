@@ -99,8 +99,9 @@ import {
   extractReRequestEvents,
 } from "@/lib/eformsign/document-details";
 import { resolveDocumentCustomerName } from "@/lib/eformsign/display-name";
+import { buildContractTemplateFilter } from "@/lib/eformsign/contract-template-filter";
 import { formatIsoDateInput } from "@/lib/date/format-iso-input";
-import { useAllVoucherPriceInfos } from "@/hooks/useVoucherData";
+import { useAllVoucherPriceInfos, useAreaTemplates } from "@/hooks/useVoucherData";
 import { inferVoucherDurationFromAmounts } from "@/lib/voucher/duration";
 import { contractCandidateToClientPrefill } from "@/lib/client/contract-client-prefill";
 import { ContractsListItem } from "@/components/app/contracts/ContractsListItem";
@@ -527,6 +528,14 @@ export default function ContractsPage() {
       ?? (serviceRecordTemplateConfig?.templateId ? [serviceRecordTemplateConfig.templateId] : []),
     [serviceRecordTemplateConfig],
   );
+  // 산모 계약서 화이트리스트: 지점 doc_template(지역별 계약서 템플릿)에 등록된 템플릿으로 만든
+  // 문서만 섹션에 노출한다. 같은 eformsign 계정의 무관한 템플릿(예: 근로계약서) 문서가
+  // 섞이는 것을 막는다. Memoized so the array identity is stable for the useMemo deps below.
+  const { data: areaTemplates = [], isLoading: isAreaTemplatesLoading } = useAreaTemplates();
+  const maternityTemplateIds = useMemo(
+    () => [...new Set(areaTemplates.map((template) => template.templateId).filter(Boolean))],
+    [areaTemplates],
+  );
   const activeListTab = activeSection === "service-records" ? serviceRecordActiveTab : activeTab;
   const filterType: DocumentFilterType = activeListTab === "all" ? null : (activeListTab as DocumentFilterType);
   // Search is applied server-side (chosung-aware), so each keystroke would be a
@@ -537,19 +546,21 @@ export default function ContractsPage() {
   const [debouncedServiceRecordSearchQuery] = useDebounce(serviceRecordSearchQuery.trim(), 300);
   const activeSearchQuery =
     activeSection === "service-records" ? debouncedServiceRecordSearchQuery : debouncedSearchQuery;
-  const templateFilter = useMemo(
-    () => serviceRecordTemplateIds.length > 0
-      ? {
-          templateId: serviceRecordTemplateIds.join(","),
-          templateMatch: activeSection === "service-records" ? "include" as const : "exclude" as const,
-        }
-      : undefined,
-    [activeSection, serviceRecordTemplateIds],
-  );
+  const templateFilter = useMemo(() => {
+    if (activeSection !== "maternity" && activeSection !== "service-records") {
+      return undefined;
+    }
+    return buildContractTemplateFilter({
+      activeSection,
+      maternityTemplateIds,
+      serviceRecordTemplateIds,
+    });
+  }, [activeSection, maternityTemplateIds, serviceRecordTemplateIds]);
   const canFetchDocuments =
     isAuthenticated &&
     !isServiceRecordTemplateLoading &&
-    (activeSection !== "service-records" || serviceRecordTemplateIds.length > 0);
+    (activeSection !== "service-records" || serviceRecordTemplateIds.length > 0) &&
+    (activeSection !== "maternity" || !isAreaTemplatesLoading);
 
   // Fetch filtered docs with infinite scroll for the current tab
   const {

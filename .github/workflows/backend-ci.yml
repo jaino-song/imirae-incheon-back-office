@@ -335,6 +335,38 @@ jobs:
           managed_node_id=""
           final_status="TimedOut"
 
+          report_ssm_failure() {
+            local lowercase_error
+            local normalized_error
+            local raw_error
+
+            if [[ -z "$managed_node_id" || "$managed_node_id" != "$expected_node_id" ]]; then
+              echo "SSM deployment error unavailable." >&2
+              return
+            fi
+
+            raw_error="$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$managed_node_id" \
+              --query 'StandardErrorContent' \
+              --output text 2>/dev/null || true)"
+            normalized_error="$(printf '%s' "$raw_error" \
+              | tr '\r\n\t' '   ' \
+              | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+            lowercase_error="$(printf '%s' "$normalized_error" | tr '[:upper:]' '[:lower:]')"
+
+            if [[ -z "$normalized_error" \
+              || ${#normalized_error} -gt 1024 \
+              || "$normalized_error" == *"="* \
+              || "$normalized_error" == *"://"* \
+              || "$lowercase_error" =~ (authorization|bearer|credential|password|secret|token) ]]; then
+              echo "SSM deployment error unavailable." >&2
+              return
+            fi
+
+            printf 'SSM deployment error: %s\n' "$normalized_error" >&2
+          }
+
           for _attempt in $(seq 1 360); do
             invocation_json="$(aws ssm list-command-invocations \
               --command-id "$command_id" \
@@ -360,6 +392,7 @@ jobs:
                 break
                 ;;
               *)
+                report_ssm_failure
                 echo "SSM deployment ended with status: $final_status" >&2
                 exit 1
                 ;;
@@ -367,6 +400,7 @@ jobs:
           done
 
           if [[ "$final_status" != "Success" || -z "$managed_node_id" ]]; then
+            report_ssm_failure
             echo "SSM deployment did not finish successfully before the timeout." >&2
             exit 1
           fi
