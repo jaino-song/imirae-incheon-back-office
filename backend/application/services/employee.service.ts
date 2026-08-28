@@ -25,6 +25,7 @@ import {
     PaginatedEmployeeWorkHistory,
 } from "domain/repositories/employee.repository.interface";
 import { normalizePhone } from "application/utils/normalize-phone";
+import { MessageAutomationIntentService } from "./message-automation-intent.service";
 import { MessageTriggerService } from "./message-trigger.service";
 
 export type EmployeeUpdateParams = {
@@ -58,6 +59,7 @@ export class EmployeeService {
         @Inject(EMPLOYEE_REPOSITORY)
         private readonly employeeRepository: IEmployeeRepository,
         @Optional() private readonly triggerService?: MessageTriggerService,
+        @Optional() private readonly messageAutomationIntentService?: MessageAutomationIntentService,
     ) {}
 
     async create(
@@ -116,13 +118,7 @@ export class EmployeeService {
             this.rethrowPhoneConflict(error);
         }
 
-        if (profileChanged) {
-            await this.triggerService
-                ?.syncEmployeeAssignmentRulesForEmployee(branchid, id)
-                ?.catch((error) => {
-                    this.logger.error(`Failed to sync employee assignment triggers for employee ${id}: ${error}`);
-                });
-        }
+        if (profileChanged) await this.refreshEmployeeAssignmentJobs(branchid, id);
 
         return updatedEmployee;
     }
@@ -183,5 +179,39 @@ export class EmployeeService {
             }
         }
         throw error;
+    }
+
+    private async refreshEmployeeAssignmentJobs(branchId: string, employeeId: number): Promise<void> {
+        try {
+            const refreshed = this.triggerService
+                ? await this.triggerService.syncEmployeeAssignmentRulesForEmployee(branchId, employeeId)
+                : false;
+            if (refreshed !== false) return;
+            await this.enqueueEmployeeRefresh(branchId, employeeId);
+        } catch (error) {
+            this.logger.error(
+                `Failed to sync employee assignment triggers for employee ${employeeId}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            await this.enqueueEmployeeRefresh(branchId, employeeId);
+        }
+    }
+
+    private async enqueueEmployeeRefresh(branchId: string, employeeId: number): Promise<void> {
+        if (!this.messageAutomationIntentService) {
+            this.logger.error(
+                `Employee assignment refresh retry unavailable for employee ${employeeId}`,
+            );
+            return;
+        }
+        try {
+            await this.messageAutomationIntentService.enqueueEmployeeProfileRefreshIntent({
+                branchId,
+                employeeId,
+            });
+        } catch (error) {
+            this.logger.error(
+                `Failed to persist employee assignment refresh retry for employee ${employeeId}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+        }
     }
 }

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import {
     getClientAutomationIntentDedupeKey,
+    getEmployeeAutomationIntentDedupeKey,
     getScheduleAutomationIntentDedupeKey,
     EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
     MESSAGE_AUTOMATION_INTENT_RETRY_REASON,
@@ -16,7 +17,8 @@ import {
 
 interface PersistIntentParams {
     branchId: string;
-    clientId: number;
+    clientId: number | null;
+    employeeId?: number;
     employeeScheduleId: number | null;
     recipientType: MessageTriggerRecipientType;
     templateKey: MessageTriggerTemplateKey;
@@ -75,6 +77,30 @@ export async function persistScheduleMessageAutomationIntent(
     });
 }
 
+export async function persistEmployeeProfileRefreshMessageAutomationIntent(
+    transaction: Prisma.TransactionClient,
+    params: {
+        branchId: string;
+        employeeId: number;
+        intentAt: Date;
+    },
+): Promise<void> {
+    await persistMessageAutomationIntent(transaction, {
+        branchId: params.branchId,
+        clientId: null,
+        employeeId: params.employeeId,
+        employeeScheduleId: null,
+        recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+        templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        dedupeKey: getEmployeeAutomationIntentDedupeKey(params.branchId, params.employeeId),
+        kind: "employee",
+        includePast: true,
+        suppressGreeting: false,
+        intentAt: params.intentAt,
+        replaceExisting: false,
+    });
+}
+
 async function persistMessageAutomationIntent(
     transaction: Prisma.TransactionClient,
     params: PersistIntentParams,
@@ -115,8 +141,9 @@ async function persistMessageAutomationIntent(
         update: {},
     });
     const payload = {
-        clientId: params.clientId,
-        memberId: `${params.kind}:${params.clientId}`,
+        ...(params.clientId === null ? {} : { clientId: params.clientId }),
+        ...(params.employeeId === undefined ? {} : { employeeId: params.employeeId }),
+        memberId: `${params.kind}:${params.employeeId ?? params.clientId}`,
         recipientName: "메시지 자동화 복구",
         recipientPhone: "",
         templateVariables: {

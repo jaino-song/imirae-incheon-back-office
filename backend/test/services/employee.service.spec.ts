@@ -19,6 +19,7 @@ import {
 } from "application/usecases/employee";
 import { EMPLOYEE_REPOSITORY, IEmployeeRepository } from "domain/repositories/employee.repository.interface";
 import { MessageTriggerService } from "application/services/message-trigger.service";
+import { MessageAutomationIntentService } from "application/services/message-automation-intent.service";
 import { EmployeeFactory } from "../utils";
 
 describe("EmployeeService", () => {
@@ -42,6 +43,7 @@ describe("EmployeeService", () => {
     let listOpenToNextWorkUsecase: jest.Mocked<ListEmployeesOpenToNextWorkUsecase>;
     let employeeRepository: jest.Mocked<Pick<IEmployeeRepository, "findByPhone">>;
     let triggerService: jest.Mocked<Pick<MessageTriggerService, "syncEmployeeAssignmentRulesForEmployee">>;
+    let messageAutomationIntentService: jest.Mocked<Pick<MessageAutomationIntentService, "enqueueEmployeeProfileRefreshIntent">>;
 
     const branchId = "org-1";
 
@@ -61,6 +63,7 @@ describe("EmployeeService", () => {
         const mockListOpenToNextWorkUsecase = { execute: jest.fn() };
         const mockEmployeeRepository = { findByPhone: jest.fn() };
         const mockTriggerService = { syncEmployeeAssignmentRulesForEmployee: jest.fn() };
+        const mockMessageAutomationIntentService = { enqueueEmployeeProfileRefreshIntent: jest.fn() };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -81,6 +84,7 @@ describe("EmployeeService", () => {
                 { provide: ListWorkHistoryByEmployeeUsecase, useValue: { execute: jest.fn() } },
                 { provide: EMPLOYEE_REPOSITORY, useValue: mockEmployeeRepository },
                 { provide: MessageTriggerService, useValue: mockTriggerService },
+                { provide: MessageAutomationIntentService, useValue: mockMessageAutomationIntentService },
             ],
         }).compile();
 
@@ -99,6 +103,7 @@ describe("EmployeeService", () => {
         listOpenToNextWorkUsecase = module.get(ListEmployeesOpenToNextWorkUsecase);
         employeeRepository = module.get(EMPLOYEE_REPOSITORY);
         triggerService = module.get(MessageTriggerService);
+        messageAutomationIntentService = module.get(MessageAutomationIntentService);
     });
 
     // ============================================
@@ -312,6 +317,61 @@ describe("EmployeeService", () => {
                 branchId,
                 existingEmployee.id,
             );
+        });
+
+        it("persists an employee refresh intent when immediate assignment refresh is retryable", async () => {
+            const existingEmployee = EmployeeFactory.create({ id: 3, name: "기존 직원" });
+            const updatedEmployee = EmployeeFactory.create({ id: 3, name: "새 직원 이름" });
+            findByIdUsecase.execute.mockResolvedValue(existingEmployee);
+            updateUsecase.execute.mockResolvedValue(updatedEmployee);
+            triggerService.syncEmployeeAssignmentRulesForEmployee.mockResolvedValue(false);
+
+            await expect(service.update(branchId, existingEmployee.id, { name: updatedEmployee.name }))
+                .resolves.toBe(updatedEmployee);
+
+            expect(messageAutomationIntentService.enqueueEmployeeProfileRefreshIntent)
+                .toHaveBeenCalledWith({ branchId, employeeId: existingEmployee.id });
+        });
+
+        it("keeps the profile update successful and persists an intent when immediate refresh throws", async () => {
+            const existingEmployee = EmployeeFactory.create({ id: 3, name: "기존 직원" });
+            const updatedEmployee = EmployeeFactory.create({ id: 3, name: "새 직원 이름" });
+            const refreshError = new Error("assignment refresh unavailable");
+            findByIdUsecase.execute.mockResolvedValue(existingEmployee);
+            updateUsecase.execute.mockResolvedValue(updatedEmployee);
+            triggerService.syncEmployeeAssignmentRulesForEmployee.mockRejectedValue(refreshError);
+
+            await expect(service.update(branchId, existingEmployee.id, { name: updatedEmployee.name }))
+                .resolves.toBe(updatedEmployee);
+
+            expect(messageAutomationIntentService.enqueueEmployeeProfileRefreshIntent)
+                .toHaveBeenCalledWith({ branchId, employeeId: existingEmployee.id });
+        });
+
+        it("does not enqueue an intent after an immediate assignment refresh succeeds", async () => {
+            const existingEmployee = EmployeeFactory.create({ id: 3, name: "기존 직원" });
+            const updatedEmployee = EmployeeFactory.create({ id: 3, name: "새 직원 이름" });
+            findByIdUsecase.execute.mockResolvedValue(existingEmployee);
+            updateUsecase.execute.mockResolvedValue(updatedEmployee);
+            triggerService.syncEmployeeAssignmentRulesForEmployee.mockResolvedValue(true);
+
+            await service.update(branchId, existingEmployee.id, { name: updatedEmployee.name });
+
+            expect(messageAutomationIntentService.enqueueEmployeeProfileRefreshIntent).not.toHaveBeenCalled();
+        });
+
+        it("does not fail the profile update when intent persistence itself is unavailable", async () => {
+            const existingEmployee = EmployeeFactory.create({ id: 3, name: "기존 직원" });
+            const updatedEmployee = EmployeeFactory.create({ id: 3, name: "새 직원 이름" });
+            findByIdUsecase.execute.mockResolvedValue(existingEmployee);
+            updateUsecase.execute.mockResolvedValue(updatedEmployee);
+            triggerService.syncEmployeeAssignmentRulesForEmployee.mockResolvedValue(false);
+            messageAutomationIntentService.enqueueEmployeeProfileRefreshIntent.mockRejectedValue(
+                new Error("intent store unavailable"),
+            );
+
+            await expect(service.update(branchId, existingEmployee.id, { name: updatedEmployee.name }))
+                .resolves.toBe(updatedEmployee);
         });
 
         it("should not refresh assignment jobs for an unrelated profile field", async () => {

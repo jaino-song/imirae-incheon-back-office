@@ -2623,7 +2623,7 @@ describe("MessageTriggerService", () => {
         sync.prisma.employee_schedule.findMany.mockResolvedValue([{ id: 77 }, { id: 88 }]);
         const scheduleSync = jest
             .spyOn(sync.service, "syncEmployeeAssignmentRulesForSchedule")
-            .mockResolvedValue(undefined);
+            .mockResolvedValue(true);
 
         await sync.service.syncEmployeeAssignmentRulesForClient(branchId, 1);
 
@@ -2651,7 +2651,7 @@ describe("MessageTriggerService", () => {
         sync.prisma.employee_schedule.findMany.mockResolvedValue([{ id: 77 }, { id: 88 }]);
         const scheduleSync = jest
             .spyOn(sync.service, "syncEmployeeAssignmentRulesForSchedule")
-            .mockResolvedValue(undefined);
+            .mockResolvedValue(true);
 
         await sync.service.syncEmployeeAssignmentRulesForEmployee(branchId, 30);
 
@@ -2670,6 +2670,36 @@ describe("MessageTriggerService", () => {
         expect(scheduleSync).toHaveBeenCalledTimes(2);
         expect(scheduleSync).toHaveBeenNthCalledWith(1, branchId, 77, true);
         expect(scheduleSync).toHaveBeenNthCalledWith(2, branchId, 88, true);
+    });
+
+    it("returns a retryable result when any employee schedule refresh is stale", async () => {
+        const sync = createEmployeeSyncService();
+        sync.prisma.employee_schedule.findMany.mockResolvedValue([{ id: 77 }, { id: 88 }]);
+        const scheduleSync = jest
+            .spyOn(sync.service, "syncEmployeeAssignmentRulesForSchedule")
+            .mockResolvedValueOnce(false)
+            .mockResolvedValueOnce(true);
+
+        await expect(sync.service.syncEmployeeAssignmentRulesForEmployee(branchId, 30)).resolves.toBe(false);
+
+        expect(scheduleSync).toHaveBeenCalledTimes(2);
+    });
+
+    it("returns a retryable result when assignment job persistence reports a stale generation", async () => {
+        const employeeRule = createRule({
+            id: "rule-employee-retry",
+            eventType: MessageTriggerEventType.EMPLOYEE_ASSIGNED,
+            offsetType: MessageTriggerOffsetType.IMMEDIATE,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        });
+        const sync = createEmployeeSyncService();
+        sync.prisma.employee_schedule.findMany.mockResolvedValue([{ id: 77 }]);
+        sync.ruleRepository.findActiveByEventTypes.mockResolvedValue([employeeRule]);
+        sync.jobRepository.upsertPendingForRuleGeneration.mockResolvedValue(null);
+
+        await expect(sync.service.syncEmployeeAssignmentRulesForEmployee(branchId, 30)).resolves.toBe(false);
+        expect(sync.jobRepository.upsertPendingForRuleGeneration).toHaveBeenCalledTimes(1);
     });
 
     it("does not query schedules when assignment refresh is not approved", async () => {

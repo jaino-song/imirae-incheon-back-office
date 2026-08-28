@@ -16,6 +16,7 @@ describe("EmployeeWriteAgentCapabilitiesProvider", () => {
         const findEmployee = { execute: jest.fn().mockResolvedValue(employee) };
         const employeeRepository = { findByPhone: jest.fn().mockResolvedValue(null) };
         const triggerService = { syncEmployeeAssignmentRulesForEmployee: jest.fn().mockResolvedValue(undefined) };
+        const messageAutomationIntentService = { enqueueEmployeeProfileRefreshIntent: jest.fn().mockResolvedValue(undefined) };
         const transaction = { agent_action: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
         const prisma = { $transaction: jest.fn(async (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)), agent_action: transaction.agent_action };
         const provider = new EmployeeWriteAgentCapabilitiesProvider(
@@ -26,8 +27,9 @@ describe("EmployeeWriteAgentCapabilitiesProvider", () => {
             employeeRepository as never,
             prisma as never,
             triggerService as never,
+            messageAutomationIntentService as never,
         );
-        return { createEmployee, updateEmployee, changeAvailability, findEmployee, employeeRepository, triggerService, transaction, prisma, capabilities: provider.getCapabilities() };
+        return { createEmployee, updateEmployee, changeAvailability, findEmployee, employeeRepository, triggerService, messageAutomationIntentService, transaction, prisma, capabilities: provider.getCapabilities() };
     }
 
     it("fails soft-deleted employees closed across inspect, revalidate, execute, and reconcile", async () => {
@@ -317,6 +319,75 @@ describe("EmployeeWriteAgentCapabilitiesProvider", () => {
 
         expect(triggerService.syncEmployeeAssignmentRulesForEmployee).toHaveBeenCalledTimes(1);
         expect(triggerService.syncEmployeeAssignmentRulesForEmployee).toHaveBeenCalledWith("branch-a", 7);
+    });
+
+    it.each([
+        ["direct update", "execute"],
+        ["approval-bound update", "executeApprovedTarget"],
+    ])("persists an employee refresh intent when the %s assignment refresh is retryable", async (_label, method) => {
+        const existing = EmployeeEntity.reconstitute(7, "홍길동", ["서울"], "01012345678", "A", true, new Date(), undefined);
+        const updated = EmployeeEntity.reconstitute(7, "김길동", ["서울"], "01012345678", "A", true, new Date(), undefined);
+        const { updateEmployee, triggerService, messageAutomationIntentService, capabilities } = setup(existing);
+        triggerService.syncEmployeeAssignmentRulesForEmployee.mockResolvedValue(false);
+        updateEmployee.execute.mockResolvedValue(updated);
+        updateEmployee.executeApprovedTarget.mockResolvedValue(updated);
+        const update = capabilities.find((entry) => entry.meta.name === "employees.update")!;
+
+        if (method === "execute") {
+            await update.execute(context, { id: 7, name: "김길동" });
+        } else {
+            await update.executeApprovedTarget!(context, { id: 7, name: "김길동" }, "approved-target");
+        }
+
+        expect(messageAutomationIntentService.enqueueEmployeeProfileRefreshIntent)
+            .toHaveBeenCalledWith({ branchId: "branch-a", employeeId: 7 });
+    });
+
+    it.each([
+        ["direct update", "execute"],
+        ["approval-bound update", "executeApprovedTarget"],
+    ])("keeps the %s successful and persists an intent when assignment refresh throws", async (_label, method) => {
+        const existing = EmployeeEntity.reconstitute(7, "홍길동", ["서울"], "01012345678", "A", true, new Date(), undefined);
+        const updated = EmployeeEntity.reconstitute(7, "김길동", ["서울"], "01012345678", "A", true, new Date(), undefined);
+        const { updateEmployee, triggerService, messageAutomationIntentService, capabilities } = setup(existing);
+        triggerService.syncEmployeeAssignmentRulesForEmployee.mockRejectedValue(new Error("assignment refresh unavailable"));
+        updateEmployee.execute.mockResolvedValue(updated);
+        updateEmployee.executeApprovedTarget.mockResolvedValue(updated);
+        const update = capabilities.find((entry) => entry.meta.name === "employees.update")!;
+
+        const result = method === "execute"
+            ? update.execute(context, { id: 7, name: "김길동" })
+            : update.executeApprovedTarget!(context, { id: 7, name: "김길동" }, "approved-target");
+
+        await expect(result).resolves.toEqual({ id: 7, name: "김길동", status: "updated" });
+        expect(messageAutomationIntentService.enqueueEmployeeProfileRefreshIntent)
+            .toHaveBeenCalledWith({ branchId: "branch-a", employeeId: 7 });
+    });
+
+    it("does not enqueue an intent after an immediate agent assignment refresh succeeds", async () => {
+        const existing = EmployeeEntity.reconstitute(7, "홍길동", ["서울"], "01012345678", "A", true, new Date(), undefined);
+        const updated = EmployeeEntity.reconstitute(7, "김길동", ["서울"], "01012345678", "A", true, new Date(), undefined);
+        const { updateEmployee, triggerService, messageAutomationIntentService, capabilities } = setup(existing);
+        triggerService.syncEmployeeAssignmentRulesForEmployee.mockResolvedValue(true);
+        updateEmployee.execute.mockResolvedValue(updated);
+        const update = capabilities.find((entry) => entry.meta.name === "employees.update")!;
+
+        await update.execute(context, { id: 7, name: "김길동" });
+
+        expect(messageAutomationIntentService.enqueueEmployeeProfileRefreshIntent).not.toHaveBeenCalled();
+    });
+
+    it("does not fail an agent update when employee refresh intent persistence is unavailable", async () => {
+        const existing = EmployeeEntity.reconstitute(7, "홍길동", ["서울"], "01012345678", "A", true, new Date(), undefined);
+        const updated = EmployeeEntity.reconstitute(7, "김길동", ["서울"], "01012345678", "A", true, new Date(), undefined);
+        const { updateEmployee, triggerService, messageAutomationIntentService, capabilities } = setup(existing);
+        triggerService.syncEmployeeAssignmentRulesForEmployee.mockResolvedValue(false);
+        messageAutomationIntentService.enqueueEmployeeProfileRefreshIntent.mockRejectedValue(new Error("intent store unavailable"));
+        updateEmployee.execute.mockResolvedValue(updated);
+        const update = capabilities.find((entry) => entry.meta.name === "employees.update")!;
+
+        await expect(update.execute(context, { id: 7, name: "김길동" }))
+            .resolves.toEqual({ id: 7, name: "김길동", status: "updated" });
     });
 
     it.each([

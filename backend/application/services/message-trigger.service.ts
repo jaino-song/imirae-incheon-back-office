@@ -999,12 +999,12 @@ export class MessageTriggerService {
         employeeScheduleId: number,
         includePast: boolean,
         intentOptions?: Pick<MessageTriggerIntentSyncOptions, "preserveExisting">,
-    ): Promise<void> {
+    ): Promise<boolean> {
         if (!(await this.hasTriggerSchema())) {
-            return;
+            return false;
         }
         if (!(await this.messageSenderApprovalService.isApproved(branchId))) {
-            return;
+            return false;
         }
 
         const schedule = await this.prisma.employee_schedule.findFirst({
@@ -1015,7 +1015,7 @@ export class MessageTriggerService {
                 secondaryEmployee: true,
             },
         });
-        if (!schedule) return;
+        if (!schedule) return true;
 
         const rules = await this.ruleRepository.findActiveByEventTypes(branchId, [
             MessageTriggerEventType.EMPLOYEE_ASSIGNED,
@@ -1025,16 +1025,18 @@ export class MessageTriggerService {
         // Even an intent replay that normally preserves an existing generation
         // must cancel any pending assignment before returning, and must not
         // create a replacement for the retired schedule.
+        let retryable = false;
         if (!intentOptions?.preserveExisting || schedule.replaced) {
-            await this.cancelPendingJobsForEmployeeSchedule(
+            const canceled = await this.cancelPendingJobsForEmployeeSchedule(
                 branchId,
                 rules,
                 employeeScheduleId,
                 EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
             );
+            if (!canceled && !schedule.replaced) retryable = true;
         }
 
-        if (schedule.replaced) return;
+        if (schedule.replaced) return true;
 
         for (const rule of rules) {
             const job = this.buildEmployeeAssignmentJob(rule, schedule);
@@ -1042,14 +1044,16 @@ export class MessageTriggerService {
             if (await this.hasSentEmployeeAssignmentJobForSameEmployee(job)) {
                 continue;
             }
-            await this.persistPendingJob(
+            const persisted = await this.persistPendingJob(
                 job,
                 rule,
                 includePast,
                 false,
                 intentOptions?.preserveExisting === true,
             );
+            if (!persisted) retryable = true;
         }
+        return !retryable;
     }
 
     /**
@@ -1060,12 +1064,12 @@ export class MessageTriggerService {
     async syncEmployeeAssignmentRulesForClient(
         branchId: string,
         clientId: number,
-    ): Promise<void> {
+    ): Promise<boolean> {
         if (!(await this.hasTriggerSchema())) {
-            return;
+            return false;
         }
         if (!(await this.messageSenderApprovalService.isApproved(branchId))) {
-            return;
+            return false;
         }
 
         const schedules = await this.prisma.employee_schedule.findMany({
@@ -1074,13 +1078,16 @@ export class MessageTriggerService {
             orderBy: { id: "asc" },
         });
 
+        let retryable = false;
         for (const schedule of schedules) {
-            await this.syncEmployeeAssignmentRulesForSchedule(
+            const refreshed = await this.syncEmployeeAssignmentRulesForSchedule(
                 branchId,
                 schedule.id,
                 true,
             );
+            if (refreshed === false) retryable = true;
         }
+        return !retryable;
     }
 
     /**
@@ -1091,12 +1098,12 @@ export class MessageTriggerService {
     async syncEmployeeAssignmentRulesForEmployee(
         branchId: string,
         employeeId: number,
-    ): Promise<void> {
+    ): Promise<boolean> {
         if (!(await this.hasTriggerSchema())) {
-            return;
+            return false;
         }
         if (!(await this.messageSenderApprovalService.isApproved(branchId))) {
-            return;
+            return false;
         }
 
         const schedules = await this.prisma.employee_schedule.findMany({
@@ -1112,13 +1119,16 @@ export class MessageTriggerService {
             orderBy: { id: "asc" },
         });
 
+        let retryable = false;
         for (const schedule of schedules) {
-            await this.syncEmployeeAssignmentRulesForSchedule(
+            const refreshed = await this.syncEmployeeAssignmentRulesForSchedule(
                 branchId,
                 schedule.id,
                 true,
             );
+            if (refreshed === false) retryable = true;
         }
+        return !retryable;
     }
 
     async hasActiveRulesForEvents(
@@ -1266,13 +1276,13 @@ export class MessageTriggerService {
         includePast: boolean,
         expectedJobsStale: boolean,
         preserveExisting = false,
-    ): Promise<void> {
-        if (!job) return;
+    ): Promise<boolean> {
+        if (!job) return true;
         if (!includePast) {
             const now = Date.now();
             const scheduledForTime = job.scheduledFor.getTime();
             if (scheduledForTime < now - PAST_OCCURRENCE_GRACE_MS) {
-                return;
+                return true;
             }
 
             // IMMEDIATE jobs must fire only on the live create/assign path (includePast=true).
@@ -1280,15 +1290,16 @@ export class MessageTriggerService {
                 rule.offsetType === MessageTriggerOffsetType.IMMEDIATE &&
                 scheduledForTime <= now
             ) {
-                return;
+                return true;
             }
         }
-        await this.jobRepository.upsertPendingForRuleGeneration(
+        const persisted = await this.jobRepository.upsertPendingForRuleGeneration(
             job,
             rule.updatedAt,
             expectedJobsStale,
             preserveExisting,
         );
+        return persisted !== null;
     }
 
     private async applyRetroactiveSendConfig(
@@ -1908,9 +1919,10 @@ export class MessageTriggerService {
         rules: MessageTriggerRuleEntity[],
         employeeScheduleId: number,
         reason: string,
-    ): Promise<void> {
+    ): Promise<boolean> {
+        let succeeded = true;
         for (const rule of rules) {
-            await this.jobRepository.cancelPendingForRuleGeneration(
+            const canceled = await this.jobRepository.cancelPendingForRuleGeneration(
                 branchId,
                 rule.id,
                 rule.updatedAt,
@@ -1918,7 +1930,9 @@ export class MessageTriggerService {
                 reason,
                 { employeeScheduleId },
             );
+            if (canceled === null) succeeded = false;
         }
+        return succeeded;
     }
 
     private async dispatchClaimedJob(

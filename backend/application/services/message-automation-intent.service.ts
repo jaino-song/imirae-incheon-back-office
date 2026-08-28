@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { Prisma } from "@prisma/client";
 import {
+    getEmployeeAutomationIntentDedupeKey,
     getScheduleAutomationIntentDedupeKey,
     MESSAGE_AUTOMATION_INTENT_INVALID_REASON,
     MESSAGE_AUTOMATION_INTENT_RETRY_REASON,
@@ -10,6 +11,7 @@ import {
 import { PrismaService } from "infrastructure/database/prisma.service";
 import {
     persistClientMessageAutomationIntent,
+    persistEmployeeProfileRefreshMessageAutomationIntent,
     persistScheduleMessageAutomationIntent,
 } from "./message-automation-intent-writer";
 import { fulfillClientMessageAutomationIntent } from "./client-message-automation-intent-fulfiller";
@@ -77,6 +79,28 @@ export class MessageAutomationIntentService {
         await persistScheduleMessageAutomationIntent(transaction, params);
     }
 
+    async persistEmployeeProfileRefreshIntent(
+        transaction: Prisma.TransactionClient,
+        params: {
+            branchId: string;
+            employeeId: number;
+            intentAt: Date;
+        },
+    ): Promise<void> {
+        await persistEmployeeProfileRefreshMessageAutomationIntent(transaction, params);
+    }
+
+    async enqueueEmployeeProfileRefreshIntent(params: {
+        branchId: string;
+        employeeId: number;
+        intentAt?: Date;
+    }): Promise<void> {
+        await this.prisma.$transaction((transaction) => this.persistEmployeeProfileRefreshIntent(transaction, {
+            ...params,
+            intentAt: params.intentAt ?? new Date(),
+        }));
+    }
+
     async fulfillClientIntent(params: {
         branchId: string;
         clientId: number;
@@ -117,6 +141,51 @@ export class MessageAutomationIntentService {
                 return false;
             }
             await this.serviceRecordLinkService.scheduleForServiceStart(params.scheduleId);
+            return this.deleteClaimedIntent(claim);
+        } catch (error) {
+            await this.releaseAfterFailure(claim, error);
+            throw error;
+        }
+    }
+
+    async fulfillEmployeeProfileRefreshIntent(params: {
+        branchId: string;
+        employeeId: number;
+        intentAt?: Date;
+    }): Promise<boolean> {
+        const dedupeKey = getEmployeeAutomationIntentDedupeKey(params.branchId, params.employeeId);
+        const claim = await this.claimIntent(dedupeKey, params.intentAt);
+        if (!claim) return false;
+
+        try {
+            if (!(await this.isBranchApproved(params.branchId))) {
+                await this.releaseIntent(claim);
+                return false;
+            }
+
+            const employee = await this.prisma.employee.findFirst({
+                where: { id: params.employeeId, branchId: params.branchId },
+                select: { id: true, deletedAt: true },
+            });
+            if (!employee || employee.deletedAt) {
+                this.logger.warn(
+                    `[Message Automation Intent] Discarding refresh for missing employee ${params.employeeId}`,
+                );
+                return this.deleteClaimedIntent(claim);
+            }
+
+            const refreshed = await this.triggerService.syncEmployeeAssignmentRulesForEmployee(
+                params.branchId,
+                params.employeeId,
+            );
+            if (refreshed === false) {
+                await this.releaseIntent(claim);
+                return false;
+            }
+            if (!(await this.isBranchApproved(params.branchId))) {
+                await this.releaseIntent(claim);
+                return false;
+            }
             return this.deleteClaimedIntent(claim);
         } catch (error) {
             await this.releaseAfterFailure(claim, error);
@@ -284,9 +353,20 @@ export class MessageAutomationIntentService {
                 intentAt: candidate.scheduledFor,
             });
         }
+        if (kind === "employee") {
+            const employeeId = this.readEmployeeId(candidate.payload);
+            if (employeeId !== null) {
+                return this.fulfillEmployeeProfileRefreshIntent({
+                    branchId: candidate.branchId,
+                    employeeId,
+                    intentAt: candidate.scheduledFor,
+                });
+            }
+        }
         if (
             (kind === "client" && candidate.clientId === null)
             || (kind === "schedule" && candidate.employeeScheduleId === null)
+            || (kind === "employee" && this.readEmployeeId(candidate.payload) === null)
         ) {
             await this.discardOrphanedIntent(candidate.id, expectedVersion);
             return false;
@@ -343,5 +423,13 @@ export class MessageAutomationIntentService {
                 (entry): entry is [string, string] => typeof entry[1] === "string",
             ),
         );
+    }
+
+    private readEmployeeId(payload: Prisma.JsonValue): number | null {
+        if (!payload || Array.isArray(payload) || typeof payload !== "object") return null;
+        const employeeId = payload["employeeId"];
+        return typeof employeeId === "number" && Number.isSafeInteger(employeeId) && employeeId > 0
+            ? employeeId
+            : null;
     }
 }
