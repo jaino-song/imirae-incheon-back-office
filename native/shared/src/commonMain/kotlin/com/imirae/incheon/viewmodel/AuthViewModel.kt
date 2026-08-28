@@ -23,6 +23,7 @@ class AuthViewModel(private val authManager: AuthManager) {
         authManager.register(name, email, password, phone)
     }
     fun logout() = authManager.logout()
+    fun restoreSession() = authManager.restoreSession()
     fun forgotPassword(email: String) { if (Validation.validateEmail(email).isValid) authManager.forgotPassword(email) }
     fun resetPassword(token: String, password: String) { if (Validation.validatePasswordStrength(password).isValid) authManager.resetPassword(token, password) }
     fun selectBranch(branchId: String) { if (branchId.isNotBlank()) authManager.selectBranch(branchId) }

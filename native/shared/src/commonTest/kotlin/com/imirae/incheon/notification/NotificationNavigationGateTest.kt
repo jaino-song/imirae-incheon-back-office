@@ -1,0 +1,149 @@
+package com.imirae.incheon.notification
+
+import com.imirae.incheon.auth.AuthState
+import com.imirae.incheon.deeplink.NavigationIntent
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+
+class NotificationNavigationGateTest {
+    private val protectedIntent = NavigationIntent.ClientDetail("client-42")
+
+    @Test
+    fun coldStartDefersRouteUntilSessionRestorationAuthenticates() {
+        val gate = NotificationNavigationGate()
+
+        assertEquals(
+            NotificationNavigationDecision.Deferred,
+            gate.enqueue(protectedIntent, "cold-start-1"),
+        )
+        assertEquals(
+            NotificationNavigationDecision.Deferred,
+            gate.consumePendingNavigation(),
+        )
+        gate.onAuthStateChanged(AuthState.Loading)
+        assertEquals(
+            NotificationNavigationDecision.Deferred,
+            gate.consumePendingNavigation(),
+        )
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin", "본점"))
+        assertEquals(
+            NotificationNavigationDecision.NavigateProtected(protectedIntent),
+            gate.consumePendingNavigation(),
+        )
+    }
+
+    @Test
+    fun warmIntentNavigatesImmediatelyWhenAlreadyAuthenticated() {
+        val gate = NotificationNavigationGate()
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin", "본점"))
+
+        assertEquals(
+            NotificationNavigationDecision.Deferred,
+            gate.enqueue(protectedIntent, "warm-1"),
+        )
+        assertEquals(
+            NotificationNavigationDecision.NavigateProtected(protectedIntent),
+            gate.consumePendingNavigation(),
+        )
+    }
+
+    @Test
+    fun initialStateNeverExposesProtectedRouteBeforeRestoration() {
+        val gate = NotificationNavigationGate()
+
+        assertEquals(
+            NotificationNavigationDecision.Deferred,
+            gate.enqueue(NavigationIntent.Dashboard, "initial-1"),
+        )
+        gate.onAuthStateChanged(AuthState.Initial)
+        assertEquals(NotificationNavigationDecision.Deferred, gate.consumePendingNavigation())
+    }
+
+    @Test
+    fun unknownIntentIsRejectedBeforeItCanBeQueued() {
+        val gate = NotificationNavigationGate()
+
+        assertEquals(
+            NotificationNavigationDecision.Rejected,
+            gate.enqueue(NavigationIntent.Unknown, "unknown-1"),
+        )
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))
+        assertNull(gate.consumePendingNavigation())
+    }
+
+    @Test
+    fun unauthenticatedStateUsesCanonicalLoginFallback() {
+        val gate = NotificationNavigationGate()
+        gate.enqueue(protectedIntent, "logged-out-1")
+
+        gate.onAuthStateChanged(AuthState.Unauthenticated)
+        assertEquals(
+            NotificationNavigationDecision.Login,
+            gate.consumePendingNavigation(),
+        )
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))
+        assertNull(gate.consumePendingNavigation())
+    }
+
+    @Test
+    fun authErrorUsesCanonicalLoginFallback() {
+        val gate = NotificationNavigationGate()
+        gate.enqueue(protectedIntent, "error-1")
+
+        gate.onAuthStateChanged(AuthState.Error("복구할 수 없습니다"))
+        assertEquals(
+            NotificationNavigationDecision.Login,
+            gate.consumePendingNavigation(),
+        )
+    }
+
+    @Test
+    fun branchSelectionStateNeverReleasesProtectedRoute() {
+        val gate = NotificationNavigationGate()
+        gate.enqueue(protectedIntent, "branch-1")
+
+        gate.onAuthStateChanged(AuthState.RequiresBranchSelection)
+        assertEquals(
+            NotificationNavigationDecision.SelectBranch,
+            gate.consumePendingNavigation(),
+        )
+    }
+
+    @Test
+    fun duplicateDeliveryIsIgnoredAndCannotReplacePendingRoute() {
+        val gate = NotificationNavigationGate()
+
+        assertEquals(
+            NotificationNavigationDecision.Deferred,
+            gate.enqueue(protectedIntent, "same-delivery"),
+        )
+        assertEquals(
+            NotificationNavigationDecision.Duplicate,
+            gate.enqueue(NavigationIntent.Settings, "same-delivery"),
+        )
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))
+        assertEquals(
+            NotificationNavigationDecision.NavigateProtected(protectedIntent),
+            gate.consumePendingNavigation(),
+        )
+    }
+
+    @Test
+    fun deliveredKeyLedgerIsBoundedAndAllowsLaterReusedKey() {
+        val gate = NotificationNavigationGate(maxDeliveredKeys = 2)
+        gate.onAuthStateChanged(AuthState.Authenticated("user-1", "admin"))
+        gate.enqueue(NavigationIntent.Dashboard, "first")
+        gate.enqueue(NavigationIntent.Settings, "second")
+        gate.enqueue(NavigationIntent.Chat, "third")
+
+        assertEquals(
+            NotificationNavigationDecision.Deferred,
+            gate.enqueue(NavigationIntent.Dashboard, "first"),
+        )
+        assertEquals(
+            NotificationNavigationDecision.NavigateProtected(NavigationIntent.Dashboard),
+            gate.consumePendingNavigation(),
+        )
+    }
+}

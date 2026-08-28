@@ -6,32 +6,37 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavHostController
+import com.imirae.incheon.notification.NotificationNavigationDecision
+import com.imirae.incheon.notification.NotificationNavigationGate
 import com.imirae.incheon.deeplink.DeepLinkRouter
 import com.imirae.incheon.navigation.AppNavGraph
 import com.imirae.incheon.navigation.NotificationNavigation
 import com.imirae.incheon.ui.theme.ImiRaeTheme
 import com.imirae.incheon.viewmodel.*
-import org.koin.android.ext.android.get
 import org.koin.android.ext.android.inject
 
 class MainActivity : ComponentActivity() {
     private val deepLinkRouter: DeepLinkRouter by inject()
+    private val authViewModel: AuthViewModel by inject()
+    private val navigationGate = NotificationNavigationGate()
     private var navController: NavHostController? = null
-    private var pendingNavigation: NotificationNavigation.ParsedNavigation? = null
-    private val deliveredNavigationKeys = LinkedHashSet<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        authViewModel.restoreSession()
         enqueueNotificationIntent(intent)
         setContent {
             ImiRaeTheme {
                 val rememberedNavController = rememberNavController()
+                val authState by authViewModel.authState.collectAsState()
                 AppNavGraph(
                     navController = rememberedNavController,
-                    authViewModel = get(),
+                    authViewModel = authViewModel,
                     dashboardViewModel = get(),
                     clientListViewModel = get(),
                     clientDetailViewModel = get(),
@@ -45,7 +50,11 @@ class MainActivity : ComponentActivity() {
                 )
                 LaunchedEffect(rememberedNavController) {
                     this@MainActivity.navController = rememberedNavController
-                    this@MainActivity.consumePendingNavigation()
+                    this@MainActivity.flushPendingNavigation()
+                }
+                LaunchedEffect(authState) {
+                    this@MainActivity.navigationGate.onAuthStateChanged(authState)
+                    this@MainActivity.flushPendingNavigation()
                 }
             }
         }
@@ -62,35 +71,42 @@ class MainActivity : ComponentActivity() {
         if (intent == null) return
 
         val parsedNavigation = NotificationNavigation.parse(intent, deepLinkRouter) ?: return
-        if (!deliveredNavigationKeys.add(parsedNavigation.deliveryKey)) return
-
-        // Bound the in-memory dedupe set.  A later notification with the same
-        // route can still be delivered after older entries are evicted.
-        while (deliveredNavigationKeys.size > MAX_DELIVERED_KEYS) {
-            deliveredNavigationKeys.remove(deliveredNavigationKeys.first())
-        }
-
-        pendingNavigation = parsedNavigation
-        consumePendingNavigation()
+        navigationGate.enqueue(parsedNavigation.intent, parsedNavigation.deliveryKey)
+        flushPendingNavigation()
     }
 
-    private fun consumePendingNavigation() {
+    private fun flushPendingNavigation() {
         val controller = navController ?: return
-        val navigation = pendingNavigation ?: return
-        val route = NotificationNavigation.routeFor(navigation.intent) ?: run {
-            pendingNavigation = null
-            return
-        }
+        val decision = navigationGate.consumePendingNavigation() ?: return
 
-        pendingNavigation = null
-        controller.navigate(route) {
-            // A repeated PendingIntent must not add another copy of the same
-            // destination to the back stack.
-            launchSingleTop = true
-        }
-    }
+        when (decision) {
+            is NotificationNavigationDecision.NavigateProtected -> {
+                val route = NotificationNavigation.routeFor(decision.intent) ?: return
+                controller.navigate(route) {
+                    // A repeated PendingIntent must not add another copy of
+                    // the same destination to the back stack.
+                    launchSingleTop = true
+                }
+            }
 
-    private companion object {
-        const val MAX_DELIVERED_KEYS = 32
+            NotificationNavigationDecision.Login -> {
+                controller.navigate(Routes.LOGIN) {
+                    popUpTo(0) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }
+
+            NotificationNavigationDecision.SelectBranch -> {
+                controller.navigate(Routes.SELECT_BRANCH) {
+                    popUpTo(0) { inclusive = true }
+                    launchSingleTop = true
+                }
+            }
+
+            NotificationNavigationDecision.Deferred,
+            NotificationNavigationDecision.Duplicate,
+            NotificationNavigationDecision.Rejected,
+            -> Unit
+        }
     }
 }
