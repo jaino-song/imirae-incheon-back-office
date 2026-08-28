@@ -43,7 +43,8 @@ function normalizeIsoDate(value: string): string | undefined {
     const month = Number(parts[1]);
     const day = Number(parts[2]);
     const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    return isValidCompactDateInput(iso.slice(2)) ? iso : undefined;
+    const compact = iso.slice(2).replace(/\D/g, "");
+    return isValidCompactDateInput(compact) ? compact : undefined;
 }
 
 function extractDueDate(message: string): string | undefined {

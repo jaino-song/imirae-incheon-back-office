@@ -24,6 +24,7 @@ export interface ChatMessage {
             phone?: string;
             birthday?: string;
             address?: string;
+            employeeName?: string;
             dueDate?: string;
         };
         type: "clientRegistrationWizard" | "clientRegistrationSuccess" | "contractSendWizard" | "contractStatusWizard" | "contractStatusResponse";
@@ -149,8 +150,11 @@ function clientRegistrationAssistantContent(draft: ReturnType<typeof extractClie
 
 function restoreMessageUI(msg: ChatMessage): ChatMessage {
     if (msg.role !== "assistant") return msg;
-    
-    const ui = WIZARD_MARKERS[msg.content];
+
+    const marker = Object.keys(WIZARD_MARKERS).find(
+        (candidate) => msg.content === candidate || msg.content.startsWith(`${candidate} `),
+    );
+    const ui = marker ? WIZARD_MARKERS[marker] : undefined;
     if (ui) {
         return { ...msg, content: "", ui };
     }
@@ -333,7 +337,6 @@ export function useChatStream(): UseChatStreamReturn {
         if (CLIENT_REGISTRATION_TRIGGER.test(trimmed)) {
             const ts = new Date().toISOString();
             const draft = extractClientRegistrationDraft(trimmed);
-            const employeeName = draft.employeeName;
             setError(null);
             setIsToolExecuting(false);
             setCurrentTool(null);
@@ -349,7 +352,7 @@ export function useChatStream(): UseChatStreamReturn {
                     content: "",
                     timestamp: ts,
                     ui: {
-                        registrationDraft: { ...draft, employeeName: undefined },
+                        registrationDraft: { ...draft },
                         type: "clientRegistrationWizard",
                     },
                 },

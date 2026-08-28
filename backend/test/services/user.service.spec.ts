@@ -351,7 +351,7 @@ describe("UserService", () => {
             });
         });
 
-        it("replaces the exact branch membership set while preserving retained branch roles, then revokes active sessions", async () => {
+        it("replaces the exact branch membership set and demotes retained branch roles, then revokes active sessions", async () => {
             const result = await service.updateAccountAssignment(
                 "u1",
                 assignmentParams(),
@@ -392,15 +392,15 @@ describe("UserService", () => {
                 where: {
                     userId_branchId: { userId: "u1", branchId: branchIds[0] },
                 },
-                update: { role: "admin" },
-                create: { userId: "u1", branchId: branchIds[0], role: "admin" },
+                update: { role: "manager" },
+                create: { userId: "u1", branchId: branchIds[0], role: "manager" },
             });
             expect(prismaService.user_branch.upsert).toHaveBeenNthCalledWith(2, {
                 where: {
                     userId_branchId: { userId: "u1", branchId: branchIds[1] },
                 },
-                update: { role: "admin" },
-                create: { userId: "u1", branchId: branchIds[1], role: "admin" },
+                update: { role: "manager" },
+                create: { userId: "u1", branchId: branchIds[1], role: "manager" },
             });
             expect(prismaService.auth_session.updateMany).toHaveBeenCalledWith({
                 where: { userId: "u1", revokedAt: null },
@@ -466,7 +466,7 @@ describe("UserService", () => {
             prismaService.user.findUnique.mockResolvedValue(approvedTarget({
                 role: "manager",
                 ownedBranches: [],
-                userBranches: [membership(branchIds[0], "user")],
+                userBranches: [membership(branchIds[0], "manager")],
             }));
             prismaService.branch.findMany.mockResolvedValue([{ id: branchIds[0] }]);
 
@@ -567,7 +567,7 @@ describe("UserService", () => {
             expectNoAssignmentWrites();
         });
 
-        it("preserves an existing inactive membership alongside an active branch", async () => {
+        it("preserves an existing inactive membership while applying the selected role", async () => {
             const inactiveMembershipBranchId = "33333333-3333-4333-8333-333333333333";
             prismaService.user.findUnique.mockResolvedValue(approvedTarget({
                 role: "manager",
@@ -611,11 +611,11 @@ describe("UserService", () => {
                         branchId: inactiveMembershipBranchId,
                     },
                 },
-                update: { role: "manager" },
+                update: { role: "user" },
                 create: {
                     userId: "u1",
                     branchId: inactiveMembershipBranchId,
-                    role: "manager",
+                    role: "user",
                 },
             });
         });

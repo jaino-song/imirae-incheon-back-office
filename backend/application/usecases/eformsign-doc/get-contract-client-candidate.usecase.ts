@@ -208,7 +208,7 @@ export class GetContractClientCandidateUsecase {
             const existing = await this.prisma.employee.findFirst({
                 where: {
                     branchId,
-                    phone: normalizePhone(provider.phone) ?? undefined,
+                    phone: formatNormalizedKoreanPhone(provider.phone),
                     deletedAt: null,
                 },
                 select: { id: true },

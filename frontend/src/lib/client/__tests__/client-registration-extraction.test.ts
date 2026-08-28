@@ -30,4 +30,12 @@ describe("extractClientRegistrationDraft", () => {
         expect(draft.name).toBe("홍길동");
         expect(draft.missingFields).toContain("birthday");
     });
+
+    it("normalizes a four-digit due-date year to the wizard's YYMMDD format", () => {
+        const draft = extractClientRegistrationDraft(
+            "산모 등록. 출산 예정일 2026-02-01.",
+        );
+
+        expect(draft.dueDate).toBe("260201");
+    });
 });
