@@ -1,8 +1,17 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { EmployeeScheduleEntity } from "domain/entities/employee-schedule.entity";
+import {
+    EmployeeScheduleDateRangeError,
+    EmployeeScheduleRoleError,
+} from "domain/entities/employee-schedule.entity";
 import { EMPLOYEE_SCHEDULE_REPOSITORY, IEmployeeScheduleRepository } from "domain/repositories/employee-schedule.repository.interface";
 import { Prisma } from "@prisma/client";
 import { assertEmployeeAssignmentEligibility, type EmployeeAssignmentCandidate } from "application/policies/employee-assignment-eligibility.policy";
+import {
+    assertEmployeeScheduleWriteIsAvailable,
+    lockClientForScheduleWrite,
+    lockEmployeesForScheduleWrite,
+} from "application/policies/employee-schedule-invariants.policy";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 type CreateEmployeeScheduleParams = {
@@ -39,15 +48,8 @@ export class CreateEmployeeScheduleUsecase {
 
             const employeeIds = [params.primaryEmployeeId, params.secondaryEmployeeId]
                 .filter((employeeId): employeeId is number => employeeId !== null);
-            const employeeIdsToLock = [...new Set(employeeIds)].sort((left, right) => left - right);
-            await tx.$queryRaw(Prisma.sql`
-                SELECT "id"
-                FROM "employee"
-                WHERE "id" IN (${Prisma.join(employeeIdsToLock)})
-                  AND "branch_id" = ${branchid}::uuid
-                ORDER BY "id"
-                FOR UPDATE
-            `);
+            await lockClientForScheduleWrite(tx, branchid, params.clientId);
+            await lockEmployeesForScheduleWrite(tx, branchid, employeeIds);
             const employees: EmployeeAssignmentCandidate[] = await tx.employee.findMany({
                 where: {
                     id: { in: employeeIds },
@@ -67,15 +69,24 @@ export class CreateEmployeeScheduleUsecase {
                 employees,
             );
 
-            const schedule = EmployeeScheduleEntity.create(
-                params.clientId,
-                params.primaryEmployeeId,
-                params.secondaryEmployeeId,
-                params.workAddress,
-                params.startDate,
-                params.endDate,
-                params.replaced ?? false,
-            );
+            let schedule: EmployeeScheduleEntity;
+            try {
+                schedule = EmployeeScheduleEntity.create(
+                    params.clientId,
+                    params.primaryEmployeeId,
+                    params.secondaryEmployeeId,
+                    params.workAddress,
+                    params.startDate,
+                    params.endDate,
+                    params.replaced ?? false,
+                );
+            } catch (error) {
+                if (error instanceof EmployeeScheduleDateRangeError || error instanceof EmployeeScheduleRoleError) {
+                    throw new BadRequestException(error.message);
+                }
+                throw error;
+            }
+            await assertEmployeeScheduleWriteIsAvailable(tx, schedule, branchid);
             return this.employeeScheduleRepository.create(branchid, schedule, tx);
         };
 

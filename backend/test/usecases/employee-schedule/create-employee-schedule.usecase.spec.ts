@@ -1,4 +1,4 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import { CreateEmployeeScheduleUsecase } from "application/usecases/employee-schedule/create-employee-schedule.usecase";
 import { EmployeeScheduleEntity } from "domain/entities/employee-schedule.entity";
 
@@ -35,6 +35,9 @@ describe("CreateEmployeeScheduleUsecase assignment eligibility", () => {
             },
             employee: {
                 findMany: jest.fn().mockResolvedValue(employees),
+            },
+            employee_schedule: {
+                findFirst: jest.fn().mockResolvedValue(null),
             },
         };
         const prisma = {
@@ -130,6 +133,53 @@ describe("CreateEmployeeScheduleUsecase assignment eligibility", () => {
             secondaryEmployeeId: 3,
         }, transaction as never)).resolves.toBeDefined();
 
+        expect(employeeScheduleRepository.create).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses an inverted date range before creating a schedule", async () => {
+        const { usecase, employeeScheduleRepository } = createHarness([eligible()]);
+
+        await expect(usecase.execute(branchId, {
+            ...baseParams,
+            startDate: new Date("2026-09-01T00:00:00.000Z"),
+            endDate: new Date("2026-08-31T00:00:00.000Z"),
+        })).rejects.toBeInstanceOf(BadRequestException);
+
+        expect(employeeScheduleRepository.create).not.toHaveBeenCalled();
+    });
+
+    it("refuses an active overlapping schedule in the same branch", async () => {
+        const { usecase, transaction, employeeScheduleRepository } = createHarness([eligible()]);
+        transaction.employee_schedule.findFirst.mockResolvedValue({ id: 77 });
+
+        await expect(usecase.execute(branchId, baseParams, transaction as never))
+            .rejects.toBeInstanceOf(ConflictException);
+
+        expect(transaction.employee_schedule.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({
+                branchId,
+                replaced: false,
+                startDate: { lte: baseParams.endDate },
+                endDate: { gte: baseParams.startDate },
+                OR: expect.arrayContaining([
+                    { clientId: baseParams.clientId },
+                    { primaryEmployeeId: { in: [baseParams.primaryEmployeeId] } },
+                ]),
+            }),
+        }));
+        expect(employeeScheduleRepository.create).not.toHaveBeenCalled();
+    });
+
+    it("allows a replaced schedule even when its dates overlap", async () => {
+        const { usecase, transaction, employeeScheduleRepository } = createHarness([eligible()]);
+        transaction.employee_schedule.findFirst.mockResolvedValue({ id: 77 });
+
+        await expect(usecase.execute(branchId, {
+            ...baseParams,
+            replaced: true,
+        }, transaction as never)).resolves.toBeDefined();
+
+        expect(transaction.employee_schedule.findFirst).not.toHaveBeenCalled();
         expect(employeeScheduleRepository.create).toHaveBeenCalledTimes(1);
     });
 });

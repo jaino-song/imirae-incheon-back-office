@@ -30,6 +30,12 @@ import {
     assertEmployeeAssignmentShape,
     type EmployeeAssignmentCandidate,
 } from "application/policies/employee-assignment-eligibility.policy";
+import {
+    assertNoActiveEmployeeScheduleOverlap,
+    employeeScheduleReplacementEndDate,
+    lockClientForScheduleWrite,
+    lockEmployeesForScheduleWrite,
+} from "application/policies/employee-schedule-invariants.policy";
 import { ClientEntity } from "domain/entities/client.entity";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
@@ -785,15 +791,11 @@ export class ClientService {
         const employeeIds = [primaryEmployeeId, secondaryEmployeeId].filter(
             (employeeId): employeeId is number => employeeId !== null,
         );
-        const employeeIdsToLock = [...new Set(employeeIds)].sort((left, right) => left - right);
-        await transaction.$queryRaw(Prisma.sql`
-            SELECT "id"
-            FROM "employee"
-            WHERE "id" IN (${Prisma.join(employeeIdsToLock)})
-              AND "branch_id" = ${branchid}::uuid
-            ORDER BY "id"
-            FOR UPDATE
-        `);
+        await lockEmployeesForScheduleWrite(
+            transaction,
+            branchid,
+            [...employeeIds, ...(retainedEmployeeIds ? [...retainedEmployeeIds] : [])],
+        );
         const employees: EmployeeAssignmentCandidate[] = await transaction.employee.findMany({
             where: {
                 id: { in: employeeIds },
@@ -826,6 +828,7 @@ export class ClientService {
     }): Promise<{ createdScheduleId: number | null; replacedScheduleId: number | null }> {
         const intentAt = new Date();
         const newSchedule = await this.prismaService.$transaction(async (transaction) => {
+            await lockClientForScheduleWrite(transaction, branchid, params.clientId);
             const currentSchedule = await transaction.employee_schedule.findFirst({
                 where: { clientId: params.clientId, branchId: branchid, replaced: false },
                 orderBy: { id: "desc" },
@@ -860,10 +863,23 @@ export class ClientService {
                 transaction,
                 retainedEmployeeIds,
             );
+            await assertNoActiveEmployeeScheduleOverlap(transaction, {
+                branchId: branchid,
+                clientId: params.clientId,
+                primaryEmployeeId: newPrimaryEmployeeId,
+                secondaryEmployeeId: newSecondaryEmployeeId,
+                startDate: params.startDate,
+                endDate: params.endDate,
+                replaced: false,
+                excludeScheduleId: currentSchedule?.id,
+            });
             if (currentSchedule) {
                 await transaction.employee_schedule.update({
                     where: { id: currentSchedule.id },
-                    data: { replaced: true, endDate: new Date() },
+                    data: {
+                        replaced: true,
+                        endDate: employeeScheduleReplacementEndDate(new Date(), currentSchedule.startDate),
+                    },
                 });
             }
             const newSchedule = await transaction.employee_schedule.create({
@@ -1045,12 +1061,22 @@ export class ClientService {
                     secondaryEmployeeId,
                     transaction,
                 );
+                const initialScheduleStartDate = startDate ?? new Date();
+                const initialScheduleEndDate = endDate ?? new Date(Date.now() + DEFAULT_SERVICE_PERIOD_MS);
+                await assertNoActiveEmployeeScheduleOverlap(transaction, {
+                    branchId: branchid,
+                    primaryEmployeeId,
+                    secondaryEmployeeId,
+                    startDate: initialScheduleStartDate,
+                    endDate: initialScheduleEndDate,
+                    replaced: false,
+                });
                 const created = await this.createClientUsecase.executeWithInitialSchedule(branchid, createParams, {
                     primaryEmployeeId,
                     secondaryEmployeeId,
                     workAddress: params.address ?? "",
-                    startDate: startDate ?? new Date(),
-                    endDate: endDate ?? new Date(Date.now() + DEFAULT_SERVICE_PERIOD_MS),
+                    startDate: initialScheduleStartDate,
+                    endDate: initialScheduleEndDate,
                 }, transaction);
                 if (applyMessageAutomation) {
                     await this.messageAutomationIntentService.persistClientIntent(transaction, {
@@ -1544,6 +1570,7 @@ export class ClientService {
 
         await this.prismaService.$transaction(async (transaction) => {
             if (employeeChanged) {
+                await lockClientForScheduleWrite(transaction, branchid, id);
                 const currentSchedule = await transaction.employee_schedule.findFirst({
                     where: { clientId: id, branchId: branchid, replaced: false },
                     orderBy: { id: "desc" },
@@ -1572,10 +1599,23 @@ export class ClientService {
                         transaction,
                         retainedEmployeeIds,
                     );
+                    await assertNoActiveEmployeeScheduleOverlap(transaction, {
+                        branchId: branchid,
+                        clientId: id,
+                        primaryEmployeeId,
+                        secondaryEmployeeId,
+                        startDate,
+                        endDate,
+                        replaced: false,
+                        excludeScheduleId: currentSchedule?.id,
+                    });
                     if (currentSchedule) {
                         await transaction.employee_schedule.update({
                             where: { id: currentSchedule.id },
-                            data: { replaced: true, endDate: new Date() },
+                            data: {
+                                replaced: true,
+                                endDate: employeeScheduleReplacementEndDate(new Date(), currentSchedule.startDate),
+                            },
                         });
                         replacedScheduleId = currentSchedule.id;
                     }
@@ -1745,7 +1785,9 @@ export class ClientService {
 
         mergeAndValidateClientServicePeriod(client, {});
         const replacementStartDate = new Date();
-        const replacementEndDate = client.endDate ?? new Date(replacementStartDate.getTime() + DEFAULT_SERVICE_PERIOD_MS);
+        const replacementEndDate = client.endDate && client.endDate.getTime() >= replacementStartDate.getTime()
+            ? client.endDate
+            : new Date(replacementStartDate.getTime() + DEFAULT_SERVICE_PERIOD_MS);
 
         this.logger.log(
             `Replacement requested for client ${clientId}: ` +
@@ -1754,6 +1796,7 @@ export class ClientService {
 
         let replacedScheduleId: number | null = null;
         const replacementSchedule = await this.prismaService.$transaction(async (transaction) => {
+            await lockClientForScheduleWrite(transaction, branchid, clientId);
             const currentSchedule = await transaction.employee_schedule.findFirst({
                 where: { clientId, branchId: branchid, replaced: false },
                 orderBy: { id: "desc" },
@@ -1769,6 +1812,16 @@ export class ClientService {
                 transaction,
                 retainedEmployeeIds,
             );
+            await assertNoActiveEmployeeScheduleOverlap(transaction, {
+                branchId: branchid,
+                clientId,
+                primaryEmployeeId: newPrimaryEmployeeId,
+                secondaryEmployeeId: newSecondaryEmployeeId ?? null,
+                startDate: replacementStartDate,
+                endDate: replacementEndDate,
+                replaced: false,
+                excludeScheduleId: currentSchedule?.id,
+            });
             const updateResult = await transaction.client.updateMany({
                 where: { id: clientId, branchId: branchid },
                 data: { serviceStatus: SERVICE_STATUS.REPLACEMENT_REQUESTED },
@@ -1780,7 +1833,10 @@ export class ClientService {
             if (currentSchedule) {
                 await transaction.employee_schedule.update({
                     where: { id: currentSchedule.id },
-                    data: { replaced: true, endDate: replacementStartDate },
+                    data: {
+                        replaced: true,
+                        endDate: employeeScheduleReplacementEndDate(replacementStartDate, currentSchedule.startDate),
+                    },
                 });
                 replacedScheduleId = currentSchedule.id;
             }
