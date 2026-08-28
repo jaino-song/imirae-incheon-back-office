@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -65,7 +65,13 @@ export function ClientRegistrationWizard({
 }: ClientRegistrationWizardProps) {
     const createClientMutation = useCreateClient();
     const createEmployeeMutation = useCreateEmployee();
-    const { data: employees = [] } = useEmployees();
+    const {
+        data: employees = [],
+        isLoading: isEmployeesLoading,
+        isFetching: isEmployeesFetching,
+        isError: isEmployeesError,
+        refetch: refetchEmployees,
+    } = useEmployees();
     const [activeStep, setActiveStep] = useState(0);
 
     const [name, setName] = useState(initialDraft?.name ?? "");
@@ -76,6 +82,8 @@ export function ClientRegistrationWizard({
 
     const [isRegisteringEmployee, setIsRegisteringEmployee] = useState(false);
     const [employeeName, setEmployeeName] = useState(initialDraft?.employeeName ?? "");
+    const [createdEmployeeId, setCreatedEmployeeId] = useState<number | null>(null);
+    const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
     const [employeePhone, setEmployeePhone] = useState("");
     const [employeeGrade, setEmployeeGrade] = useState("스탠다드");
     const [employeeWorkArea, setEmployeeWorkArea] = useState<string>(WORK_AREAS[0]);
@@ -104,6 +112,7 @@ export function ClientRegistrationWizard({
     const [breastPump, setBreastPump] = useState(false);
 
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isEmployeeRetrying, setIsEmployeeRetrying] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
 
     const isVoucherInfoComplete =
@@ -114,20 +123,57 @@ export function ClientRegistrationWizard({
         grant.trim().length > 0 &&
         actualPrice.trim().length > 0;
 
-    const matchedEmployee = employees.find((candidate: Employee) => candidate.name === employeeName.trim());
-    const needsEmployeeRegistration = Boolean(employeeName) && !matchedEmployee;
+    const matchingEmployees = employees.filter(
+        (candidate: Employee) => candidate.name === employeeName.trim(),
+    );
+    const selectedEmployee = selectedEmployeeId === null
+        ? undefined
+        : matchingEmployees.find((employee) => employee.id === selectedEmployeeId);
+    const matchedEmployee = selectedEmployee
+        ?? (selectedEmployeeId === null && matchingEmployees.length === 1 ? matchingEmployees[0] : undefined);
+    const hasInvalidEmployeeSelection = employeeName.trim().length > 0
+        && selectedEmployeeId !== null
+        && selectedEmployee === undefined;
+    const hasAmbiguousEmployeeMatch = createdEmployeeId === null
+        // A stale explicit id must block while any same-name option remains,
+        // but zero matches should expose the registration path instead.
+        && ((matchingEmployees.length > 0 && hasInvalidEmployeeSelection)
+            || (matchingEmployees.length > 1 && !selectedEmployee));
+    const isEmployeeLookupBlocked = createdEmployeeId === null
+        && employeeName.trim().length > 0
+        && (isEmployeesLoading || isEmployeesFetching || isEmployeesError || isEmployeeRetrying);
+    const needsEmployeeRegistration = Boolean(employeeName.trim())
+        && !isEmployeesLoading
+        && !isEmployeesFetching
+        && !isEmployeesError
+        && !isEmployeeRetrying
+        && matchingEmployees.length === 0
+        && createdEmployeeId === null;
+    const canRegisterEmployee = employeeName.trim().length >= 2
+        && employeePhone.replace(/\D/g, "").length === 11
+        && Boolean(employeeWorkArea)
+        && !isEmployeesFetching
+        && !isEmployeeRetrying;
+
+    useEffect(() => {
+        if (isRegisteringEmployee && (matchingEmployees.length > 0 || isEmployeesError)) {
+            setIsRegisteringEmployee(false);
+        }
+    }, [isEmployeesError, isRegisteringEmployee, matchingEmployees.length]);
 
     const canGoNext = useMemo(() => {
         if (activeStep === 0) {
             return Boolean(name.trim() && phone.trim() && birthday.trim() && address.trim())
-                && (isValidCompactDateInput(dueDate) || initialDraft?.skippedFields?.includes("dueDate"));
+                && (isValidCompactDateInput(dueDate) || initialDraft?.skippedFields?.includes("dueDate"))
+                && !isEmployeeLookupBlocked
+                && !hasAmbiguousEmployeeMatch;
         }
         if (activeStep === 1) {
             if (!voucherClient) return true;
             return isVoucherInfoComplete;
         }
         return true;
-    }, [activeStep, name, phone, birthday, address, dueDate, initialDraft?.skippedFields, voucherClient, isVoucherInfoComplete]);
+    }, [activeStep, name, phone, birthday, address, dueDate, hasAmbiguousEmployeeMatch, initialDraft?.skippedFields, isEmployeeLookupBlocked, voucherClient, isVoucherInfoComplete]);
 
     const handleNext = () => {
         if (!canGoNext) return;
@@ -136,6 +182,21 @@ export function ClientRegistrationWizard({
 
     const handleBack = () => {
         setActiveStep((s) => Math.max(s - 1, 0));
+    };
+
+    const handleEmployeeRetry = async () => {
+        if (createdEmployeeId !== null || !employeeName.trim() || isEmployeeRetrying) return;
+
+        setIsEmployeeRetrying(true);
+        setSubmitError(null);
+
+        try {
+            await refetchEmployees();
+        } catch {
+            // The query's error state remains the source of truth for the retry UI.
+        } finally {
+            setIsEmployeeRetrying(false);
+        }
     };
 
     const handleVoucherYearChange = (year: string) => {
@@ -166,6 +227,12 @@ export function ClientRegistrationWizard({
     };
 
     const handleSubmit = async () => {
+        if (employeeName.trim() && createdEmployeeId === null && (isEmployeesFetching || isEmployeeRetrying)) {
+            setSubmitError("제공인력 정보를 확인하고 있습니다. 잠시 후 다시 시도해 주세요.");
+            setActiveStep(0);
+            return;
+        }
+
         const basicsError = getCanonicalClientRegistrationError({ name, phone, birthday, address, dueDate });
         if (basicsError) {
             setSubmitError(basicsError);
@@ -174,6 +241,12 @@ export function ClientRegistrationWizard({
 
         if (voucherClient && !isVoucherInfoComplete) {
             setSubmitError("바우처 정보를 입력해주세요.");
+            return;
+        }
+
+        if (employeeName && createdEmployeeId === null && !matchedEmployee) {
+            setSubmitError("제공인력 정보가 변경되었습니다. 제공인력을 다시 확인해 주세요.");
+            setActiveStep(0);
             return;
         }
 
@@ -211,7 +284,7 @@ export function ClientRegistrationWizard({
 
             const created = await createClientMutation.mutateAsync({
                 ...payload,
-                primaryEmployeeId: employees.find((employee: Employee) => employee.name === employeeName)?.id ?? null,
+                primaryEmployeeId: createdEmployeeId ?? matchedEmployee?.id ?? null,
             } as CreateClientDto);
             onCreated?.(created);
         } catch (e) {
@@ -223,18 +296,20 @@ export function ClientRegistrationWizard({
     };
 
     const handleEmployeeSubmit = async () => {
-        if (employeeName.trim().length < 2 || employeePhone.replace(/\D/g, "").length !== 11 || !employeeWorkArea) return;
+        if (!canRegisterEmployee) return;
 
         setIsSubmitting(true);
         try {
-            await createEmployeeMutation.mutateAsync({
+            const createdEmployee = await createEmployeeMutation.mutateAsync({
                 name: employeeName.trim(),
                 workArea: [employeeWorkArea],
                 phone: employeePhone.replace(/\D/g, ""),
                 grade: normalizeEmployeeGrade(employeeGrade),
                 openToNextWork: true,
             } satisfies CreateEmployeeDto);
+            setCreatedEmployeeId(createdEmployee.id);
             setIsRegisteringEmployee(false);
+            handleNext();
         } catch (e) {
             const msg = e instanceof Error ? e.message : "제공인력 등록에 실패했습니다.";
             setSubmitError(msg);
@@ -318,6 +393,26 @@ export function ClientRegistrationWizard({
                                 onChange={(e) => setAddress(e.target.value)}
                             />
                         </div>
+                        {createdEmployeeId === null && matchingEmployees.length > 0 && (matchingEmployees.length > 1 || hasInvalidEmployeeSelection) && (
+                            <div className="space-y-2">
+                                <Label htmlFor="employee-selection">제공인력 선택</Label>
+                                <Select
+                                    value={selectedEmployeeId?.toString() ?? ""}
+                                    onValueChange={(value) => setSelectedEmployeeId(Number(value))}
+                                >
+                                    <SelectTrigger id="employee-selection" aria-label="제공인력 선택">
+                                        <SelectValue placeholder="동명이인 중 선택" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {matchingEmployees.map((employee) => (
+                                            <SelectItem key={employee.id} value={employee.id.toString()}>
+                                                {employee.name} ({employee.phone})
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -511,11 +606,45 @@ export function ClientRegistrationWizard({
                 </Alert>
             )}
 
+            {employeeName.trim() && createdEmployeeId === null && (isEmployeesError || isEmployeeRetrying) && (
+                <Alert variant={isEmployeeRetrying ? "default" : "destructive"} className="mt-4">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription className="flex items-center justify-between gap-3">
+                        <span>
+                            {isEmployeeRetrying
+                                ? "제공인력 정보를 다시 확인하고 있습니다."
+                                : "제공인력 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."}
+                        </span>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleEmployeeRetry()}
+                            disabled={isEmployeeRetrying}
+                            aria-busy={isEmployeeRetrying}
+                        >
+                            {isEmployeeRetrying ? (
+                                <>
+                                    <Spinner size="sm" aria-hidden="true" />
+                                    재시도 중...
+                                </>
+                            ) : "다시 시도"}
+                        </Button>
+                    </AlertDescription>
+                </Alert>
+            )}
+
             <div data-component="desktop_chat_page_wizard-registration_actions" className="flex justify-between mt-4">
                 <Button
                     variant="outline"
-                    onClick={handleBack}
-                    disabled={activeStep === 0 || isSubmitting}
+                    onClick={() => {
+                        if (isRegisteringEmployee) {
+                            setIsRegisteringEmployee(false);
+                            return;
+                        }
+                        handleBack();
+                    }}
+                    disabled={(!isRegisteringEmployee && activeStep === 0) || isSubmitting}
                 >
                     이전
                 </Button>
@@ -533,14 +662,21 @@ export function ClientRegistrationWizard({
                             }
                             handleNext();
                         }}
-                        disabled={isRegisteringEmployee || !canGoNext || isSubmitting}
+                        disabled={isRegisteringEmployee
+                            ? !canRegisterEmployee || isSubmitting
+                            : !canGoNext || isSubmitting}
                     >
                         {isRegisteringEmployee ? "제공인력 등록" : "다음"}
                     </Button>
                 ) : (
                     <Button
                         onClick={handleSubmit}
-                        disabled={isSubmitting || !name.trim() || (voucherClient && !isVoucherInfoComplete)}
+                        disabled={isSubmitting
+                            || !name.trim()
+                            || Boolean(employeeName.trim()
+                                && createdEmployeeId === null
+                                && (isEmployeesFetching || isEmployeesError || isEmployeeRetrying || hasInvalidEmployeeSelection))
+                            || (voucherClient && !isVoucherInfoComplete)}
                     >
                         제출
                     </Button>

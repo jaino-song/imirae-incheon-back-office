@@ -351,7 +351,7 @@ describe("UserService", () => {
             });
         });
 
-        it("replaces the exact branch membership set while preserving retained branch roles, then revokes active sessions", async () => {
+        it("replaces the exact branch membership set and demotes retained branch roles, then revokes active sessions", async () => {
             const result = await service.updateAccountAssignment(
                 "u1",
                 assignmentParams(),
@@ -392,15 +392,15 @@ describe("UserService", () => {
                 where: {
                     userId_branchId: { userId: "u1", branchId: branchIds[0] },
                 },
-                update: { role: "admin" },
-                create: { userId: "u1", branchId: branchIds[0], role: "admin" },
+                update: { role: "manager" },
+                create: { userId: "u1", branchId: branchIds[0], role: "manager" },
             });
             expect(prismaService.user_branch.upsert).toHaveBeenNthCalledWith(2, {
                 where: {
                     userId_branchId: { userId: "u1", branchId: branchIds[1] },
                 },
-                update: { role: "admin" },
-                create: { userId: "u1", branchId: branchIds[1], role: "admin" },
+                update: { role: "manager" },
+                create: { userId: "u1", branchId: branchIds[1], role: "manager" },
             });
             expect(prismaService.auth_session.updateMany).toHaveBeenCalledWith({
                 where: { userId: "u1", revokedAt: null },
@@ -416,11 +416,202 @@ describe("UserService", () => {
             }));
         });
 
+        it("caps every retained role above the selected global role during admin demotion", async () => {
+            prismaService.user.findUnique.mockResolvedValue(approvedTarget({
+                userBranches: [
+                    membership(branchIds[0], "admin"),
+                    membership(branchIds[1], "manager"),
+                ],
+            }));
+            prismaService.user.update.mockResolvedValue({
+                id: "u1",
+                name: "A",
+                email: "a@example.com",
+                role: "user",
+                approvalStatus: "approved",
+                approvedAt: new Date("2026-07-13"),
+                approvedBy: "owner-1",
+                requestedRole: "admin",
+                tokenVersion: 2,
+            });
+
+            await service.updateAccountAssignment(
+                "u1",
+                assignmentParams({
+                    role: "user",
+                    expectedRole: "admin",
+                }),
+            );
+
+            expect(prismaService.user_branch.upsert).toHaveBeenNthCalledWith(1, expect.objectContaining({
+                update: { role: "user" },
+                create: expect.objectContaining({ role: "user" }),
+            }));
+            expect(prismaService.user_branch.upsert).toHaveBeenNthCalledWith(2, expect.objectContaining({
+                update: { role: "user" },
+                create: expect.objectContaining({ role: "user" }),
+            }));
+        });
+
+        it("preserves equal and lower retained roles during admin-to-manager demotion", async () => {
+            prismaService.user.findUnique.mockResolvedValue(approvedTarget({
+                userBranches: [
+                    membership(branchIds[0], "admin"),
+                    membership(branchIds[1], "user"),
+                ],
+            }));
+
+            await service.updateAccountAssignment(
+                "u1",
+                assignmentParams({
+                    role: "manager",
+                    expectedRole: "admin",
+                }),
+            );
+
+            expect(prismaService.user_branch.upsert).toHaveBeenNthCalledWith(1, expect.objectContaining({
+                update: { role: "manager" },
+                create: expect.objectContaining({ role: "manager" }),
+            }));
+            expect(prismaService.user_branch.upsert).toHaveBeenNthCalledWith(2, expect.objectContaining({
+                update: { role: "user" },
+                create: expect.objectContaining({ role: "user" }),
+            }));
+        });
+
+        it("caps retained manager memberships when demoting a manager to user", async () => {
+            prismaService.user.findUnique.mockResolvedValue(approvedTarget({
+                role: "manager",
+                ownedBranches: [],
+                userBranches: [
+                    membership(branchIds[0], "manager"),
+                    membership(branchIds[1], "user"),
+                ],
+            }));
+            prismaService.user.update.mockResolvedValue({
+                id: "u1",
+                name: "A",
+                email: "a@example.com",
+                role: "user",
+                approvalStatus: "approved",
+                approvedAt: new Date("2026-07-13"),
+                approvedBy: "owner-1",
+                requestedRole: "admin",
+                tokenVersion: 2,
+            });
+
+            await service.updateAccountAssignment(
+                "u1",
+                assignmentParams({
+                    role: "user",
+                    expectedRole: "manager",
+                }),
+            );
+
+            expect(prismaService.branch.updateMany).not.toHaveBeenCalled();
+            expect(prismaService.user_branch.upsert).toHaveBeenNthCalledWith(1, expect.objectContaining({
+                update: { role: "user" },
+                create: expect.objectContaining({ role: "user" }),
+            }));
+            expect(prismaService.user_branch.upsert).toHaveBeenNthCalledWith(2, expect.objectContaining({
+                update: { role: "user" },
+                create: expect.objectContaining({ role: "user" }),
+            }));
+            expect(prismaService.auth_session.updateMany).toHaveBeenCalled();
+        });
+
+        it("preserves lower retained branch roles during a promotion", async () => {
+            prismaService.user.findUnique.mockResolvedValue(approvedTarget({
+                role: "user",
+                ownedBranches: [],
+                userBranches: [membership(branchIds[0], "user")],
+            }));
+            prismaService.user.update.mockResolvedValue({
+                id: "u1",
+                name: "A",
+                email: "a@example.com",
+                role: "manager",
+                approvalStatus: "approved",
+                approvedAt: new Date("2026-07-13"),
+                approvedBy: "owner-1",
+                requestedRole: "admin",
+                tokenVersion: 2,
+            });
+
+            await service.updateAccountAssignment(
+                "u1",
+                assignmentParams({
+                    role: "manager",
+                    branchIds: [...branchIds],
+                    expectedRole: "user",
+                    expectedBranchIds: [branchIds[0]],
+                }),
+            );
+
+            expect(prismaService.user_branch.upsert).toHaveBeenNthCalledWith(1, expect.objectContaining({
+                update: { role: "user" },
+                create: expect.objectContaining({ role: "user" }),
+            }));
+            expect(prismaService.user_branch.upsert).toHaveBeenNthCalledWith(2, expect.objectContaining({
+                update: { role: "manager" },
+                create: expect.objectContaining({ role: "manager" }),
+            }));
+        });
+
+        it("keeps a same-role assignment a no-op when retained branch roles are not above it", async () => {
+            prismaService.user.findUnique.mockResolvedValue(approvedTarget({
+                role: "manager",
+                ownedBranches: [],
+                userBranches: [
+                    membership(branchIds[0], "manager"),
+                    membership(branchIds[1], "user"),
+                ],
+            }));
+            prismaService.branch.findMany.mockResolvedValue([
+                { id: branchIds[0] },
+                { id: branchIds[1] },
+            ]);
+
+            await service.updateAccountAssignment(
+                "u1",
+                assignmentParams({
+                    role: "manager",
+                    branchIds: [...branchIds],
+                    expectedRole: "manager",
+                    expectedBranchIds: [...branchIds],
+                }),
+            );
+
+            expectNoAssignmentWrites();
+        });
+
+        it("preserves a deliberate above-global retained role when the global role is unchanged", async () => {
+            prismaService.user.findUnique.mockResolvedValue(approvedTarget({
+                role: "manager",
+                ownedBranches: [],
+                userBranches: [
+                    membership(branchIds[0], "admin"),
+                    membership(branchIds[1], "user"),
+                ],
+            }));
+            await service.updateAccountAssignment(
+                "u1",
+                assignmentParams({
+                    role: "manager",
+                    branchIds: [...branchIds],
+                    expectedRole: "manager",
+                    expectedBranchIds: [...branchIds],
+                }),
+            );
+
+            expectNoAssignmentWrites();
+        });
+
         it("returns 409 without writes when the expected role is stale", async () => {
             prismaService.user.findUnique.mockResolvedValue(approvedTarget({
                 role: "manager",
                 ownedBranches: [],
-                userBranches: [membership(branchIds[0], "manager")],
+                userBranches: [membership(branchIds[0], "user")],
             }));
 
             const error = await service.updateAccountAssignment(
@@ -466,7 +657,7 @@ describe("UserService", () => {
             prismaService.user.findUnique.mockResolvedValue(approvedTarget({
                 role: "manager",
                 ownedBranches: [],
-                userBranches: [membership(branchIds[0], "user")],
+                userBranches: [membership(branchIds[0], "manager")],
             }));
             prismaService.branch.findMany.mockResolvedValue([{ id: branchIds[0] }]);
 
@@ -567,7 +758,7 @@ describe("UserService", () => {
             expectNoAssignmentWrites();
         });
 
-        it("preserves an existing inactive membership alongside an active branch", async () => {
+        it("caps an existing inactive membership role when it exceeds the selected global role", async () => {
             const inactiveMembershipBranchId = "33333333-3333-4333-8333-333333333333";
             prismaService.user.findUnique.mockResolvedValue(approvedTarget({
                 role: "manager",
@@ -611,11 +802,11 @@ describe("UserService", () => {
                         branchId: inactiveMembershipBranchId,
                     },
                 },
-                update: { role: "manager" },
+                update: { role: "user" },
                 create: {
                     userId: "u1",
                     branchId: inactiveMembershipBranchId,
-                    role: "manager",
+                    role: "user",
                 },
             });
         });
@@ -884,6 +1075,29 @@ describe("UserService", () => {
             expect(prismaService.user_branch.deleteMany).not.toHaveBeenCalled();
             expect(prismaService.user_branch.upsert).not.toHaveBeenCalled();
             expect(prismaService.auth_session.updateMany).not.toHaveBeenCalled();
+        });
+
+        it("refuses an approved target with an unknown global role before any durable write", async () => {
+            prismaService.user.findUnique.mockResolvedValue(approvedTarget({
+                id: "legacy-target",
+                role: null,
+                approvalStatus: "approved",
+                ownedBranches: [],
+                userBranches: [membership(branchIds[0], "admin")],
+            }));
+
+            await expect(service.updateAccountAssignment(
+                "legacy-target",
+                assignmentParams({
+                    role: "user",
+                    branchIds: [branchIds[0]],
+                    expectedRole: "user",
+                    expectedBranchIds: [branchIds[0]],
+                }),
+            )).rejects.toThrow("계정 정보가 변경되었습니다.");
+
+            expect(prismaService.branch.findMany).not.toHaveBeenCalled();
+            expectNoAssignmentWrites();
         });
 
         it("refuses a non-owner caller before opening a transaction", async () => {
