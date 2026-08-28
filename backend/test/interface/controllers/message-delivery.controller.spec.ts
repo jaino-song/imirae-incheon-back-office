@@ -1,6 +1,7 @@
 import {
     BadGatewayException,
     BadRequestException,
+    ConflictException,
     ServiceUnavailableException,
 } from "@nestjs/common";
 import { AligoService } from "application/services/aligo.service";
@@ -513,6 +514,75 @@ describe("MessageDeliveryController", () => {
             "문자 공급자에는 접수되었지만 발송 기록 상태를 갱신하지 못했습니다.",
         );
 
+        expect(prismaService.message_log.create).toHaveBeenCalledTimes(1);
+        expect(aligoService.sendSms).toHaveBeenCalledTimes(1);
+    });
+
+    it("should fence a provider failure when the uncertain-state update also fails", async () => {
+        const row = {
+            id: 42,
+            variables: { triggerType: "immediate" },
+            providerAcceptanceState: "prepared",
+        };
+        prismaService.message_log.create.mockResolvedValue(row);
+        prismaService.message_log.update.mockRejectedValue(new Error("database unavailable"));
+        aligoService.sendSms.mockRejectedValue(new Error("provider connection reset"));
+
+        await expect(
+            controller.sendSms(
+                { branchId: "org-1" },
+                {
+                    receiver: "01012345678",
+                    message: "결과가 불확실한 발송",
+                    triggerType: "immediate",
+                },
+            ),
+        ).rejects.toThrow(BadGatewayException);
+
+        expect(row.providerAcceptanceState).toBe("started");
+        expect(prismaService.message_log.update).toHaveBeenCalledTimes(1);
+        expect(aligoService.sendSms).toHaveBeenCalledTimes(1);
+    });
+
+    it("should converge duplicate manual requests with one idempotency key before crossing Aligo", async () => {
+        let persistedRow: Record<string, unknown> | null = null;
+        const messageLogModel = prismaService.message_log as typeof prismaService.message_log & {
+            findUnique: jest.Mock;
+        };
+        messageLogModel.findUnique = jest.fn().mockImplementation(async () => persistedRow);
+        prismaService.message_log.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+            persistedRow = { ...data, id: 42 };
+            return persistedRow;
+        });
+        aligoService.sendSms.mockResolvedValue({
+            request: {
+                senderPhone: "0212345678",
+                receiver: "01012345678",
+                msgType: "SMS",
+                testModeYn: "N",
+            },
+            response: {
+                result_code: 1,
+                message: "success",
+                msg_id: 321,
+                success_cnt: 1,
+                error_cnt: 0,
+                msg_type: "SMS",
+            },
+        });
+
+        const request = {
+            receiver: "01012345678",
+            message: "멱등 요청",
+            triggerType: "immediate" as const,
+            idempotencyKey: "manual-request-42",
+        };
+        await expect(controller.sendSms({ branchId: "org-1" }, request)).resolves.toMatchObject({
+            provider: "aligo_sms",
+        });
+        await expect(controller.sendSms({ branchId: "org-1" }, request)).rejects.toThrow(ConflictException);
+
+        expect(messageLogModel.findUnique).toHaveBeenCalledTimes(2);
         expect(prismaService.message_log.create).toHaveBeenCalledTimes(1);
         expect(aligoService.sendSms).toHaveBeenCalledTimes(1);
     });

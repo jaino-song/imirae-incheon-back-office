@@ -846,6 +846,16 @@ model message_log {
   attempts       Int                  @default(0)
   lastAttemptAt  DateTime?            @map("last_attempt_at") @db.Timestamptz(6)
   nextRetryAt    DateTime?            @map("next_retry_at") @db.Timestamptz(6)
+  // Additive provider-acceptance boundary. Legacy rows remain explicitly
+  // marked as legacy and retain the existing message-log UI contract.
+  providerAcceptanceKey         String?              @unique @map("provider_acceptance_key")
+  providerAcceptanceFingerprint String?              @map("provider_acceptance_fingerprint")
+  providerAcceptanceState       String               @default("legacy") @map("provider_acceptance_state") @db.VarChar(32)
+  providerCallStartedAt         DateTime?            @map("provider_call_started_at") @db.Timestamptz(6)
+  providerAcceptedAt            DateTime?            @map("provider_accepted_at") @db.Timestamptz(6)
+  providerReconciledAt          DateTime?            @map("provider_reconciled_at") @db.Timestamptz(6)
+  providerReconciledBy          String?              @map("provider_reconciled_by") @db.VarChar(200)
+  providerReconciliationReason  String?              @map("provider_reconciliation_reason") @db.VarChar(1000)
   createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
   branch         branch?              @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -859,6 +869,7 @@ model message_log {
   @@index([recipientPhone], map: "idx_message_log_recipient_phone")
   @@index([createdAt], map: "idx_message_log_created_at")
   @@index([nextRetryAt], map: "idx_message_log_next_retry_at")
+  @@index([providerAcceptanceState, nextRetryAt], map: "idx_message_log_provider_acceptance_state_retry")
 }
 
 /// Database note: partial unique index `uniq_message_trigger_rule_default` on

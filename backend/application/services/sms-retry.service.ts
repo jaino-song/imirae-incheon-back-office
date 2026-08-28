@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { AligoService } from "application/services/aligo.service";
 import { MessageSenderApprovalService } from "application/services/message-sender-approval.service";
 import { parseKstSchedule } from "application/utils/kst-schedule";
@@ -8,6 +8,12 @@ import {
     MESSAGE_LOG_REPOSITORY,
     IMessageLogRepository,
 } from "domain/repositories/message-log.repository.interface";
+import {
+    buildSmsProviderAcceptanceFingerprint,
+    buildSmsProviderAcceptanceKey,
+    SmsProviderAcceptanceService,
+    SmsProviderReconciliationInput,
+} from "./sms-provider-acceptance.service";
 
 const INVALID_RETRY_SCHEDULE_REASON =
     "예약 발송 일시 형식이 올바르지 않아 재시도하지 않았습니다. 예약일과 예약시간을 확인해 주세요.";
@@ -27,6 +33,8 @@ export class SmsRetryService {
         private readonly logRepository: IMessageLogRepository,
         private readonly aligoService: AligoService,
         private readonly messageSenderApprovalService: MessageSenderApprovalService,
+        @Optional()
+        private readonly acceptanceService?: SmsProviderAcceptanceService,
     ) {}
 
     async retryById(branchId: string, logId: number): Promise<MessageLogEntity> {
@@ -37,6 +45,15 @@ export class SmsRetryService {
 
         if (sourceLog.status !== "failed") {
             throw new ConflictException("실패한 메시지만 재발송할 수 있습니다.");
+        }
+
+        if (sourceLog.isProviderOutcomeUncertain()) {
+            throw new ConflictException(
+                "문자 발송 결과가 불확실합니다. 제공자 이력을 확인하고 먼저 명시적으로 재조정해 주세요.",
+            );
+        }
+        if (sourceLog.providerAcceptanceState === "reconciled_delivered") {
+            throw new ConflictException("이미 발송 완료로 재조정된 문자는 재발송할 수 없습니다.");
         }
 
         const retryLog = await this.retry(sourceLog);
@@ -81,6 +98,10 @@ export class SmsRetryService {
             }
         }
 
+        const providerAttempt = this.acceptanceService
+            ? await this.acceptanceService.beginProviderCall(retryLog)
+            : this.beginProviderCallWithoutBoundary(retryLog);
+
         try {
             const isScheduledInFuture = schedule.scheduledAtMs !== null && schedule.scheduledAtMs > Date.now();
 
@@ -89,55 +110,93 @@ export class SmsRetryService {
 
             const result = await this.aligoService.sendSms({
                 senderPhone: this.stringVariable(retryLog, "senderPhone"),
-                receiver: retryLog.receiver,
-                message: retryLog.messageBody,
-                recipientName: retryLog.recipientName ?? this.stringVariable(retryLog, "recipientName") ?? undefined,
-                title: this.stringVariable(retryLog, "title") ?? undefined,
-                msgType: this.smsMessageTypeVariable(retryLog, "msgType"),
+                receiver: providerAttempt.receiver,
+                message: providerAttempt.messageBody,
+                recipientName: providerAttempt.recipientName ?? this.stringVariable(providerAttempt, "recipientName") ?? undefined,
+                title: this.stringVariable(providerAttempt, "title") ?? undefined,
+                msgType: this.smsMessageTypeVariable(providerAttempt, "msgType"),
                 ...(scheduledDate ? { scheduledDate } : {}),
                 ...(scheduledTime ? { scheduledTime } : {}),
                 ...(this.booleanVariable(retryLog, "testMode") ? { testMode: true } : {}),
             });
 
             if (!this.isAcceptedSmsResult(result)) {
-                this.markSmsRetryRejected(retryLog, result.response.message || "문자 발송 요청이 실패했습니다.");
-                await this.logRepository.update(retryLog);
-                this.logger.warn(`[Retry] SMS retry rejected for log ${retryLog.id}: ${result.response.message}`);
-                return retryLog;
+                this.markSmsRetryRejected(providerAttempt, result.response.message || "문자 발송 요청이 실패했습니다.");
+                await this.logRepository.update(providerAttempt);
+                this.logger.warn(`[Retry] SMS retry rejected for log ${providerAttempt.id}: ${result.response.message}`);
+                return providerAttempt;
             }
 
-            retryLog.variables = {
-                ...retryLog.variables,
+            providerAttempt.variables = {
+                ...providerAttempt.variables,
                 retrySafety: "accepted",
             };
             if (isScheduledInFuture) {
-                retryLog.status = "pending";
-                retryLog.aligoMid = result.response.msg_id ? String(result.response.msg_id) : null;
-                retryLog.lastAttemptAt = new Date(Date.now());
-                retryLog.nextRetryAt = null;
-                retryLog.attempts += 1;
+                providerAttempt.status = "pending";
+                providerAttempt.aligoMid = result.response.msg_id ? String(result.response.msg_id) : null;
+                providerAttempt.lastAttemptAt = new Date(Date.now());
+                providerAttempt.nextRetryAt = null;
+                providerAttempt.attempts += 1;
             } else {
-                retryLog.markSent(result.response.msg_id ? String(result.response.msg_id) : undefined);
+                providerAttempt.markSent(result.response.msg_id ? String(result.response.msg_id) : undefined);
             }
-            await this.logRepository.update(retryLog);
-            this.logger.log(`[Retry] Successfully resent SMS ${retryLog.templateKey} to ${maskPhone(retryLog.receiver)}`);
-            return retryLog;
+            providerAttempt.providerAcceptanceState = "accepted";
+            providerAttempt.providerAcceptedAt = new Date(Date.now());
+            await this.logRepository.update(providerAttempt);
+            this.logger.log(`[Retry] Successfully resent SMS ${providerAttempt.templateKey} to ${maskPhone(providerAttempt.receiver)}`);
+            return providerAttempt;
         } catch (error) {
             this.markSmsRetryUncertain(
-                retryLog,
+                providerAttempt,
                 error instanceof Error ? error.message : String(error),
             );
-            await this.logRepository.update(retryLog);
+            await this.logRepository.update(providerAttempt);
             this.logger.warn(
-                `[Retry] SMS result uncertain for log ${retryLog.id}; automatic retry stopped: ${error}`,
+                `[Retry] SMS result uncertain for log ${providerAttempt.id}; automatic retry stopped: ${error}`,
             );
-            return retryLog;
+            return providerAttempt;
         }
+    }
+
+    async reconcileById(
+        branchId: string,
+        logId: number,
+        outcome: SmsProviderReconciliationInput["outcome"],
+        actor: string,
+        reason: string,
+        providerMessageId?: string | null,
+    ): Promise<MessageLogEntity> {
+        if (!this.acceptanceService) {
+            throw new ConflictException("SMS provider reconciliation is not configured");
+        }
+        return this.acceptanceService.reconcile({
+            branchId,
+            logId,
+            outcome,
+            actor,
+            reason,
+            providerMessageId,
+        });
     }
 
     private createRetryAttempt(sourceLog: MessageLogEntity): MessageLogEntity {
         const now = new Date(Date.now());
         const recoveryAt = new Date(now.getTime() + SMS_DELIVERY_RETRY_DELAY_MS);
+        const retryAttempt = sourceLog.attempts + 1;
+        const providerAcceptanceKey = buildSmsProviderAcceptanceKey(
+            "retry",
+            `${sourceLog.providerAcceptanceKey ?? `legacy:${sourceLog.id}`}:revision:${sourceLog.updatedAt.toISOString()}:attempt:${retryAttempt}`,
+        );
+        const providerAcceptanceFingerprint = sourceLog.providerAcceptanceFingerprint
+            ?? buildSmsProviderAcceptanceFingerprint({
+                branchId: sourceLog.branchId,
+                triggerJobId: sourceLog.triggerJobId,
+                templateKey: sourceLog.templateKey,
+                receiver: sourceLog.receiver,
+                message: sourceLog.messageBody,
+                variables: sourceLog.variables,
+                retryAttempt,
+            });
         return MessageLogEntity.reconstitute(
             0,
             sourceLog.branchId,
@@ -150,7 +209,7 @@ export class SmsRetryService {
             {
                 ...sourceLog.variables,
                 retryOfLogId: String(sourceLog.id),
-                retryAttempt: String(sourceLog.attempts + 1),
+                retryAttempt: String(retryAttempt),
                 // Persist the attempt conservatively before the provider call. If the
                 // process exits after submission but before the result update, the
                 // scheduler must not submit the same SMS again automatically.
@@ -166,6 +225,9 @@ export class SmsRetryService {
             now,
             sourceLog.recipientName,
             sourceLog.recipientPhone,
+            providerAcceptanceKey,
+            providerAcceptanceFingerprint,
+            "prepared",
         );
     }
 
@@ -202,6 +264,8 @@ export class SmsRetryService {
 
     private markSmsRetryRejected(log: MessageLogEntity, errorMessage: string): void {
         log.status = "failed";
+        log.providerAcceptanceState = "rejected";
+        log.providerAcceptedAt = null;
         log.errorMessage = errorMessage;
         log.attempts += 1;
         log.lastAttemptAt = new Date(Date.now());
@@ -224,6 +288,18 @@ export class SmsRetryService {
             ...log.variables,
             retrySafety: "uncertain",
         };
+        log.providerAcceptanceState = log.providerAcceptanceState === "started"
+            ? "uncertain"
+            : log.providerAcceptanceState;
+    }
+
+    private beginProviderCallWithoutBoundary(log: MessageLogEntity): MessageLogEntity {
+        if (log.providerAcceptanceState !== "prepared" && log.providerAcceptanceState !== "legacy") {
+            throw new ConflictException(`SMS provider attempt cannot start from ${log.providerAcceptanceState}`);
+        }
+        log.providerAcceptanceState = "started";
+        log.providerCallStartedAt = new Date(Date.now());
+        return log;
     }
 
     private isAcceptedSmsResult(result: Awaited<ReturnType<AligoService["sendSms"]>>): boolean {

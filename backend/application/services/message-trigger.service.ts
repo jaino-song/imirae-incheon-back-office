@@ -318,6 +318,9 @@ type PreProviderSendFenceResult =
     | { kind: "stale"; reason: string }
     | { kind: "lost" };
 
+const SMS_PROVIDER_ACCEPTANCE_UNCERTAIN_REASON =
+    "문자 발송 결과가 불확실하여 자동 재전송을 중단했습니다. 제공자 이력 확인 후 수동 확인이 필요합니다.";
+
 @Injectable()
 export class MessageTriggerService {
     private readonly logger = new Logger(MessageTriggerService.name);
@@ -2370,9 +2373,17 @@ export class MessageTriggerService {
         const sentIds = await this.messageLogRepository.findSentTriggerJobIds(
             stale.map((job) => job.id),
         );
+        const logRepository = this.messageLogRepository as IMessageLogRepository & {
+            findUncertainTriggerJobIds?: (jobIds: string[]) => Promise<Set<string>>;
+        };
+        const uncertainIds = typeof logRepository.findUncertainTriggerJobIds === "function"
+            ? await logRepository.findUncertainTriggerJobIds(stale.map((job) => job.id))
+            : new Set<string>();
         for (const job of stale) {
             if (sentIds.has(job.id)) {
                 job.markSent();
+            } else if (uncertainIds.has(job.id)) {
+                job.markFailed(SMS_PROVIDER_ACCEPTANCE_UNCERTAIN_REASON);
             } else {
                 job.defer("transient", "Reclaimed stale processing job");
             }
