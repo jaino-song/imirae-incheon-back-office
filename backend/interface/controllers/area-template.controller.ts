@@ -29,6 +29,11 @@ export class AreaTemplateController {
         return this.areaTemplateService.findByArea(tenant.branchId ?? "", area);
     }
 
+    @Get("available-areas")
+    findAvailableAreas(@CurrentTenant() tenant: { branchId?: string }) {
+        return this.areaTemplateService.findAvailableAreas(tenant.branchId ?? "");
+    }
+
     @Get()
     findAll(@CurrentTenant() tenant: { branchId?: string }) {
         return this.areaTemplateService.findAll(tenant.branchId ?? "");

@@ -385,9 +385,19 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             }),
         };
         const aligoService = new AligoService(new SendAligoSmsUsecase(providerApi as never));
+        const systemTemplateService = {
+            getByKey: jest.fn().mockImplementation(async (templateKey: string) => ({
+                id: `template-${templateKey}`,
+                templateKey,
+                content: "안내",
+                requiredVariables: [],
+                customVariables: [],
+                updatedAt: new Date("2026-08-01T00:00:00.000Z"),
+            })),
+        };
         const smsDelivery = new SmsTriggerDeliveryService(
             aligoService,
-            { getByKey: jest.fn() } as never,
+            systemTemplateService as never,
             { save: jest.fn().mockImplementation(async (log: unknown) => log) } as never,
         );
         const triggerDelivery = new MessageTriggerDeliveryService(smsDelivery);
@@ -402,6 +412,14 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             {} as never,
             repository as never,
             { findSentTriggerJobIds: jest.fn().mockResolvedValue(new Set<string>()), save: jest.fn() } as never,
+            systemTemplateService as never,
+            {
+                runExclusive: jest.fn().mockImplementation(async (
+                    _templateKey: string,
+                    work: (transaction: unknown) => Promise<unknown>,
+                    transaction: unknown,
+                ) => work(transaction)),
+            } as never,
         );
         const provider = new MessageExternalAgentCapabilitiesProvider(
             {} as never,
@@ -574,7 +592,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         ["invalid recipient", { recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE }, "Invalid recipient for selected event type"],
         ["invalid offset", { offsetType: MessageTriggerOffsetType.IMMEDIATE }, "Invalid offset type for selected event type"],
         ["non-positive offset days", { offsetDays: 0 }, "Offset days must be greater than 0"],
-        ["incompatible template", { templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED }, "Template is not compatible with the selected event and recipient"],
+        ["non-configurable template", { templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED }, "일반 자동 전송 규칙에서 사용할 수 없는 템플릿입니다."],
     ] as Array<[string, Record<string, unknown>, string]>)
     ("rejects %s during automation creation inspection", async (_label, overrides, message) => {
         const { prisma, delivery, capabilities } = setup();
@@ -586,7 +604,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             offsetType: MessageTriggerOffsetType.BEFORE_DAYS,
             offsetDays: 1,
             recipientType: MessageTriggerRecipientType.CLIENT,
-            templateKey: MessageTriggerTemplateKey.SERVICE_START_REMINDER,
+            templateKey: MessageTriggerTemplateKey.SERVICE_INFO,
             ...overrides,
         };
 
@@ -599,7 +617,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         ["invalid recipient", { recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE }, "Invalid recipient for selected event type"],
         ["invalid offset", { offsetType: MessageTriggerOffsetType.IMMEDIATE }, "Invalid offset type for selected event type"],
         ["non-positive offset days", { offsetDays: 0 }, "Offset days must be greater than 0"],
-        ["incompatible template", { templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED }, "Template is not compatible with the selected event and recipient"],
+        ["non-configurable template", { templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED }, "일반 자동 전송 규칙에서 사용할 수 없는 템플릿입니다."],
     ] as Array<[string, Record<string, unknown>, string]>)
     ("rejects %s during merged automation update inspection", async (_label, overrides, message) => {
         const { delivery, capabilities } = setup();
@@ -620,7 +638,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             offsetType: MessageTriggerOffsetType.BEFORE_DAYS,
             offsetDays: 0,
             recipientType: MessageTriggerRecipientType.CLIENT,
-            templateKey: MessageTriggerTemplateKey.SERVICE_START_REMINDER,
+            templateKey: MessageTriggerTemplateKey.SERVICE_INFO,
         };
 
         await expect(create.execute(context, input)).rejects.toMatchObject({ name: "AgentActionCertainFailureError" });
@@ -684,7 +702,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             offsetType: MessageTriggerOffsetType.BEFORE_DAYS,
             offsetDays: 1,
             recipientType: MessageTriggerRecipientType.CLIENT,
-            templateKey: MessageTriggerTemplateKey.SERVICE_START_REMINDER,
+            templateKey: MessageTriggerTemplateKey.SERVICE_INFO,
         };
 
         await expect(create.execute(context, input)).resolves.toEqual({ status: "created", id: "rule-a", isActive: true });
@@ -711,7 +729,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             offsetType: MessageTriggerOffsetType.BEFORE_DAYS,
             offsetDays: 1,
             recipientType: MessageTriggerRecipientType.CLIENT,
-            templateKey: MessageTriggerTemplateKey.SERVICE_START_REMINDER,
+            templateKey: MessageTriggerTemplateKey.SERVICE_INFO,
         };
 
         await expect(create.execute(context, input)).rejects.toThrow("receipt could not be persisted");

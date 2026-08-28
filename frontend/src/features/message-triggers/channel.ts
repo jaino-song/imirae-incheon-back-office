@@ -9,6 +9,8 @@ import type {
 // Single source of truth for a template's channel lives in the shared package so the form,
 // channel filters, and the backend delivery drift guard all agree.
 import {
+  CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS,
+  MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS,
   SMS_TRIGGER_TEMPLATE_KEYS,
   SMS_TRIGGER_TO_SYSTEM_TEMPLATE,
   getTriggerTemplateChannel,
@@ -20,7 +22,13 @@ import {
   isSmsTriggerTemplate as isSharedSmsTriggerTemplate,
 } from "@babyjamjam/shared";
 
-export { SMS_TRIGGER_TEMPLATE_KEYS, SMS_TRIGGER_TO_SYSTEM_TEMPLATE, getTriggerTemplateChannel };
+export {
+  CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS,
+  MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS,
+  SMS_TRIGGER_TEMPLATE_KEYS,
+  SMS_TRIGGER_TO_SYSTEM_TEMPLATE,
+  getTriggerTemplateChannel,
+};
 
 export type TriggerMessageChannel = "sms";
 
@@ -77,7 +85,11 @@ export function getChannelTemplates(
   templates: TriggerTemplateCatalogItem[],
   channel: TriggerMessageChannel,
 ): TriggerTemplateCatalogItem[] {
-  return templates.filter((template) => getTriggerTemplateChannel(template.key) === channel);
+  return templates.filter(
+    (template) =>
+      getTriggerTemplateChannel(template.key) === channel
+      && CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS.includes(template.key),
+  );
 }
 
 export function deriveEventTypesFromTemplates(

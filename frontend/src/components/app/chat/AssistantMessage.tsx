@@ -49,6 +49,7 @@ export function AssistantMessage({
                 }
                 return (
                     <ClientRegistrationWizard
+                        initialDraft={message.ui?.registrationDraft}
                         onCreated={(client) => setCreatedClient(client)}
                     />
                 );
@@ -94,7 +95,7 @@ export function AssistantMessage({
             default:
                 return null;
         }
-    }, [wizardType, createdClient, contractSendDone, contractStatus]);
+    }, [message.ui?.registrationDraft, wizardType, createdClient, contractSendDone, contractStatus]);
 
     return (
         <div data-component="desktop_chat_page_message-assistant" className="flex gap-4 mb-6 w-full">

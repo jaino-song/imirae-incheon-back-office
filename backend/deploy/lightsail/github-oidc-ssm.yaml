@@ -9,8 +9,18 @@ Parameters:
   ManagedNodeTagValue:
     Type: String
     Default: babyjamjam-admin-server
-    Description: DeploymentTarget tag on the single SSM managed Lightsail node.
+    AllowedValues:
+      - babyjamjam-admin-server
+    Description: Fixed DeploymentTarget tag on the single shared SSM managed Lightsail node.
     AllowedPattern: "^[A-Za-z0-9._:/=+@-]{1,128}$"
+
+Rules:
+  SeoulRegionOnly:
+    Assertions:
+      - Assert: !Equals
+          - !Ref AWS::Region
+          - ap-northeast-2
+        AssertDescription: Deploy this stack only in the ap-northeast-2 region.
 
 Resources:
   ManagedNodeServiceRole:
@@ -51,6 +61,24 @@ Resources:
               runCommand:
                 - '/usr/local/sbin/babyjamjam-ci-operator deploy preview "{{ CommitSha }}" "{{ ImageDigest }}"'
 
+  PreviewDiagnosticsDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: babyjamjam-preview-diagnostics
+      DocumentType: Command
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Read the bounded, sanitized BabyJamJam preview deployment diagnostics.
+        mainSteps:
+          - action: aws:runShellScript
+            name: readPreviewDiagnostics
+            inputs:
+              timeoutSeconds: "120"
+              runCommand:
+                - '/usr/local/sbin/babyjamjam-ci-operator diagnostics preview'
+
   ProductionDeployDocument:
     Type: AWS::SSM::Document
     Properties:
@@ -74,6 +102,141 @@ Resources:
               timeoutSeconds: "1800"
               runCommand:
                 - '/usr/local/sbin/babyjamjam-ci-operator deploy production "{{ CommitSha }}" "{{ ImageDigest }}"'
+
+  PreviewStatusDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Read the validated BabyJamJam preview runtime status.
+        mainSteps:
+          - action: aws:runShellScript
+            name: statusPreview
+            inputs:
+              timeoutSeconds: "120"
+              runCommand:
+                - '/usr/local/sbin/babyjamjam-ci-operator status preview'
+
+  ProductionStatusDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Read the validated BabyJamJam production runtime status.
+        mainSteps:
+          - action: aws:runShellScript
+            name: statusProduction
+            inputs:
+              timeoutSeconds: "120"
+              runCommand:
+                - '/usr/local/sbin/babyjamjam-ci-operator status production'
+
+  OperatorUpgradeDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Replace the shared root operator from the exact protected main commit.
+        parameters:
+          CommitSha:
+            type: String
+            allowedPattern: "^[0-9a-f]{40}$"
+        mainSteps:
+          - action: aws:runShellScript
+            name: upgradeSharedOperator
+            inputs:
+              timeoutSeconds: "600"
+              runCommand:
+                - |
+                  set -euo pipefail
+                  readonly repository_url="https://github.com/jaino-song/babyjamjam-admin.git"
+                  readonly expected_sha="{{ CommitSha }}"
+                  upgrade_root="$(/usr/bin/mktemp -d /var/tmp/babyjamjam-operator-upgrade.XXXXXX)"
+                  trap '/bin/rm -rf "$upgrade_root"' EXIT
+                  /usr/bin/git init --quiet "$upgrade_root/repository"
+                  /usr/bin/git -C "$upgrade_root/repository" remote add origin "$repository_url"
+                  /usr/bin/git -C "$upgrade_root/repository" -c protocol.file.allow=never \
+                    fetch --quiet --depth 1 origin refs/heads/main
+                  fetched_sha="$(/usr/bin/git -C "$upgrade_root/repository" rev-parse FETCH_HEAD)"
+                  [[ "$fetched_sha" == "$expected_sha" ]] || {
+                    echo "origin/main mismatch; refusing operator replacement." >&2
+                    exit 1
+                  }
+                  /usr/bin/git -C "$upgrade_root/repository" checkout --quiet --detach "$fetched_sha"
+                  "$upgrade_root/repository/backend/deploy/lightsail/install-ci-operator.sh" install --replace
+                  "$upgrade_root/repository/backend/deploy/lightsail/install-ci-operator.sh" check
+                  printf '%s\n' 'operator_upgrade=ok'
+
+  ProductionDiagnosticsDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: babyjamjam-production-diagnostics
+      DocumentType: Command
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Read the bounded, sanitized BabyJamJam production deployment diagnostics.
+        mainSteps:
+          - action: aws:runShellScript
+            name: readProductionDiagnostics
+            inputs:
+              timeoutSeconds: "120"
+              runCommand:
+                - '/usr/local/sbin/babyjamjam-ci-operator diagnostics production'
+
+  PreviewDbReconcileDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: babyjamjam-preview-db-failover
+      DocumentType: Command
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Reconcile the BabyJamJam preview database route from the fixed host operator.
+        parameters:
+          RequestId:
+            type: String
+            allowedPattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        mainSteps:
+          - action: aws:runShellScript
+            name: reconcilePreviewDatabaseRoute
+            inputs:
+              timeoutSeconds: "120"
+              runCommand:
+                - '/usr/local/sbin/babyjamjam-ci-operator db-reconcile preview "{{ RequestId }}"'
+
+  ProductionDbReconcileDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: babyjamjam-production-db-failover
+      DocumentType: Command
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Reconcile the BabyJamJam production database route from the fixed host operator.
+        parameters:
+          RequestId:
+            type: String
+            allowedPattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        mainSteps:
+          - action: aws:runShellScript
+            name: reconcileProductionDatabaseRoute
+            inputs:
+              timeoutSeconds: "120"
+              runCommand:
+                - '/usr/local/sbin/babyjamjam-ci-operator db-reconcile production "{{ RequestId }}"'
 
   PreviewDeployRole:
     Type: AWS::IAM::Role
@@ -99,7 +262,9 @@ Resources:
               - Sid: UsePreviewDocument
                 Effect: Allow
                 Action: ssm:SendCommand
-                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${PreviewDeployDocument}
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${PreviewDeployDocument}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${PreviewStatusDocument}
               - Sid: TargetDeploymentNode
                 Effect: Allow
                 Action: ssm:SendCommand
@@ -139,7 +304,10 @@ Resources:
               - Sid: UseProductionDocument
                 Effect: Allow
                 Action: ssm:SendCommand
-                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${ProductionDeployDocument}
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${ProductionDeployDocument}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${ProductionStatusDocument}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${OperatorUpgradeDocument}
               - Sid: TargetDeploymentNode
                 Effect: Allow
                 Action: ssm:SendCommand
@@ -155,6 +323,43 @@ Resources:
                   - ssm:ListCommandInvocations
                 Resource: "*"
 
+  AgentLightsailDiagnosticsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Unattached least-privilege SSM diagnostics policy for the external agent-lightsail-operator IAM user.
+      ManagedPolicyName: AgentLightsailOperatorDiagnostics
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: UseFixedDiagnosticsDocuments
+            Effect: Allow
+            Action: ssm:SendCommand
+            Resource:
+              - !Sub arn:${AWS::Partition}:ssm:ap-northeast-2:${AWS::AccountId}:document/${PreviewDiagnosticsDocument}
+              - !Sub arn:${AWS::Partition}:ssm:ap-northeast-2:${AWS::AccountId}:document/${ProductionDiagnosticsDocument}
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: ap-northeast-2
+          - Sid: TargetTaggedManagedNode
+            Effect: Allow
+            Action: ssm:SendCommand
+            Resource: !Sub arn:${AWS::Partition}:ssm:ap-northeast-2:${AWS::AccountId}:managed-instance/*
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: ap-northeast-2
+                "ssm:resourceTag/DeploymentTarget": !Ref ManagedNodeTagValue
+          - Sid: ReadCommandDiagnostics
+            Effect: Allow
+            Action:
+              - ssm:DescribeInstanceInformation
+              - ssm:GetCommandInvocation
+              - ssm:ListCommandInvocations
+              - ssm:ListCommands
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: ap-northeast-2
+
 Outputs:
   DeploymentTargetTagValue:
     Description: Set as the LIGHTSAIL_SSM_TARGET_TAG GitHub repository variable.
@@ -168,9 +373,45 @@ Outputs:
   PreviewDeployDocumentName:
     Description: Set as the AWS_PREVIEW_DEPLOY_DOCUMENT_NAME GitHub repository variable.
     Value: !Ref PreviewDeployDocument
+  PreviewStatusDocumentName:
+    Description: Set as the AWS_PREVIEW_STATUS_DOCUMENT_NAME GitHub repository variable.
+    Value: !Ref PreviewStatusDocument
   ProductionDeployRoleArn:
     Description: Set as the AWS_PRODUCTION_DEPLOY_ROLE_ARN GitHub repository variable.
     Value: !GetAtt ProductionDeployRole.Arn
   ProductionDeployDocumentName:
     Description: Set as the AWS_PRODUCTION_DEPLOY_DOCUMENT_NAME GitHub repository variable.
     Value: !Ref ProductionDeployDocument
+  ProductionStatusDocumentName:
+    Description: Set as the AWS_PRODUCTION_STATUS_DOCUMENT_NAME GitHub repository variable.
+    Value: !Ref ProductionStatusDocument
+  OperatorUpgradeDocumentName:
+    Description: Set as the AWS_OPERATOR_UPGRADE_DOCUMENT_NAME GitHub repository variable.
+    Value: !Ref OperatorUpgradeDocument
+  PreviewDiagnosticsDocumentArn:
+    Description: Exact Seoul-region SSM document ARN for the external diagnostics policy.
+    Value: !Sub arn:${AWS::Partition}:ssm:ap-northeast-2:${AWS::AccountId}:document/${PreviewDiagnosticsDocument}
+  PreviewDiagnosticsDocumentName:
+    Description: Fixed preview diagnostics document name for the external IAM operator.
+    Value: !Ref PreviewDiagnosticsDocument
+  ProductionDiagnosticsDocumentArn:
+    Description: Exact Seoul-region SSM document ARN for the external diagnostics policy.
+    Value: !Sub arn:${AWS::Partition}:ssm:ap-northeast-2:${AWS::AccountId}:document/${ProductionDiagnosticsDocument}
+  ProductionDiagnosticsDocumentName:
+    Description: Fixed production diagnostics document name for the external IAM operator.
+    Value: !Ref ProductionDiagnosticsDocument
+  AgentLightsailDiagnosticsPolicyArn:
+    Description: Attach this unattached policy explicitly to agent-lightsail-operator after reviewing the change.
+    Value: !Ref AgentLightsailDiagnosticsPolicy
+  PreviewDbReconcileDocumentArn:
+    Description: Fixed preview database-route reconcile document ARN for the failover worker policy.
+    Value: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${PreviewDbReconcileDocument}
+  PreviewDbReconcileDocumentName:
+    Description: Fixed preview database-route reconcile document name for the failover worker.
+    Value: !Ref PreviewDbReconcileDocument
+  ProductionDbReconcileDocumentArn:
+    Description: Fixed production database-route reconcile document ARN for the failover worker policy.
+    Value: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${ProductionDbReconcileDocument}
+  ProductionDbReconcileDocumentName:
+    Description: Fixed production database-route reconcile document name for the failover worker.
+    Value: !Ref ProductionDbReconcileDocument

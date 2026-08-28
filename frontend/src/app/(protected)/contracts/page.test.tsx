@@ -35,6 +35,24 @@ describe("ContractsPage server-side search", () => {
   });
 });
 
+describe("ContractsPage infinite-scroll presentation", () => {
+  it("does not append placeholder rows while fetching the next page", () => {
+    expect(source).not.toContain("fetchingMoreCount");
+  });
+});
+
+describe("ContractsPage maternity template whitelist", () => {
+  // A guard against reintroduction, not a behaviour test. The maternity list once
+  // showed every non-제공기록지 document in the eformsign account — including
+  // unrelated templates (e.g. 근로계약서) — because the section's filter was a
+  // blacklist. The whitelist decision now lives in
+  // src/lib/eformsign/contract-template-filter.ts, which carries the real
+  // behaviour tests; this only checks the page still delegates to it.
+  it("derives the maternity list filter through the shared template filter builder", () => {
+    expect(source).toContain("buildContractTemplateFilter(");
+  });
+});
+
 describe("ContractsPage headless finalization fallback", () => {
   it("does not reopen the reviewer iframe when the backend verdict is unknown", () => {
     expect(source).toContain("let transportOutcomeUnknown = false");

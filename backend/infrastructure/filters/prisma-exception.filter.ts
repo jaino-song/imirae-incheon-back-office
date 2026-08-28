@@ -1,23 +1,37 @@
 import {
-    ExceptionFilter,
-    Catch,
     ArgumentsHost,
+    Catch,
+    ExceptionFilter,
     HttpStatus,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { Response } from "express";
+import type { Response } from "express";
 import type { Request } from "express";
+
+import { getDatabaseConnectionMode } from "infrastructure/database/prisma-url.utils";
 import {
+    getPrismaErrorCode,
+    isPrismaFailoverEligible,
+} from "infrastructure/database/prisma-error.utils";
+import {
+    capturePrismaError,
     captureServiceRecordError,
     getServiceRecordOperation,
     isServiceRecordSignal,
 } from "infrastructure/observability/service-record-sentry";
 
+type PrismaException =
+    | Prisma.PrismaClientKnownRequestError
+    | Prisma.PrismaClientUnknownRequestError
+    | Prisma.PrismaClientInitializationError
+    | Prisma.PrismaClientRustPanicError
+    | Prisma.PrismaClientValidationError;
+
 // Prisma 에러 코드별 HTTP 상태 매핑 (메시지는 프론트엔드에서 처리)
 const PRISMA_ERROR_STATUS: Record<string, HttpStatus> = {
     P2002: HttpStatus.CONFLICT,           // Unique constraint violation
     P2003: HttpStatus.BAD_REQUEST,        // Foreign key constraint violation
-    P2025: HttpStatus.NOT_FOUND,          // Record not found
+    P2025: HttpStatus.NOT_FOUND,           // Record not found
     P2011: HttpStatus.BAD_REQUEST,        // Required field missing
     P2006: HttpStatus.BAD_REQUEST,        // Invalid value for field
     P1001: HttpStatus.SERVICE_UNAVAILABLE, // Database unreachable
@@ -25,21 +39,37 @@ const PRISMA_ERROR_STATUS: Record<string, HttpStatus> = {
     P2024: HttpStatus.SERVICE_UNAVAILABLE, // Prisma pool exhausted
 };
 
-@Catch(Prisma.PrismaClientKnownRequestError)
+@Catch(
+    Prisma.PrismaClientKnownRequestError,
+    Prisma.PrismaClientUnknownRequestError,
+    Prisma.PrismaClientInitializationError,
+    Prisma.PrismaClientRustPanicError,
+    Prisma.PrismaClientValidationError,
+)
 export class PrismaExceptionFilter implements ExceptionFilter {
-    catch(exception: Prisma.PrismaClientKnownRequestError, host: ArgumentsHost) {
+    catch(exception: PrismaException, host: ArgumentsHost) {
         const ctx = host.switchToHttp();
         const response = ctx.getResponse<Response>();
         const request = ctx.getRequest<Request>();
+        const code = getPrismaErrorCode(exception);
+        const prismaCode = code ?? "unknown";
+        const status = PRISMA_ERROR_STATUS[prismaCode] || HttpStatus.INTERNAL_SERVER_ERROR;
+        const field = exception instanceof Prisma.PrismaClientKnownRequestError
+            ? this.extractField(exception)
+            : null;
+        const path = request.originalUrl || request.url || "";
 
-        const status = PRISMA_ERROR_STATUS[exception.code] || HttpStatus.INTERNAL_SERVER_ERROR;
-        const field = this.extractField(exception);
+        console.error(`[PrismaException] Code: ${prismaCode}, Field: ${field || "N/A"}`);
 
-        console.error(`[PrismaException] Code: ${exception.code}, Field: ${field || 'N/A'}`);
+        capturePrismaError(exception, {
+            code: prismaCode,
+            eligible: isPrismaFailoverEligible(exception),
+            route: getDatabaseConnectionMode(),
+        });
 
-        if (status >= 500 && isServiceRecordSignal(request.originalUrl || request.url)) {
+        if (status >= 500 && isServiceRecordSignal(path)) {
             captureServiceRecordError(exception, {
-                operation: getServiceRecordOperation(request.originalUrl || request.url),
+                operation: getServiceRecordOperation(path),
                 handled: true,
                 statusCode: status,
             });
@@ -47,7 +77,7 @@ export class PrismaExceptionFilter implements ExceptionFilter {
 
         return response.status(status).json({
             statusCode: status,
-            code: exception.code,
+            code,
             error: this.getErrorName(status),
             ...(field && { field }),
         });
@@ -58,18 +88,18 @@ export class PrismaExceptionFilter implements ExceptionFilter {
         if (!meta) return null;
 
         // P2002: target contains the field names
-        if (Array.isArray(meta['target']) && meta['target'].length > 0) {
-            return meta['target'][0] as string;
+        if (Array.isArray(meta["target"]) && meta["target"].length > 0) {
+            return meta["target"][0] as string;
         }
 
         // P2003, P2006: field_name contains the field
-        if (typeof meta['field_name'] === 'string') {
-            return meta['field_name'];
+        if (typeof meta["field_name"] === "string") {
+            return meta["field_name"];
         }
 
         // P2011: constraint contains the field
-        if (typeof meta['constraint'] === 'string') {
-            return meta['constraint'];
+        if (typeof meta["constraint"] === "string") {
+            return meta["constraint"];
         }
 
         return null;

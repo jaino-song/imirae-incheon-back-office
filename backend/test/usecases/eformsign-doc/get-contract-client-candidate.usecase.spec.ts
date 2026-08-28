@@ -4,10 +4,12 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 describe("GetContractClientCandidateUsecase", () => {
     const findUnique = jest.fn();
     const findEmployees = jest.fn();
+    const findEmployee = jest.fn();
     const findVoucherPrices = jest.fn();
+    const createEmployee = { execute: jest.fn() };
     const prisma = {
         eformsign_doc: { findUnique },
-        employee: { findMany: findEmployees },
+        employee: { findMany: findEmployees, findFirst: findEmployee },
         voucher_price_info: { findMany: findVoucherPrices },
     } as unknown as PrismaService;
 
@@ -15,8 +17,10 @@ describe("GetContractClientCandidateUsecase", () => {
 
     beforeEach(() => {
         findEmployees.mockResolvedValue([]);
+        findEmployee.mockResolvedValue(null);
         findVoucherPrices.mockResolvedValue([]);
-        usecase = new GetContractClientCandidateUsecase(prisma);
+        createEmployee.execute.mockReset();
+        usecase = new GetContractClientCandidateUsecase(prisma, createEmployee as never);
     });
 
     afterEach(() => {
@@ -141,6 +145,83 @@ describe("GetContractClientCandidateUsecase", () => {
         expect(findVoucherPrices).toHaveBeenCalledWith(expect.objectContaining({
             where: { year: 2026 },
         }));
+    });
+
+    it("creates an unregistered primary provider from the document identity", async () => {
+        findUnique.mockResolvedValue({
+            documentId: "doc-new-provider",
+            customerName: null,
+            customerPhone: null,
+            detailPayload: {
+                fields: [
+                    { id: "이용자 성명", value: "황정원" },
+                    { id: "계약 시작 년도", value: "26" },
+                    { id: "계약 시작 월", value: "08" },
+                    { id: "계약 시작 일", value: "24" },
+                    { id: "계약 종료 년도", value: "26" },
+                    { id: "계약 종료 월", value: "09" },
+                    { id: "계약 종료 일", value: "11" },
+                    { id: "제공인력 1 성명", value: "김맹화" },
+                    { id: "제공인력 1 연락처", value: "01025577430" },
+                    { id: "총 서비스 금액", value: "2,196,000" },
+                    { id: "정부지원금", value: "1,525,000" },
+                    { id: "본인부담금", value: "671,000" },
+                ],
+            },
+        });
+        findEmployees.mockResolvedValue([]);
+        createEmployee.execute.mockResolvedValue({ id: 31, name: "김맹화" });
+        findVoucherPrices.mockResolvedValue([
+            { type: "A통합2형", duration: BigInt(15), fullPrice: "2196000", grant: "1525000", actualPrice: "671000" },
+        ]);
+
+        await expect(usecase.execute("doc-new-provider", "branch-1")).resolves.toEqual(
+            expect.objectContaining({
+                name: "황정원",
+                primaryEmployeeId: 31,
+                type: "A통합2형",
+                duration: 15,
+            }),
+        );
+        expect(createEmployee.execute).toHaveBeenCalledWith(
+            "branch-1",
+            "김맹화",
+            ["미지정"],
+            "010-2557-7430",
+            "스탠다드",
+            true,
+        );
+    });
+
+    it("recovers a concurrent provider create using the stored formatted phone", async () => {
+        findUnique.mockResolvedValue({
+            documentId: "doc-racing-provider",
+            customerName: null,
+            customerPhone: null,
+            detailPayload: {
+                fields: [
+                    { id: "이용자 성명", value: "황정원" },
+                    { id: "제공인력 1 성명", value: "김맹화" },
+                    { id: "제공인력 1 연락처", value: "01025577430" },
+                ],
+            },
+        });
+        createEmployee.execute.mockRejectedValue(
+            Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+        );
+        findEmployee.mockResolvedValue({ id: 31 });
+
+        await expect(usecase.execute("doc-racing-provider", "branch-1")).resolves.toEqual(
+            expect.objectContaining({ primaryEmployeeId: 31 }),
+        );
+        expect(findEmployee).toHaveBeenCalledWith({
+            where: {
+                branchId: "branch-1",
+                phone: "010-2557-7430",
+                deletedAt: null,
+            },
+            select: { id: true },
+        });
     });
 
     it("동일 요금 행이 둘 이상이면 바우처 유형과 기간을 추측하지 않는다", async () => {

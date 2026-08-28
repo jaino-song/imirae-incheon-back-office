@@ -92,6 +92,11 @@ jobs:
       - name: Lint
         run: pnpm --filter ./backend run lint
 
+      - name: Verify Lightsail automation contracts
+        run: |
+          backend/deploy/lightsail/ci-automation-contract.test.sh
+          backend/deploy/lightsail/lightsail-cli.test.sh
+
       - name: Unit tests
         run: pnpm --filter ./backend test
         env:
@@ -327,6 +332,63 @@ jobs:
           managed_node_id=""
           final_status="TimedOut"
 
+          emit_safe_ssm_output() {
+            local stream_name="$1"
+            local raw_output="$2"
+            local lowercase_output
+            local normalized_output
+
+            normalized_output="$(printf '%s' "$raw_output" \
+              | tr '\r\n\t' '   ' \
+              | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+            lowercase_output="$(printf '%s' "$normalized_output" | tr '[:upper:]' '[:lower:]')"
+
+            if [[ -z "$normalized_output" \
+              || ${#normalized_output} -gt 1024 \
+              || "$normalized_output" == *"="* \
+              || "$normalized_output" == *"://"* \
+              || "$lowercase_output" =~ (authorization|bearer|credential|password|secret|token) ]]; then
+              return 1
+            fi
+
+            printf 'SSM deployment %s: %s\n' "$stream_name" "$normalized_output" >&2
+            return 0
+          }
+
+          report_ssm_failure() {
+            local invocation_json
+            local raw_stdout
+            local raw_stderr
+            local reported_output=false
+
+            if [[ -z "$managed_node_id" || "$managed_node_id" != "$expected_node_id" ]]; then
+              echo "SSM deployment error unavailable." >&2
+              return
+            fi
+
+            if ! invocation_json="$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$managed_node_id" \
+              --query '{stdout:StandardOutputContent,stderr:StandardErrorContent}' \
+              --output json 2>/dev/null)"; then
+              echo "SSM deployment error unavailable." >&2
+              return
+            fi
+
+            raw_stdout="$(jq -r '.stdout // ""' <<<"$invocation_json" 2>/dev/null || true)"
+            raw_stderr="$(jq -r '.stderr // ""' <<<"$invocation_json" 2>/dev/null || true)"
+
+            if emit_safe_ssm_output stdout "$raw_stdout"; then
+              reported_output=true
+            fi
+            if emit_safe_ssm_output stderr "$raw_stderr"; then
+              reported_output=true
+            fi
+            if [[ "$reported_output" != true ]]; then
+              echo "SSM deployment error unavailable." >&2
+            fi
+          }
+
           for _attempt in $(seq 1 360); do
             invocation_json="$(aws ssm list-command-invocations \
               --command-id "$command_id" \
@@ -334,8 +396,10 @@ jobs:
               --output json)"
             invocation_count="$(jq '.CommandInvocations | length' <<<"$invocation_json")"
             if [[ "$invocation_count" -gt 1 ]]; then
+              managed_node_id=""
               echo "Deployment target resolved to more than one managed node." >&2
-              exit 1
+              final_status="MultipleTargets"
+              break
             fi
             if [[ "$invocation_count" -eq 0 ]]; then
               sleep 5
@@ -352,14 +416,20 @@ jobs:
                 break
                 ;;
               *)
-                echo "SSM deployment ended with status: $final_status" >&2
-                exit 1
+                break
                 ;;
             esac
           done
 
           if [[ "$final_status" != "Success" || -z "$managed_node_id" ]]; then
-            echo "SSM deployment did not finish successfully before the timeout." >&2
+            report_ssm_failure
+            if [[ "$final_status" == "MultipleTargets" ]]; then
+              echo "SSM deployment ended with multiple managed-node invocations." >&2
+            elif [[ "$final_status" == "TimedOut" ]]; then
+              echo "SSM deployment did not finish successfully before the timeout." >&2
+            else
+              echo "SSM deployment ended with status: $final_status" >&2
+            fi
             exit 1
           fi
           if [[ "$managed_node_id" != "$expected_node_id" ]]; then
@@ -386,6 +456,9 @@ jobs:
           restart_count="$(read_status_value restart_count)"
           schedulers_enabled="$(read_status_value schedulers_enabled)"
           public_health="$(read_status_value public_health)"
+          db_route="$(read_status_value db_route)"
+          runtime_route="$(read_status_value runtime_route)"
+          db_readiness="$(read_status_value db_readiness)"
 
           [[ "$deployed_environment" == "$DEPLOY_ENVIRONMENT" ]]
           [[ "$deployed_tag" == "$GITHUB_SHA" ]]
@@ -394,6 +467,9 @@ jobs:
           [[ "$restart_count" == "0" ]]
           [[ "$schedulers_enabled" == "$EXPECTED_SCHEDULERS_ENABLED" ]]
           [[ "$public_health" == "ok" ]]
+          [[ "$db_route" == "shared" || "$db_route" == "direct" ]]
+          [[ "$runtime_route" == "$db_route" ]]
+          [[ "$db_readiness" == "ok" ]]
 
           printf '%s\n' \
             "environment=$deployed_environment" \
@@ -402,4 +478,7 @@ jobs:
             "container_health=$container_health" \
             "restart_count=$restart_count" \
             "schedulers_enabled=$schedulers_enabled" \
-            "public_health=$public_health"
+            "public_health=$public_health" \
+            "db_route=$db_route" \
+            "runtime_route=$runtime_route" \
+            "db_readiness=$db_readiness"

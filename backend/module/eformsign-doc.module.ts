@@ -63,11 +63,14 @@ import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/useca
 import { EformsignAgentCapabilitiesProvider } from "application/usecases/eformsign-doc/eformsign-agent-capabilities.provider";
 import { ContractExternalAgentCapabilitiesProvider } from "application/usecases/eformsign-doc/contract-external-agent-capabilities.provider";
 import { FindClientByIdUsecase } from "application/usecases/client/find-client-by-id.usecase";
+import { CreateEmployeeUsecase } from "application/usecases/employee/create-employee.usecase";
 import { EformsignDocumentJobService } from "application/services/eformsign-document-job.service";
 import { EformsignDocumentJobWorkerService } from "application/services/eformsign-document-job-worker.service";
 import { EformsignDocumentJobReconciliationService } from "application/services/eformsign-document-job-reconciliation.service";
 import { EFORMSIGN_DOCUMENT_JOB_REPOSITORY } from "domain/repositories/eformsign-document-job.repository.interface";
+import { EMPLOYEE_REPOSITORY } from "domain/repositories/employee.repository.interface";
 import { SbEformsignDocumentJobRepository } from "infrastructure/database/repositories/sb.eformsign-document-job.repository";
+import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.employee.repository";
 
 @Module({
     imports: [
@@ -79,6 +82,7 @@ import { SbEformsignDocumentJobRepository } from "infrastructure/database/reposi
     ],
     controllers: [EformsignDocController],
     providers: [
+        CreateEmployeeUsecase,
         // Use cases - Local DB
         FindEformsignDocByIdUsecase,
         FindEformsignDocByDocumentIdUsecase,
@@ -148,6 +152,10 @@ import { SbEformsignDocumentJobRepository } from "infrastructure/database/reposi
         {
             provide: CLIENT_REPOSITORY,
             useClass: SbClientRepository,
+        },
+        {
+            provide: EMPLOYEE_REPOSITORY,
+            useClass: SbEmployeeRepository,
         },
         {
             provide: EFORMSIGN_DOCUMENT_JOB_REPOSITORY,

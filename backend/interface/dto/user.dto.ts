@@ -1,4 +1,13 @@
-import { IsIn, IsOptional, IsString, IsUUID, ValidateIf } from "class-validator";
+import {
+    ArrayNotEmpty,
+    ArrayUnique,
+    IsArray,
+    IsIn,
+    IsOptional,
+    IsString,
+    IsUUID,
+    ValidateIf,
+} from "class-validator";
 
 export class CreateUserDto {
     @IsString()
@@ -33,6 +42,25 @@ export class UpdateUserDto {
     @IsIn(["manager", "user"])
     @IsOptional()
     role?: string | null;
+}
+
+export class UpdateUserAccountDto {
+    @IsIn(["admin", "manager", "user"])
+    role!: "admin" | "manager" | "user";
+
+    @IsArray()
+    @ArrayNotEmpty()
+    @ArrayUnique()
+    @IsUUID("4", { each: true })
+    branchIds!: string[];
+
+    @IsIn(["admin", "manager", "user"])
+    expectedRole!: "admin" | "manager" | "user";
+
+    @IsArray()
+    @ArrayUnique()
+    @IsUUID("4", { each: true })
+    expectedBranchIds!: string[];
 }
 
 export class UpdateBranchUserDto {

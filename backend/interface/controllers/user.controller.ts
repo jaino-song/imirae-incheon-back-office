@@ -5,6 +5,7 @@ import {
     ForbiddenException,
     Get,
     Param,
+    ParseUUIDPipe,
     Patch,
     Post,
     Query,
@@ -14,7 +15,12 @@ import {
 } from "@nestjs/common";
 import type { Response } from "express";
 import { UserService } from "application/services/user.service";
-import { CreateUserDto, UpdateUserDto, ApproveUserDto } from "../dto/user.dto";
+import {
+    ApproveUserDto,
+    CreateUserDto,
+    UpdateUserAccountDto,
+    UpdateUserDto,
+} from "../dto/user.dto";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 import { OwnerOnlyGuard } from "infrastructure/auth/owner-only.guard";
@@ -118,6 +124,22 @@ export class UserController {
             email: updateUserDto.email ?? undefined,
             profileImage: updateUserDto.profileImage ?? undefined,
             role: updateUserDto.role,
+            callerRole: req.user.role,
+        });
+    }
+
+    @Patch(":id/account-assignment")
+    @UseGuards(JwtGuard, OwnerOnlyGuard)
+    updateGlobalUserAccountAssignment(
+        @Req() req: AuthenticatedRequest,
+        @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+        @Body() updateUserDto: UpdateUserAccountDto,
+    ) {
+        return this.userService.updateAccountAssignment(id, {
+            role: updateUserDto.role,
+            branchIds: updateUserDto.branchIds,
+            expectedRole: updateUserDto.expectedRole,
+            expectedBranchIds: updateUserDto.expectedBranchIds,
             callerRole: req.user.role,
         });
     }

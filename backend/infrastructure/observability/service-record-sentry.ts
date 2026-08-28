@@ -6,12 +6,21 @@ import type {
     EventHint,
     NodeOptions,
 } from "@sentry/nestjs";
+import type { DatabaseConnectionMode } from "infrastructure/database/prisma-url.utils";
 
 const FILTERED_VALUE = "[Filtered]";
 const MAX_SANITIZE_DEPTH = 3;
 const reportedErrors = new WeakSet<object>();
+const reportedPrismaErrors = new WeakSet<object>();
 
 export const SERVICE_RECORD_FEATURE = "service-records";
+export const DATABASE_FAILOVER_FEATURE = "database-failover";
+
+export interface PrismaSentryErrorContext {
+    code: string;
+    eligible: boolean;
+    route: DatabaseConnectionMode;
+}
 
 export type ServiceRecordOperation =
     | "public-link"
@@ -35,6 +44,49 @@ export interface ServiceRecordErrorContext {
     scheduleId?: number;
     retryCount?: number;
     smokeTest?: boolean;
+}
+
+function normalizeDatabaseEnvironment(value: string | undefined): string | undefined {
+    return value === "dev" || value === "preview" || value === "production"
+        ? value
+        : undefined;
+}
+
+function getDatabaseTagValue(tags: NonNullable<Event["tags"]>, key: string): string | undefined {
+    const value = tags[key];
+    return typeof value === "string" ? value : undefined;
+}
+
+function normalizeDatabaseRoute(value: string | undefined): DatabaseConnectionMode | undefined {
+    return value === "shared" || value === "direct" ? value : undefined;
+}
+
+function normalizePrismaCode(value: string | undefined): string {
+    return value && /^P\d{4}$/.test(value) ? value : "unknown";
+}
+
+function getDatabaseFailoverTags(event: Event): Record<string, string> {
+    const sourceTags = event.tags ?? {};
+    const tags: Record<string, string> = {
+        feature: DATABASE_FAILOVER_FEATURE,
+        "db.failover_eligible": getDatabaseTagValue(sourceTags, "db.failover_eligible") === "true"
+            ? "true"
+            : "false",
+        "prisma.code": normalizePrismaCode(getDatabaseTagValue(sourceTags, "prisma.code")),
+    };
+    const environment = normalizeDatabaseEnvironment(getDatabaseTagValue(sourceTags, "environment"));
+    const route = normalizeDatabaseRoute(getDatabaseTagValue(sourceTags, "db.route"));
+
+    if (environment) tags["environment"] = environment;
+    if (route) tags["db.route"] = route;
+
+    return tags;
+}
+
+export function isDatabaseFailoverEvent(event: Event): boolean {
+    const eligibleTag = event.tags?.["db.failover_eligible"];
+    return event.tags?.["feature"] === DATABASE_FAILOVER_FEATURE
+        && (eligibleTag === "true" || eligibleTag === "false");
 }
 
 const SENSITIVE_FIELD_PATTERN =
@@ -108,14 +160,25 @@ function sanitizeHeaders(
 }
 
 export function sanitizeSentryEvent(event: Event): Event {
+    const databaseFailoverEvent = isDatabaseFailoverEvent(event);
+    const sanitizedFailureMessage = databaseFailoverEvent
+        ? "Database connectivity failure"
+        : "Service-record backend failure";
+    const tags = databaseFailoverEvent ? getDatabaseFailoverTags(event) : event.tags;
+
     return {
         ...event,
-        message: event.message ? "Service-record backend failure" : event.message,
-        transaction: event.transaction
+        tags,
+        message: event.message ? sanitizedFailureMessage : event.message,
+        transaction: databaseFailoverEvent
+            ? undefined
+            : event.transaction
             ? sanitizeText(event.transaction.replace(/[?#].*$/, ""))
             : event.transaction,
         user: undefined,
-        request: event.request
+        request: databaseFailoverEvent
+            ? undefined
+            : event.request
             ? {
                 ...event.request,
                 url: sanitizeSentryUrl(event.request.url),
@@ -130,15 +193,19 @@ export function sanitizeSentryEvent(event: Event): Event {
                 ...event.exception,
                 values: event.exception.values?.map((exception) => ({
                     ...exception,
-                    value: exception.value ? "Service-record backend failure" : exception.value,
+                    value: exception.value ? sanitizedFailureMessage : exception.value,
                 })),
             }
             : event.exception,
         breadcrumbs: undefined,
-        contexts: event.contexts
+        contexts: databaseFailoverEvent
+            ? undefined
+            : event.contexts
             ? sanitizeUnknown(event.contexts) as Event["contexts"]
             : event.contexts,
-        extra: event.extra
+        extra: databaseFailoverEvent
+            ? undefined
+            : event.extra
             ? sanitizeUnknown(event.extra) as Record<string, unknown>
             : event.extra,
         spans: event.spans?.map((span) => ({
@@ -196,9 +263,11 @@ export function filterAndSanitizeSentryEvent(
     event: ErrorEvent,
     hint: EventHint = {},
 ): ErrorEvent | null {
-    if (!isServiceRecordEvent(event)) return null;
+    const databaseFailoverEvent = isDatabaseFailoverEvent(event);
+    const serviceRecordEvent = isServiceRecordEvent(event);
+    if (!serviceRecordEvent && !databaseFailoverEvent) return null;
     const statusCode = getStatusCode(event, hint);
-    if (statusCode !== undefined && statusCode < 500) return null;
+    if (serviceRecordEvent && statusCode !== undefined && statusCode < 500) return null;
     return sanitizeSentryEvent(event) as ErrorEvent;
 }
 
@@ -275,6 +344,29 @@ export function captureServiceRecordError(
             retryCount: context.retryCount,
         });
         scope.setFingerprint(["{{ default }}", context.operation]);
+        return Sentry.captureException(capturedError);
+    });
+}
+
+export function capturePrismaError(
+    error: unknown,
+    context: PrismaSentryErrorContext,
+): string | undefined {
+    if (typeof error === "object" && error !== null) {
+        if (reportedPrismaErrors.has(error)) return undefined;
+        reportedPrismaErrors.add(error);
+    }
+
+    const capturedError = new Error("Database connectivity failure");
+    capturedError.name = "Prisma database error";
+
+    return Sentry.withScope((scope) => {
+        scope.setLevel("error");
+        scope.setTag("feature", DATABASE_FAILOVER_FEATURE);
+        scope.setTag("environment", getSentryEnvironment());
+        scope.setTag("db.route", normalizeDatabaseRoute(context.route) ?? "unknown");
+        scope.setTag("db.failover_eligible", String(context.eligible));
+        scope.setTag("prisma.code", normalizePrismaCode(context.code));
         return Sentry.captureException(capturedError);
     });
 }

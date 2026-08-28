@@ -85,3 +85,22 @@ durable table is therefore required.
 - No destructive down migration is provided. Rolling back application code leaves
   the additive table in place and is safe; removing it would require an explicit,
   separately approved retention and data-disposition decision.
+
+## Production activation
+
+The queue is intentionally fail-closed and must be enabled in dependency order:
+
+1. Confirm the additive migration and production's single scheduler ownership.
+2. Enable `EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED=true` and verify worker health.
+3. Enable `EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED=true` so new jobs can be
+   accepted only after a worker is ready to drain them.
+4. For contract auto-finalization, enable `CONTRACT_AUTO_FINALIZE_ENABLED=true`
+   with a valid `CONTRACT_AUTO_FINALIZE_SINCE=YYYY-MM-DD` backlog fence.
+5. Set `NEXT_PUBLIC_FEATURE_EFORMSIGN_DOCUMENT_JOBS=true` for the Production
+   frontend and rebuild it. This public flag is inlined at build time; changing
+   it without a new deployment does not expose the StatMini or asynchronous path.
+
+Rollback reverses the intake first: disable the frontend flag and rebuild, then
+set `EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED=false`. Keep the worker enabled
+until already accepted jobs reach a terminal state, then disable it. Preview's
+global scheduler remains disabled, so it is not a valid worker-drain environment.

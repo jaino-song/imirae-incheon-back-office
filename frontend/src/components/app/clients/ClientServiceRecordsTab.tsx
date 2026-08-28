@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
     formatSignatureStatus,
     getServiceRecordStatusMeta,
@@ -12,6 +12,7 @@ import { formatDateTimeKo } from "@babyjamjam/shared/utils/date";
 import { DetailEmptyState, InfoCard, InfoRow } from "@/components/app/v3";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { StatusPill } from "@/components/app/ui/status-badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -43,11 +44,16 @@ interface ClientServiceRecordsTabProps {
     isLoading: boolean;
     isError: boolean;
     isRefreshing?: boolean;
+    isTextRefreshing?: boolean;
     onRefresh?: () => void;
 }
 
 const ClientServiceRecordsDataComponentContext = createContext<string | null>(null);
 const SEND_LINK_FAILURE_DESCRIPTION = "제공기록지 링크 발송에 실패했어요";
+const MISSING_RECORD_ALERT_SESSION_COUNT = 2;
+const MISSING_RECORD_ALERT_HOUR_KST = 18;
+const KOREA_UTC_OFFSET = "+09:00";
+const MAX_TIMEOUT_DELAY_MS = 2_147_483_647;
 
 function useClientServiceRecordsDataComponent(...parts: string[]): string {
     const root = useContext(ClientServiceRecordsDataComponentContext);
@@ -93,6 +99,7 @@ function ClientServiceRecordsTabContent({
     isLoading,
     isError,
     isRefreshing = false,
+    isTextRefreshing = false,
     onRefresh,
 }: Omit<ClientServiceRecordsTabProps, "data-component">) {
     const dataComponent = useClientServiceRecordsDataComponent();
@@ -104,10 +111,18 @@ function ClientServiceRecordsTabContent({
         ?? assignments[0]
         ?? null;
     const [pendingResendAssignment, setPendingResendAssignment] = useState<ServiceRecordAssignment | null>(null);
-    const [sendingScheduleId, setSendingScheduleId] = useState<number | null>(null);
+    const [sendingSchedule, setSendingSchedule] = useState<{
+        scheduleId: number;
+        isResend: boolean;
+    } | null>(null);
+
+    const getSendingState = (assignment: ServiceRecordAssignment) => ({
+        scheduleId: assignment.scheduleId,
+        isResend: assignment.link.status === "sent" || assignment.link.status === "failed",
+    });
 
     const sendLink = async (assignment: ServiceRecordAssignment): Promise<boolean> => {
-        setSendingScheduleId(assignment.scheduleId);
+        setSendingSchedule(getSendingState(assignment));
         try {
             const result = await sendLinkMutation.mutateAsync({
                 scheduleId: assignment.scheduleId,
@@ -129,7 +144,7 @@ function ClientServiceRecordsTabContent({
             });
             return false;
         } finally {
-            setSendingScheduleId(null);
+            setSendingSchedule(null);
         }
     };
 
@@ -192,18 +207,24 @@ function ClientServiceRecordsTabContent({
                             data-component={`${dataComponent}_overview-grid`}
                             className="grid grid-cols-1 items-stretch gap-[calc(16px*var(--glint-ui-scale,1))] lg:grid-cols-3 [&>*]:content-start"
                         >
-                            <RecordStatusCard record={record} />
+                            <RecordStatusCard record={record} isRefreshing={isTextRefreshing} />
                             <ServiceRecordHeaderCard
                                 data-component={`${dataComponent}_overview-grid_header-card`}
                                 header={record.header}
                                 showStatusBadge={false}
+                                isLoading={isTextRefreshing}
                             />
                             {activeAssignment ? (
                                 <LinkStatusCard
                                     assignment={activeAssignment}
-                                    isPending={sendingScheduleId === activeAssignment.scheduleId
+                                    isRefreshing={isTextRefreshing}
+                                    isPending={sendingSchedule?.scheduleId === activeAssignment.scheduleId
                                         || (sendLinkMutation.isPending
                                             && sendLinkMutation.variables?.scheduleId === activeAssignment.scheduleId)}
+                                    isSendingResend={Boolean(
+                                        sendingSchedule?.scheduleId === activeAssignment.scheduleId
+                                        && sendingSchedule.isResend,
+                                    )}
                                     onSendLink={() => void handleSendLink(activeAssignment)}
                                     showStatusBadge={false}
                                 />
@@ -217,12 +238,13 @@ function ClientServiceRecordsTabContent({
                                 </InfoCard>
                             )}
                         </div>
-                        {assignments.length > 1 && <AssignmentHistoryCard assignments={assignments} />}
+                        {assignments.length > 1 && <AssignmentHistoryCard assignments={assignments} isRefreshing={isTextRefreshing} />}
                         <ServiceSessionsCard
                             startDate={record.startDate}
                             endDate={record.endDate}
                             totalSessions={record.totalSessions}
                             sessions={record.sessions}
+                            isTextRefreshing={isTextRefreshing}
                             isRefreshing={isRefreshing}
                             onRefresh={onRefresh}
                         />
@@ -248,20 +270,31 @@ function ClientServiceRecordsTabContent({
                         )}
                         <LinkStatusCard
                             assignment={assignment}
-                            isPending={sendingScheduleId === assignment.scheduleId
+                            isRefreshing={isTextRefreshing}
+                            isPending={sendingSchedule?.scheduleId === assignment.scheduleId
                                 || (sendLinkMutation.isPending
                                     && sendLinkMutation.variables?.scheduleId === assignment.scheduleId)}
+                            isSendingResend={Boolean(
+                                sendingSchedule?.scheduleId === assignment.scheduleId
+                                && sendingSchedule.isResend,
+                            )}
                             onSendLink={() => void handleSendLink(assignment)}
                         />
                         <ServiceRecordHeaderCard
                             data-component={`${dataComponent}_assignment_header-card`}
                             header={assignment.header}
+                            isLoading={isTextRefreshing}
                         />
                         <ServiceSessionsCard
                             startDate={assignment.startDate}
                             endDate={assignment.endDate}
                             totalSessions={assignment.totalSessions}
                             sessions={assignment.sessions}
+                            isTextRefreshing={isTextRefreshing}
+                            enableMissingRecordAlert={
+                                !assignment.replaced
+                                && assignment.scheduleId === activeAssignment?.scheduleId
+                            }
                             isRefreshing={isRefreshing}
                             onRefresh={onRefresh}
                         />
@@ -388,11 +421,27 @@ function ServiceRecordInfoRowSkeleton({ label }: { label: string }) {
     );
 }
 
-function ServiceRecordInfoRow({ label, value }: { label: string; value: ReactNode }) {
-    return <InfoRow label={label} value={value} size="compact" />;
+function ServiceRecordInfoRow({
+    label,
+    value,
+    isRefreshing = false,
+}: { label: string; value: ReactNode; isRefreshing?: boolean }) {
+    return (
+        <InfoRow
+            label={label}
+            value={isRefreshing ? <ServiceRecordValueSkeleton /> : value}
+            size="compact"
+        />
+    );
 }
 
-function RecordStatusCard({ record }: { record: ServiceRecordCase }) {
+function ServiceRecordValueSkeleton() {
+    return (
+        <Skeleton className="block h-[calc(14px*var(--glint-ui-scale,1))] w-[calc(88px*var(--glint-ui-scale,1))] bg-white/70" />
+    );
+}
+
+function RecordStatusCard({ record, isRefreshing }: { record: ServiceRecordCase; isRefreshing: boolean }) {
     const dataComponent = useClientServiceRecordsDataComponent("overview-grid", "status-card");
     const status = getRecordStatusMeta(record.status);
     const { activeSessions } = partitionSessionsByPeriod(
@@ -408,19 +457,38 @@ function RecordStatusCard({ record }: { record: ServiceRecordCase }) {
             title="제공기록지 진행 상태"
             data-component={dataComponent}
         >
-            <ServiceRecordInfoRow label="상태" value={status.label} />
-            <ServiceRecordInfoRow label="서비스 기간" value={`${formatDateKo(record.startDate)} - ${formatDateKo(record.endDate)}`} />
-            <ServiceRecordInfoRow label="작성 현황" value={`${submitted}/${record.totalSessions}회`} />
-            <ServiceRecordInfoRow label="기록 완료" value={formatDateTimeKo(record.completedAt)} />
+            <ServiceRecordInfoRow label="상태" value={status.label} isRefreshing={isRefreshing} />
+            <ServiceRecordInfoRow
+                label="서비스 기간"
+                value={`${formatDateKo(record.startDate)} - ${formatDateKo(record.endDate)}`}
+                isRefreshing={isRefreshing}
+            />
+            <ServiceRecordInfoRow
+                label="작성 현황"
+                value={`${submitted}/${record.totalSessions}회`}
+                isRefreshing={isRefreshing}
+            />
+            <ServiceRecordInfoRow
+                label="기록 완료"
+                value={formatDateTimeKo(record.completedAt)}
+                isRefreshing={isRefreshing}
+            />
             <ServiceRecordInfoRow
                 label="전자문서 생성"
                 value={formatDateTimeKo(record.finalizedAt)}
+                isRefreshing={isRefreshing}
             />
         </InfoCard>
     );
 }
 
-function AssignmentHistoryCard({ assignments }: { assignments: ServiceRecordAssignment[] }) {
+function AssignmentHistoryCard({
+    assignments,
+    isRefreshing,
+}: {
+    assignments: ServiceRecordAssignment[];
+    isRefreshing: boolean;
+}) {
     const dataComponent = useClientServiceRecordsDataComponent("assignment-history");
     const ordered = [...assignments].sort((left, right) => (
         new Date(left.startDate).getTime() - new Date(right.startDate).getTime()
@@ -439,7 +507,9 @@ function AssignmentHistoryCard({ assignments }: { assignments: ServiceRecordAssi
                     >
                         <div className="min-w-0 flex-1">
                             <div className="truncate text-[calc(12.5px*var(--glint-ui-scale,1))] font-semibold text-v3-dark">
-                                {assignment.employee.name}
+                                {isRefreshing ? (
+                                    <Skeleton className="h-[calc(13px*var(--glint-ui-scale,1))] w-[calc(72px*var(--glint-ui-scale,1))] bg-white/70" />
+                                ) : assignment.employee.name}
                             </div>
                             <div className="mt-0.5 text-[calc(11.3px*var(--glint-ui-scale,1))] text-v3-text-muted">
                                 {formatDateKo(assignment.startDate)} - {formatDateKo(assignment.endDate)}
@@ -465,12 +535,16 @@ function getRecordStatusMeta(status: string): {
 
 function LinkStatusCard({
     assignment,
+    isRefreshing,
     isPending,
+    isSendingResend = false,
     onSendLink,
     showStatusBadge = true,
 }: {
     assignment: ServiceRecordAssignment;
+    isRefreshing: boolean;
     isPending: boolean;
+    isSendingResend?: boolean;
     onSendLink: () => void;
     showStatusBadge?: boolean;
 }) {
@@ -478,6 +552,7 @@ function LinkStatusCard({
     const { link, employee } = assignment;
     const statusMeta = LINK_STATUS_META[link.status];
     const isResend = link.status === "sent" || link.status === "failed";
+    const usesResendLayout = isResend || isSendingResend;
 
     return (
         <InfoCard
@@ -489,12 +564,16 @@ function LinkStatusCard({
                 </div>
             ) : undefined}
         >
-            <ServiceRecordInfoRow label="제공인력 이름" value={employee.name} />
-            <ServiceRecordInfoRow label="제공인력 연락처" value={formatPhone(employee.phone)} />
-            <ServiceRecordInfoRow label="메시지 최근 발송" value={formatDateTimeKo(link.lastSentAt)} />
-            <ServiceRecordInfoRow label="제공기록지 본인 인증" value={<TokenVerificationValue assignment={assignment} />} />
+            <ServiceRecordInfoRow label="제공인력 이름" value={employee.name} isRefreshing={isRefreshing} />
+            <ServiceRecordInfoRow label="제공인력 연락처" value={formatPhone(employee.phone)} isRefreshing={isRefreshing} />
+            <ServiceRecordInfoRow label="메시지 최근 발송" value={formatDateTimeKo(link.lastSentAt)} isRefreshing={isRefreshing} />
+            <ServiceRecordInfoRow
+                label="제공기록지 본인 인증"
+                value={<TokenVerificationValue assignment={assignment} />}
+                isRefreshing={isRefreshing}
+            />
             <div className="mt-[calc(14px*var(--glint-ui-scale,1))] flex flex-wrap items-center justify-end gap-[calc(12px*var(--glint-ui-scale,1))]">
-                {!isResend && (
+                {!usesResendLayout && (
                     <p className="min-w-[200px] flex-1 text-[calc(11.5px*var(--glint-ui-scale,1))] leading-6 text-v3-text-muted">
                         서비스 시작일 15:00에 자동 발송됩니다. 지금 바로 보내려면 수동 전송하세요.
                     </p>
@@ -503,7 +582,7 @@ function LinkStatusCard({
                     type="button"
                     variant="positive"
                     size="sm"
-                    width={isResend ? "lg" : undefined}
+                    width={usesResendLayout ? "lg" : undefined}
                     disabled={isPending}
                     onClick={onSendLink}
                     data-component={isResend
@@ -527,6 +606,8 @@ function ServiceSessionsCard({
     endDate,
     totalSessions: configuredSessions,
     sessions,
+    enableMissingRecordAlert = true,
+    isTextRefreshing,
     isRefreshing,
     onRefresh,
 }: {
@@ -534,6 +615,8 @@ function ServiceSessionsCard({
     endDate: string | null;
     totalSessions: number;
     sessions: ServiceRecordSession[];
+    enableMissingRecordAlert?: boolean;
+    isTextRefreshing: boolean;
     isRefreshing: boolean;
     onRefresh?: () => void;
 }) {
@@ -551,6 +634,11 @@ function ServiceSessionsCard({
         () => buildSessionSlots(startDate, configuredSessions, activeSessions),
         [activeSessions, configuredSessions, startDate],
     );
+    const missingRecordAlertThreshold = useMemo(
+        () => enableMissingRecordAlert ? getMissingRecordAlertThreshold(slots) : null,
+        [enableMissingRecordAlert, slots],
+    );
+    const showMissingRecordAlert = useIsThresholdReached(missingRecordAlertThreshold);
     const lockedCount = activeSessions.filter((session) => session.locked).length;
     const draftCount = activeSessions.filter((session) => !session.locked).length;
     const totalSessions = slots.length;
@@ -582,30 +670,58 @@ function ServiceSessionsCard({
                             </button>
                         ) : null}
                         <span className="text-[calc(12px*var(--glint-ui-scale,1))] font-semibold text-v3-text-muted">
-                            <b className="text-v3-primary">{lockedCount}</b>/{totalSessions} 제출완료
-                            {draftCount > 0 ? ` · 임시저장 ${draftCount}` : ""}
+                            {isTextRefreshing ? (
+                                <Skeleton className="inline-block h-[calc(12px*var(--glint-ui-scale,1))] w-[calc(88px*var(--glint-ui-scale,1))] align-middle bg-white/70" />
+                            ) : (
+                                <>
+                                    <b className="text-v3-primary">{lockedCount}</b>/{totalSessions} 제출완료
+                                    {draftCount > 0 ? ` · 임시저장 ${draftCount}` : ""}
+                                </>
+                            )}
                         </span>
                     </div>
                 }
             >
+                {showMissingRecordAlert ? (
+                    <Alert
+                        data-component={`${dataComponent}_missing-record-alert`}
+                        variant="warning"
+                        className="mb-[calc(12px*var(--glint-ui-scale,1))]"
+                    >
+                        <AlertTitle data-component={`${dataComponent}_missing-record-alert_title`}>
+                            제공기록지 작성 확인이 필요해요
+                        </AlertTitle>
+                        <AlertDescription data-component={`${dataComponent}_missing-record-alert_description`}>
+                            2회차 서비스 제공일 오후 6시가 지났지만 1·2회차 제공기록이 작성되지 않았어요.
+                            제공인력에게 작성 여부를 확인해 주세요.
+                        </AlertDescription>
+                    </Alert>
+                ) : null}
                 <div data-component={`${dataComponent}_list`} className="mt-[calc(8px*var(--glint-ui-scale,1))]">
                     {slots.map((slot, index) => (
                         <SessionRow
                             key={slot.sessionIndex}
                             slot={slot}
+                            isRefreshing={isTextRefreshing}
                             defaultOpen={Boolean(slot.record && index === 0)}
                         />
                     ))}
                 </div>
             </InfoCard>
             {outsideSessions.length > 0 ? (
-                <OutOfPeriodSessionsCard sessions={outsideSessions} />
+                <OutOfPeriodSessionsCard sessions={outsideSessions} isRefreshing={isTextRefreshing} />
             ) : null}
         </>
     );
 }
 
-function OutOfPeriodSessionsCard({ sessions }: { sessions: ServiceRecordSession[] }) {
+function OutOfPeriodSessionsCard({
+    sessions,
+    isRefreshing,
+}: {
+    sessions: ServiceRecordSession[];
+    isRefreshing: boolean;
+}) {
     const dataComponent = useClientServiceRecordsDataComponent("out-of-period-sessions");
     return (
         <InfoCard
@@ -615,14 +731,15 @@ function OutOfPeriodSessionsCard({ sessions }: { sessions: ServiceRecordSession[
         >
             <div data-component={`${dataComponent}_list`} className="mt-[calc(8px*var(--glint-ui-scale,1))]">
                 {sessions.map((record, index) => (
-                    <SessionRow
-                        key={`${record.sessionIndex}-${record.serviceDate}`}
-                        slot={{
-                            sessionIndex: record.sessionIndex,
-                            record,
-                            expectedDate: null,
-                        }}
-                        defaultOpen={index === 0}
+                        <SessionRow
+                            key={`${record.sessionIndex}-${record.serviceDate}`}
+                            slot={{
+                                sessionIndex: record.sessionIndex,
+                                record,
+                                expectedDate: null,
+                            }}
+                            isRefreshing={isRefreshing}
+                            defaultOpen={index === 0}
                         outsidePeriod
                     />
                 ))}
@@ -634,10 +751,12 @@ function OutOfPeriodSessionsCard({ sessions }: { sessions: ServiceRecordSession[
 function SessionRow({
     slot,
     defaultOpen,
+    isRefreshing = false,
     outsidePeriod = false,
 }: {
     slot: SessionSlot;
     defaultOpen: boolean;
+    isRefreshing?: boolean;
     outsidePeriod?: boolean;
 }) {
     const dataComponent = useClientServiceRecordsDataComponent(
@@ -664,7 +783,11 @@ function SessionRow({
                             <div className="mt-0.5 text-[calc(11.5px*var(--glint-ui-scale,1))] text-v3-text-muted">예정일 {formatDateKo(slot.expectedDate)}</div>
                         </div>
                         <div className="ml-auto flex shrink-0 items-center gap-[calc(10px*var(--glint-ui-scale,1))] text-right">
-                            <StatusPill variant="neutral">미작성</StatusPill>
+                            {isRefreshing ? (
+                                <Skeleton className="h-[calc(22px*var(--glint-ui-scale,1))] w-[calc(58px*var(--glint-ui-scale,1))] rounded-full bg-white/70" />
+                            ) : (
+                                <StatusPill variant="neutral">미작성</StatusPill>
+                            )}
                             <ChevronDown className="h-[calc(14px*var(--glint-ui-scale,1))] w-[calc(14px*var(--glint-ui-scale,1))] text-v3-text-muted transition-transform group-data-[state=open]:rotate-180" />
                         </div>
                     </button>
@@ -695,10 +818,16 @@ function SessionRow({
                             <span>{slot.sessionIndex}회차 · {formatDateKo(record.serviceDate)}</span>
                         </div>
                         <div className="mt-0.5 text-[calc(11.5px*var(--glint-ui-scale,1))] text-v3-text-muted">
-                            {record.employeeName ? `${record.employeeName} · ` : ""}
-                            {record.locked
-                                ? <>제출 {formatDateTimeKo(record.submittedAt)}</>
-                                : <>마지막 저장 {formatDateTimeKo(record.updatedAt)} · 작성 중</>}
+                            {isRefreshing ? (
+                                <Skeleton className="block h-[calc(12px*var(--glint-ui-scale,1))] w-[calc(132px*var(--glint-ui-scale,1))] bg-white/70" />
+                            ) : (
+                                <>
+                                    {record.employeeName ? `${record.employeeName} · ` : ""}
+                                    {record.locked
+                                        ? <>제출 {formatDateTimeKo(record.submittedAt)}</>
+                                        : <>마지막 저장 {formatDateTimeKo(record.updatedAt)} · 작성 중</>}
+                                </>
+                            )}
                         </div>
                     </div>
                     <div className="ml-auto flex shrink-0 items-center gap-[calc(10px*var(--glint-ui-scale,1))] text-right">
@@ -710,9 +839,13 @@ function SessionRow({
                                 기간 외 기록
                             </StatusPill>
                         ) : null}
-                        <StatusPill variant={record.locked ? "success" : "warning"}>
-                            {record.locked ? "제출완료" : "임시저장"}
-                        </StatusPill>
+                        {isRefreshing ? (
+                            <Skeleton className="h-[calc(22px*var(--glint-ui-scale,1))] w-[calc(58px*var(--glint-ui-scale,1))] rounded-full bg-white/70" />
+                        ) : (
+                            <StatusPill variant={record.locked ? "success" : "warning"}>
+                                {record.locked ? "제출완료" : "임시저장"}
+                            </StatusPill>
+                        )}
                         <ChevronDown className="h-[calc(14px*var(--glint-ui-scale,1))] w-[calc(14px*var(--glint-ui-scale,1))] text-v3-text-muted transition-transform group-data-[state=open]:rotate-180" />
                     </div>
                 </button>
@@ -995,6 +1128,42 @@ function buildSessionSlots(
             expectedDate: getExpectedSessionDate(startDate, sessionIndex),
         };
     });
+}
+
+function getMissingRecordAlertThreshold(slots: SessionSlot[]): number | null {
+    const firstSessions = slots.slice(0, MISSING_RECORD_ALERT_SESSION_COUNT);
+    if (
+        firstSessions.length < MISSING_RECORD_ALERT_SESSION_COUNT
+        || firstSessions.some((slot) => slot.record !== null)
+    ) {
+        return null;
+    }
+
+    const secondSessionDate = firstSessions[MISSING_RECORD_ALERT_SESSION_COUNT - 1]?.expectedDate;
+    if (!secondSessionDate) return null;
+
+    const threshold = Date.parse(
+        `${secondSessionDate}T${String(MISSING_RECORD_ALERT_HOUR_KST).padStart(2, "0")}:00:00${KOREA_UTC_OFFSET}`,
+    );
+    return Number.isNaN(threshold) ? null : threshold;
+}
+
+function useIsThresholdReached(threshold: number | null): boolean {
+    const [now, setNow] = useState(() => Date.now());
+    const isThresholdReached = threshold !== null && now >= threshold;
+
+    useEffect(() => {
+        if (threshold === null || isThresholdReached) return;
+
+        const currentTime = Date.now();
+        const timer = window.setTimeout(
+            () => setNow(Date.now()),
+            Math.max(0, Math.min(threshold - currentTime, MAX_TIMEOUT_DELAY_MS)),
+        );
+        return () => window.clearTimeout(timer);
+    }, [isThresholdReached, now, threshold]);
+
+    return isThresholdReached;
 }
 
 function partitionSessionsByPeriod(
