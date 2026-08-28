@@ -1388,6 +1388,47 @@ export class ClientService {
         });
     }
 
+    /**
+     * Keep client-name assignment refreshes durable when the immediate rebuild
+     * cannot complete. The intent writer owns branch/schedule deduplication;
+     * this helper only selects the active schedules in the caller's branch and
+     * persists their existing schedule intents in one transaction.
+     */
+    private async persistEmployeeAssignmentRefreshIntents(
+        branchId: string,
+        clientId: number,
+    ): Promise<void> {
+        try {
+            const activeSchedules = await this.prismaService.employee_schedule.findMany({
+                where: { branchId, clientId, replaced: false },
+                select: { id: true },
+                orderBy: { id: "asc" },
+            });
+            const scheduleIds = [...new Set(activeSchedules.map(({ id }) => id))]
+                .sort((left, right) => left - right);
+            if (scheduleIds.length === 0) return;
+
+            const intentAt = new Date();
+            await this.prismaService.$transaction(async (transaction) => {
+                for (const scheduleId of scheduleIds) {
+                    await this.messageAutomationIntentService.persistScheduleIntent(transaction, {
+                        branchId,
+                        clientId,
+                        scheduleId,
+                        includePast: true,
+                        intentAt,
+                        replaceExisting: true,
+                    });
+                }
+            });
+        } catch (error) {
+            this.logger.error(
+                `Failed to persist employee assignment refresh retries for client ${clientId}: ` +
+                `${error instanceof Error ? error.message : String(error)}`,
+            );
+        }
+    }
+
     private mapStatusTypeToDocumentStatus(statusType?: string): DocumentStatusType {
         const normalized = statusType?.trim().padStart(3, "0");
         if (!normalized) return null;
@@ -1600,9 +1641,15 @@ export class ClientService {
                 this.logger.error(`Failed to sync client trigger rules: ${error}`);
             });
             if (clientNameChanged) {
-                await this.triggerService.syncEmployeeAssignmentRulesForClient(branchid, id).catch((error) => {
+                try {
+                    const refreshed = await this.triggerService.syncEmployeeAssignmentRulesForClient(branchid, id);
+                    if (refreshed === false) {
+                        await this.persistEmployeeAssignmentRefreshIntents(branchid, id);
+                    }
+                } catch (error) {
                     this.logger.error(`Failed to sync employee assignment triggers for client ${id}: ${error}`);
-                });
+                    await this.persistEmployeeAssignmentRefreshIntents(branchid, id);
+                }
             }
         }
         if (createdScheduleId !== null) {

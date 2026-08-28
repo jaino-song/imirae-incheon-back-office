@@ -1407,6 +1407,97 @@ describe("ClientService", () => {
                 );
             });
 
+            it("persists one deduped retry intent per active schedule when refresh is retryable", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                triggerService.syncEmployeeAssignmentRulesForClient.mockResolvedValue(false);
+                prismaService.employee_schedule.findMany.mockResolvedValue([
+                    { id: 12 },
+                    { id: 9 },
+                    { id: 12 },
+                ]);
+
+                await service.update(branchId, existingClient.id, { name: "새 고객 이름" });
+
+                expect(prismaService.employee_schedule.findMany).toHaveBeenCalledWith({
+                    where: { branchId, clientId: existingClient.id, replaced: false },
+                    select: { id: true },
+                    orderBy: { id: "asc" },
+                });
+                expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenCalledTimes(2);
+                expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenNthCalledWith(
+                    1,
+                    prismaService,
+                    expect.objectContaining({
+                        branchId,
+                        clientId: existingClient.id,
+                        scheduleId: 9,
+                        includePast: true,
+                        intentAt: expect.any(Date),
+                        replaceExisting: true,
+                    }),
+                );
+                expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenNthCalledWith(
+                    2,
+                    prismaService,
+                    expect.objectContaining({
+                        branchId,
+                        clientId: existingClient.id,
+                        scheduleId: 12,
+                        includePast: true,
+                        intentAt: expect.any(Date),
+                        replaceExisting: true,
+                    }),
+                );
+            });
+
+            it("persists schedule retry intents when the immediate refresh throws", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                triggerService.syncEmployeeAssignmentRulesForClient.mockRejectedValue(
+                    new Error("assignment refresh unavailable"),
+                );
+                prismaService.employee_schedule.findMany.mockResolvedValue([{ id: 12 }]);
+
+                await expect(service.update(branchId, existingClient.id, { name: "새 고객 이름" }))
+                    .resolves.toBe(existingClient);
+
+                expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenCalledWith(
+                    prismaService,
+                    expect.objectContaining({
+                        branchId,
+                        clientId: existingClient.id,
+                        scheduleId: 12,
+                        includePast: true,
+                        replaceExisting: true,
+                    }),
+                );
+            });
+
+            it("keeps the client update successful when retry intent persistence fails", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                triggerService.syncEmployeeAssignmentRulesForClient.mockResolvedValue(false);
+                prismaService.employee_schedule.findMany.mockResolvedValue([{ id: 12 }]);
+                messageAutomationIntentService.persistScheduleIntent.mockRejectedValue(
+                    new Error("intent store unavailable"),
+                );
+
+                await expect(service.update(branchId, existingClient.id, { name: "새 고객 이름" }))
+                    .resolves.toBe(existingClient);
+            });
+
+            it("does not select schedules or enqueue retry intents after a successful refresh", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                triggerService.syncEmployeeAssignmentRulesForClient.mockResolvedValue(true);
+
+                await service.update(branchId, existingClient.id, { name: "새 고객 이름" });
+
+                expect(prismaService.employee_schedule.findMany).not.toHaveBeenCalled();
+                expect(messageAutomationIntentService.persistScheduleIntent).not.toHaveBeenCalled();
+            });
+
             it("should not refresh assignment jobs when an unrelated client field changes", async () => {
                 const existingClient = createClientEntity();
                 findClientByIdUsecase.execute.mockResolvedValue(existingClient);
