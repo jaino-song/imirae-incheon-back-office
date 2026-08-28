@@ -18,7 +18,7 @@ const PHONE_PATTERN = /(?:\+?82[-.\s]?)?0?1[0-9][-.\s]?\d{3,4}[-.\s]?\d{4}/;
 const ISO_DATE_PATTERN = /(?:20\d{2})[-./년\s]*(?:0?[1-9]|1[0-2])[-./월\s]*(?:0?[1-9]|[12]\d|3[01])(?:일)?/;
 const SHORT_DATE_PATTERN = /(?:19|20)?(\d{2})[-./년\s]*(0?[1-9]|1[0-2])[-./월\s]*(0?[1-9]|[12]\d|3[01])(?:일)?/;
 const REGISTRATION_COMMANDS = /산모\s*등록|고객\s*등록|등록해줘|추가해줘/g;
-const LABELED_DUE_DATE_PATTERN = /(?:19|20)?\d{2}[-./년\s]*(?:0?[1-9]|1[0-2])[-./월\s]*(?:0?[1-9]|[12]\d|3[01])(?:일)?(?!\d|[-./](?=\d|[년월일]))/;
+const LABELED_DUE_DATE_PATTERN = /^\s*(?:(?:은|는|이|가)\s*)?[:：=]?\s*((?:19|20)?\d{2}[-./년\s]*(?:0?[1-9]|1[0-2])[-./월\s]*(?:0?[1-9]|[12]\d|3[01])(?:일)?)(?!\d|[-./](?=\d|[년월일]))/;
 const ISO_DATE_PARTS_PATTERN = /^((?:19|20)\d{2})[-./년\s]*(0?[1-9]|1[0-2])[-./월\s]*(0?[1-9]|[12]\d|3[01])(?:일)?$/;
 
 function digits(value: string): string {
@@ -59,7 +59,7 @@ function extractDueDate(message: string): string | undefined {
     if (labelMatch) {
         const labelIndex = message.indexOf(labelMatch[0]) + labelMatch[0].length;
         const afterLabel = message.slice(labelIndex);
-        const dateCandidate = afterLabel.match(LABELED_DUE_DATE_PATTERN)?.[0];
+        const dateCandidate = afterLabel.match(LABELED_DUE_DATE_PATTERN)?.[1];
         if (!dateCandidate) return undefined;
 
         return normalizeDateCandidate(dateCandidate);

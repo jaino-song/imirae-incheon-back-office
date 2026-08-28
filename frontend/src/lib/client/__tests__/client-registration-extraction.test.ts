@@ -56,6 +56,35 @@ describe("extractClientRegistrationDraft", () => {
         expect(draft.missingFields).toContain("dueDate");
     });
 
+    it("does not use a later birthday when an immediately labeled due date is invalid", () => {
+        const draft = extractClientRegistrationDraft(
+            "산모 등록. 출산 예정일 2026-13-01, 생년월일 900101.",
+        );
+
+        expect(draft.dueDate).toBeUndefined();
+        expect(draft.birthday).toBe("900101");
+        expect(draft.missingFields).toContain("dueDate");
+    });
+
+    it("does not use the later birthday from the Codex reported invalid-date case", () => {
+        const draft = extractClientRegistrationDraft(
+            "산모 등록. 출산 예정일 2026-02-31, 생년월일 2000-01-01.",
+        );
+
+        expect(draft.dueDate).toBeUndefined();
+        expect(draft.missingFields).toContain("dueDate");
+    });
+
+    it("does not use a later date when a labeled due date has no associated value", () => {
+        const draft = extractClientRegistrationDraft(
+            "산모 등록. 출산 예정일 미정, 생년월일 900101.",
+        );
+
+        expect(draft.dueDate).toBeUndefined();
+        expect(draft.birthday).toBe("900101");
+        expect(draft.missingFields).toContain("dueDate");
+    });
+
     it.each([
         ["관리사는 김민이야.", "김민"],
         ["관리사는 김민님,", "김민"],
