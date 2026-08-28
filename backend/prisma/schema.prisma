@@ -1014,6 +1014,8 @@ model service_record_token {
   expectedPhoneHash   String               @map("expected_phone_hash")
   verifiedAt          DateTime?            @map("verified_at") @db.Timestamptz(6)
   failedAttempts      Int                  @default(0) @map("failed_attempts")
+  challengeWindowStartedAt DateTime?            @map("challenge_window_started_at") @db.Timestamptz(6)
+  lockedAt                 DateTime?            @map("locked_at") @db.Timestamptz(6)
   expiresAt           DateTime             @map("expires_at") @db.Timestamptz(6)
   active              Boolean              @default(true)
   revokedAt           DateTime?            @map("revoked_at") @db.Timestamptz(6)
@@ -1026,6 +1028,7 @@ model service_record_token {
   @@index([scheduleId], map: "idx_service_record_token_schedule")
   @@index([branchId], map: "idx_service_record_token_branch")
   @@index([serviceRecordCaseId], map: "idx_service_record_token_service_record_case_id")
+  @@index([active, lockedAt, expiresAt], map: "idx_service_record_token_challenge_state")
 }
 
 /// One-time service header per assignment (top of the 제공기록지).

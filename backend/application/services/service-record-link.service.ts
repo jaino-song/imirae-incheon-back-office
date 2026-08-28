@@ -173,7 +173,7 @@ export class ServiceRecordLinkService {
             expectedPhone: resolvedRecipientPhone,
             expiresAt,
         };
-        const { linkToken } = await this.tokenService.reuseActiveLink(tokenParams)
+        const { linkToken } = await this.tokenService.reuseActiveLink(tokenParams, { includeLocked: false })
             ?? await this.tokenService.prepareLink(tokenParams);
 
         return {

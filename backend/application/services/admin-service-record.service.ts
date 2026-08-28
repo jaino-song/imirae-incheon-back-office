@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ForbiddenException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { message_log, message_trigger_job, Prisma } from "@prisma/client";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import {
@@ -9,6 +9,7 @@ import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { countBusinessDaysKr } from "domain/utils/business-days";
 import { ServiceRecordLinkService } from "./service-record-link.service";
 import { MessageTriggerService } from "./message-trigger.service";
+import { ServiceRecordSecurityEventService } from "./service-record-security-event.service";
 import {
     AdminServiceRecordAssignmentDto,
     AdminServiceRecordCaseDto,
@@ -52,6 +53,12 @@ type SignatureDocRow = Prisma.eformsign_docGetPayload<{
     };
 }>;
 
+export interface ServiceRecordAdminActor {
+    userId: string;
+    globalRole: string;
+    branchRole: string;
+}
+
 function isoDate(date: Date | null | undefined): string | null {
     return date ? date.toISOString().slice(0, 10) : null;
 }
@@ -75,6 +82,7 @@ export class AdminServiceRecordService {
         private readonly prisma: PrismaService,
         private readonly serviceRecordLinkService: ServiceRecordLinkService,
         private readonly messageTriggerService: MessageTriggerService,
+        @Optional() private readonly securityEventService?: ServiceRecordSecurityEventService,
     ) {}
 
     async getClientOverview(branchId: string, clientId: number): Promise<AdminServiceRecordOverviewDto> {
@@ -197,9 +205,23 @@ export class AdminServiceRecordService {
         return this.serviceRecordLinkService.prepareLink(scheduleId, recipientPhone);
     }
 
-    async resetLink(branchId: string, scheduleId: number): Promise<AdminServiceRecordResetLinkDto> {
+    async resetLink(
+        branchId: string,
+        scheduleId: number,
+        actor?: ServiceRecordAdminActor,
+    ): Promise<AdminServiceRecordResetLinkDto> {
+        if (this.securityEventService && !actor?.userId) {
+            throw new ForbiddenException("Authenticated administrator required");
+        }
         await this.assertScheduleBelongsToBranch(branchId, scheduleId);
-        return this.serviceRecordLinkService.resetLink(scheduleId);
+        const reset = await this.serviceRecordLinkService.resetLink(scheduleId);
+        this.securityEventService?.emit({
+            outcome: "link_reissued",
+            actorUserId: actor?.userId,
+            branchId,
+            scheduleId,
+        });
+        return reset;
     }
 
     async sendLinkNow(

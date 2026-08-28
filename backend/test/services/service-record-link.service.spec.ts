@@ -224,7 +224,7 @@ describe("ServiceRecordLinkService", () => {
             scheduleId: 10,
             employeeId: 30,
             expectedPhone: "01066211878",
-        }));
+        }), { includeLocked: false });
         expect(tokenService.prepareLink).toHaveBeenCalledWith(expect.objectContaining({
             branchId: "branch-1",
             scheduleId: 10,

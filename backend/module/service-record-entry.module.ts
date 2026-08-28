@@ -18,6 +18,9 @@ import { ServiceRecordFinalizationService } from "application/services/service-r
 import { ServiceRecordFinalizationSchedulerService } from "application/services/service-record-finalization-scheduler.service";
 import { ServiceRecordLinkReconciliationService } from "application/services/service-record-link-reconciliation.service";
 import { MessageAutomationIntentService } from "application/services/message-automation-intent.service";
+import { ServiceRecordSecurityEventService } from "application/services/service-record-security-event.service";
+import { RateLimitGuard } from "infrastructure/auth/rate-limit.guard";
+import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 
 /**
  * No-login daily service-record capture (BJJ-247).
@@ -38,6 +41,9 @@ import { MessageAutomationIntentService } from "application/services/message-aut
         ServiceRecordFinalizationSchedulerService,
         ServiceRecordLinkReconciliationService,
         MessageAutomationIntentService,
+        ServiceRecordSecurityEventService,
+        RateLimitGuard,
+        OwnerOrAdminGuard,
         ServiceRecordGuard,
     ],
     exports: [

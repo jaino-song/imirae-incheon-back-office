@@ -384,4 +384,35 @@ describe("AdminServiceRecordService", () => {
         expect(linkService.sendNow).not.toHaveBeenCalled();
         expect(triggerService.dispatchPendingJobNow).not.toHaveBeenCalled();
     });
+
+    it("requires an authenticated admin actor for reissue and emits a redacted security event", async () => {
+        const prisma = createPrisma();
+        const linkService = createLinkService();
+        const securityEventService = { emit: jest.fn() };
+        const service = new AdminServiceRecordService(
+            prisma as unknown as PrismaService,
+            linkService as unknown as ServiceRecordLinkService,
+            createTriggerService() as unknown as MessageTriggerService,
+            securityEventService as never,
+        );
+        prisma.employee_schedule.findFirst.mockResolvedValue({ id: 10 });
+
+        await expect(service.resetLink("branch-1", 10)).rejects.toThrow("Authenticated administrator required");
+        expect(linkService.resetLink).not.toHaveBeenCalled();
+
+        await expect(service.resetLink("branch-1", 10, {
+            userId: "admin-1",
+            globalRole: "admin",
+            branchRole: "admin",
+        })).resolves.toEqual({
+            serviceRecordUrl: "https://mobile.test/service-record/efl_reset",
+            expiresAt: new Date("2026-07-13T01:00:00.000Z"),
+        });
+        expect(securityEventService.emit).toHaveBeenCalledWith({
+            outcome: "link_reissued",
+            actorUserId: "admin-1",
+            branchId: "branch-1",
+            scheduleId: 10,
+        });
+    });
 });
