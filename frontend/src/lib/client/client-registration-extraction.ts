@@ -18,6 +18,8 @@ const PHONE_PATTERN = /(?:\+?82[-.\s]?)?0?1[0-9][-.\s]?\d{3,4}[-.\s]?\d{4}/;
 const ISO_DATE_PATTERN = /(?:20\d{2})[-./년\s]*(?:0?[1-9]|1[0-2])[-./월\s]*(?:0?[1-9]|[12]\d|3[01])(?:일)?/;
 const SHORT_DATE_PATTERN = /(?:19|20)?(\d{2})[-./년\s]*(0?[1-9]|1[0-2])[-./월\s]*(0?[1-9]|[12]\d|3[01])(?:일)?/;
 const REGISTRATION_COMMANDS = /산모\s*등록|고객\s*등록|등록해줘|추가해줘/g;
+const LABELED_DUE_DATE_PATTERN = /(?:19|20)?\d{2}[-./년\s]*(?:0?[1-9]|1[0-2])[-./월\s]*(?:0?[1-9]|[12]\d|3[01])(?:일)?(?!\d|[-./](?=\d|[년월일]))/;
+const ISO_DATE_PARTS_PATTERN = /^((?:19|20)\d{2})[-./년\s]*(0?[1-9]|1[0-2])[-./월\s]*(0?[1-9]|[12]\d|3[01])(?:일)?$/;
 
 function digits(value: string): string {
     return value.replace(/\D/g, "");
@@ -36,38 +38,38 @@ function normalizePhone(value: string): string | undefined {
 }
 
 function normalizeIsoDate(value: string): string | undefined {
-    const parts = value.match(/(\d+)/g) ?? [];
-    if (parts.length < 3) return undefined;
+    const match = value.match(ISO_DATE_PARTS_PATTERN);
+    if (!match) return undefined;
 
-    const year = Number(parts[0]);
-    const month = Number(parts[1]);
-    const day = Number(parts[2]);
-    const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const compact = iso.slice(2).replace(/\D/g, "");
+    const [, year, month, day] = match;
+    const compact = `${year.slice(2)}${month.padStart(2, "0")}${day.padStart(2, "0")}`;
+    return isValidCompactDateInput(compact) ? compact : undefined;
+}
+
+function normalizeDateCandidate(value: string): string | undefined {
+    const isoDate = normalizeIsoDate(value);
+    if (isoDate) return isoDate;
+
+    const compact = parseCompactDateInput(value);
     return isValidCompactDateInput(compact) ? compact : undefined;
 }
 
 function extractDueDate(message: string): string | undefined {
-    const datePattern = /(?:20\d{2}|\d{2})[-./년\s]*(?:0?[1-9]|1[0-2])[-./월\s]*(?:0?[1-9]|[12]\d|3[01])(?:일)?/;
     const labelMatch = message.match(/출산[^,]*(예정일|날짜)/);
     if (labelMatch) {
         const labelIndex = message.indexOf(labelMatch[0]) + labelMatch[0].length;
         const afterLabel = message.slice(labelIndex);
-        const dateCandidate = afterLabel.match(datePattern)?.[0];
-        const compact = parseCompactDateInput(dateCandidate ?? "");
-        if (isValidCompactDateInput(compact)) return compact;
+        const dateCandidate = afterLabel.match(LABELED_DUE_DATE_PATTERN)?.[0];
+        if (!dateCandidate) return undefined;
+
+        return normalizeDateCandidate(dateCandidate);
     }
 
     const candidate = message.match(ISO_DATE_PATTERN)?.[0]
         ?? message.match(SHORT_DATE_PATTERN)?.[0];
     if (!candidate) return undefined;
 
-    if (/^\d{4}/.test(digits(candidate))) {
-        return normalizeIsoDate(candidate);
-    }
-
-    const compact = parseCompactDateInput(candidate);
-    return isValidCompactDateInput(compact) ? compact : undefined;
+    return normalizeDateCandidate(candidate);
 }
 
 export function extractClientRegistrationDraft(
@@ -83,7 +85,9 @@ export function extractClientRegistrationDraft(
 
     const declined = /^(?:없어|없습니다|없어요|모르겠어요|모릅니다)$/.test(message.trim());
 
-    const employeeNameMatch = message.match(/(?:제공인력|관리사|이모님)(?:은|는)?\s*([가-힣]{2,3})(?:이야|입니다|님)?/);
+    const employeeNameMatch = message.match(
+        /(?:제공인력|관리사|이모님)(?:은|는)?\s*([가-힣]{2,3}?)(?:이야|입니다|님|야)?(?=\s|[,.;:!?]|$)/,
+    );
 
     const phoneMatch = message.match(PHONE_PATTERN);
     if (phoneMatch?.[0]) draft.phone = normalizePhone(phoneMatch[0]);

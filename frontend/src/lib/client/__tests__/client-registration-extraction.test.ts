@@ -38,4 +38,29 @@ describe("extractClientRegistrationDraft", () => {
 
         expect(draft.dueDate).toBe("260201");
     });
+
+    it("uses the labeled due date instead of an earlier ISO birthday", () => {
+        const draft = extractClientRegistrationDraft(
+            "산모 등록. 생년월일 2000-01-01, 출산 예정일 2026-02-01.",
+        );
+
+        expect(draft.dueDate).toBe("260201");
+    });
+
+    it("does not fall back to an earlier birthday when the labeled due date is invalid", () => {
+        const draft = extractClientRegistrationDraft(
+            "산모 등록. 생년월일 2000-01-01, 출산 예정일 2026-02-31.",
+        );
+
+        expect(draft.dueDate).toBeUndefined();
+        expect(draft.missingFields).toContain("dueDate");
+    });
+
+    it.each([
+        ["관리사는 김민이야.", "김민"],
+        ["관리사는 김민님,", "김민"],
+        ["관리사는 홍길동입니다!", "홍길동"],
+    ])("strips the provider suffix from %s", (message, expectedName) => {
+        expect(extractClientRegistrationDraft(message).employeeName).toBe(expectedName);
+    });
 });

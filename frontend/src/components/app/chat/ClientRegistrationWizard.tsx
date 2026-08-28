@@ -68,6 +68,7 @@ export function ClientRegistrationWizard({
     const {
         data: employees = [],
         isLoading: isEmployeesLoading,
+        isFetching: isEmployeesFetching,
         isError: isEmployeesError,
     } = useEmployees();
     const [activeStep, setActiveStep] = useState(0);
@@ -131,12 +132,14 @@ export function ClientRegistrationWizard({
     const hasAmbiguousEmployeeMatch = matchingEmployees.length > 1 && !selectedEmployee;
     const needsEmployeeRegistration = Boolean(employeeName)
         && !isEmployeesLoading
+        && !isEmployeesFetching
         && !isEmployeesError
         && matchingEmployees.length === 0
         && createdEmployeeId === null;
     const canRegisterEmployee = employeeName.trim().length >= 2
         && employeePhone.replace(/\D/g, "").length === 11
-        && Boolean(employeeWorkArea);
+        && Boolean(employeeWorkArea)
+        && !isEmployeesFetching;
 
     useEffect(() => {
         if (isRegisteringEmployee && (matchingEmployees.length > 0 || isEmployeesError)) {
@@ -148,7 +151,7 @@ export function ClientRegistrationWizard({
         if (activeStep === 0) {
             return Boolean(name.trim() && phone.trim() && birthday.trim() && address.trim())
                 && (isValidCompactDateInput(dueDate) || initialDraft?.skippedFields?.includes("dueDate"))
-                && !(employeeName && (isEmployeesLoading || isEmployeesError))
+                && !(employeeName && (isEmployeesLoading || isEmployeesFetching || isEmployeesError))
                 && !hasAmbiguousEmployeeMatch;
         }
         if (activeStep === 1) {
@@ -156,7 +159,7 @@ export function ClientRegistrationWizard({
             return isVoucherInfoComplete;
         }
         return true;
-    }, [activeStep, name, phone, birthday, address, dueDate, employeeName, hasAmbiguousEmployeeMatch, isEmployeesError, isEmployeesLoading, initialDraft?.skippedFields, voucherClient, isVoucherInfoComplete]);
+    }, [activeStep, name, phone, birthday, address, dueDate, employeeName, hasAmbiguousEmployeeMatch, isEmployeesError, isEmployeesFetching, isEmployeesLoading, initialDraft?.skippedFields, voucherClient, isVoucherInfoComplete]);
 
     const handleNext = () => {
         if (!canGoNext) return;
@@ -195,6 +198,12 @@ export function ClientRegistrationWizard({
     };
 
     const handleSubmit = async () => {
+        if (employeeName && isEmployeesFetching) {
+            setSubmitError("제공인력 정보를 확인하고 있습니다. 잠시 후 다시 시도해 주세요.");
+            setActiveStep(0);
+            return;
+        }
+
         const basicsError = getCanonicalClientRegistrationError({ name, phone, birthday, address, dueDate });
         if (basicsError) {
             setSubmitError(basicsError);
@@ -614,7 +623,10 @@ export function ClientRegistrationWizard({
                 ) : (
                     <Button
                         onClick={handleSubmit}
-                        disabled={isSubmitting || !name.trim() || (voucherClient && !isVoucherInfoComplete)}
+                        disabled={isSubmitting
+                            || !name.trim()
+                            || Boolean(employeeName && (isEmployeesFetching || isEmployeesError))
+                            || (voucherClient && !isVoucherInfoComplete)}
                     >
                         제출
                     </Button>

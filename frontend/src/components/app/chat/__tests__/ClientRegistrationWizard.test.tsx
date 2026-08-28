@@ -5,6 +5,7 @@ const mockCreateClientMutateAsync = jest.fn();
 const mockCreateEmployeeMutateAsync = jest.fn();
 let mockEmployees: Array<{ id: number; name: string; phone?: string }> = [];
 let mockEmployeesLoading = false;
+let mockEmployeesFetching = false;
 let mockEmployeesError = false;
 
 jest.mock("@/hooks/useVoucherData", () => ({
@@ -46,6 +47,7 @@ jest.mock("@/hooks/useEmployees", () => ({
     useEmployees: () => ({
         data: mockEmployees,
         isLoading: mockEmployeesLoading,
+        isFetching: mockEmployeesFetching,
         isError: mockEmployeesError,
     }),
 }));
@@ -63,6 +65,7 @@ describe("ClientRegistrationWizard", () => {
         mockCreateEmployeeMutateAsync.mockReset();
         mockEmployees = [];
         mockEmployeesLoading = false;
+        mockEmployeesFetching = false;
         mockEmployeesError = false;
     });
 
@@ -328,6 +331,111 @@ describe("ClientRegistrationWizard", () => {
         expect(await screen.findByRole("checkbox", { name: "바우처 대상" }))
             .toBeInTheDocument();
         expect(screen.queryByLabelText("제공인력 이름")).not.toBeInTheDocument();
+    });
+
+    test("waits for a background employee refetch before offering registration", async () => {
+        mockEmployeesFetching = true;
+        const initialDraft = {
+            name: "홍길동",
+            phone: "01012345678",
+            birthday: "900101",
+            address: "인천 연수구",
+            dueDate: "260201",
+            employeeName: "김제공",
+        };
+        const { rerender } = render(
+            <ClientRegistrationWizard initialDraft={initialDraft} />,
+        );
+
+        expect(screen.getByRole("button", { name: "다음" })).toBeDisabled();
+        expect(screen.queryByLabelText("제공인력 이름")).not.toBeInTheDocument();
+
+        mockEmployeesFetching = false;
+        mockEmployees = [{ id: 10, name: "김제공" }];
+        rerender(<ClientRegistrationWizard initialDraft={initialDraft} />);
+
+        const nextButton = screen.getByRole("button", { name: "다음" });
+        expect(nextButton).not.toBeDisabled();
+        fireEvent.click(nextButton);
+        expect(await screen.findByRole("checkbox", { name: "바우처 대상" }))
+            .toBeInTheDocument();
+        expect(screen.queryByLabelText("제공인력 이름")).not.toBeInTheDocument();
+    });
+
+    test("disables inline employee registration while a background refetch is pending", async () => {
+        const initialDraft = {
+            name: "홍길동",
+            phone: "01012345678",
+            birthday: "900101",
+            address: "인천 연수구",
+            dueDate: "260201",
+            employeeName: "김제공",
+        };
+        const { rerender } = render(
+            <ClientRegistrationWizard initialDraft={initialDraft} />,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        const registerButton = await screen.findByRole("button", { name: "제공인력 등록" });
+        fireEvent.change(screen.getByLabelText("연락처"), {
+            target: { value: "01012345678" },
+        });
+        expect(registerButton).not.toBeDisabled();
+
+        // React Query can retain the empty cache while a focus/invalidation refetch runs.
+        mockEmployeesFetching = true;
+        rerender(<ClientRegistrationWizard initialDraft={initialDraft} />);
+
+        expect(screen.getByRole("button", { name: "제공인력 등록" })).toBeDisabled();
+        fireEvent.click(screen.getByRole("button", { name: "제공인력 등록" }));
+        expect(mockCreateEmployeeMutateAsync).not.toHaveBeenCalled();
+
+        mockEmployeesFetching = false;
+        mockEmployees = [{ id: 10, name: "김제공" }];
+        rerender(<ClientRegistrationWizard initialDraft={initialDraft} />);
+        expect(screen.queryByLabelText("제공인력 이름")).not.toBeInTheDocument();
+    });
+
+    test("disables final submission until a background employee refetch completes", async () => {
+        mockEmployees = [{ id: 10, name: "김제공" }];
+        mockCreateClientMutateAsync.mockResolvedValue({ id: 123, name: "홍길동" });
+        const initialDraft = {
+            name: "홍길동",
+            phone: "01012345678",
+            birthday: "900101",
+            address: "인천 연수구",
+            dueDate: "260201",
+            employeeName: "김제공",
+        };
+        const { rerender } = render(
+            <ClientRegistrationWizard initialDraft={initialDraft} />,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+        fireEvent.click(await screen.findByRole("checkbox", { name: "바우처 대상" }));
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+
+        // The list becomes stale and empty while React Query performs the refetch.
+        mockEmployees = [];
+        mockEmployeesFetching = true;
+        rerender(<ClientRegistrationWizard initialDraft={initialDraft} />);
+
+        const submitButton = screen.getByRole("button", { name: "제출" });
+        expect(submitButton).toBeDisabled();
+        fireEvent.click(submitButton);
+        expect(mockCreateClientMutateAsync).not.toHaveBeenCalled();
+
+        mockEmployees = [{ id: 10, name: "김제공" }];
+        mockEmployeesFetching = false;
+        rerender(<ClientRegistrationWizard initialDraft={initialDraft} />);
+        expect(submitButton).not.toBeDisabled();
+        fireEvent.click(submitButton);
+
+        await waitFor(() => {
+            expect(mockCreateClientMutateAsync).toHaveBeenCalledWith(
+                expect.objectContaining({ primaryEmployeeId: 10 }),
+            );
+        });
     });
 
     test("blocks progression and does not offer registration when employee lookup fails", async () => {
