@@ -124,6 +124,16 @@ export interface RegistrationResult {
     code?: string;
 }
 
+export function buildAuthEmailProviderIdempotencyKey(
+    tokenId: string,
+    kind: "email_verification" | "password_reset",
+): string {
+    return `auth-email:${crypto
+        .createHash("sha256")
+        .update(`${kind}:${tokenId}`)
+        .digest("hex")}`;
+}
+
 @Injectable()
 export class AuthService {
     private readonly logger = new Logger(AuthService.name);
@@ -1120,6 +1130,10 @@ export class AuthService {
                     kind: "email_verification",
                     recipient: createdUser.email!,
                     name: createdUser.name,
+                    providerIdempotencyKey: buildAuthEmailProviderIdempotencyKey(
+                        verificationToken.tokenId,
+                        "email_verification",
+                    ),
                 },
             });
             return createdUser;
@@ -1162,6 +1176,10 @@ export class AuthService {
                     kind: "email_verification",
                     recipient: email,
                     name: user?.name ?? null,
+                    providerIdempotencyKey: buildAuthEmailProviderIdempotencyKey(
+                        verificationToken.tokenId,
+                        "email_verification",
+                    ),
                 },
             });
         });
@@ -1301,6 +1319,10 @@ export class AuthService {
                         kind: "password_reset",
                         recipient: user.email!,
                         name: user.name,
+                        providerIdempotencyKey: buildAuthEmailProviderIdempotencyKey(
+                            resetToken.tokenId,
+                            "password_reset",
+                        ),
                     },
                 });
             });

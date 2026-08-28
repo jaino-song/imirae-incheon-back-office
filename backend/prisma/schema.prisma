@@ -806,25 +806,33 @@ model auth_refresh_token {
 }
 
 model auth_email_outbox {
-  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId        String     @map("user_id") @db.Uuid
-  authTokenId   String     @map("auth_token_id") @db.Uuid
-  kind          String     @db.VarChar
-  recipient     String     @db.VarChar
-  name          String?    @db.VarChar
-  status        String     @default("pending") @db.VarChar
-  attempts      Int        @default(0)
-  nextAttemptAt DateTime   @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
-  claimedAt     DateTime?  @map("claimed_at") @db.Timestamptz(6)
-  sentAt        DateTime?  @map("sent_at") @db.Timestamptz(6)
-  errorCode     String?    @map("error_code") @db.VarChar
-  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  user          user       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  authToken     auth_token @relation(fields: [authTokenId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                     String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                 String     @map("user_id") @db.Uuid
+  authTokenId            String     @map("auth_token_id") @db.Uuid
+  kind                   String     @db.VarChar
+  recipient              String     @db.VarChar
+  name                   String?    @db.VarChar
+  status                 String     @default("prepared") @db.VarChar
+  attempts               Int        @default(0)
+  attemptVersion         Int        @default(0) @map("attempt_version")
+  providerIdempotencyKey String     @unique(map: "auth_email_outbox_provider_idempotency_key_key") @default(dbgenerated("(gen_random_uuid())::text")) @map("provider_idempotency_key") @db.VarChar(255)
+  providerMessageId      String?    @map("provider_message_id") @db.VarChar(255)
+  providerStartedAt      DateTime?  @map("provider_started_at") @db.Timestamptz(6)
+  providerAcceptedAt     DateTime?  @map("provider_accepted_at") @db.Timestamptz(6)
+  uncertainAt            DateTime?  @map("uncertain_at") @db.Timestamptz(6)
+  uncertainReason        String?    @map("uncertain_reason") @db.VarChar(1000)
+  nextAttemptAt          DateTime   @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  claimedAt              DateTime?  @map("claimed_at") @db.Timestamptz(6)
+  sentAt                 DateTime?  @map("sent_at") @db.Timestamptz(6)
+  errorCode              String?    @map("error_code") @db.VarChar
+  createdAt              DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user                   user       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  authToken              auth_token @relation(fields: [authTokenId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([authTokenId, kind], map: "auth_email_outbox_token_kind_key")
   @@index([status, nextAttemptAt], map: "idx_auth_email_outbox_delivery")
+  @@index([status, attemptVersion], map: "idx_auth_email_outbox_provider_boundary")
 }
 
 model consultation_inquiry {
