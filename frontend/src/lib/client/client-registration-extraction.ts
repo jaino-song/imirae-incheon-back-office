@@ -86,7 +86,7 @@ export function extractClientRegistrationDraft(
     const declined = /^(?:없어|없습니다|없어요|모르겠어요|모릅니다)$/.test(message.trim());
 
     const employeeNameMatch = message.match(
-        /(?:제공인력|관리사|이모님)(?:은|는)?\s*([가-힣]{2,3}?)(?:이야|입니다|님|야)?(?=\s|[,.;:!?]|$)/,
+        /(?:제공인력|관리사|이모님)(?:은|는)?\s*([가-힣]{2,4}?)(?:이야|입니다|님|야)?(?=\s|[,.;:!?]|$)/,
     );
 
     const phoneMatch = message.match(PHONE_PATTERN);

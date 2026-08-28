@@ -60,6 +60,10 @@ describe("extractClientRegistrationDraft", () => {
         ["관리사는 김민이야.", "김민"],
         ["관리사는 김민님,", "김민"],
         ["관리사는 홍길동입니다!", "홍길동"],
+        ["관리사는 남궁민수이야.", "남궁민수"],
+        ["관리사는 남궁민수야.", "남궁민수"],
+        ["관리사는 남궁민수입니다!", "남궁민수"],
+        ["관리사는 남궁민수님,", "남궁민수"],
     ])("strips the provider suffix from %s", (message, expectedName) => {
         expect(extractClientRegistrationDraft(message).employeeName).toBe(expectedName);
     });

@@ -7,6 +7,7 @@ let mockEmployees: Array<{ id: number; name: string; phone?: string }> = [];
 let mockEmployeesLoading = false;
 let mockEmployeesFetching = false;
 let mockEmployeesError = false;
+let mockRefetchEmployees = jest.fn();
 
 jest.mock("@/hooks/useVoucherData", () => ({
     useAvailableClientAreas: () => ({ data: [], isLoading: false }),
@@ -49,6 +50,7 @@ jest.mock("@/hooks/useEmployees", () => ({
         isLoading: mockEmployeesLoading,
         isFetching: mockEmployeesFetching,
         isError: mockEmployeesError,
+        refetch: () => mockRefetchEmployees(),
     }),
 }));
 
@@ -67,6 +69,7 @@ describe("ClientRegistrationWizard", () => {
         mockEmployeesLoading = false;
         mockEmployeesFetching = false;
         mockEmployeesError = false;
+        mockRefetchEmployees = jest.fn().mockResolvedValue({ data: [] });
     });
 
     test("submits minimal required payload to /api/clients", async () => {
@@ -371,6 +374,7 @@ describe("ClientRegistrationWizard", () => {
         // The create mutation can trigger a query refetch that fails; the created id is still authoritative.
         mockEmployeesError = true;
         rerender(<ClientRegistrationWizard initialDraft={initialDraft} />);
+        expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
 
         const nextButton = screen.getByRole("button", { name: "다음" });
         fireEvent.click(screen.getByLabelText("바우처 대상"));
@@ -555,6 +559,55 @@ describe("ClientRegistrationWizard", () => {
             .not.toBeInTheDocument();
         expect(screen.queryByLabelText("제공인력 이름")).not.toBeInTheDocument();
         expect(mockCreateEmployeeMutateAsync).not.toHaveBeenCalled();
+    });
+
+    test("retries a failed employee lookup and recovers when the refreshed data resolves", async () => {
+        mockEmployeesError = true;
+        let resolveRefetch: ((value: unknown) => void) | undefined;
+        mockRefetchEmployees.mockImplementation(
+            () => new Promise((resolve) => {
+                resolveRefetch = resolve;
+            }),
+        );
+        const initialDraft = {
+            name: "홍길동",
+            phone: "01012345678",
+            birthday: "900101",
+            address: "인천 연수구",
+            dueDate: "260201",
+            employeeName: "김제공",
+        };
+        const { rerender } = render(<ClientRegistrationWizard initialDraft={initialDraft} />);
+
+        const nextButton = screen.getByRole("button", { name: "다음" });
+        const retryButton = screen.getByRole("button", { name: "다시 시도" });
+        expect(nextButton).toBeDisabled();
+
+        fireEvent.click(retryButton);
+
+        await waitFor(() => {
+            expect(mockRefetchEmployees).toHaveBeenCalledTimes(1);
+        });
+        expect(screen.getByRole("button", { name: "재시도 중..." })).toBeDisabled();
+        expect(nextButton).toBeDisabled();
+
+        // The refetch remains in progress even after the query's next state is available.
+        mockEmployees = [{ id: 10, name: "김제공" }];
+        mockEmployeesError = false;
+        rerender(<ClientRegistrationWizard initialDraft={initialDraft} />);
+        expect(screen.getByRole("button", { name: "재시도 중..." })).toBeDisabled();
+        expect(nextButton).toBeDisabled();
+
+        resolveRefetch?.({ data: mockEmployees });
+
+        await waitFor(() => {
+            expect(screen.queryByRole("button", { name: "재시도 중..." })).not.toBeInTheDocument();
+            expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
+            expect(nextButton).not.toBeDisabled();
+        });
+
+        fireEvent.click(nextButton);
+        expect(await screen.findByRole("checkbox", { name: "바우처 대상" })).toBeInTheDocument();
     });
 
     test("shows inline error on API failure", async () => {

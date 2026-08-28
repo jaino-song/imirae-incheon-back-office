@@ -70,6 +70,7 @@ export function ClientRegistrationWizard({
         isLoading: isEmployeesLoading,
         isFetching: isEmployeesFetching,
         isError: isEmployeesError,
+        refetch: refetchEmployees,
     } = useEmployees();
     const [activeStep, setActiveStep] = useState(0);
 
@@ -111,6 +112,7 @@ export function ClientRegistrationWizard({
     const [breastPump, setBreastPump] = useState(false);
 
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isEmployeeRetrying, setIsEmployeeRetrying] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
 
     const isVoucherInfoComplete =
@@ -136,18 +138,20 @@ export function ClientRegistrationWizard({
         && (hasInvalidEmployeeSelection || (matchingEmployees.length > 1 && !selectedEmployee));
     const isEmployeeLookupBlocked = createdEmployeeId === null
         && employeeName.trim().length > 0
-        && (isEmployeesLoading || isEmployeesFetching || isEmployeesError);
+        && (isEmployeesLoading || isEmployeesFetching || isEmployeesError || isEmployeeRetrying);
     const needsEmployeeRegistration = Boolean(employeeName.trim())
         && !isEmployeesLoading
         && !isEmployeesFetching
         && !isEmployeesError
+        && !isEmployeeRetrying
         && matchingEmployees.length === 0
         && !hasInvalidEmployeeSelection
         && createdEmployeeId === null;
     const canRegisterEmployee = employeeName.trim().length >= 2
         && employeePhone.replace(/\D/g, "").length === 11
         && Boolean(employeeWorkArea)
-        && !isEmployeesFetching;
+        && !isEmployeesFetching
+        && !isEmployeeRetrying;
 
     useEffect(() => {
         if (isRegisteringEmployee && (matchingEmployees.length > 0 || isEmployeesError)) {
@@ -178,6 +182,21 @@ export function ClientRegistrationWizard({
         setActiveStep((s) => Math.max(s - 1, 0));
     };
 
+    const handleEmployeeRetry = async () => {
+        if (createdEmployeeId !== null || !employeeName.trim() || isEmployeeRetrying) return;
+
+        setIsEmployeeRetrying(true);
+        setSubmitError(null);
+
+        try {
+            await refetchEmployees();
+        } catch {
+            // The query's error state remains the source of truth for the retry UI.
+        } finally {
+            setIsEmployeeRetrying(false);
+        }
+    };
+
     const handleVoucherYearChange = (year: string) => {
         setVoucherYear(Number(year));
         setVoucherType("");
@@ -206,7 +225,7 @@ export function ClientRegistrationWizard({
     };
 
     const handleSubmit = async () => {
-        if (employeeName.trim() && createdEmployeeId === null && isEmployeesFetching) {
+        if (employeeName.trim() && createdEmployeeId === null && (isEmployeesFetching || isEmployeeRetrying)) {
             setSubmitError("제공인력 정보를 확인하고 있습니다. 잠시 후 다시 시도해 주세요.");
             setActiveStep(0);
             return;
@@ -585,11 +604,30 @@ export function ClientRegistrationWizard({
                 </Alert>
             )}
 
-            {employeeName.trim() && createdEmployeeId === null && isEmployeesError && (
-                <Alert variant="destructive" className="mt-4">
+            {employeeName.trim() && createdEmployeeId === null && (isEmployeesError || isEmployeeRetrying) && (
+                <Alert variant={isEmployeeRetrying ? "default" : "destructive"} className="mt-4">
                     <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>
-                        제공인력 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+                    <AlertDescription className="flex items-center justify-between gap-3">
+                        <span>
+                            {isEmployeeRetrying
+                                ? "제공인력 정보를 다시 확인하고 있습니다."
+                                : "제공인력 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."}
+                        </span>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleEmployeeRetry()}
+                            disabled={isEmployeeRetrying}
+                            aria-busy={isEmployeeRetrying}
+                        >
+                            {isEmployeeRetrying ? (
+                                <>
+                                    <Spinner size="sm" aria-hidden="true" />
+                                    재시도 중...
+                                </>
+                            ) : "다시 시도"}
+                        </Button>
                     </AlertDescription>
                 </Alert>
             )}
@@ -635,7 +673,7 @@ export function ClientRegistrationWizard({
                             || !name.trim()
                             || Boolean(employeeName.trim()
                                 && createdEmployeeId === null
-                                && (isEmployeesFetching || isEmployeesError || hasInvalidEmployeeSelection))
+                                && (isEmployeesFetching || isEmployeesError || isEmployeeRetrying || hasInvalidEmployeeSelection))
                             || (voucherClient && !isVoucherInfoComplete)}
                     >
                         제출
