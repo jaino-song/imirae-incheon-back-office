@@ -10,7 +10,7 @@ host. The host does not build application images.
 | `preview` | branch-scoped preview role | preview backend | automatic after CI |
 | `main` | branch-scoped production role | production backend | `production` environment required reviewer |
 
-The deploy job receives temporary AWS credentials through GitHub OIDC. Its
+The deploy and fixed-purpose operations jobs receive temporary AWS credentials through GitHub OIDC. Their
 trust policy pins preview access to `refs/heads/preview` and production access
 to `refs/heads/main`; a feature branch cannot gain deployment authority by
 referencing an environment. Production approval runs in a separate
@@ -20,6 +20,30 @@ use an AWS access key, SSH key, or a remotely supplied shell command. The
 preview and production roles can each invoke only their fixed SSM document on a
 managed node with the configured `DeploymentTarget` tag. The workflow refuses
 to send a command unless that tag resolves to exactly one online managed node.
+
+## Local operations CLI
+
+The local CLI deliberately uses the authenticated GitHub CLI instead of local
+AWS credentials. GitHub Actions obtains short-lived, branch-scoped credentials
+through OIDC and invokes only the fixed SSM documents declared in
+`github-oidc-ssm.yaml`.
+
+```bash
+backend/deploy/lightsail/lightsail-cli.sh status preview
+backend/deploy/lightsail/lightsail-cli.sh deploy preview
+backend/deploy/lightsail/lightsail-cli.sh status production
+backend/deploy/lightsail/lightsail-cli.sh deploy production
+backend/deploy/lightsail/lightsail-cli.sh operator-upgrade
+```
+
+The command watches the workflow run and returns its exit status. Add
+`--no-watch` to open the run without waiting. Production operations enter the
+`production` GitHub environment approval gate. The root operator bundle is
+shared by Preview and Production, so `operator-upgrade` is always pinned to the
+current `main` commit and uses the same Production approval gate; no
+Preview-only upgrade exists. The workflow does not accept arbitrary shell text,
+document names, commit SHAs, image digests, roles, regions, or node targets from
+the local caller.
 
 Diagnostics access is a separate account-owned boundary. The
 `AgentLightsailDiagnosticsPolicy` CloudFormation resource is deliberately
@@ -85,8 +109,11 @@ approval gate before execution.
 
    - `AWS_PREVIEW_DEPLOY_ROLE_ARN`
    - `AWS_PREVIEW_DEPLOY_DOCUMENT_NAME`
+   - `AWS_PREVIEW_STATUS_DOCUMENT_NAME`
    - `AWS_PRODUCTION_DEPLOY_ROLE_ARN`
    - `AWS_PRODUCTION_DEPLOY_DOCUMENT_NAME`
+   - `AWS_PRODUCTION_STATUS_DOCUMENT_NAME`
+   - `AWS_OPERATOR_UPGRADE_DOCUMENT_NAME`
    - `LIGHTSAIL_SSM_TARGET_TAG`
 
 8. If the external IAM operator needs deployment-failure diagnostics, review the
