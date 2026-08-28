@@ -248,4 +248,99 @@ describe("SystemSettingService", () => {
             );
         });
     });
+
+    describe("PWA digest delivery claims", () => {
+        const deliveryKey = "branch:branch-1:daily:2026-08-28";
+        const settingKey = `pwa:daily_digest:${deliveryKey}`;
+        const now = new Date("2026-08-28T00:00:00.000Z");
+
+        it("should create a processing claim when no replica has claimed the delivery", async () => {
+            const entity = new SystemSettingEntity(settingKey, "claimed", now);
+            getSettingUsecase.executeEntity.mockResolvedValue(null);
+            updateSettingUsecase.executeIfVersion.mockResolvedValue(entity);
+
+            const token = await service.claimPwaDigestDelivery(deliveryKey, now);
+
+            expect(token).toEqual(expect.any(String));
+            const [key, rawState, expectedVersion, versionOf] = updateSettingUsecase.executeIfVersion.mock
+                .calls[0] as [string, string, string, (value: string | null) => string];
+            expect(key).toBe(settingKey);
+            expect(expectedVersion).toBe("absent");
+            expect(versionOf(null)).toBe("absent");
+            expect(JSON.parse(rawState)).toEqual(expect.objectContaining({
+                status: "processing",
+                token,
+                leaseExpiresAt: "2026-08-28T00:30:00.000Z",
+            }));
+        });
+
+        it("should skip an active, sent, or uncertain claim", async () => {
+            for (const state of [
+                {
+                    status: "processing",
+                    token: "active",
+                    leaseExpiresAt: "2026-08-28T00:10:00.000Z",
+                },
+                { status: "sent", token: "sent" },
+                { status: "uncertain", token: "uncertain" },
+            ]) {
+                getSettingUsecase.executeEntity.mockResolvedValue(
+                    new SystemSettingEntity(settingKey, JSON.stringify(state), now),
+                );
+
+                await expect(service.claimPwaDigestDelivery(deliveryKey, now)).resolves.toBeNull();
+            }
+
+            expect(updateSettingUsecase.executeIfVersion).not.toHaveBeenCalled();
+        });
+
+        it("should reclaim an expired processing claim or retryable delivery", async () => {
+            const entity = new SystemSettingEntity(settingKey, "claimed", now);
+            updateSettingUsecase.executeIfVersion.mockResolvedValue(entity);
+
+            getSettingUsecase.executeEntity.mockResolvedValue(
+                new SystemSettingEntity(settingKey, JSON.stringify({
+                    status: "processing",
+                    token: "expired",
+                    leaseExpiresAt: "2026-08-27T23:59:59.000Z",
+                }), now),
+            );
+            await expect(service.claimPwaDigestDelivery(deliveryKey, now)).resolves.toEqual(expect.any(String));
+
+            updateSettingUsecase.executeIfVersion.mockClear();
+            getSettingUsecase.executeEntity.mockResolvedValue(
+                new SystemSettingEntity(settingKey, JSON.stringify({ status: "retryable", token: "failed" }), now),
+            );
+            await expect(service.claimPwaDigestDelivery(deliveryKey, now)).resolves.toEqual(expect.any(String));
+
+            expect(updateSettingUsecase.executeIfVersion).toHaveBeenCalledTimes(1);
+        });
+
+        it("should complete only the claim that still owns the delivery", async () => {
+            const processing = new SystemSettingEntity(settingKey, JSON.stringify({
+                status: "processing",
+                token: "claim-token",
+                leaseExpiresAt: "2026-08-28T00:30:00.000Z",
+            }), now);
+            const completed = new SystemSettingEntity(settingKey, "sent", now);
+            getSettingUsecase.executeEntity.mockResolvedValue(processing);
+            updateSettingUsecase.executeIfVersion.mockResolvedValue(completed);
+
+            await expect(
+                service.completePwaDigestDelivery(deliveryKey, "claim-token", "sent"),
+            ).resolves.toBe(true);
+            expect(updateSettingUsecase.executeIfVersion).toHaveBeenCalledWith(
+                settingKey,
+                JSON.stringify({ status: "sent", token: "claim-token" }),
+                expect.any(String),
+                expect.any(Function),
+            );
+
+            updateSettingUsecase.executeIfVersion.mockClear();
+            await expect(
+                service.completePwaDigestDelivery(deliveryKey, "stale-token", "sent"),
+            ).resolves.toBe(false);
+            expect(updateSettingUsecase.executeIfVersion).not.toHaveBeenCalled();
+        });
+    });
 });

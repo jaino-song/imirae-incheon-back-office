@@ -262,6 +262,7 @@ export class NotificationService {
         branchName: string,
         sections: DailyDigestSection[],
         emailTemplateContext: NotificationEmailTemplateContext,
+        deliveryKey?: string,
     ): Promise<{ sent: number; failed: number }> {
         if (sections.length === 0) {
             return { sent: 0, failed: 0 };
@@ -279,29 +280,61 @@ export class NotificationService {
         const title = `오늘 확인할 알림이 ${sections.length}건 있습니다`;
 
         const results = await Promise.allSettled(uniqueUsers.map(async (user) => {
-            if (aggregateSections.length > 0) {
-                const summary = aggregateSections
-                    .map((section) => `${section.label} ${section.count}${section.unit}`)
-                    .join(" · ");
-                const body = `[${branchName}] ${summary} 지금 확인해 보세요.`;
-                const data = {
-                    type: "daily-summary",
-                    url: aggregateSections.length === 1 ? aggregateSections[0]!.url : "/",
-                    sections: aggregateSections,
-                };
-                await this.sendNotificationUsecase.execute(branchid, { userId: user.id, title, body, data });
+            const userDeliveryKey = deliveryKey ? `${deliveryKey}:user:${user.id}` : null;
+            const claimToken = userDeliveryKey
+                ? await this.systemSettingService.claimPwaDigestDelivery(userDeliveryKey)
+                : null;
+            if (userDeliveryKey && !claimToken) {
+                return "deduped" as const;
             }
 
-            for (const item of notificationItems) {
-                await this.sendNotificationUsecase.execute(branchid, {
-                    userId: user.id,
-                    title: item.title,
-                    body: item.body,
-                    data: item.data,
-                });
-            }
+            try {
+                if (aggregateSections.length > 0) {
+                    const summary = aggregateSections
+                        .map((section) => `${section.label} ${section.count}${section.unit}`)
+                        .join(" · ");
+                    const body = `[${branchName}] ${summary} 지금 확인해 보세요.`;
+                    const data = {
+                        type: "daily-summary",
+                        url: aggregateSections.length === 1 ? aggregateSections[0]!.url : "/",
+                        sections: aggregateSections,
+                    };
+                    await this.sendNotificationUsecase.execute(branchid, { userId: user.id, title, body, data });
+                }
 
-            return this.sendDailyDigestEmailToUser(user, branchName, title, sections, emailTemplateContext);
+                for (const item of notificationItems) {
+                    await this.sendNotificationUsecase.execute(branchid, {
+                        userId: user.id,
+                        title: item.title,
+                        body: item.body,
+                        data: item.data,
+                    });
+                }
+
+                const emailStatus = await this.sendDailyDigestEmailToUser(
+                    user,
+                    branchName,
+                    title,
+                    sections,
+                    emailTemplateContext,
+                );
+                if (userDeliveryKey && claimToken) {
+                    await this.completePwaDigestDelivery(userDeliveryKey, claimToken, "sent");
+                }
+                return emailStatus;
+            } catch (error) {
+                if (userDeliveryKey && claimToken) {
+                    await this.completePwaDigestDelivery(userDeliveryKey, claimToken, "uncertain").catch(
+                        (completionError: unknown) => {
+                            this.logger.error(
+                                `Failed to persist uncertain daily digest delivery for user ${user.id}`,
+                                completionError instanceof Error ? completionError.stack : String(completionError),
+                            );
+                        },
+                    );
+                }
+                throw error;
+            }
         }));
 
         let sent = 0;
@@ -315,6 +348,8 @@ export class NotificationService {
                 if (result.value === "sent") {
                     emailsSent++;
                 } else if (result.value === "skipped") {
+                    emailsSkipped++;
+                } else if (result.value === "deduped") {
                     emailsSkipped++;
                 } else {
                     emailsFailed++;
@@ -416,6 +451,23 @@ export class NotificationService {
                 error instanceof Error ? error.stack : String(error),
             );
             return "failed";
+        }
+    }
+
+    private async completePwaDigestDelivery(
+        deliveryKey: string,
+        claimToken: string,
+        status: "sent" | "uncertain",
+    ): Promise<void> {
+        const completed = await this.systemSettingService.completePwaDigestDelivery(
+            deliveryKey,
+            claimToken,
+            status,
+        );
+        if (!completed) {
+            this.logger.warn(
+                `Daily digest delivery claim was replaced before completion for ${deliveryKey}`,
+            );
         }
     }
 

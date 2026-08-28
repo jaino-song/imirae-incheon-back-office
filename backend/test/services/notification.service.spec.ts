@@ -40,7 +40,11 @@ describe("NotificationService", () => {
     const emailPort = {
         send: jest.fn(),
     };
-    const systemSettingService = { getUserEmailNotificationsEnabled: jest.fn() };
+    const systemSettingService = {
+        claimPwaDigestDelivery: jest.fn(),
+        completePwaDigestDelivery: jest.fn(),
+        getUserEmailNotificationsEnabled: jest.fn(),
+    };
 
     let service: NotificationService;
     let originalNotificationEmailEnabled: string | undefined;
@@ -67,6 +71,8 @@ describe("NotificationService", () => {
             createUser("user-2"),
             createUser("user-1"),
         ]);
+        systemSettingService.claimPwaDigestDelivery.mockResolvedValue("claim-token");
+        systemSettingService.completePwaDigestDelivery.mockResolvedValue(true);
         getNotificationsUsecase.execute.mockResolvedValue([]);
         sendNotificationUsecase.execute.mockImplementation((branchid: string, params: { userId: string }) =>
             Promise.resolve(NotificationEntity.create(params.userId, "title", "body", { branchid }))
@@ -228,6 +234,36 @@ describe("NotificationService", () => {
                     data: { type: "daily-summary", url: "/", sections },
                 });
             }
+        });
+
+        it("should skip a user already claimed by an overlapping digest replica", async () => {
+            systemSettingService.claimPwaDigestDelivery
+                .mockReset()
+                .mockResolvedValueOnce("claim-token")
+                .mockResolvedValueOnce(null);
+
+            await expect(
+                service.sendDailyDigestToBranchUsers(
+                    branchId,
+                    branchName,
+                    sections,
+                    digestContext,
+                    "branch:branch-1:daily:2026-08-28",
+                ),
+            ).resolves.toEqual({ sent: 2, failed: 0 });
+
+            expect(sendNotificationUsecase.execute).toHaveBeenCalledTimes(1);
+            expect(systemSettingService.claimPwaDigestDelivery).toHaveBeenCalledWith(
+                "branch:branch-1:daily:2026-08-28:user:user-1",
+            );
+            expect(systemSettingService.claimPwaDigestDelivery).toHaveBeenCalledWith(
+                "branch:branch-1:daily:2026-08-28:user:user-2",
+            );
+            expect(systemSettingService.completePwaDigestDelivery).toHaveBeenCalledWith(
+                "branch:branch-1:daily:2026-08-28:user:user-1",
+                "claim-token",
+                "sent",
+            );
         });
 
         it("should store exact item notifications instead of an aggregate row for itemized sections", async () => {
@@ -429,6 +465,35 @@ describe("NotificationService", () => {
             expect(emailPort.send).toHaveBeenCalledTimes(1);
             expect(emailPort.send).toHaveBeenCalledWith(
                 expect.objectContaining({ to: "user-2@example.com" }),
+            );
+        });
+
+        it("should mark a claimed recipient uncertain when its provider call fails", async () => {
+            sendNotificationUsecase.execute.mockImplementation((_branchid: string, params: { userId: string }) =>
+                params.userId === "user-1"
+                    ? Promise.reject(new Error("provider unavailable"))
+                    : Promise.resolve(NotificationEntity.create(params.userId, "title", "body"))
+            );
+
+            await expect(
+                service.sendDailyDigestToBranchUsers(
+                    branchId,
+                    branchName,
+                    sections,
+                    digestContext,
+                    "branch:branch-1:daily:2026-08-29",
+                ),
+            ).resolves.toEqual({ sent: 1, failed: 1 });
+
+            expect(systemSettingService.completePwaDigestDelivery).toHaveBeenCalledWith(
+                "branch:branch-1:daily:2026-08-29:user:user-1",
+                "claim-token",
+                "uncertain",
+            );
+            expect(systemSettingService.completePwaDigestDelivery).toHaveBeenCalledWith(
+                "branch:branch-1:daily:2026-08-29:user:user-2",
+                "claim-token",
+                "sent",
             );
         });
 

@@ -1,5 +1,5 @@
 import { ConflictException, Injectable } from "@nestjs/common";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { GetSettingUsecase, UpdateSettingUsecase } from "application/usecases/system-setting";
 import {
     SystemSettingEntity,
@@ -8,6 +8,18 @@ import {
     MessageAutomationPastTriggerConfig,
     DEFAULT_MESSAGE_AUTOMATION_PAST_TRIGGER_CONFIG,
 } from "domain/entities/system-setting.entity";
+
+export type PwaDigestDeliveryStatus = "sent" | "retryable" | "uncertain";
+
+interface PwaDigestDeliveryState {
+    status: "processing" | PwaDigestDeliveryStatus;
+    token: string;
+    leaseExpiresAt?: string;
+}
+
+const PWA_DIGEST_DELIVERY_PREFIX = "pwa:daily_digest:";
+const PWA_DIGEST_DELIVERY_ABSENT_VERSION = "absent";
+const PWA_DIGEST_DELIVERY_LEASE_MS = 30 * 60 * 1000;
 
 @Injectable()
 export class SystemSettingService {
@@ -157,6 +169,84 @@ export class SystemSettingService {
         );
     }
 
+    /**
+     * Acquire a durable claim for one logical PWA digest delivery.
+     *
+     * System settings already provide a row-locked compare-and-set primitive. Reusing it
+     * keeps the claim durable without adding a second table or a process-local singleton,
+     * so two scheduler replicas converge on one owner even when their cron ticks overlap.
+     * A processing claim expires so a crashed owner can be recovered; an uncertain claim is
+     * deliberately fail-closed because an external provider may already have accepted it.
+     */
+    async claimPwaDigestDelivery(
+        deliveryKey: string,
+        now = new Date(),
+    ): Promise<string | null> {
+        const key = this.getPwaDigestDeliveryKey(deliveryKey);
+        const current = await this.getSettingUsecase.executeEntity(key);
+        const state = this.parsePwaDigestDeliveryState(current?.value);
+
+        if (state?.status === "sent" || state?.status === "uncertain") {
+            return null;
+        }
+
+        if (
+            state?.status === "processing"
+            && state.leaseExpiresAt
+            && new Date(state.leaseExpiresAt).getTime() > now.getTime()
+        ) {
+            return null;
+        }
+
+        const token = randomUUID();
+        const nextState: PwaDigestDeliveryState = {
+            status: "processing",
+            token,
+            leaseExpiresAt: new Date(now.getTime() + PWA_DIGEST_DELIVERY_LEASE_MS).toISOString(),
+        };
+        const expectedVersion = current
+            ? this.pwaDigestDeliveryVersion(current.value)
+            : PWA_DIGEST_DELIVERY_ABSENT_VERSION;
+        const updated = await this.updateSettingUsecase.executeIfVersion(
+            key,
+            JSON.stringify(nextState),
+            expectedVersion,
+            (value) => this.pwaDigestDeliveryVersion(value),
+        );
+
+        return updated ? token : null;
+    }
+
+    /**
+     * Resolve a previously claimed delivery. Only the current owner may advance its state;
+     * a stale worker finishing after lease recovery cannot overwrite the newer claim.
+     */
+    async completePwaDigestDelivery(
+        deliveryKey: string,
+        token: string,
+        status: PwaDigestDeliveryStatus,
+    ): Promise<boolean> {
+        const key = this.getPwaDigestDeliveryKey(deliveryKey);
+        const current = await this.getSettingUsecase.executeEntity(key);
+        const state = this.parsePwaDigestDeliveryState(current?.value);
+        if (!current || !state || state.status !== "processing" || state.token !== token) {
+            return false;
+        }
+
+        const nextState: PwaDigestDeliveryState = {
+            status,
+            token,
+        };
+        const updated = await this.updateSettingUsecase.executeIfVersion(
+            key,
+            JSON.stringify(nextState),
+            this.pwaDigestDeliveryVersion(current.value),
+            (value) => this.pwaDigestDeliveryVersion(value),
+        );
+
+        return Boolean(updated);
+    }
+
     private parseMessageAutomationPastTriggerConfig(
         value: string | null,
     ): MessageAutomationPastTriggerConfig {
@@ -188,6 +278,46 @@ export class SystemSettingService {
             sendIntervalMinutes: Math.min(Math.max(sendIntervalMinutes ?? 1, 1), 1440),
             ruleOrder: [...new Set(ruleOrder)],
         };
+    }
+
+    private getPwaDigestDeliveryKey(deliveryKey: string): string {
+        return `${PWA_DIGEST_DELIVERY_PREFIX}${deliveryKey}`;
+    }
+
+    private parsePwaDigestDeliveryState(value: string | null | undefined): PwaDigestDeliveryState | null {
+        if (!value) return null;
+
+        try {
+            const candidate: unknown = JSON.parse(value);
+            if (typeof candidate !== "object" || candidate === null) return null;
+
+            const state = candidate as Partial<PwaDigestDeliveryState>;
+            if (
+                (state.status !== "processing"
+                    && state.status !== "sent"
+                    && state.status !== "retryable"
+                    && state.status !== "uncertain")
+                || typeof state.token !== "string"
+                || state.token.length === 0
+            ) {
+                return null;
+            }
+
+            return {
+                status: state.status,
+                token: state.token,
+                ...(typeof state.leaseExpiresAt === "string"
+                    ? { leaseExpiresAt: state.leaseExpiresAt }
+                    : {}),
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    private pwaDigestDeliveryVersion(value: string | null): string {
+        if (value === null) return PWA_DIGEST_DELIVERY_ABSENT_VERSION;
+        return createHash("sha256").update(value).digest("hex");
     }
 
     private ribbonTargetVersion(rawValue: string | null): string {

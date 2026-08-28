@@ -32,6 +32,8 @@ describe("PwaNotificationSchedulerService", () => {
         countRecentUndeliveredByBranch: jest.fn(),
     };
     const systemSettingService = {
+        claimPwaDigestDelivery: jest.fn(),
+        completePwaDigestDelivery: jest.fn(),
         getPwaUndeliveredDigestWatermark: jest.fn(),
         setPwaUndeliveredDigestWatermark: jest.fn(),
     };
@@ -76,6 +78,8 @@ describe("PwaNotificationSchedulerService", () => {
             },
         ]);
         messageTriggerJobRepository.countRecentUndeliveredByBranch.mockResolvedValue(1);
+        systemSettingService.claimPwaDigestDelivery.mockResolvedValue("claim-token");
+        systemSettingService.completePwaDigestDelivery.mockResolvedValue(true);
         systemSettingService.getPwaUndeliveredDigestWatermark.mockResolvedValue(null);
         systemSettingService.setPwaUndeliveredDigestWatermark.mockResolvedValue(undefined);
         notificationService.sendDailyDigestToBranchUsers.mockResolvedValue({ sent: 2, failed: 0 });
@@ -242,6 +246,48 @@ describe("PwaNotificationSchedulerService", () => {
         expect(clientRepository.findStartingWithinDays).toHaveBeenCalledWith("branch-2", 7);
     });
 
+    it("should allow only one overlapping replica to dispatch a branch/date digest", async () => {
+        systemSettingService.claimPwaDigestDelivery
+            .mockReset()
+            .mockResolvedValueOnce("claim-token")
+            .mockResolvedValueOnce(null);
+
+        await Promise.all([
+            service.sendDailySummaryNotifications(),
+            service.sendDailySummaryNotifications(),
+        ]);
+
+        expect(notificationService.sendDailyDigestToBranchUsers).toHaveBeenCalledTimes(1);
+        expect(systemSettingService.claimPwaDigestDelivery).toHaveBeenCalledTimes(2);
+        expect(systemSettingService.claimPwaDigestDelivery.mock.calls[0]![0]).toBe(
+            systemSettingService.claimPwaDigestDelivery.mock.calls[1]![0],
+        );
+        expect(systemSettingService.completePwaDigestDelivery).toHaveBeenCalledWith(
+            expect.stringMatching(/^branch:branch-1:daily:\d{4}-\d{2}-\d{2}$/),
+            "claim-token",
+            "sent",
+        );
+    });
+
+    it("should derive one delivery date from KST even when the host clock is UTC", async () => {
+        const runStartedAt = new Date("2026-08-28T15:00:00.000Z");
+        jest.spyOn(Date, "now").mockReturnValue(runStartedAt.getTime());
+
+        await service.sendDailySummaryNotifications();
+
+        expect(systemSettingService.claimPwaDigestDelivery).toHaveBeenCalledWith(
+            "branch:branch-1:daily:2026-08-29",
+            runStartedAt,
+        );
+        expect(notificationService.sendDailyDigestToBranchUsers).toHaveBeenCalledWith(
+            "branch-1",
+            "인천점",
+            expect.any(Array),
+            emailTemplateContext,
+            "branch:branch-1:daily:2026-08-29",
+        );
+    });
+
     it("should keep processing later branches when one branch digest throws", async () => {
         branchRepository.findAllActive.mockResolvedValue([
             { id: "branch-1", name: "인천점" },
@@ -263,11 +309,11 @@ describe("PwaNotificationSchedulerService", () => {
         ]);
         const sendBranchDigestSpy = jest
             .spyOn(
-                service as unknown as { sendBranchDigest: (...args: unknown[]) => Promise<void> },
+                service as unknown as { sendBranchDigest: (...args: unknown[]) => Promise<boolean> },
                 "sendBranchDigest",
             )
             .mockRejectedValueOnce(new Error("boom before the internal try/catch"))
-            .mockResolvedValueOnce(undefined);
+            .mockResolvedValueOnce(true);
 
         await expect(service.sendDailySummaryNotifications()).resolves.toBeUndefined();
 
@@ -278,6 +324,7 @@ describe("PwaNotificationSchedulerService", () => {
             "인천점",
             expect.any(Date),
             expect.any(Date),
+            expect.stringMatching(/^branch:branch-1:daily:\d{4}-\d{2}-\d{2}$/),
         );
         expect(sendBranchDigestSpy).toHaveBeenNthCalledWith(
             2,
@@ -285,6 +332,7 @@ describe("PwaNotificationSchedulerService", () => {
             "부천점",
             expect.any(Date),
             expect.any(Date),
+            expect.stringMatching(/^branch:branch-2:daily:\d{4}-\d{2}-\d{2}$/),
         );
     });
 
