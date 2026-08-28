@@ -36,6 +36,20 @@ assert_not_contains() {
     fi
 }
 
+assert_ordered_contains() {
+    local file="$1"
+    local first_pattern="$2"
+    local second_pattern="$3"
+    local description="$4"
+    local first_line
+    local second_line
+
+    first_line="$(grep -n -m1 -E -- "$first_pattern" "$file" | cut -d: -f1 || true)"
+    second_line="$(grep -n -m1 -E -- "$second_pattern" "$file" | cut -d: -f1 || true)"
+    [[ -n "$first_line" && -n "$second_line" && "$first_line" -lt "$second_line" ]] \
+        || fail "$description"
+}
+
 assert_text_contains() {
     local text="$1"
     local pattern="$2"
@@ -80,6 +94,8 @@ assert_contains "$WORKFLOW" 'persist-credentials:[[:space:]]*false' "checkout cr
 assert_contains "$WORKFLOW" 'cache-to:[[:space:]]*type=gha' "workflow must cache Docker layers"
 assert_contains "$WORKFLOW" 'aws ssm send-command' "workflow must deploy through SSM"
 assert_contains "$WORKFLOW" 'aws ssm describe-instance-information' "workflow must preflight a unique online SSM node"
+assert_contains "$WORKFLOW" 'StandardErrorContent' "failed SSM deployments must expose the operator error"
+assert_contains "$WORKFLOW" 'SSM deployment error unavailable' "malformed SSM errors must fail closed"
 assert_contains "$WORKFLOW" 'max-concurrency[[:space:]]+1' "SSM must execute on at most one target at a time"
 assert_contains "$WORKFLOW" 'schedulers_enabled' "deployment verification must check scheduler ownership"
 assert_contains "$WORKFLOW" 'environment:[[:space:]]*$' "workflow must use GitHub environments"
@@ -184,7 +200,10 @@ assert_not_contains "$EDGE_SCRIPT" 'docker|compose|Caddyfile|REPOSITORY_ROOT|git
 assert_not_contains "$DEPLOY_SCRIPT" 'REPOSITORY_ROOT' "deployment must not derive a Compose file from the repository"
 assert_not_contains "$ROLLBACK_SCRIPT" 'REPOSITORY_ROOT' "rollback must not derive a Compose file from the repository"
 assert_not_contains "$DEPLOY_SCRIPT" 'compose[^[:space:]]*[[:space:]].*build' "protected deployment must not build from a relative Compose context"
-assert_contains "$DEPLOY_SCRIPT" 'up -d --no-build --remove-orphans' "protected deployment must forbid implicit Compose builds"
+assert_ordered_contains "$DEPLOY_SCRIPT" 'up -d --no-build --remove-orphans' 'up -d --no-build --no-deps --force-recreate api' "protected deployment must start dependencies before recreating the API service"
+assert_ordered_contains "$ROLLBACK_SCRIPT" 'up -d --no-build --remove-orphans' 'up -d --no-build --no-deps --force-recreate api' "protected rollback must start dependencies before recreating the API service"
+assert_contains "$DEPLOY_SCRIPT" 'up -d --no-build --no-deps --force-recreate api' "protected deployment retries must recreate only the API service"
+assert_contains "$ROLLBACK_SCRIPT" 'up -d --no-build --no-deps --force-recreate api' "protected rollback must recreate only the API service"
 assert_contains "$DEPLOY_SCRIPT" 'requires BACKEND_BUILD_IMAGE=false and a preloaded image' "protected deployment must require a preloaded image"
 assert_contains "$DEPLOY_SCRIPT" 'PROTECTED_COMPOSE_ENV_FILE="/dev/null"' "protected deployment must use a fixed empty interpolation environment"
 assert_contains "$ROLLBACK_SCRIPT" 'PROTECTED_COMPOSE_ENV_FILE="/dev/null"' "protected rollback must use a fixed empty interpolation environment"

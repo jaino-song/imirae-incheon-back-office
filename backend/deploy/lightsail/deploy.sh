@@ -284,6 +284,9 @@ fi
 docker compose --env-file "$PROTECTED_COMPOSE_ENV_FILE" \
     --project-directory "$PROTECTED_ARTIFACT_DIRECTORY" \
     -f "$COMPOSE_FILE" up -d --no-build --remove-orphans >/dev/null 2>&1
+docker compose --env-file "$PROTECTED_COMPOSE_ENV_FILE" \
+    --project-directory "$PROTECTED_ARTIFACT_DIRECTORY" \
+    -f "$COMPOSE_FILE" up -d --no-build --no-deps --force-recreate api >/dev/null 2>&1
 
 api_container_id="$(docker compose --env-file "$PROTECTED_COMPOSE_ENV_FILE" \
     --project-directory "$PROTECTED_ARTIFACT_DIRECTORY" \
