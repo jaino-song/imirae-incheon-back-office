@@ -92,6 +92,11 @@ jobs:
       - name: Lint
         run: pnpm --filter ./backend run lint
 
+      - name: Verify Lightsail automation contracts
+        run: |
+          backend/deploy/lightsail/ci-automation-contract.test.sh
+          backend/deploy/lightsail/lightsail-cli.test.sh
+
       - name: Unit tests
         run: pnpm --filter ./backend test
         env:
