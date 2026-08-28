@@ -26,6 +26,9 @@ const DATE_KOREAN_ENDING_PATTERN = /^(?:이고요?|이며요?|이에요|예요|�
 
 const DUE_DATE_LABEL_PATTERN = /(?:출산\s*(?:예정\s*(?:일자?|날짜)|날짜|일자?)|분만\s*(?:예정\s*(?:일자?|날짜)|날짜|일자?))/;
 const BIRTHDAY_LABEL_PATTERN = /(?:생년월일자?|생일|태어난\s*(?:날짜|날)?)/;
+const DATE_FIELD_LABEL_PATTERN = new RegExp(
+    `(?:${DUE_DATE_LABEL_PATTERN.source}|${BIRTHDAY_LABEL_PATTERN.source})`,
+);
 const LABEL_VALUE_PREFIX = /^\s*(?:(?:은|는|이|가|을|를)\s*)?[:：=]?\s*/;
 const BIRTHDAY_CALENDAR_QUALIFIER_PREFIX = /^(?:[,，]\s*)?(양력|음력)(?:으로)?\s*(?:[:：=]\s*|[,，]\s*(?=\d)|(?=\d))/;
 
@@ -129,6 +132,11 @@ interface DateToken {
     index: number;
 }
 
+interface LabelOccurrence {
+    index: number;
+    length: number;
+}
+
 interface LabeledDate {
     found: boolean;
     value?: string;
@@ -194,6 +202,23 @@ function findDateToken(message: string): DateToken | undefined {
     return undefined;
 }
 
+function collectLabelOccurrences(message: string, labelPattern: DateLabelPattern): LabelOccurrence[] {
+    const globalPattern = new RegExp(
+        labelPattern.source,
+        labelPattern.flags.includes("g") ? labelPattern.flags : `${labelPattern.flags}g`,
+    );
+
+    return Array.from(message.matchAll(globalPattern), (match) => ({
+        index: match.index ?? -1,
+        length: match[0].length,
+    })).filter(({ index }) => index >= 0);
+}
+
+function collectDateFieldLabelOccurrences(message: string): LabelOccurrence[] {
+    return collectLabelOccurrences(message, DATE_FIELD_LABEL_PATTERN)
+        .sort((left, right) => left.index - right.index);
+}
+
 function collectDateTokens(message: string): DateToken[] {
     return Array.from(message.matchAll(DATE_TOKEN_PATTERN), (match) => ({
         raw: match[0],
@@ -201,17 +226,11 @@ function collectDateTokens(message: string): DateToken[] {
     })).filter(({ index, raw }) => index >= 0 && isDateTokenBoundary(message, index, raw.length));
 }
 
-function extractLabeledDate(
-    message: string,
-    labelPattern: DateLabelPattern,
+function extractLabeledDateValue(
+    fieldText: string,
     options?: { allowBirthdayCalendarQualifier?: boolean },
-): LabeledDate {
-    const labelMatch = message.match(labelPattern);
-    if (!labelMatch || labelMatch.index === undefined) return { found: false };
-
-    let afterLabel = message
-        .slice(labelMatch.index + labelMatch[0].length)
-        .replace(LABEL_VALUE_PREFIX, "");
+): string | undefined {
+    let afterLabel = fieldText.replace(LABEL_VALUE_PREFIX, "");
 
     if (options?.allowBirthdayCalendarQualifier) {
         const calendarQualifier = afterLabel.match(BIRTHDAY_CALENDAR_QUALIFIER_PREFIX);
@@ -219,7 +238,7 @@ function extractLabeledDate(
             // The registration API stores Gregorian YYMMDD values and this
             // extractor has no lunar-calendar conversion. Refuse lunar input
             // rather than silently persisting the same digits as Gregorian.
-            return { found: true };
+            return undefined;
         }
 
         afterLabel = afterLabel.replace(BIRTHDAY_CALENDAR_QUALIFIER_PREFIX, "");
@@ -230,12 +249,47 @@ function extractLabeledDate(
     // The value must begin immediately after the label (apart from the
     // allowed particle/separator prefix). A later unrelated date is never a
     // substitute for an absent or invalid labeled value.
-    if (!candidate || !afterLabel.startsWith(candidate.raw)) return { found: true };
+    if (!candidate || !afterLabel.startsWith(candidate.raw)) return undefined;
 
-    return {
-        found: true,
-        value: normalizeDateCandidate(candidate.raw),
-    };
+    return normalizeDateCandidate(candidate.raw);
+}
+
+function extractLabeledDate(
+    message: string,
+    labelPattern: DateLabelPattern,
+    options?: { allowBirthdayCalendarQualifier?: boolean },
+): LabeledDate {
+    const labelOccurrences = collectLabelOccurrences(message, labelPattern);
+    if (labelOccurrences.length === 0) return { found: false };
+
+    const dateFieldLabels = collectDateFieldLabelOccurrences(message);
+    for (const occurrence of labelOccurrences) {
+        const previousFieldLabel = [...dateFieldLabels]
+            .reverse()
+            .find(({ index }) => index < occurrence.index);
+        const textSincePreviousLabel = previousFieldLabel
+            ? message.slice(previousFieldLabel.index + previousFieldLabel.length, occurrence.index)
+            : "";
+        if (
+            options?.allowBirthdayCalendarQualifier
+            && previousFieldLabel
+            && /(?:양력|음력)\s*$/.test(textSincePreviousLabel)
+        ) {
+            // A bare date label immediately after a calendar qualifier is
+            // still part of the preceding malformed birthday value (for
+            // example, "생년월일은 양력 생년월일 000101"). Do not reinterpret
+            // that nested label as an independent repeated field.
+            continue;
+        }
+
+        const nextFieldLabel = dateFieldLabels.find(({ index }) => index > occurrence.index);
+        const fieldEnd = nextFieldLabel?.index ?? message.length;
+        const fieldText = message.slice(occurrence.index + occurrence.length, fieldEnd);
+        const value = extractLabeledDateValue(fieldText, options);
+        if (value) return { found: true, value };
+    }
+
+    return { found: true };
 }
 
 function extractBirthday(message: string): string | undefined {

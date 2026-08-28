@@ -86,6 +86,51 @@ describe("extractClientRegistrationDraft", () => {
         expect(draft.missingFields).toContain("dueDate");
     });
 
+    it("continues to a later repeated birthday label after the first value is missing", () => {
+        const draft = extractClientRegistrationDraft(
+            "산모 등록. 생년월일은 모르겠고 생일은 2000-01-01.",
+        );
+
+        expect(draft.birthday).toBe("000101");
+    });
+
+    it.each([
+        ["생년월일 2000-02-31, 생일 2000-01-01", "000101"],
+        ["생년월일 2000-01-01, 생일 2000-02-31", "000101"],
+    ])("chooses the first valid repeated birthday candidate: %s", (message, expectedBirthday) => {
+        const draft = extractClientRegistrationDraft(`산모 등록. ${message}.`);
+
+        expect(draft.birthday).toBe(expectedBirthday);
+    });
+
+    it.each([
+        ["출산 예정일 미정, 분만 예정일 2026-03-01", "260301"],
+        ["출산 예정일 2026-02-31, 출산예정일 2026-03-01", "260301"],
+        ["출산 예정일 2026-03-01, 출산예정일 2026-02-31", "260301"],
+    ])("chooses the first valid repeated due-date candidate: %s", (message, expectedDueDate) => {
+        const draft = extractClientRegistrationDraft(`산모 등록. ${message}.`);
+
+        expect(draft.dueDate).toBe(expectedDueDate);
+    });
+
+    it.each([
+        [
+            "생년월일은 모르겠고 출산 예정일은 2026-02-01",
+            undefined,
+            "260201",
+        ],
+        [
+            "출산 예정일은 2026-02-31, 생년월일은 2000-01-01",
+            "000101",
+            undefined,
+        ],
+    ])("does not cross a later labeled field while resolving repeated dates: %s", (message, expectedBirthday, expectedDueDate) => {
+        const draft = extractClientRegistrationDraft(`산모 등록. ${message}.`);
+
+        expect(draft.birthday).toBe(expectedBirthday);
+        expect(draft.dueDate).toBe(expectedDueDate);
+    });
+
     it.each([
         ["생년월일 000101", "000101"],
         ["생년월일 900101", "900101"],
