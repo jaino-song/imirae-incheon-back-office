@@ -34,6 +34,7 @@ describe("EmployeeEntity", () => {
             expect(employee.name).toBe("테스트 직원");
             expect(employee.workArea).toEqual(["인천 연수구", "인천 남동구"]);
             expect(employee.phone).toBe("010-1234-5678");
+            expect(employee.phoneNormalized).toBe("01012345678");
             expect(employee.grade).toBe("프리미엄");
             expect(employee.openToNextWork).toBe(true);
             expect(employee.registeredDate).toEqual(new Date("2024-01-15"));

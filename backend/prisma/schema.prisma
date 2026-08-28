@@ -240,6 +240,7 @@ model client {
   name                   String
   address                String?
   phone                  String?
+  phoneNormalized        String?                   @map("phone_normalized")
   suppressGreetingSms    Boolean                   @default(false) @map("suppress_greeting_sms")
   type                   String?
   duration               Int?                      @db.SmallInt
@@ -272,7 +273,7 @@ model client {
   messageTriggerJobs     message_trigger_job[]
   serviceRecordCase      service_record_case?
 
-  @@unique([branchId, phone], map: "client_branch_phone_key")
+  @@unique([branchId, phoneNormalized], map: "client_branch_phone_normalized_key")
   @@index([areaId], map: "idx_client_area")
   @@index([branchId], map: "idx_client_branch")
   @@index([createdAt], map: "idx_client_created_at")
@@ -490,6 +491,7 @@ model employee {
   name                       String
   workArea                   String[]                    @map("work_area")
   phone                      String
+  phoneNormalized            String?                     @map("phone_normalized")
   grade                      String
   openToNextWork             Boolean                     @default(true) @map("open_to_next_work")
   companyRegisteredDate      DateTime?                   @map("company_registered_date") @db.Date
@@ -503,7 +505,7 @@ model employee {
   serviceRecordAssignments   service_record_assignment[]
   serviceRecordDays          service_record_day[]
 
-  @@unique([branchId, phone], map: "employee_branch_id_phone_key")
+  @@unique([branchId, phoneNormalized], map: "employee_branch_id_phone_normalized_key")
   @@index([branchId], map: "idx_employee_branch")
 }
 

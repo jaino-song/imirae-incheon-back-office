@@ -27,6 +27,7 @@ import {
     SERVICE_RECORD_LINK_RULE_ID,
     SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON,
 } from "domain/constants/service-record-link-message";
+import { normalizePhone } from "domain/utils/normalize-phone";
 import { EFORMSIGN_CLIENT_REPOSITORY, IEformsignClientRepository } from "domain/repositories/eformsign.client.interface";
 import {
     addBusinessDaysKr,
@@ -179,6 +180,7 @@ describeE2E("BJJ-275 full connected flow", () => {
                 name: `${label}-직원-${uniqueDigits}`,
                 workArea: ["E2E"],
                 phone: `0107${uniqueDigits}`,
+                phoneNormalized: normalizePhone(`0107${uniqueDigits}`),
                 grade: "E2E",
                 openToNextWork: true,
                 branchId: BRANCH_ID,

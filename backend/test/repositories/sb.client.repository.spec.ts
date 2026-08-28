@@ -574,6 +574,7 @@ describe("SbClientRepository", () => {
                         name: "Updated Name",
                         address: "Updated Address",
                         phone: "010-3333-4444",
+                        phoneNormalized: "01033334444",
                         type: "C",
                         duration: 6,
                         fullPrice: "60000",

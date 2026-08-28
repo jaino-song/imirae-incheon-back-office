@@ -3,6 +3,7 @@ import {
     isAutomaticServiceStatusTransitionAllowed,
     ServiceStatusType,
 } from "domain/value-objects/service-status.vo";
+import { normalizePhone } from "domain/utils/normalize-phone";
 
 interface UpdateClientProps {
     name?: string;
@@ -77,6 +78,8 @@ export class ClientEntity {
         public branchId: string | null = null,
         public suppressGreetingSms: boolean = false,
         public birthDate: Date | null = null,
+        /** Canonical identity key; display formatting remains in `phone`. */
+        public phoneNormalized: string | null = normalizePhone(phone),
     ) {}
 
     isGoingToCareCenter(): boolean {
@@ -131,6 +134,7 @@ export class ClientEntity {
             null,
             props.suppressGreetingSms ?? false,
             props.birthDate,
+            normalizePhone(props.phone),
         );
     }
 
@@ -140,7 +144,10 @@ export class ClientEntity {
         // distinct without spreading a partial patch over persisted values.
         if (props.name !== undefined) this.name = props.name;
         if (props.address !== undefined) this.address = props.address;
-        if (props.phone !== undefined) this.phone = props.phone;
+        if (props.phone !== undefined) {
+            this.phone = props.phone;
+            this.phoneNormalized = normalizePhone(props.phone);
+        }
         if (props.type !== undefined) this.type = props.type;
         if (props.duration !== undefined) this.duration = props.duration;
         if (props.fullPrice !== undefined) this.fullPrice = props.fullPrice;
@@ -187,6 +194,7 @@ export class ClientEntity {
         branchId: string | null = null,
         suppressGreetingSms: boolean = false,
         birthDate: Date | null = null,
+        phoneNormalized?: string | null,
     ): ClientEntity {
         return new ClientEntity(
             id,
@@ -212,6 +220,7 @@ export class ClientEntity {
             branchId,
             suppressGreetingSms,
             birthDate,
+            phoneNormalized,
         );
     }
 }

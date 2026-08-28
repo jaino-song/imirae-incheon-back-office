@@ -41,7 +41,7 @@ const EmployeeBirthdaySchema = z.string()
     .refine(isCalendarValidYymmdd, "Birthday must be a calendar-valid YYMMDD date")
     .optional();
 
-const EMPLOYEE_BRANCH_PHONE_UNIQUE_CONSTRAINT = "employee_branch_id_phone_key";
+const EMPLOYEE_BRANCH_PHONE_UNIQUE_CONSTRAINT = "employee_branch_id_phone_normalized_key";
 
 function isEmployeeBranchPhoneUniqueViolation(error: unknown): boolean {
     if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
@@ -51,7 +51,10 @@ function isEmployeeBranchPhoneUniqueViolation(error: unknown): boolean {
     if (!Array.isArray(target) || target.length !== 2) return false;
 
     const fields = target.map(String);
-    return fields.includes("phone") && (fields.includes("branchId") || fields.includes("branch_id"));
+    const phoneField = fields.includes("phoneNormalized")
+        || fields.includes("phone_normalized")
+        || fields.includes("phone");
+    return phoneField && (fields.includes("branchId") || fields.includes("branch_id"));
 }
 
 function normalizeEmployeePhone(rawPhone: string): string {

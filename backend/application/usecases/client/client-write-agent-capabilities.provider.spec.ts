@@ -820,7 +820,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
     });
 
     it.each([
-        ["constraint name", "client_branch_phone_key"],
+        ["constraint name", "client_branch_phone_normalized_key"],
         ["branchId target fields", ["branchId", "phone"]],
         ["branch_id target fields", ["branch_id", "phone"]],
     ])("converts client phone conflicts from %s into a certain failure without recording an effect", async (_label, target) => {
@@ -872,10 +872,10 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
     });
 
     it.each([
-        ["direct update", "execute", "client_branch_phone_key"],
+        ["direct update", "execute", "client_branch_phone_normalized_key"],
         ["direct update", "execute", ["branchId", "phone"]],
         ["direct update", "execute", ["branch_id", "phone"]],
-        ["approval-bound update", "executeApprovedTarget", "client_branch_phone_key"],
+        ["approval-bound update", "executeApprovedTarget", "client_branch_phone_normalized_key"],
         ["approval-bound update", "executeApprovedTarget", ["branchId", "phone"]],
         ["approval-bound update", "executeApprovedTarget", ["branch_id", "phone"]],
     ])("converts %s client phone conflicts from %s into a certain failure without recording an effect", async (_label, updateMethod, target) => {

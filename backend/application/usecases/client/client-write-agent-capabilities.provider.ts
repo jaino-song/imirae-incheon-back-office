@@ -107,7 +107,7 @@ const CLIENT_UPDATE_FORM_FIELDS: AgentFormField[] = [
     { name: "id", label: "고객 ID", type: "number", required: true },
     ...CLIENT_FORM_FIELDS.map((field) => ({ ...field, required: false })),
 ];
-const CLIENT_BRANCH_PHONE_UNIQUE_CONSTRAINT = "client_branch_phone_key";
+const CLIENT_BRANCH_PHONE_UNIQUE_CONSTRAINT = "client_branch_phone_normalized_key";
 
 function isClientBranchPhoneUniqueViolation(error: unknown): boolean {
     if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
@@ -117,7 +117,10 @@ function isClientBranchPhoneUniqueViolation(error: unknown): boolean {
     if (!Array.isArray(target) || target.length !== 2) return false;
 
     const fields = target.map(String);
-    return fields.includes("phone") && (fields.includes("branchId") || fields.includes("branch_id"));
+    const phoneField = fields.includes("phoneNormalized")
+        || fields.includes("phone_normalized")
+        || fields.includes("phone");
+    return phoneField && (fields.includes("branchId") || fields.includes("branch_id"));
 }
 
 function clientPhoneConflictError(): AgentActionCertainFailureError {

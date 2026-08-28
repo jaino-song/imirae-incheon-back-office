@@ -13,7 +13,6 @@ import {
     hasColumn,
     type SchemaCapabilityClient,
 } from "infrastructure/database/schema-capabilities";
-import { normalizePhone } from "application/utils/normalize-phone";
 import { clientAgentTargetVersion } from "application/usecases/client/client-agent-target";
 import {
     isAutomaticServiceStatusTransitionAllowed,
@@ -35,6 +34,7 @@ export class SbClientRepository implements IClientRepository {
             name: true,
             address: true,
             phone: true,
+            phoneNormalized: true,
             type: true,
             duration: true,
             fullPrice: true,
@@ -500,14 +500,9 @@ export class SbClientRepository implements IClientRepository {
     }
 
     async findByPhone(branchid: string, normalizedPhone: string): Promise<ClientEntity | null> {
-        const candidates = await this.prismaService.client.findMany({
-            where: { branchId: branchid, phone: { not: null } },
-            select: { id: true, phone: true },
+        const client = await this.prismaService.client.findFirst({
+            where: { branchId: branchid, phoneNormalized: normalizedPhone },
         });
-        const matched = candidates.find(
-            (row) => normalizePhone(row.phone) === normalizedPhone
-        );
-        if (!matched) return null;
-        return this.findById(branchid, matched.id);
+        return client ? ClientMapper.toDomain(client as any) : null;
     }
 }

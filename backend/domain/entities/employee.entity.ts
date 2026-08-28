@@ -1,5 +1,6 @@
 // Employee status type - active schedules take precedence over availability.
 import { isoDateInKorea } from "domain/utils/business-days";
+import { normalizePhone } from "domain/utils/normalize-phone";
 
 export type EmployeeStatus = 'available' | 'working' | 'unavailable';
 
@@ -40,6 +41,8 @@ export class EmployeeEntity {
         public registeredDate: Date | null,
         public birthday?: string,
         public readonly deletedAt?: Date,
+        /** Canonical identity key; display formatting remains in `phone`. */
+        public phoneNormalized: string | null = normalizePhone(phone),
     ) {}
 
     get isDeleted(): boolean {
@@ -64,7 +67,10 @@ export class EmployeeEntity {
     ): void {
         this.name = name ?? this.name;
         this.workArea = workArea ?? this.workArea;
-        this.phone = phone ?? this.phone;
+        if (phone !== undefined) {
+            this.phone = phone;
+            this.phoneNormalized = normalizePhone(phone);
+        }
         this.grade = grade ?? this.grade;
         this.openToNextWork = openToNextWork ?? this.openToNextWork;
         this.birthday = birthday ?? this.birthday;
@@ -105,6 +111,7 @@ export class EmployeeEntity {
         registeredDate: Date | null,
         birthday?: string,
         deletedAt?: Date,
+        phoneNormalized?: string | null,
     ): EmployeeEntity {
         return new EmployeeEntity(
             id,
@@ -116,6 +123,7 @@ export class EmployeeEntity {
             registeredDate,
             birthday,
             deletedAt,
+            phoneNormalized,
         );
     }
 }

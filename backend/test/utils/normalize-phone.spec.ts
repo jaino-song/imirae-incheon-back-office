@@ -1,4 +1,5 @@
 import { normalizePhone, extractPhoneCandidates } from "application/utils/normalize-phone";
+import { normalizePhone as normalizeDomainPhone } from "domain/utils/normalize-phone";
 
 describe("normalizePhone", () => {
     it.each([
@@ -15,6 +16,12 @@ describe("normalizePhone", () => {
         expect(normalizePhone("21호 2610")).toBeNull();
         expect(normalizePhone("")).toBeNull();
         expect(normalizePhone("1234")).toBeNull();
+    });
+
+    it("uses the same canonical key from the domain boundary", () => {
+        const formatted = "010-1234-5678";
+        expect(normalizeDomainPhone(formatted)).toBe(normalizePhone(formatted));
+        expect(normalizeDomainPhone("+82 10 1234 5678")).toBe("01012345678");
     });
 });
 

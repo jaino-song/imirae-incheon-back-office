@@ -28,6 +28,8 @@ import { normalizePhone } from "application/utils/normalize-phone";
 import { MessageAutomationIntentService } from "./message-automation-intent.service";
 import { MessageTriggerService } from "./message-trigger.service";
 
+const EMPLOYEE_BRANCH_PHONE_UNIQUE_CONSTRAINT = "employee_branch_id_phone_normalized_key";
+
 export type EmployeeUpdateParams = {
     name?: string;
     workArea?: string[];
@@ -165,8 +167,13 @@ export class EmployeeService {
     private rethrowPhoneConflict(error: unknown): never {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
             const metaTarget = error.meta?.["target"];
+            if (metaTarget === EMPLOYEE_BRANCH_PHONE_UNIQUE_CONSTRAINT) {
+                throw new ConflictException({ statusCode: 409, code: "P2002", error: "Conflict", field: "phone" });
+            }
             const target = Array.isArray(metaTarget) ? metaTarget.map(String) : [];
-            const hasPhone = target.includes("phone");
+            const hasPhone = target.includes("phone")
+                || target.includes("phoneNormalized")
+                || target.includes("phone_normalized");
             const hasBranch = target.includes("branch_id") || target.includes("branchId");
             if (hasPhone && hasBranch) {
                 throw new ConflictException({ statusCode: 409, code: "P2002", error: "Conflict", field: "phone" });

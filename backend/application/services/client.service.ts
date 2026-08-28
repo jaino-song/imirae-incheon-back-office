@@ -1554,6 +1554,12 @@ export class ClientService {
             throw new ConflictException({ statusCode: 409, code: "P2002", error: "Conflict", field: "phone" });
         }
 
+        // Keep the display value untouched while persisting the canonical
+        // identity key used by branch-scoped uniqueness and lookups.
+        const normalizedPhoneUpdate = params.phone === undefined
+            ? undefined
+            : normalizePhone(params.phone);
+
         const mergedServicePeriod = mergeAndValidateClientServicePeriod(existingClient, {
             startDate: startDateUpdate,
             endDate: endDateUpdate,
@@ -1641,6 +1647,7 @@ export class ClientService {
                     name: params.name,
                     address: params.address === undefined ? undefined : params.address,
                     phone: params.phone === undefined ? undefined : params.phone,
+                    phoneNormalized: normalizedPhoneUpdate,
                     type: normalizedPricing?.type,
                     duration: params.duration === undefined ? undefined : params.duration,
                     fullPrice: normalizedPricing?.fullPrice,

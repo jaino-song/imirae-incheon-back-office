@@ -24,6 +24,7 @@ type ClientRow = {
     areaId?: string | null;
     branchId?: string | null;
     suppressGreetingSms?: boolean;
+    phoneNormalized?: string | null;
 };
 
 export class ClientMapper {
@@ -52,6 +53,7 @@ export class ClientMapper {
             row.branchId ?? null,
             row.suppressGreetingSms ?? false,
             row.birthDate ?? null,
+            row.phoneNormalized,
         );
     }
 
@@ -60,6 +62,7 @@ export class ClientMapper {
             name: entity.name,
             address: entity.address,
             phone: entity.phone,
+            phoneNormalized: entity.phoneNormalized,
             type: entity.type,
             duration: entity.duration,
             fullPrice: entity.fullPrice,
@@ -86,6 +89,7 @@ export class ClientMapper {
             name: entity.name,
             address: entity.address,
             phone: entity.phone,
+            phoneNormalized: entity.phoneNormalized,
             type: entity.type,
             duration: entity.duration,
             fullPrice: entity.fullPrice,

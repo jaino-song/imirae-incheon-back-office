@@ -401,6 +401,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                                 name: candidate.name,
                                 address: candidate.address,
                                 phone: formatNormalizedKoreanPhone(candidate.phone),
+                                phoneNormalized: normalizePhone(candidate.phone),
                                 suppressGreetingSms: params.suppressGreetingSms,
                                 type: pricing.type,
                                 duration: candidate.duration,

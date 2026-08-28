@@ -131,34 +131,30 @@ describe("SbEmployeeRepository", () => {
     // ============================================
     describe("findByPhone", () => {
         it("should return the employee whose normalized phone matches", async () => {
-            const row = createEmployeeRow({ id: 3, phone: "010-1234-5678" });
-            employeeModel.findMany.mockResolvedValue([
-                createEmployeeRow({ id: 2, phone: "010-0000-0000" }),
-                { id: row.id, phone: row.phone },
-            ]);
+            const row = createEmployeeRow({
+                id: 3,
+                phone: "010-1234-5678",
+                phoneNormalized: "01012345678",
+            });
             employeeModel.findFirst.mockResolvedValue(row);
 
             const result = await repository.findByPhone(branchId, "01012345678");
 
-            expect(employeeModel.findMany).toHaveBeenCalledWith({
-                where: { branchId },
-                select: { id: true, phone: true },
-            });
             expect(employeeModel.findFirst).toHaveBeenCalledWith({
-                where: { id: 3, branchId },
+                where: { branchId, phoneNormalized: "01012345678" },
             });
             expect(result).toMatchObject({ id: 3, phone: "010-1234-5678" });
         });
 
         it("should return null when no employee phone matches", async () => {
-            employeeModel.findMany.mockResolvedValue([
-                { id: 2, phone: "010-0000-0000" },
-            ]);
+            employeeModel.findFirst.mockResolvedValue(null);
 
             const result = await repository.findByPhone(branchId, "01012345678");
 
             expect(result).toBeNull();
-            expect(employeeModel.findFirst).not.toHaveBeenCalled();
+            expect(employeeModel.findFirst).toHaveBeenCalledWith({
+                where: { branchId, phoneNormalized: "01012345678" },
+            });
         });
     });
 
@@ -512,6 +508,7 @@ describe("SbEmployeeRepository", () => {
                         name: "Test Employee",
                         workArea: ["Seoul"],
                         phone: "010-0000-0000",
+                        phoneNormalized: "01000000000",
                         grade: "베스트",
                         openToNextWork: false,
                         companyRegisteredDate: new Date("2024-02-01T00:00:00.000Z"),
@@ -578,6 +575,7 @@ describe("SbEmployeeRepository", () => {
                         name: "Charlie",
                         workArea: ["Busan"],
                         phone: "010-2222-0000",
+                        phoneNormalized: "01022220000",
                         grade: "스탠다드",
                         openToNextWork: true,
                         birthday: null,

@@ -121,6 +121,12 @@ export class MockClientRepository implements IClientRepository {
             client.serviceStatus,
             client.breastPump,
             client.eDocId,
+            client.createdAt,
+            client.areaId,
+            client.branchId,
+            client.suppressGreetingSms,
+            client.birthDate,
+            client.phoneNormalized,
         );
         this.clients.set(id, newClient);
         return newClient;
@@ -286,7 +292,10 @@ export class MockClientRepository implements IClientRepository {
         });
     }
 
-    async findByPhone(_branchid: string, _normalizedPhone: string): Promise<ClientEntity | null> {
-        return null;
+    async findByPhone(branchid: string, normalizedPhone: string): Promise<ClientEntity | null> {
+        return Array.from(this.clients.values()).find((client) =>
+            client.phoneNormalized === normalizedPhone
+            && (client.branchId === null || client.branchId === branchid),
+        ) ?? null;
     }
 }

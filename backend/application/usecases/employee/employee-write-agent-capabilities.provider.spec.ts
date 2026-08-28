@@ -208,7 +208,7 @@ describe("EmployeeWriteAgentCapabilitiesProvider", () => {
     });
 
     it.each([
-        ["constraint name", "employee_branch_id_phone_key"],
+        ["constraint name", "employee_branch_id_phone_normalized_key"],
         ["branchId target fields", ["branchId", "phone"]],
         ["branch_id target fields", ["branch_id", "phone"]],
     ])("converts employee phone conflicts from %s into a certain failure without recording an effect", async (_label, target) => {
@@ -520,13 +520,13 @@ describe("EmployeeWriteAgentCapabilitiesProvider", () => {
     });
 
     it.each([
-        ["create", "employee_branch_id_phone_key"],
+        ["create", "employee_branch_id_phone_normalized_key"],
         ["create", ["branchId", "phone"]],
         ["create", ["branch_id", "phone"]],
-        ["direct update", "employee_branch_id_phone_key"],
+        ["direct update", "employee_branch_id_phone_normalized_key"],
         ["direct update", ["branchId", "phone"]],
         ["direct update", ["branch_id", "phone"]],
-        ["approval-bound update", "employee_branch_id_phone_key"],
+        ["approval-bound update", "employee_branch_id_phone_normalized_key"],
         ["approval-bound update", ["branchId", "phone"]],
         ["approval-bound update", ["branch_id", "phone"]],
     ])("maps concurrent %s phone conflicts to a certain failure", async (operation, target) => {

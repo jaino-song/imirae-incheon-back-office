@@ -9,7 +9,6 @@ import {
 } from "domain/repositories/employee.repository.interface";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { EmployeeMapper } from "infrastructure/database/mapper/employee.mapper";
-import { normalizePhone } from "application/utils/normalize-phone";
 import type { Prisma } from "@prisma/client";
 import { employeeAgentTargetVersion } from "domain/entities/employee-agent-target";
 
@@ -42,15 +41,10 @@ export class SbEmployeeRepository implements IEmployeeRepository {
     }
 
     async findByPhone(branchid: string, normalizedPhone: string): Promise<EmployeeEntity | null> {
-        const candidates = await this.prismaService.employee.findMany({
-            where: { branchId: branchid },
-            select: { id: true, phone: true },
+        const employee = await this.prismaService.employee.findFirst({
+            where: { branchId: branchid, phoneNormalized: normalizedPhone },
         });
-        const matched = candidates.find(
-            (row) => normalizePhone(row.phone) === normalizedPhone,
-        );
-        if (!matched) return null;
-        return this.findById(branchid, matched.id);
+        return employee ? EmployeeMapper.toDomain(employee) : null;
     }
 
     async create(branchid: string, employee: EmployeeEntity, transaction?: Prisma.TransactionClient): Promise<EmployeeEntity> {

@@ -1655,6 +1655,21 @@ describe("ClientService", () => {
                 expect(data.birthDate).toBeUndefined();
             });
 
+            it("persists the canonical phone identity while preserving display formatting", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                clientRepository.findByPhone.mockResolvedValue(null);
+
+                await service.update(branchId, 1, { phone: "+82 10 9999 0000" });
+
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    data: expect.objectContaining({
+                        phone: "+82 10 9999 0000",
+                        phoneNormalized: "01099990000",
+                    }),
+                }));
+            });
+
             it("preserves explicit null service dates and allows equal dates", async () => {
                 const existingClient = createClientEntity();
                 findClientByIdUsecase.execute.mockResolvedValue(existingClient);

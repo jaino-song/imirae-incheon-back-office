@@ -151,6 +151,25 @@ describe("EmployeeService", () => {
                 response: { statusCode: 409, code: "P2002", error: "Conflict", field: "phone" },
             });
         });
+        it("should map the canonical phone constraint name to 409", async () => {
+            const error = new Prisma.PrismaClientKnownRequestError("duplicate", {
+                code: "P2002",
+                clientVersion: "test",
+                meta: { target: "employee_branch_id_phone_normalized_key" },
+            });
+            createUsecase.execute.mockRejectedValue(error);
+
+            await expect(service.create(branchId, {
+                name: "중복 직원",
+                workArea: ["서울"],
+                phone: "010-1234-5678",
+                grade: "베스트",
+                openToNextWork: true,
+            })).rejects.toMatchObject({
+                status: 409,
+                response: { statusCode: 409, code: "P2002", error: "Conflict", field: "phone" },
+            });
+        });
         it("should delegate to CreateEmployeeUsecase with all parameters", async () => {
             // Arrange
             const params = {
@@ -276,6 +295,19 @@ describe("EmployeeService", () => {
                 code: "P2002",
                 clientVersion: "test",
                 meta: { target: ["branchId", "phone"] },
+            });
+            updateUsecase.execute.mockRejectedValue(error);
+
+            await expect(service.update(branchId, 3, { phone: "010-1234-5678" })).rejects.toMatchObject({
+                status: 409,
+                response: { statusCode: 409, code: "P2002", error: "Conflict", field: "phone" },
+            });
+        });
+        it("should map a canonical phone field conflict to 409", async () => {
+            const error = new Prisma.PrismaClientKnownRequestError("duplicate", {
+                code: "P2002",
+                clientVersion: "test",
+                meta: { target: ["branchId", "phoneNormalized"] },
             });
             updateUsecase.execute.mockRejectedValue(error);
 
