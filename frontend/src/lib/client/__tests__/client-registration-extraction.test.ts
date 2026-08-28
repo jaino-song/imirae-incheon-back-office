@@ -130,6 +130,50 @@ describe("extractClientRegistrationDraft", () => {
     });
 
     it.each([
+        ["생년월일은 양력 000101", "000101"],
+        ["생년월일: 양력 2000-01-01", "000101"],
+        ["생년월일은 양력으로 000101", "000101"],
+        ["생년월일은 양력, 2000-01-01", "000101"],
+    ])("accepts a recognized birthday calendar qualifier before the date: %s", (message, expectedBirthday) => {
+        const draft = extractClientRegistrationDraft(`산모 등록. ${message}.`);
+
+        expect(draft.birthday).toBe(expectedBirthday);
+        expect(draft.dueDate).toBeUndefined();
+    });
+
+    it.each([
+        "생년월일은 음력 900101",
+        "생일 음력: 1990.01.01",
+        "생년월일은 음력으로, 900101",
+    ])("does not interpret an unsupported lunar birthday as Gregorian: %s", (message) => {
+        const draft = extractClientRegistrationDraft(`산모 등록. ${message}.`);
+
+        expect(draft.birthday).toBeUndefined();
+        expect(draft.missingFields).toContain("birthday");
+    });
+
+    it.each([
+        "생년월일은 양력 0001019",
+        "생년월일은 음력 2000-01-019",
+        "생년월일은 양력 생년월일 000101",
+    ])("does not let a birthday qualifier cross a strict date boundary: %s", (message) => {
+        const draft = extractClientRegistrationDraft(`산모 등록. ${message}, 출산 예정일 2026-02-01.`);
+
+        expect(draft.birthday).toBeUndefined();
+        expect(draft.dueDate).toBe("260201");
+    });
+
+    it("does not use a qualified birthday as an unlabeled due-date fallback", () => {
+        const draft = extractClientRegistrationDraft(
+            "산모 등록. 생년월일은 양력 2000-01-01, 2026-02-01.",
+        );
+
+        expect(draft.birthday).toBe("000101");
+        expect(draft.dueDate).toBeUndefined();
+        expect(draft.missingFields).toContain("dueDate");
+    });
+
+    it.each([
         ["2069-12-31", "691231", "2069-12-31"],
         ["1970-01-01", "700101", "1970-01-01"],
     ])("keeps explicit due-date years representable by the YYMMDD wizard contract: %s", (isoDate, expectedCompact, expectedIso) => {
@@ -217,6 +261,20 @@ describe("extractClientRegistrationDraft", () => {
         ["관리사는 남궁민수예요!", "남궁민수"],
         ["관리사는 김가은, ...", "김가은"],
         ["관리사는 김가은이 담당해.", "김가은"],
+        ["관리사는 김영희와 진행해.", "김영희"],
+        ["관리사는 김영희에게 맡겨.", "김영희"],
+        ["관리사는 김영희과 함께해.", "김영희"],
+        ["관리사는 김영희랑 진행해.", "김영희"],
+        ["관리사는 김영희이랑 진행해.", "김영희"],
+        ["관리사는 김영희한테 맡겨.", "김영희"],
+        ["관리사는 김영희께 맡겨.", "김영희"],
+        ["관리사는 김영희로부터 연락받아.", "김영희"],
+        ["관리사는 김민에게 맡겨.", "김민"],
+        ["관리사는 박이랑이 담당해.", "박이랑"],
+        ["관리사는 박이랑은 담당해.", "박이랑"],
+        ["관리사는 박이랑으로 담당해.", "박이랑"],
+        ["관리사는 김가은을 선택해.", "김가은"],
+        ["관리사는 박이 담당해.", "박이"],
     ])("strips the provider suffix from %s", (message, expectedName) => {
         expect(extractClientRegistrationDraft(message).employeeName).toBe(expectedName);
     });
@@ -226,6 +284,16 @@ describe("extractClientRegistrationDraft", () => {
         ["관리사는 김나이 담당해.", "김나이"],
     ])("preserves a complete provider name ending in a particle-like syllable: %s", (message, expectedName) => {
         expect(extractClientRegistrationDraft(message).employeeName).toBe(expectedName);
+    });
+
+    it.each([
+        "관리사는 김영희와.",
+        "관리사는 김영희과.",
+        "관리사는 김영희랑.",
+        "관리사는 김가와.",
+        "관리사는 남궁민랑.",
+    ])("does not forward an ambiguous provider token at a punctuation boundary: %s", (message) => {
+        expect(extractClientRegistrationDraft(message).employeeName).toBeUndefined();
     });
 
     it.each([

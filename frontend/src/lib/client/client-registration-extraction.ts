@@ -26,6 +26,7 @@ const SHORT_DATE_PARTS_PATTERN = /^(\d{2})[-./년\s]*(\d{1,2})[-./월\s]*(\d{1,2
 const DUE_DATE_LABEL_PATTERN = /(?:출산\s*(?:예정\s*(?:일자?|날짜)|날짜|일자?)|분만\s*(?:예정\s*(?:일자?|날짜)|날짜|일자?))/;
 const BIRTHDAY_LABEL_PATTERN = /(?:생년월일자?|생일|태어난\s*(?:날짜|날)?)/;
 const LABEL_VALUE_PREFIX = /^\s*(?:(?:은|는|이|가|을|를)\s*)?[:：=]?\s*/;
+const BIRTHDAY_CALENDAR_QUALIFIER_PREFIX = /^(?:[,，]\s*)?(양력|음력)(?:으로)?\s*(?:[:：=]\s*|[,，]\s*(?=\d)|(?=\d))/;
 
 const PROVIDER_LABEL_PATTERN = /(?:제공인력|관리사님?|이모님)/;
 const PROVIDER_SUBJECT_PARTICLE_PATTERN = /^(?:은|는|이|가|을|를|으로|로)/;
@@ -43,8 +44,38 @@ const PROVIDER_SUFFIXES = [
     "는",
     "이",
     "야",
+    "에게",
+    "와",
+    "과",
+    "랑",
+    "이랑",
+    "한테",
+    "께",
+    "로부터",
+    "으로부터",
+    "을",
 ] as const;
-const PROVIDER_PARTICLE_SUFFIXES = ["으로", "로", "가", "를", "은", "는", "이"] as const;
+const PROVIDER_PARTICLE_SUFFIXES = [
+    "으로",
+    "로",
+    "가",
+    "를",
+    "은",
+    "는",
+    "이",
+    "에게",
+    "와",
+    "과",
+    "랑",
+    "이랑",
+    "한테",
+    "께",
+    "로부터",
+    "으로부터",
+    "을",
+] as const;
+const PROVIDER_AMBIGUOUS_PARTICLE_SUFFIXES = ["와", "과", "랑", "이랑"] as const;
+const PROVIDER_STRONG_PARTICLE_SUFFIXES = ["에게", "이랑", "한테", "께", "로부터", "으로부터"] as const;
 const PROVIDER_FIXED_SUFFIXES = PROVIDER_SUFFIXES.filter(
     (suffix) => !(PROVIDER_PARTICLE_SUFFIXES as readonly string[]).includes(suffix),
 ).sort((left, right) => right.length - left.length);
@@ -111,13 +142,30 @@ function collectDateTokens(message: string): DateToken[] {
     }));
 }
 
-function extractLabeledDate(message: string, labelPattern: DateLabelPattern): LabeledDate {
+function extractLabeledDate(
+    message: string,
+    labelPattern: DateLabelPattern,
+    options?: { allowBirthdayCalendarQualifier?: boolean },
+): LabeledDate {
     const labelMatch = message.match(labelPattern);
     if (!labelMatch || labelMatch.index === undefined) return { found: false };
 
-    const afterLabel = message
+    let afterLabel = message
         .slice(labelMatch.index + labelMatch[0].length)
         .replace(LABEL_VALUE_PREFIX, "");
+
+    if (options?.allowBirthdayCalendarQualifier) {
+        const calendarQualifier = afterLabel.match(BIRTHDAY_CALENDAR_QUALIFIER_PREFIX);
+        if (calendarQualifier?.[1] === "음력") {
+            // The registration API stores Gregorian YYMMDD values and this
+            // extractor has no lunar-calendar conversion. Refuse lunar input
+            // rather than silently persisting the same digits as Gregorian.
+            return { found: true };
+        }
+
+        afterLabel = afterLabel.replace(BIRTHDAY_CALENDAR_QUALIFIER_PREFIX, "");
+    }
+
     const candidate = afterLabel.match(DATE_TOKEN_PATTERN);
 
     // The value must begin immediately after the label (apart from the
@@ -132,7 +180,9 @@ function extractLabeledDate(message: string, labelPattern: DateLabelPattern): La
 }
 
 function extractBirthday(message: string): string | undefined {
-    const labeledDate = extractLabeledDate(message, BIRTHDAY_LABEL_PATTERN);
+    const labeledDate = extractLabeledDate(message, BIRTHDAY_LABEL_PATTERN, {
+        allowBirthdayCalendarQualifier: true,
+    });
     if (!labeledDate.value || !isValidClientBirthdayInput(labeledDate.value)) return undefined;
 
     return labeledDate.value;
@@ -246,7 +296,7 @@ function extractEmployeeName(message: string): EmployeeExtraction {
     // boundary. The short-name phonology check below prevents a real name such
     // as "김가은" from being shortened to "김가" merely because 은 is also a
     // topic particle.
-    const particleMatches: Array<{ name: string; consumedLength: number }> = [];
+    const particleMatches: Array<{ name: string; consumedLength: number; suffix: string }> = [];
     for (let length = Math.min(4, token.length - 1); length >= 2; length -= 1) {
         const candidate = token.slice(0, length);
         if (!/^[가-힣]+$/.test(candidate)) continue;
@@ -260,24 +310,59 @@ function extractEmployeeName(message: string): EmployeeExtraction {
                 && (
                     token.length > 4
                     || hasProviderFollowingContext(tail)
-                    || (candidate.length >= 3 && isProviderNameBoundary(tail))
+                    || (
+                        candidate.length >= 3
+                        && isProviderNameBoundary(tail)
+                        && !(
+                            (PROVIDER_AMBIGUOUS_PARTICLE_SUFFIXES as readonly string[]).includes(suffix)
+                            && token.length <= 4
+                        )
+                    )
+                    || (
+                        (PROVIDER_STRONG_PARTICLE_SUFFIXES as readonly string[]).includes(suffix)
+                        && isProviderNameBoundary(tail)
+                    )
                 )
             ) {
                 particleMatches.push({
                     name: candidate,
                     consumedLength: remainder.length - tail.length,
+                    suffix,
                 });
             }
         }
     }
 
     // A consecutive particle chain (e.g. 이+는 in "김영희이는") is stronger
-    // evidence than a one-syllable particle attached to a longer candidate.
-    // Otherwise retain the longest candidate to avoid shortening names such
-    // as 김가은 or 김나이.
+    // evidence than a one-syllable particle attached to a longer candidate,
+    // except when that first particle is an ambiguous comitative ending such
+    // as 랑 in a legitimate name like 박이랑. Prefer the longest candidate
+    // after applying that ambiguity penalty so names are not shortened.
     const selectedParticleMatch = particleMatches
-        .sort((left, right) => right.consumedLength - left.consumedLength || right.name.length - left.name.length)[0];
+        .sort((left, right) => {
+            const leftAmbiguousPenalty = (PROVIDER_AMBIGUOUS_PARTICLE_SUFFIXES as readonly string[]).includes(left.suffix) ? 1 : 0;
+            const rightAmbiguousPenalty = (PROVIDER_AMBIGUOUS_PARTICLE_SUFFIXES as readonly string[]).includes(right.suffix) ? 1 : 0;
+            const leftEffectiveConsumption = left.consumedLength - leftAmbiguousPenalty;
+            const rightEffectiveConsumption = right.consumedLength - rightAmbiguousPenalty;
+
+            return rightEffectiveConsumption - leftEffectiveConsumption || right.name.length - left.name.length;
+        })[0];
     if (selectedParticleMatch) return { hasLabel: true, name: selectedParticleMatch.name };
+
+    const hasAmbiguousBareName = (PROVIDER_AMBIGUOUS_PARTICLE_SUFFIXES as readonly string[]).some(
+        (suffix) => token.endsWith(suffix),
+    );
+    if (
+        hasAmbiguousBareName
+        && token.length <= 4
+        && isProviderNameBoundary(afterLabel.slice(token.length))
+    ) {
+        // A short token ending in 와/과/랑/이랑 is inherently ambiguous at a
+        // punctuation boundary: it can be either a complete name or a name
+        // followed by a comitative particle. Rejecting it is safer than
+        // forwarding a bogus employee name and creating the wrong provider.
+        return { hasLabel: true };
+    }
 
     const bareName = afterLabel.match(/^([가-힣]{2,4})(?=$|[\s,.;:!?])/);
     return { hasLabel: true, name: bareName?.[1] };
