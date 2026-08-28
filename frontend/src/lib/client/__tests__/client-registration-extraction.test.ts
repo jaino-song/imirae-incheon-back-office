@@ -86,6 +86,81 @@ describe("extractClientRegistrationDraft", () => {
     });
 
     it.each([
+        ["생년월일 000101", "000101"],
+        ["생년월일 900101", "900101"],
+        ["생년월일 2000-01-01", "000101"],
+        ["생년월일 2000-1-1", "000101"],
+        ["생년월일 20000101", "000101"],
+    ])("normalizes a labeled birthday without reusing it as dueDate: %s", (message, expectedBirthday) => {
+        const draft = extractClientRegistrationDraft(`산모 등록. ${message}.`);
+
+        expect(draft.birthday).toBe(expectedBirthday);
+        expect(draft.dueDate).toBeUndefined();
+        expect(draft.missingFields).toContain("dueDate");
+    });
+
+    it("keeps the labeled due date when it appears before the birthday", () => {
+        const draft = extractClientRegistrationDraft(
+            "산모 등록. 출산 예정일 26년 2월 1일, 생년월일 2000-01-01.",
+        );
+
+        expect(draft).toEqual(expect.objectContaining({
+            birthday: "000101",
+            dueDate: "260201",
+        }));
+    });
+
+    it.each([
+        ["출산 예정일은 2026년 2월 1일", "260201"],
+        ["출산예정일: 2026.2.1", "260201"],
+        ["출산 예정일: 2026. 2. 1", "260201"],
+        ["출산일 = 260201일", "260201"],
+        ["분만 예정일 26-2-1", "260201"],
+    ])("parses explicit due-date labels and Korean date forms: %s", (message, expectedDueDate) => {
+        expect(extractClientRegistrationDraft(`산모 등록. ${message}.`).dueDate).toBe(expectedDueDate);
+    });
+
+    it.each([
+        "출산 예정일 2026-02-31, 생년월일 2000-01-01",
+        "출산 예정일 2026-02-019, 생년월일 2000-01-01",
+        "출산 예정일 2026-02-01.1, 생년월일 2000-01-01",
+        "출산 예정일 2026-02-01-02, 생년월일 2000-01-01",
+        "출산 예정일 260231, 생년월일 900101",
+        "출산 예정일 20261301, 생년월일 900101",
+    ])("rejects malformed labeled due dates instead of selecting another date: %s", (message) => {
+        const draft = extractClientRegistrationDraft(`산모 등록. ${message}.`);
+
+        expect(draft.dueDate).toBeUndefined();
+        expect(draft.missingFields).toContain("dueDate");
+    });
+
+    it.each([
+        ["산모 등록. 260201.", "260201"],
+        ["산모 등록. 2026-02-01.", "260201"],
+    ])("preserves a sole unlabelled date as the due date: %s", (message, expectedDueDate) => {
+        expect(extractClientRegistrationDraft(message).dueDate).toBe(expectedDueDate);
+    });
+
+    it("does not choose one of multiple unlabelled dates as dueDate", () => {
+        const draft = extractClientRegistrationDraft("산모 등록. 2026-02-01, 2026-02-02.");
+
+        expect(draft.dueDate).toBeUndefined();
+        expect(draft.missingFields).toContain("dueDate");
+    });
+
+    it.each([
+        "산모 등록. 생년월일 9001019.",
+        "산모 등록. 생년월일 2000-01-019.",
+        "산모 등록. 생년월일 200001019.",
+    ])("rejects a date token with trailing digits: %s", (message) => {
+        const draft = extractClientRegistrationDraft(message);
+
+        expect(draft.birthday).toBeUndefined();
+        expect(draft.dueDate).toBeUndefined();
+        expect(draft.missingFields).toEqual(expect.arrayContaining(["birthday", "dueDate"]));
+    });
+
+    it.each([
         ["관리사는 김민이야.", "김민"],
         ["관리사는 김민님,", "김민"],
         ["관리사는 홍길동입니다!", "홍길동"],
@@ -95,7 +170,37 @@ describe("extractClientRegistrationDraft", () => {
         ["관리사는 남궁민수야.", "남궁민수"],
         ["관리사는 남궁민수입니다!", "남궁민수"],
         ["관리사는 남궁민수님,", "남궁민수"],
+        ["관리사는 김영희로 해줘.", "김영희"],
+        ["관리사는 김영희가 담당해.", "김영희"],
+        ["관리사는 김영희를 선택해.", "김영희"],
+        ["관리사는 김영희는 담당해.", "김영희"],
+        ["관리사는 김영희은 담당해.", "김영희"],
+        ["관리사는 김영희이 담당해.", "김영희"],
+        ["관리사는 김영희이는 담당해.", "김영희"],
+        ["관리사님은 김영희입니다.", "김영희"],
+        ["관리사로 김영희예요.", "김영희"],
+        ["관리사님으로 김영희예요.", "김영희"],
+        ["제공인력이 김영희예요.", "김영희"],
+        ["제공인력으로 김영희예요.", "김영희"],
+        ["이모님이 김영희야.", "김영희"],
+        ["관리사를 김영희로 지정해.", "김영희"],
+        ["관리사는 남궁민수예요!", "남궁민수"],
     ])("strips the provider suffix from %s", (message, expectedName) => {
         expect(extractClientRegistrationDraft(message).employeeName).toBe(expectedName);
+    });
+
+    it.each([
+        ["관리사는 가나야.", "가나"],
+        ["관리사는 가나다입니다.", "가나다"],
+        ["관리사는 가나다라님.", "가나다라"],
+    ])("accepts provider names from two through four syllables: %s", (message, expectedName) => {
+        expect(extractClientRegistrationDraft(message).employeeName).toBe(expectedName);
+    });
+
+    it.each([
+        "관리사는 가나다라마.",
+        "관리사는 가나다라마야.",
+    ])("does not truncate provider names beyond four syllables: %s", (message) => {
+        expect(extractClientRegistrationDraft(message).employeeName).toBeUndefined();
     });
 });
