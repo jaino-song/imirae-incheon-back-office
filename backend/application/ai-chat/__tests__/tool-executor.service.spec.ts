@@ -224,14 +224,7 @@ describe("ToolExecutorService", () => {
             voucherClient: true,
             breastPump: false,
         })).resolves.toMatchObject({ success: true });
-        expect(mocks.clientService.create).toHaveBeenCalledWith(
-            "branch-1",
-            expect.objectContaining({
-                careCenter: false,
-                voucherClient: true,
-                breastPump: false,
-            }),
-        );
+        expect(mocks.clientService.create).not.toHaveBeenCalled();
     });
 
     it("should reject non-boolean employee availability values", async () => {

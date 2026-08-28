@@ -22,12 +22,12 @@ export class BankAccountInfoService {
         return this.createBankAccountInfoUsecase.execute(params.area, params.bankName, params.accNum);
     }
     
-    findAll(): Promise<BankAccountInfoEntity[]> {
-        return this.listBankAccountInfoUsecase.execute();
+    findAll(branchId?: string): Promise<BankAccountInfoEntity[]> {
+        return this.listBankAccountInfoUsecase.execute(branchId);
     }
 
-    findByArea(area: string): Promise<BankAccountInfoEntity | null> {
-        return this.findBankAccountInfoByAreaUsecase.execute(area);
+    findByArea(area: string, branchId?: string): Promise<BankAccountInfoEntity | null> {
+        return this.findBankAccountInfoByAreaUsecase.execute(area, branchId);
     }
 
     update(area: string, params: { bankName?: string | null, accNum?: string | null }): Promise<BankAccountInfoEntity> {

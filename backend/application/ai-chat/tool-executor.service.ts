@@ -8,6 +8,16 @@ import { VoucherPriceInfoService } from "application/services/voucher-price-info
 import { BankAccountInfoService } from "application/services/bank-account-info.service";
 import { EmployeeScheduleService } from "application/services/employee-schedule.service";
 import { isCUDTool } from "./tools";
+import {
+    ConsumedLegacyChatConfirmationIntent,
+    LegacyChatConfirmationContext,
+    LegacyChatConfirmationIntentResponse,
+    LegacyChatConfirmationService,
+    hashLegacyChatPayload,
+    isConsumedLegacyChatConfirmationIntent,
+    redactSensitiveLegacyChatContent,
+    sanitizeLegacyChatToolPayload,
+} from "./legacy-chat-confirmation.service";
 
 export interface ToolExecutionResult {
     success: boolean;
@@ -15,6 +25,9 @@ export interface ToolExecutionResult {
     error?: string;
     requiresConfirmation?: boolean;
     confirmationMessage?: string;
+    confirmationIntentId?: string;
+    confirmationNonce?: string;
+    confirmationExpiresAt?: string;
 }
 
 type ToolArgs = Record<string, unknown>;
@@ -33,6 +46,13 @@ interface ToolStringOptions {
     allowedValues?: readonly string[];
     defaultValue?: string;
 }
+
+export interface LegacyChatToolContext extends LegacyChatConfirmationContext {
+    globalRole?: string;
+    branchRole?: string;
+}
+
+type ToolExecutionContext = LegacyChatToolContext | string;
 
 const CLIENT_FILTERS = [
     "no-contract",
@@ -66,78 +86,97 @@ export class ToolExecutorService {
         private readonly voucherPriceInfoService: VoucherPriceInfoService,
         private readonly bankAccountInfoService: BankAccountInfoService,
         private readonly employeeScheduleService: EmployeeScheduleService,
+        private readonly confirmationService?: LegacyChatConfirmationService,
     ) {}
 
-    async execute(branchid: string, toolName: string, args: ToolArgs): Promise<ToolExecutionResult> {
+    async execute(
+        contextOrBranchId: ToolExecutionContext,
+        toolName: string,
+        args: ToolArgs,
+    ): Promise<ToolExecutionResult> {
+        const context = this.normalizeContext(contextOrBranchId);
         const argKeys = Object.keys(args || {}).sort();
-        const confirmed = args && typeof args['confirmed'] === 'boolean' ? args['confirmed'] : undefined;
         this.logger.log(
-            `Executing tool: ${toolName} confirmed=${confirmed ?? 'n/a'} argKeys=[${argKeys.join(',')}]`
+            `Executing tool: ${toolName} argKeys=[${argKeys.join(',')}]`
         );
 
-        if (isCUDTool(toolName) && args['confirmed'] !== true) {
-            return this.requestConfirmation(toolName, args);
+        if (isCUDTool(toolName)) {
+            const validationError = this.validateMutationPayload(toolName, args);
+            if (validationError) {
+                return { success: false, error: validationError };
+            }
+
+            if (!this.isBoundContext(context) || !this.confirmationService) {
+                return this.requestConfirmation(toolName, args);
+            }
+
+            const intent = await this.confirmationService.createIntent(
+                context,
+                toolName,
+                sanitizeLegacyChatToolPayload(args),
+            );
+            return this.requestConfirmation(toolName, args, intent);
         }
 
         try {
             switch (toolName) {
                 case "searchClients":
-                    return await this.searchClients(branchid, args);
+                    return await this.searchClients(context.branchId, args);
                 case "getClient":
-                    return await this.getClient(branchid, args);
+                    return await this.getClient(context.branchId, args);
                 case "createClient":
-                    return await this.createClient(branchid, args);
+                    return await this.createClient(context.branchId, args);
                 case "updateClient":
-                    return await this.updateClient(branchid, args);
+                    return await this.updateClient(context.branchId, args);
                 case "deleteClient":
-                    return await this.deleteClient(branchid, args);
+                    return await this.deleteClient(context.branchId, args);
                 case "searchEmployees":
-                    return await this.searchEmployees(branchid, args);
+                    return await this.searchEmployees(context.branchId, args);
                 case "getEmployee":
-                    return await this.getEmployee(branchid, args);
+                    return await this.getEmployee(context.branchId, args);
                 case "createEmployee":
-                    return await this.createEmployee(branchid, args);
+                    return await this.createEmployee(context.branchId, args);
                 case "updateEmployee":
-                    return await this.updateEmployee(branchid, args);
+                    return await this.updateEmployee(context.branchId, args);
                 case "deleteEmployee":
-                    return await this.deleteEmployee(branchid, args);
+                    return await this.deleteEmployee(context.branchId, args);
                 case "getMessages":
-                    return await this.getMessages(branchid);
+                    return await this.getMessages(context.branchId);
                 case "createMessage":
-                    return await this.createMessage(branchid, args);
+                    return await this.createMessage(context.branchId, args);
                 case "updateMessage":
-                    return await this.updateMessage(branchid, args);
+                    return await this.updateMessage(context.branchId, args);
                 case "deleteMessage":
-                    return await this.deleteMessage(branchid, args);
+                    return await this.deleteMessage(context.branchId, args);
                 case "listAvailableTemplates":
-                    return await this.listAvailableTemplates(branchid);
+                    return await this.listAvailableTemplates(context.branchId);
                 case "createAndSendContract":
-                    return await this.createAndSendContract(branchid, args);
+                    return await this.createAndSendContract(context.branchId, args);
                 case "getContractStatus":
-                    return await this.getContractStatus(branchid, args);
+                    return await this.getContractStatus(context.branchId, args);
                 case "getDashboardStats":
-                    return await this.getDashboardStats(branchid);
+                    return await this.getDashboardStats(context.branchId);
                 // Client filters & actions
                 case "getClientsByFilter":
-                    return await this.getClientsByFilter(branchid, args);
+                    return await this.getClientsByFilter(context.branchId, args);
                 case "terminateClientService":
-                    return await this.terminateClientService(branchid, args);
+                    return await this.terminateClientService(context.branchId, args);
                 case "requestEmployeeReplacement":
-                    return await this.requestEmployeeReplacement(branchid, args);
+                    return await this.requestEmployeeReplacement(context.branchId, args);
                 // Employee filters & actions
                 case "getAvailableEmployees":
-                    return await this.getAvailableEmployees(branchid);
+                    return await this.getAvailableEmployees(context.branchId);
                 case "getEmployeesByWorkArea":
-                    return await this.getEmployeesByWorkArea(branchid, args);
+                    return await this.getEmployeesByWorkArea(context.branchId, args);
                 case "getEmployeesByGrade":
-                    return await this.getEmployeesByGrade(branchid, args);
+                    return await this.getEmployeesByGrade(context.branchId, args);
                 case "changeEmployeeAvailability":
-                    return await this.changeEmployeeAvailability(branchid, args);
+                    return await this.changeEmployeeAvailability(context.branchId, args);
                 // Schedules
                 case "listSchedules":
-                    return await this.listSchedules(branchid);
+                    return await this.listSchedules(context.branchId);
                 case "getSchedulesByEmployee":
-                    return await this.getSchedulesByEmployee(branchid, args);
+                    return await this.getSchedulesByEmployee(context.branchId, args);
                 // Voucher prices
                 case "listVoucherPrices":
                     return await this.listVoucherPrices(args);
@@ -145,25 +184,177 @@ export class ToolExecutorService {
                     return await this.getVoucherPriceByType(args);
                 // Bank accounts
                 case "listBankAccounts":
-                    return await this.listBankAccounts();
+                    return await this.listBankAccounts(context);
                 case "getBankAccountByArea":
-                    return await this.getBankAccountByArea(args);
+                    return await this.getBankAccountByArea(context, args);
                 // Contracts
                 case "listAllContracts":
-                    return await this.listAllContracts(branchid);
+                    return await this.listAllContracts(context.branchId);
                 default:
                     return { success: false, error: `Unknown tool: ${toolName}` };
             }
         } catch (error) {
-            this.logger.error(`Tool execution failed: ${error}`);
+            const errorMessage = error instanceof Error ? error.message : "unknown error";
+            this.logger.error(`Tool execution failed: ${errorMessage.replace(/\d[\d\s-]{7,}\d/g, "[REDACTED]")}`);
             return {
                 success: false,
-                error: error instanceof Error ? error.message : "도구 실행에 실패했습니다",
+                error: errorMessage.replace(/\d[\d\s-]{7,}\d/g, "[REDACTED]"),
             };
         }
     }
 
-    private requestConfirmation(toolName: string, args: ToolArgs): ToolExecutionResult {
+    /** Execute only after LegacyChatConfirmationService atomically consumed an intent. */
+    async executeAuthorized(
+        context: LegacyChatToolContext,
+        toolName: string,
+        args: ToolArgs,
+        intent?: ConsumedLegacyChatConfirmationIntent,
+    ): Promise<ToolExecutionResult> {
+        if (
+            !isCUDTool(toolName)
+            || !intent
+            || intent.toolName !== toolName
+            || intent.userId !== context.userId
+            || intent.branchId !== context.branchId
+            || intent.sessionId !== context.sessionId
+            || intent.payloadHash !== hashLegacyChatPayload(args)
+            || !isConsumedLegacyChatConfirmationIntent(intent)
+        ) {
+            return { success: false, error: "Only confirmed mutation tools can use this path" };
+        }
+
+        const sanitizedArgs = sanitizeLegacyChatToolPayload(args);
+        try {
+            switch (toolName) {
+                case "createClient": return await this.createClient(context.branchId, sanitizedArgs);
+                case "updateClient": return await this.updateClient(context.branchId, sanitizedArgs);
+                case "deleteClient": return await this.deleteClient(context.branchId, sanitizedArgs);
+                case "terminateClientService": return await this.terminateClientService(context.branchId, sanitizedArgs);
+                case "requestEmployeeReplacement": return await this.requestEmployeeReplacement(context.branchId, sanitizedArgs);
+                case "createEmployee": return await this.createEmployee(context.branchId, sanitizedArgs);
+                case "updateEmployee": return await this.updateEmployee(context.branchId, sanitizedArgs);
+                case "deleteEmployee": return await this.deleteEmployee(context.branchId, sanitizedArgs);
+                case "changeEmployeeAvailability": return await this.changeEmployeeAvailability(context.branchId, sanitizedArgs);
+                case "createMessage": return await this.createMessage(context.branchId, sanitizedArgs);
+                case "updateMessage": return await this.updateMessage(context.branchId, sanitizedArgs);
+                case "deleteMessage": return await this.deleteMessage(context.branchId, sanitizedArgs);
+                case "createAndSendContract": return await this.createAndSendContract(context.branchId, sanitizedArgs);
+                default: return { success: false, error: `Unknown tool: ${toolName}` };
+            }
+        } catch (error) {
+            this.logger.error(`Confirmed tool execution failed: ${toolName}`);
+            const errorMessage = error instanceof Error ? error.message : "unknown error";
+            return {
+                success: false,
+                error: errorMessage.replace(/\d[\d\s-]{7,}\d/g, "[REDACTED]"),
+            };
+        }
+    }
+
+    private normalizeContext(contextOrBranchId: ToolExecutionContext): LegacyChatToolContext {
+        if (typeof contextOrBranchId === "string") {
+            return {
+                userId: "",
+                branchId: contextOrBranchId,
+                sessionId: "",
+            };
+        }
+
+        return contextOrBranchId;
+    }
+
+    private isBoundContext(context: LegacyChatToolContext): context is LegacyChatToolContext {
+        return Boolean(context.userId && context.branchId && context.sessionId);
+    }
+
+    private validateMutationPayload(toolName: string, args: ToolArgs): string | null {
+        try {
+            switch (toolName) {
+                case "createClient":
+                    this.parseRequiredStringArg(args, "name");
+                    this.parseRequiredIntegerArg(args, "primaryEmployeeId", { min: 1 });
+                    this.parseRequiredBooleanArg(args, "careCenter");
+                    this.parseRequiredBooleanArg(args, "voucherClient");
+                    this.parseOptionalIntegerArg(args, "secondaryEmployeeId", { min: 1 });
+                    this.parseOptionalIntegerArg(args, "duration", { min: 1 });
+                    this.parseOptionalDateArg(args, "startDate");
+                    this.parseOptionalDateArg(args, "endDate");
+                    this.parseNullableBirthdayArg(args, "birthday");
+                    break;
+                case "updateClient":
+                    if (this.isMissingArg(args["clientId"]) && this.isMissingArg(args["clientName"])) {
+                        throw new Error("clientId 또는 clientName이 필요합니다");
+                    }
+                    if (!this.isMissingArg(args["clientId"])) this.parseRequiredIntegerArg(args, "clientId", { min: 1 });
+                    if (!this.isMissingArg(args["primaryEmployeeId"])) this.parseOptionalIntegerArg(args, "primaryEmployeeId", { min: 1 });
+                    if (!this.isMissingArg(args["secondaryEmployeeId"])) this.parseOptionalIntegerArg(args, "secondaryEmployeeId", { min: 1 });
+                    if (!this.isMissingArg(args["careCenter"])) this.parseOptionalBooleanArg(args, "careCenter");
+                    if (!this.isMissingArg(args["voucherClient"])) this.parseOptionalBooleanArg(args, "voucherClient");
+                    this.parseOptionalDateArg(args, "startDate");
+                    this.parseOptionalDateArg(args, "endDate");
+                    break;
+                case "deleteClient":
+                case "terminateClientService":
+                    if (this.isMissingArg(args["clientId"]) && this.isMissingArg(args["clientName"])) {
+                        throw new Error("clientId 또는 clientName이 필요합니다");
+                    }
+                    if (!this.isMissingArg(args["clientId"])) this.parseRequiredIntegerArg(args, "clientId", { min: 1 });
+                    break;
+                case "requestEmployeeReplacement":
+                    if (this.isMissingArg(args["clientId"]) && this.isMissingArg(args["clientName"])) {
+                        throw new Error("clientId 또는 clientName이 필요합니다");
+                    }
+                    if (!this.isMissingArg(args["clientId"])) this.parseRequiredIntegerArg(args, "clientId", { min: 1 });
+                    if (!this.isMissingArg(args["newPrimaryEmployeeId"])) this.parseRequiredIntegerArg(args, "newPrimaryEmployeeId", { min: 1 });
+                    if (!this.isMissingArg(args["newSecondaryEmployeeId"])) this.parseOptionalIntegerArg(args, "newSecondaryEmployeeId", { min: 1 });
+                    break;
+                case "createEmployee":
+                    this.parseRequiredStringArg(args, "name");
+                    this.parseRequiredStringArg(args, "phone");
+                    this.parseRequiredStringArg(args, "grade");
+                    this.parseOptionalBooleanArg(args, "openToNextWork");
+                    this.parseOptionalDateArg(args, "companyRegisteredDate");
+                    break;
+                case "updateEmployee":
+                case "deleteEmployee":
+                case "changeEmployeeAvailability":
+                    this.parseRequiredIntegerArg(args, "employeeId", { min: 1 });
+                    if (toolName === "changeEmployeeAvailability") this.parseRequiredBooleanArg(args, "available");
+                    if (toolName === "updateEmployee") {
+                        this.parseOptionalBooleanArg(args, "openToNextWork");
+                        this.parseOptionalDateArg(args, "companyRegisteredDate");
+                    }
+                    break;
+                case "createMessage":
+                    this.parseRequiredStringArg(args, "title");
+                    this.parseRequiredStringArg(args, "text");
+                    break;
+                case "updateMessage":
+                    this.parseRequiredIntegerArg(args, "messageId", { min: 1 });
+                    this.parseRequiredStringArg(args, "title");
+                    this.parseRequiredStringArg(args, "text");
+                    break;
+                case "deleteMessage":
+                    this.parseRequiredIntegerArg(args, "messageId", { min: 1 });
+                    break;
+                case "createAndSendContract":
+                    this.parseRequiredIntegerArg(args, "clientId", { min: 1 });
+                    this.parseRequiredStringArg(args, "areaId");
+                    break;
+                default:
+                    break;
+            }
+            return null;
+        } catch (error) {
+            return error instanceof Error ? error.message : "입력값이 올바르지 않습니다";
+        }
+    }
+
+    private requestConfirmation(
+        toolName: string,
+        args: ToolArgs,
+        intent?: LegacyChatConfirmationIntentResponse,
+    ): ToolExecutionResult {
         const clientRef = args['clientId'] ?? args['clientName'] ?? '?';
         const employeeRef = args['employeeId'] ?? args['employeeName'] ?? '?';
         const newPrimaryEmployeeRef = args['newPrimaryEmployeeId'] ?? args['newPrimaryEmployeeName'] ?? '?';
@@ -183,10 +374,15 @@ export class ToolExecutorService {
             createAndSendContract: `산모 ${clientRef}에게 계약서를 발송하시겠습니까?`,
         };
 
+        const confirmationMessage = messages[toolName] || `${toolName} 작업을 실행하시겠습니까?`;
+
         return {
             success: true,
             requiresConfirmation: true,
-            confirmationMessage: messages[toolName] || `${toolName} 작업을 실행하시겠습니까?`,
+            confirmationMessage: redactSensitiveLegacyChatContent(confirmationMessage),
+            confirmationIntentId: intent?.intentId,
+            confirmationNonce: intent?.nonce,
+            confirmationExpiresAt: intent?.confirmationExpiresAt,
         };
     }
 
@@ -946,21 +1142,29 @@ export class ToolExecutorService {
         };
     }
 
-    private async listBankAccounts(): Promise<ToolExecutionResult> {
-        const accounts = await this.bankAccountInfoService.findAll();
+    private async listBankAccounts(context: LegacyChatToolContext): Promise<ToolExecutionResult> {
+        if (!this.canReadBankAccounts(context)) {
+            return { success: false, error: "은행 계좌 정보는 지점 관리자만 조회할 수 있습니다" };
+        }
+
+        const accounts = await this.bankAccountInfoService.findAll(context.branchId);
         return {
             success: true,
             data: accounts.map(a => ({
                 area: a.area,
                 bankName: a.bankName,
-                accNum: a.accNum,
+                accountLast4: this.maskAccountNumber(a.accNum),
             })),
         };
     }
 
-    private async getBankAccountByArea(args: ToolArgs): Promise<ToolExecutionResult> {
+    private async getBankAccountByArea(context: LegacyChatToolContext, args: ToolArgs): Promise<ToolExecutionResult> {
+        if (!this.canReadBankAccounts(context)) {
+            return { success: false, error: "은행 계좌 정보는 지점 관리자만 조회할 수 있습니다" };
+        }
+
         const area = this.parseRequiredStringArg(args, "area");
-        const account = await this.bankAccountInfoService.findByArea(area);
+        const account = await this.bankAccountInfoService.findByArea(area, context.branchId);
         if (!account) {
             return { success: false, error: `${area} 지역의 계좌 정보를 찾을 수 없습니다` };
         }
@@ -969,9 +1173,18 @@ export class ToolExecutorService {
             data: {
                 area: account.area,
                 bankName: account.bankName,
-                accNum: account.accNum,
+                accountLast4: this.maskAccountNumber(account.accNum),
             },
         };
+    }
+
+    private canReadBankAccounts(context: LegacyChatToolContext): boolean {
+        return [context.globalRole, context.branchRole].some((role) => role === "owner" || role === "admin");
+    }
+
+    private maskAccountNumber(account: string | null): string | null {
+        const digits = account?.replace(/\D/g, "") ?? "";
+        return digits ? digits.slice(-4) : null;
     }
 
     private async listAllContracts(branchid: string): Promise<ToolExecutionResult> {

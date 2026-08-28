@@ -36,8 +36,19 @@ export interface ChatStreamEvent {
     toolName?: string;
     toolStatus?: string;
     confirmationMessage?: string;
+    confirmationIntentId?: string;
+    confirmationNonce?: string;
+    confirmationExpiresAt?: string;
     sessionId?: string;
     error?: string;
+}
+
+export interface ChatConfirmation {
+    intentId: string;
+    nonce: string;
+    sessionId: string;
+    expiresAt: string | null;
+    toolName?: string;
 }
 
 export type ChatState = "idle" | "connecting" | "streaming" | "complete" | "error";
@@ -48,6 +59,9 @@ interface UseChatStreamReturn {
     sessionId: string | null;
     error: string | null;
     sendMessage: (message: string) => Promise<void>;
+    confirmAction: () => Promise<void>;
+    cancelAction: () => void;
+    pendingConfirmation: ChatConfirmation | null;
     loadHistory: (offset?: number) => Promise<void>;
     clearSession: () => void;
     appendMessage: (message: ChatMessage) => void;
@@ -157,6 +171,36 @@ function restoreMessageUI(msg: ChatMessage): ChatMessage {
     return msg;
 }
 
+function confirmationResultMessage(result: unknown): string {
+    if (!result || typeof result !== "object") {
+        return "요청이 처리되었습니다.";
+    }
+
+    const typedResult = result as { success?: unknown; data?: unknown; error?: unknown };
+    if (typedResult.success === false) {
+        return typeof typedResult.error === "string"
+            ? `작업을 처리하지 못했습니다: ${typedResult.error}`
+            : "작업을 처리하지 못했습니다.";
+    }
+
+    if (typedResult.data && typeof typedResult.data === "object") {
+        const message = (typedResult.data as { message?: unknown }).message;
+        if (typeof message === "string" && message.trim()) {
+            return message;
+        }
+    }
+
+    return "요청이 처리되었습니다.";
+}
+
+function confirmationRequestErrorMessage(status: number): string {
+    if (status === 401) return "로그인이 만료되었습니다. 다시 로그인해 주세요.";
+    if (status === 403) return "이 확인 요청에 접근할 권한이 없습니다.";
+    if (status === 404) return "확인 요청을 찾을 수 없습니다. 새로 요청해 주세요.";
+    if (status === 409) return "확인 요청이 이미 처리되었거나 만료되었습니다. 새로 요청해 주세요.";
+    return "요청 결과를 확인할 수 없습니다. 중복 실행하지 말고 기록을 새로고침해 확인해 주세요.";
+}
+
 function parseSSEBuffer(buffer: string): { events: ChatStreamEvent[]; remaining: string } {
     const events: ChatStreamEvent[] = [];
     const normalized = buffer.replace(/\r/g, "");
@@ -203,6 +247,8 @@ export function useChatStream(): UseChatStreamReturn {
     const [error, setError] = useState<string | null>(null);
     const [isToolExecuting, setIsToolExecuting] = useState(false);
     const [currentTool, setCurrentTool] = useState<string | null>(null);
+    const [pendingConfirmation, setPendingConfirmation] = useState<ChatConfirmation | null>(null);
+    const confirmationInFlightRef = useRef(false);
 
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
     const [hasMoreHistory, setHasMoreHistory] = useState(true);
@@ -267,13 +313,17 @@ export function useChatStream(): UseChatStreamReturn {
         setMessages((prev) => [...prev, message]);
     }, []);
 
-    const persistMessage = useCallback(async (userMessage: string, assistantContent: string) => {
+    const persistMessage = useCallback(async (
+        userMessage: string,
+        assistantContent: string,
+        sessionIdOverride: string | null = sessionId,
+    ) => {
         try {
             await fetch("/api/ai/chat/persist", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    sessionId,
+                    sessionId: sessionIdOverride,
                     userMessage,
                     assistantContent,
                 }),
@@ -282,6 +332,124 @@ export function useChatStream(): UseChatStreamReturn {
             console.error("[chat] failed to persist message:", err);
         }
     }, [sessionId]);
+
+    const handleConfirmationEvent = useCallback((event: ChatStreamEvent) => {
+        setIsToolExecuting(false);
+        setCurrentTool(null);
+        clearScheduledFlush();
+        flushPendingAssistant();
+
+        if (event.confirmationMessage) {
+            setMessages((prev) => {
+                const updated = [...prev];
+                const lastIdx = updated.length - 1;
+                if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
+                    updated[lastIdx] = {
+                        ...updated[lastIdx],
+                        content: event.confirmationMessage || "",
+                        isStreaming: false,
+                    };
+                }
+                return updated;
+            });
+        }
+
+        if (event.confirmationIntentId && event.confirmationNonce && event.sessionId) {
+            setPendingConfirmation({
+                intentId: event.confirmationIntentId,
+                nonce: event.confirmationNonce,
+                sessionId: event.sessionId,
+                expiresAt: event.confirmationExpiresAt ?? null,
+                toolName: event.toolName,
+            });
+            return;
+        }
+
+        // A preview without an opaque server intent is display-only. Never
+        // let a model-produced confirmation message become an approval.
+        setPendingConfirmation(null);
+        setError("확인 요청을 사용할 수 없습니다. 새로 요청해 주세요.");
+    }, [clearScheduledFlush, flushPendingAssistant]);
+
+    const confirmAction = useCallback(async () => {
+        if (!pendingConfirmation || confirmationInFlightRef.current) return;
+
+        confirmationInFlightRef.current = true;
+        const confirmation = pendingConfirmation;
+        setPendingConfirmation(null);
+        setError(null);
+        setIsToolExecuting(true);
+        setCurrentTool(confirmation.toolName ?? null);
+        setState("connecting");
+
+        try {
+            if (confirmation.expiresAt && Date.parse(confirmation.expiresAt) <= Date.now()) {
+                const safeMessage = confirmationRequestErrorMessage(409);
+                setError(safeMessage);
+                appendMessage({
+                    role: "assistant",
+                    content: safeMessage,
+                    timestamp: new Date().toISOString(),
+                });
+                setState("error");
+                return;
+            }
+
+            const response = await fetch("/api/ai/chat/confirm", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                    intentId: confirmation.intentId,
+                    nonce: confirmation.nonce,
+                    sessionId: confirmation.sessionId,
+                }),
+            });
+
+            if (!response.ok) {
+                const safeMessage = confirmationRequestErrorMessage(response.status);
+                setError(safeMessage);
+                appendMessage({
+                    role: "assistant",
+                    content: safeMessage,
+                    timestamp: new Date().toISOString(),
+                });
+                setState("error");
+                return;
+            }
+
+            const result = await response.json().catch(() => ({}));
+            const resultMessage = confirmationResultMessage(result);
+            appendMessage({
+                role: "assistant",
+                content: resultMessage,
+                timestamp: new Date().toISOString(),
+            });
+            setSessionId(confirmation.sessionId);
+            safeStorageSetItem("local", SESSION_STORAGE_KEY, confirmation.sessionId);
+            await persistMessage("확인", resultMessage, confirmation.sessionId);
+            setState("complete");
+        } catch {
+            const safeMessage = confirmationRequestErrorMessage(599);
+            setError(safeMessage);
+            appendMessage({
+                role: "assistant",
+                content: safeMessage,
+                timestamp: new Date().toISOString(),
+            });
+            setState("error");
+        } finally {
+            setIsToolExecuting(false);
+            setCurrentTool(null);
+            confirmationInFlightRef.current = false;
+        }
+    }, [appendMessage, pendingConfirmation, persistMessage]);
+
+    const cancelAction = useCallback(() => {
+        setPendingConfirmation(null);
+        setError(null);
+        setState("complete");
+    }, []);
 
     const loadHistory = useCallback(async (offset: number = 0) => {
         if (isLoadingRef.current) return;
@@ -297,6 +465,7 @@ export function useChatStream(): UseChatStreamReturn {
             const data = await res.json();
             const restoredMessages = (data.messages as ChatMessage[]).map(restoreMessageUI);
             if (offset === 0) {
+                setPendingConfirmation(null);
                 setMessages(restoredMessages);
                 if (data.sessionId) {
                     setSessionId(data.sessionId);
@@ -325,6 +494,11 @@ export function useChatStream(): UseChatStreamReturn {
         if (!trimmed) {
             return;
         }
+
+        // Starting a different turn abandons the display-only preview. The
+        // server intent remains one-time and will expire without client-side
+        // token persistence.
+        setPendingConfirmation(null);
 
         // Save message for retry
         setLastMessage(trimmed);
@@ -476,24 +650,7 @@ export function useChatStream(): UseChatStreamReturn {
                             break;
 
                         case "confirmation":
-                            setIsToolExecuting(false);
-                            setCurrentTool(null);
-                            clearScheduledFlush();
-                            flushPendingAssistant();
-                            if (event.confirmationMessage) {
-                                setMessages((prev) => {
-                                    const updated = [...prev];
-                                    const lastIdx = updated.length - 1;
-                                    if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
-                                        updated[lastIdx] = {
-                                            ...updated[lastIdx],
-                                            content: event.confirmationMessage || "",
-                                            isStreaming: false,
-                                        };
-                                    }
-                                    return updated;
-                                });
-                            }
+                            handleConfirmationEvent(event);
                             break;
 
                         case "done":
@@ -560,24 +717,7 @@ export function useChatStream(): UseChatStreamReturn {
                             setCurrentTool(event.toolName || null);
                             break;
                         case "confirmation":
-                            setIsToolExecuting(false);
-                            setCurrentTool(null);
-                            clearScheduledFlush();
-                            flushPendingAssistant();
-                            if (event.confirmationMessage) {
-                                setMessages((prev) => {
-                                    const updated = [...prev];
-                                    const lastIdx = updated.length - 1;
-                                    if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
-                                        updated[lastIdx] = {
-                                            ...updated[lastIdx],
-                                            content: event.confirmationMessage || "",
-                                            isStreaming: false,
-                                        };
-                                    }
-                                    return updated;
-                                });
-                            }
+                            handleConfirmationEvent(event);
                             break;
                         case "done":
                             setIsToolExecuting(false);
@@ -737,24 +877,7 @@ export function useChatStream(): UseChatStreamReturn {
                                         break;
 
                                     case "confirmation":
-                                        setIsToolExecuting(false);
-                                        setCurrentTool(null);
-                                        clearScheduledFlush();
-                                        flushPendingAssistant();
-                                        if (event.confirmationMessage) {
-                                            setMessages((prev) => {
-                                                const updated = [...prev];
-                                                const lastIdx = updated.length - 1;
-                                                if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
-                                                    updated[lastIdx] = {
-                                                        ...updated[lastIdx],
-                                                        content: event.confirmationMessage || "",
-                                                        isStreaming: false,
-                                                    };
-                                                }
-                                                return updated;
-                                            });
-                                        }
+                                        handleConfirmationEvent(event);
                                         break;
 
                                     case "done":
@@ -820,24 +943,7 @@ export function useChatStream(): UseChatStreamReturn {
                                         setCurrentTool(event.toolName || null);
                                         break;
                                     case "confirmation":
-                                        setIsToolExecuting(false);
-                                        setCurrentTool(null);
-                                        clearScheduledFlush();
-                                        flushPendingAssistant();
-                                        if (event.confirmationMessage) {
-                                            setMessages((prev) => {
-                                                const updated = [...prev];
-                                                const lastIdx = updated.length - 1;
-                                                if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
-                                                    updated[lastIdx] = {
-                                                        ...updated[lastIdx],
-                                                        content: event.confirmationMessage || "",
-                                                        isStreaming: false,
-                                                    };
-                                                }
-                                                return updated;
-                                            });
-                                        }
+                                        handleConfirmationEvent(event);
                                         break;
                                     case "done":
                                         setIsToolExecuting(false);
@@ -937,7 +1043,7 @@ export function useChatStream(): UseChatStreamReturn {
                 return updated;
             });
         }
-    }, [sessionId, state, retryCount, persistMessage, clearScheduledFlush, flushPendingAssistant, scheduleFlushPendingAssistant]);
+    }, [sessionId, state, retryCount, persistMessage, clearScheduledFlush, flushPendingAssistant, scheduleFlushPendingAssistant, handleConfirmationEvent]);
 
     const clearSession = useCallback(async () => {
         if (abortControllerRef.current) {
@@ -952,6 +1058,7 @@ export function useChatStream(): UseChatStreamReturn {
         setError(null);
         setIsToolExecuting(false);
         setCurrentTool(null);
+        setPendingConfirmation(null);
         safeStorageRemoveItem("local", SESSION_STORAGE_KEY);
 
         if (currentSessionId) {
@@ -987,6 +1094,9 @@ export function useChatStream(): UseChatStreamReturn {
         sessionId,
         error,
         sendMessage,
+        confirmAction,
+        cancelAction,
+        pendingConfirmation,
         loadHistory,
         clearSession,
         appendMessage,
