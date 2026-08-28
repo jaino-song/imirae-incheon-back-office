@@ -104,6 +104,8 @@ class NativeViewModelContractTest {
 
             assertEquals(listOf(3), viewModel.uiState.value.filteredEmployees.map { it.id })
             assertEquals(1, viewModel.uiState.value.totalCount)
+            assertEquals(1, viewModel.uiState.value.currentPage)
+            assertEquals(1, viewModel.uiState.value.totalPages)
 
             service.employeesResult = ApiResult.Error(ApiError.Http(403, "forbidden"))
             viewModel.refresh()

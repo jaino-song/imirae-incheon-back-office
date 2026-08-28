@@ -65,7 +65,9 @@ fun EmployeeListScreen(
                         }
                     }
                 }
-                PaginationControls(uiState.currentPage, uiState.totalPages, onPrevious = { viewModel.previousPage() }, onNext = { viewModel.nextPage() })
+                // Employee responses are branch-scoped and unpaginated. Keep the
+                // canonical page fields in the shared state for parity with other
+                // list screens, but do not render controls or invent page routes.
             }
         }
     }
