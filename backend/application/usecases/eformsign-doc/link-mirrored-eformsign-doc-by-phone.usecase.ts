@@ -3,11 +3,12 @@ import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
 
 import { MessageTriggerService } from "application/services/message-trigger.service";
-import { persistClientMessageAutomationIntent } from "application/services/message-automation-intent-writer";
+import { persistClientMessageAutomationIntent, persistScheduleMessageAutomationIntent } from "application/services/message-automation-intent-writer";
 import { fulfillClientMessageAutomationIntent } from "application/services/client-message-automation-intent-fulfiller";
 import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
 import { SystemSettingService } from "application/services/system-setting.service";
 import {
+    EformsignContractClientCandidate,
     extractEformsignContractClientCandidate,
     formatNormalizedKoreanPhone,
     toEformsignDocumentDetail,
@@ -24,6 +25,7 @@ import {
     isServiceRecordEformsignDocument,
 } from "application/utils/eformsign-document-kind";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
+import { DEFAULT_EMPLOYEE_GRADE } from "domain/constants/employee-grade.constants";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 import { normalizeClientPricing } from "domain/services/client-pricing";
 import { computeServiceStatus } from "domain/value-objects/service-status.vo";
@@ -134,6 +136,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                 documentKind: true,
                 serviceRecordCaseId: true,
                 templateId: true,
+                templateName: true,
                 stepRecipientSms: true,
                 customerPhone: true,
                 detailPayload: true,
@@ -334,6 +337,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                                 documentKind: true,
                                 serviceRecordCaseId: true,
                                 templateId: true,
+                                templateName: true,
                                 stepRecipientSms: true,
                                 customerPhone: true,
                                 detailPayload: true,
@@ -447,6 +451,13 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                             grant: candidate.grant,
                             actualPrice: candidate.actualPrice,
                         });
+                        const areaId = params.creationBranchId
+                            ? await this.resolveTemplateAreaId(
+                                transaction,
+                                params.creationBranchId,
+                                document.templateName,
+                            )
+                            : null;
                         const client = await transaction.client.create({
                             data: {
                                 name: candidate.name,
@@ -473,7 +484,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                                 breastPump: candidate.breastPump,
                                 eDocId: document.documentId,
                                 branchId: creationBranchId,
-                                areaId: null,
+                                areaId,
                             },
                             select: { id: true },
                         });
@@ -496,6 +507,14 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                                 `Eformsign document ${document.documentId} was claimed concurrently`,
                             );
                         }
+                        const scheduleId = await this.assignInitialScheduleFromContract(
+                            transaction,
+                            {
+                                branchId: creationBranchId,
+                                clientId: client.id,
+                                candidate,
+                            },
+                        );
                         if (params.applyMessageAutomation) {
                             await persistClientMessageAutomationIntent(transaction, {
                                 branchId: creationBranchId,
@@ -504,6 +523,17 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                                 suppressGreeting: params.suppressGreetingSms,
                                 intentAt: params.intentAt,
                             });
+                            if (scheduleId !== null) {
+                                // The 5-minute reconciliation cron fulfils this intent:
+                                // assignment SMS rules + service-record link scheduling.
+                                await persistScheduleMessageAutomationIntent(transaction, {
+                                    branchId: creationBranchId,
+                                    clientId: client.id,
+                                    scheduleId,
+                                    includePast: true,
+                                    intentAt: params.intentAt,
+                                });
+                            }
                         }
                         return {
                             status: "created",
@@ -521,6 +551,141 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             }
         }
         throw lastError;
+    }
+
+    /**
+     * The contract template name carries the district (e.g. "인천 아이미래로
+     * 남동구 계약서" → 남동구). Match it against the branch's (or global)
+     * area names; an unmatched template keeps the previous behaviour of
+     * registering the client without an area.
+     */
+    private async resolveTemplateAreaId(
+        transaction: Prisma.TransactionClient,
+        branchId: string,
+        templateName: string | null,
+    ): Promise<string | null> {
+        const normalizedTemplateName = templateName?.trim() ?? "";
+        if (!normalizedTemplateName) return null;
+        const areas = await transaction.area.findMany({
+            where: { OR: [{ branchId }, { branchId: null }] },
+            select: { id: true, koreanName: true, branchId: true },
+        });
+        const matches = areas
+            .map((area) => ({ area, koreanName: area.koreanName.trim() }))
+            .filter(({ koreanName }) => koreanName.length > 0 && normalizedTemplateName.includes(koreanName))
+            .sort((left, right) => {
+                const branchScore = (entry: typeof left) => (entry.area.branchId === branchId ? 0 : 1);
+                return branchScore(left) - branchScore(right)
+                    || right.koreanName.length - left.koreanName.length;
+            });
+        return matches[0]?.area.id ?? null;
+    }
+
+    /**
+     * Assigns the caretakers named in the contract (제공인력 1·2) to the newly
+     * created client. A provider is reused when its phone matches exactly one
+     * branch employee (falling back to a unique exact name match); otherwise a
+     * minimal employee is created from the name + phone the contract provides.
+     * Without both service dates no assignment is made — employee_schedule
+     * requires them and inventing dates could misplace the service.
+     */
+    private async assignInitialScheduleFromContract(
+        transaction: Prisma.TransactionClient,
+        params: {
+            branchId: string;
+            clientId: number;
+            candidate: EformsignContractClientCandidate;
+        },
+    ): Promise<number | null> {
+        const { startDate, endDate } = params.candidate;
+        if (!startDate || !endDate) return null;
+
+        const primaryEmployeeId = await this.resolveOrCreateEmployee(
+            transaction,
+            params.branchId,
+            {
+                name: params.candidate.primaryProviderName,
+                phone: params.candidate.primaryProviderPhone,
+            },
+        );
+        if (primaryEmployeeId === null) return null;
+
+        let secondaryEmployeeId = await this.resolveOrCreateEmployee(
+            transaction,
+            params.branchId,
+            {
+                name: params.candidate.secondaryProviderName,
+                phone: params.candidate.secondaryProviderPhone,
+            },
+        );
+        if (secondaryEmployeeId === primaryEmployeeId) secondaryEmployeeId = null;
+
+        const schedule = await transaction.employee_schedule.create({
+            data: {
+                primaryEmployeeId,
+                secondaryEmployeeId,
+                workAddress: params.candidate.address ?? "",
+                startDate,
+                endDate,
+                clientId: params.clientId,
+                branchId: params.branchId,
+            },
+            select: { id: true },
+        });
+        return schedule.id;
+    }
+
+    private async resolveOrCreateEmployee(
+        transaction: Prisma.TransactionClient,
+        branchId: string,
+        provider: { name: string | null; phone: string | null },
+    ): Promise<number | null> {
+        const phone = provider.phone === null ? null : normalizePhone(provider.phone);
+        if (!phone) return null;
+        const employees = await transaction.employee.findMany({
+            where: {
+                branchId,
+                deletedAt: null,
+                openToNextWork: true,
+            },
+            select: { id: true, name: true, phone: true },
+        });
+        const phoneMatches = employees.filter(
+            (employee) => normalizePhone(employee.phone) === phone,
+        );
+        if (phoneMatches.length === 1) return phoneMatches[0]!.id;
+        if (phoneMatches.length > 1) {
+            this.logger.warn(
+                `[EFORMSIGN_EMPLOYEE_AMBIGUOUS_PHONE] 지점 ${branchId}에서 전화번호가 겹치는 제공인력이 `
+                + `${phoneMatches.length}명이라 계약서 자동 배정을 건너뜁니다.`,
+            );
+            return null;
+        }
+
+        const providerName = provider.name?.trim() ?? "";
+        if (providerName) {
+            const nameMatches = employees.filter(
+                (employee) => employee.name.trim() === providerName,
+            );
+            if (nameMatches.length === 1) return nameMatches[0]!.id;
+        }
+
+        if (!providerName) return null;
+        // A unique-constraint loss means a concurrent registration created the
+        // same employee first; the serializable retry re-runs the lookup and
+        // takes the existing row.
+        const created = await transaction.employee.create({
+            data: {
+                name: providerName,
+                phone: formatNormalizedKoreanPhone(phone),
+                workArea: ["미지정"],
+                grade: DEFAULT_EMPLOYEE_GRADE,
+                openToNextWork: true,
+                branchId,
+            },
+            select: { id: true },
+        });
+        return created.id;
     }
 
     private repairAssignedDocument(document: {
