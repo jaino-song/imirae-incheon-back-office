@@ -56,4 +56,14 @@ describe("GET /api/eformsign/documents", () => {
             "fetch all eformsign documents",
         );
     });
+
+    it("forwards the section filter verbatim for the backend to resolve", async () => {
+        await GET(createRequest("/api/eformsign/documents?limit=25&skip=0&section=maternity"));
+
+        expect(mockProxyLocalGetRequest).toHaveBeenCalledWith(
+            expect.any(NextRequest),
+            "/api/documents?limit=25&skip=0&section=maternity",
+            "fetch all eformsign documents",
+        );
+    });
 });

@@ -41,29 +41,31 @@ function sortByCreatedDate(docs: EformsignDocument[]): EformsignDocument[] {
 export const infiniteContractsQueryKeys = {
   documents: (
     status: DocumentFilterType,
-    templateFilter?: DocumentTemplateFilter,
+    section?: ContractsSectionParam,
     search?: string,
   ) => [
     ...eformsignQueryKeys.documents(),
     "infinite",
     status ?? "all",
-    templateFilter?.templateMatch ?? "all-templates",
-    templateFilter?.templateId ?? null,
+    section ?? "any-section",
     // Search is part of the key so a new term never reuses another term's
     // cached pages (which would render as the search silently not applying).
     search || "",
   ] as const,
 };
 
-export interface DocumentTemplateFilter {
-  templateId: string;
-  templateMatch: "include" | "exclude";
-}
+/**
+ * Contracts sections whose template filter the backend resolves server-side
+ * (maternity = whitelist of the branch's registered 계약서 templates,
+ * service-records = the configured 제공기록지 tiers). Clients never send
+ * templateId/templateMatch any more.
+ */
+export type ContractsSectionParam = "maternity" | "service-records";
 
 interface UseInfiniteContractsOptions {
   enabled?: boolean;
   filterType?: DocumentFilterType;
-  templateFilter?: DocumentTemplateFilter;
+  section?: ContractsSectionParam;
   /**
    * Server-side search term (chosung-aware on the backend). Trimmed here;
    * an empty/whitespace value means "no search" and sends no param, so the
@@ -102,20 +104,14 @@ export function getNextContractsPageParam(
 export function useInfiniteContracts({
   enabled = true,
   filterType = null,
-  templateFilter,
+  section,
   search,
 }: UseInfiniteContractsOptions = {}) {
   const queryClient = useQueryClient();
-  const templateId = templateFilter?.templateId;
-  const templateMatch = templateFilter?.templateMatch;
   const normalizedSearch = search?.trim() ?? "";
   const queryKey = useMemo(
-    () => infiniteContractsQueryKeys.documents(
-      filterType,
-      templateId && templateMatch ? { templateId, templateMatch } : undefined,
-      normalizedSearch,
-    ),
-    [filterType, templateId, templateMatch, normalizedSearch],
+    () => infiniteContractsQueryKeys.documents(filterType, section, normalizedSearch),
+    [filterType, section, normalizedSearch],
   );
   const query = useInfiniteQuery<EformsignDocumentsResponse>({
     queryKey,
@@ -125,7 +121,7 @@ export function useInfiniteContracts({
       const params = {
         limit: PAGE_SIZE,
         skip,
-        ...(templateFilter ?? {}),
+        ...(section ? { section } : {}),
         ...(normalizedSearch ? { search: normalizedSearch } : {}),
       };
       switch (filterType) {

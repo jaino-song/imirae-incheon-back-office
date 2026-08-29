@@ -90,11 +90,6 @@ export interface FinalizeEformsignDocumentJobRequest {
     prefillEndDate?: string;
 }
 
-export interface ServiceRecordTemplateIdResponse {
-    templateId: string | null;
-    templateIds?: string[];
-}
-
 export interface LocalEformsignDocRecord {
     id?: number;
     documentId: string;
@@ -298,19 +293,20 @@ export const eformsignApi = {
     // Documents APIs - token is read from httpOnly cookie on server
     // Note: eformsign routes use /eformsign prefix to avoid conflict with file storage /documents
     // Unified endpoint - fetches all documents in single request (more efficient)
-    getAllDocuments: async (params?: { limit?: number; skip?: number; type?: string | null; templateId?: string; templateMatch?: "include" | "exclude"; search?: string; excludeDeleted?: boolean }): Promise<EformsignDocumentsResponse> => {
+    // section: backend resolves the template filter server-side; overrides templateId/templateMatch.
+    getAllDocuments: async (params?: { limit?: number; skip?: number; type?: string | null; section?: "maternity" | "service-records"; templateId?: string; templateMatch?: "include" | "exclude"; search?: string; excludeDeleted?: boolean }): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get('/eformsign/documents', { params });
         return data;
     },
-    getInProgressDocuments: async (params?: { limit?: number; skip?: number; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
+    getInProgressDocuments: async (params?: { limit?: number; skip?: number; section?: "maternity" | "service-records"; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get<EformsignApiListResponse>('/eformsign/documents/in-progress', { params });
         return normalizeDocumentListResponse(data, params);
     },
-    getCompletedDocuments: async (params?: { limit?: number; skip?: number; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
+    getCompletedDocuments: async (params?: { limit?: number; skip?: number; section?: "maternity" | "service-records"; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get<EformsignApiListResponse>('/eformsign/documents/completed', { params });
         return normalizeDocumentListResponse(data, params);
     },
-    getExpiredDocuments: async (params?: { limit?: number; skip?: number; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
+    getExpiredDocuments: async (params?: { limit?: number; skip?: number; section?: "maternity" | "service-records"; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get<EformsignApiListResponse>('/eformsign/documents/expired', { params });
         return normalizeDocumentListResponse(data, params);
     },
@@ -396,10 +392,6 @@ export const eformsignApi = {
     },
     getDocumentClientNames: async (): Promise<EformsignDocClientSummary[]> => {
         const { data } = await api.get('/eformsign-docs/client-names');
-        return data;
-    },
-    getServiceRecordTemplateId: async (): Promise<ServiceRecordTemplateIdResponse> => {
-        const { data } = await api.get('/eformsign-docs/feedback-template-id');
         return data;
     },
     getDocumentsByClientId: async (clientId: number): Promise<LocalEformsignDocRecord[]> => {

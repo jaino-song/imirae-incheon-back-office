@@ -1,4 +1,5 @@
 import { BadRequestException, ExecutionContext, INestApplication, ValidationPipe } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { AreaTemplateService } from "application/services/area-template.service";
 import { EformsignDocService } from "application/services/eformsign-doc.service";
@@ -14,6 +15,7 @@ import { EformsignListShadowCompareService } from "application/services/eformsig
 import { EformsignMirrorListService } from "application/services/eformsign-mirror-list.service";
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
 import { EformsignCredentialBoundary } from "application/services/eformsign-credential-boundary.service";
+import { EformsignTemplateScopeService } from "application/services/eformsign-template-scope.service";
 import { EFORMSIGN_DOC_REPOSITORY } from "domain/repositories/eformsign-doc.repository.interface";
 import { EFORMSIGN_DOCUMENT_MIRROR_REPOSITORY } from "domain/repositories/eformsign-document-mirror.repository.interface";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
@@ -197,6 +199,12 @@ describe("EformsignController (Integration)", () => {
                 {
                     provide: EformsignDocumentMirrorService,
                     useValue: documentMirrorService,
+                },
+                {
+                    // 이 모듈의 목록 테스트는 클라이언트 templateId pass-through를 검증한다.
+                    // section 해석은 아래 "local source-of-truth" 스위트가 실제 구현으로 검증한다.
+                    provide: EformsignTemplateScopeService,
+                    useValue: { resolveTemplateFilter: jest.fn().mockResolvedValue(undefined) },
                 },
             ],
         })
@@ -1029,6 +1037,7 @@ describe("EformsignController (Integration)", () => {
             stepType?: string;
             stepName?: string;
             customerName?: string | null;
+            templateId?: string;
         }) => {
             const createdDate = new Date(overrides.createdDate ?? "2026-07-01T00:00:00.000Z");
             return EformsignDocEntity.reconstitute({
@@ -1058,18 +1067,28 @@ describe("EformsignController (Integration)", () => {
                 clientId: null,
                 documentKind: null,
                 employeeScheduleId: null,
-                templateId: "template-1",
+                templateId: overrides.templateId ?? "template-1",
             });
         };
+
+        // EformsignTemplateScopeService의 정본 소스 두 개: 지점 area_template 레지스트리와
+        // 제공기록지 티어 설정(ConfigService). 테스트가 두 값을 직접 제어한다.
+        let areaTemplateFindAll: jest.Mock;
+        let templateScopeConfigGet: jest.Mock;
 
         beforeEach(async () => {
             mirrorRepository.findAllVisibleInMirror.mockResolvedValue([]);
             mirrorRepository.findAllVisibleInMirrorForHeadquarters.mockResolvedValue([]);
+            areaTemplateFindAll = jest.fn().mockResolvedValue([]);
+            templateScopeConfigGet = jest.fn().mockReturnValue(undefined);
             const fixture = await Test.createTestingModule({
                 controllers: [EformsignController],
                 providers: [
                     { provide: EformsignService, useValue: eformsignService },
-                    { provide: AreaTemplateService, useValue: { findByArea: jest.fn() } },
+                    {
+                        provide: AreaTemplateService,
+                        useValue: { findByArea: jest.fn(), findAll: areaTemplateFindAll },
+                    },
                     { provide: EformsignDocService, useValue: eformsignDocService },
                     {
                         provide: PrismaService,
@@ -1093,6 +1112,10 @@ describe("EformsignController (Integration)", () => {
                     // "컨트롤러가 스텁을 호출한다" 뿐이 되어, 정작 목록이 맞는지는 못 본다.
                     { provide: EFORMSIGN_DOC_REPOSITORY, useValue: mirrorRepository },
                     EformsignMirrorListService,
+                    // section 해석도 실제 구현을 쓴다 — 정본(area_template 레지스트리 +
+                    // 제공기록지 티어 설정)이 필터로 이어지는 것까지 HTTP 레벨에서 검증한다.
+                    EformsignTemplateScopeService,
+                    { provide: ConfigService, useValue: { get: templateScopeConfigGet } },
                     {
                         provide: EformsignDocumentMirrorService,
                         useValue: documentMirrorService,
@@ -1138,6 +1161,82 @@ describe("EformsignController (Integration)", () => {
             expect(eformsignService.getAllDocuments).not.toHaveBeenCalled();
             // 미러가 서빙 중이면 비교할 상대가 없다.
             expect(shadowCompareService.compareInBackground).not.toHaveBeenCalled();
+        });
+
+        it("whitelists the maternity section from the branch's area template registry", async () => {
+            areaTemplateFindAll.mockResolvedValue([
+                { templateId: "registered-contract-template" },
+            ]);
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-contract", templateId: "registered-contract-template" }),
+                createMirrorRow({ documentId: "doc-foreign", templateId: "unrelated-template" }),
+            ]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?section=maternity");
+
+            expect(response.status).toBe(200);
+            expect(response.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-contract"]);
+            expect(response.body.total_rows).toBe(1);
+            // 정본 조회는 로그인 세션의 지점으로 이뤄진다 — 클라이언트가 목록을 보낼 필요가 없다.
+            expect(areaTemplateFindAll).toHaveBeenCalledWith("branch-1");
+        });
+
+        it("lets the section override client-sent template params", async () => {
+            // 클라이언트가 include로 other-template을 강요해도 서버 정본(화이트리스트)이 이긴다.
+            areaTemplateFindAll.mockResolvedValue([
+                { templateId: "registered-contract-template" },
+            ]);
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-contract", templateId: "registered-contract-template" }),
+                createMirrorRow({ documentId: "doc-other", templateId: "other-template" }),
+            ]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?section=maternity&templateId=other-template&templateMatch=include");
+
+            expect(response.status).toBe(200);
+            expect(response.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-contract"]);
+        });
+
+        it("falls back to excluding the configured service-record tiers when no maternity template is registered", async () => {
+            areaTemplateFindAll.mockResolvedValue([]);
+            // 5회 티어 env 키만 설정된 상태.
+            templateScopeConfigGet.mockImplementation((key: string) =>
+                key === "EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID" ? "service-record-template" : undefined);
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-contract", templateId: "contract-template" }),
+                createMirrorRow({ documentId: "doc-record", templateId: "service-record-template" }),
+            ]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?section=maternity");
+
+            expect(response.status).toBe(200);
+            expect(response.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-contract"]);
+        });
+
+        it("includes the configured service-record tiers for the service-records section", async () => {
+            templateScopeConfigGet.mockImplementation((key: string) =>
+                key === "EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID" ? "service-record-template" : undefined);
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-contract", templateId: "contract-template" }),
+                createMirrorRow({ documentId: "doc-record", templateId: "service-record-template" }),
+            ]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?section=service-records");
+
+            expect(response.status).toBe(200);
+            expect(response.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-record"]);
+        });
+
+        it("rejects an unknown section", async () => {
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?section=everything");
+
+            expect(response.status).toBe(400);
+            expect(areaTemplateFindAll).not.toHaveBeenCalled();
         });
 
         it("keeps the cached generation stable when the local mirror moves between pages", async () => {
