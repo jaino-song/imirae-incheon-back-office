@@ -1365,6 +1365,15 @@
         "exports": [
           "useV3UiScaleStyle"
         ]
+      },
+      {
+        "name": "AutomationStatusNotice",
+        "layer": "molecule",
+        "import": "@/components/app/ui/automation-status-notice",
+        "file": "frontend/src/components/app/ui/automation-status-notice.tsx",
+        "exports": [
+          "AutomationStatusNotice"
+        ]
       }
     ],
     "mobile": [

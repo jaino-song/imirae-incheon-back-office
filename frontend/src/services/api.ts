@@ -452,9 +452,20 @@ export interface MessageAutomationPastTriggerConfig {
     ruleOrder: string[];
 }
 
+export interface ClientRegistrationPolicyAutomationStatus {
+    /** 웹훅 수신이 가능한 상태인지 (시크릿 + 테넌트 허용목록 존재). */
+    webhookConfigured: boolean;
+    /** 6시간 주기 미러 동기화가 활성화되어 있는지. */
+    sweepEnabled: boolean;
+    /** 주기 동기화가 실제로 시작될 수 있는지 (락 또는 단일 인스턴스 승인). */
+    sweepRunnable: boolean;
+}
+
 export interface ClientRegistrationPolicy {
     clientAutoRegistration: boolean;
     greetingOnAutoRegistration: boolean;
+    /** 구버전 백엔드 응답에는 없을 수 있다. */
+    automation?: ClientRegistrationPolicyAutomationStatus;
 }
 
 export type ClientRegistrationPolicyPatch = Partial<ClientRegistrationPolicy>;

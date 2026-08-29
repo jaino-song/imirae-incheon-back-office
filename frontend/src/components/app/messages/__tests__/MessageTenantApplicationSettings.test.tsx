@@ -268,7 +268,7 @@ describe("MessageTenantApplicationSettings", () => {
     render(<MessageTenantApplicationSettings />);
 
     fireEvent.click(screen.getByText("고객 자동 등록"));
-    const autoRegistration = screen.getByRole("switch", { name: "전자문서 생성 시 고객 자동 등록" });
+    const autoRegistration = screen.getByRole("switch", { name: "eformsign 계약서 도착 시 고객 자동 등록" });
     const greeting = screen.getByRole("switch", { name: "자동 등록 시 인사 문자 발송" });
     expect(autoRegistration).toBeChecked();
     expect(greeting).not.toBeDisabled();

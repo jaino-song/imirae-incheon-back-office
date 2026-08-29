@@ -50,6 +50,7 @@ import { canCreateNewContractDocument } from "@/components/app/contracts/Contrac
 import { ClientDetailPanel } from "@/components/app/clients/ClientDetailPanel";
 import { getClientDisplayLabel } from "@/components/app/clients/client-display";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
+import { AutomationStatusNotice } from "@/components/app/ui/automation-status-notice";
 import { NotificationOneButtonModal } from "@/components/app/ui/NotificationOneButtonModal";
 import { ClientDetailModal } from "@/components/app/clients/ClientDetailModal";
 import { ServiceRecordLinkResetResultModal } from "@/components/app/clients/ServiceRecordLinkResetResultModal";
@@ -106,7 +107,7 @@ const CLIENT_AUTOMATION_ITEMS: readonly ClientAutomationItem[] = [
     {
         id: "eformsign-auto-client-registration",
         title: "전자문서 자동 고객 등록",
-        subtitle: "전자문서 생성 시 고객 정보가 자동으로 등록됩니다.",
+        subtitle: "eformsign 계약서가 도착하면 고객 정보가 자동으로 등록됩니다.",
         icon: FileSignature,
     },
 ];
@@ -246,14 +247,11 @@ function ClientAutomationSection() {
                             data-component="desktop_clients_sections_section-content_automation-section_split-layout_detail-panel_info-card"
                             title="자동화 안내"
                         >
-                            <p
-                                data-component="desktop_clients_sections_section-content_automation-section_split-layout_detail-panel_info-card_temporary-copy"
-                                className="text-[0.85rem] leading-6 text-v3-text-muted"
-                            >
-                                {selectedAutomationEnabled
-                                    ? "전자문서 생성 시에 자동으로 고객이 등록됩니다."
-                                    : "자동 고객 등록이 꺼져 있습니다."}
-                            </p>
+                            <AutomationStatusNotice
+                                data-component="desktop_clients_sections_section-content_automation-section_split-layout_detail-panel_info-card_notice"
+                                enabled={selectedAutomationEnabled}
+                                automation={policy?.automation}
+                            />
                         </InfoCard>
                     </DetailPanel>
                 ) : (

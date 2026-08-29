@@ -3,6 +3,7 @@ import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { OwnerGuard } from "infrastructure/auth/owner.guard";
 import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 import { SystemSettingService } from "application/services/system-setting.service";
+import { EformsignAutomationStatusService } from "application/services/eformsign-automation-status.service";
 import {
     UpdateNotificationPreferencesDto,
     NotificationPreferencesResponseDto,
@@ -36,6 +37,7 @@ export class SystemSettingController {
     constructor(
         private readonly systemSettingService: SystemSettingService,
         private readonly messageSenderApprovalService: MessageSenderApprovalService,
+        private readonly eformsignAutomationStatusService: EformsignAutomationStatusService,
     ) {}
 
     @Get("notification-preferences")
@@ -124,7 +126,11 @@ export class SystemSettingController {
             this.systemSettingService.getGreetingOnAutoRegistrationEnabled(branchId),
         ]);
 
-        return ClientRegistrationPolicyResponseDto.from(clientAutoRegistration, greetingOnAutoRegistration);
+        return ClientRegistrationPolicyResponseDto.from(
+            clientAutoRegistration,
+            greetingOnAutoRegistration,
+            this.eformsignAutomationStatusService.getStatus(),
+        );
     }
 
     @Put("client-registration-policy")
@@ -162,7 +168,11 @@ export class SystemSettingController {
             this.systemSettingService.getGreetingOnAutoRegistrationEnabled(branchId),
         ]);
 
-        return ClientRegistrationPolicyResponseDto.from(clientAutoRegistration, greetingOnAutoRegistration);
+        return ClientRegistrationPolicyResponseDto.from(
+            clientAutoRegistration,
+            greetingOnAutoRegistration,
+            this.eformsignAutomationStatusService.getStatus(),
+        );
     }
 
     @Put("ribbon-config")

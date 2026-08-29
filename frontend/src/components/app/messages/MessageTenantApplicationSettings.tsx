@@ -27,6 +27,7 @@ import {
   ListEmptyState,
   ListPanel,
 } from "@/components/app/v3";
+import { AutomationStatusNotice } from "@/components/app/ui/automation-status-notice";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -684,14 +685,14 @@ export function MessageTenantApplicationSettings() {
         <DetailPanel data-component="desktop_messages_sections_split-layout_detail-panel-3"
           avatar={<div className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary"><UserPlus className="h-5 w-5" /></div>}
           title="고객 자동 등록"
-          subtitle="전자문서 고객 등록과 인사 문자 발송을 관리합니다."
+          subtitle="eformsign 계약서 고객 등록과 인사 문자 발송을 관리합니다."
         >
           <InfoCard data-component="desktop_messages_sections_settings-client-registration-policy-card" title="고객 자동 등록">
             <div className="-mt-1">
               <InfoRow
                 data-component="desktop_messages_sections_settings-client-auto-registration"
-                label="전자문서 생성 시 고객 자동 등록"
-                value={<Switch aria-label="전자문서 생성 시 고객 자동 등록" checked={clientRegistrationPolicy?.clientAutoRegistration === true} disabled={!clientRegistrationPolicy || updateClientRegistrationPolicyMutation.isPending} onCheckedChange={(checked) => updateClientRegistrationPolicyMutation.mutate({ clientAutoRegistration: checked })} />}
+                label="eformsign 계약서 도착 시 고객 자동 등록"
+                value={<Switch aria-label="eformsign 계약서 도착 시 고객 자동 등록" checked={clientRegistrationPolicy?.clientAutoRegistration === true} disabled={!clientRegistrationPolicy || updateClientRegistrationPolicyMutation.isPending} onCheckedChange={(checked) => updateClientRegistrationPolicyMutation.mutate({ clientAutoRegistration: checked })} />}
               />
               <InfoRow
                 data-component="desktop_messages_sections_settings-greeting-on-auto-registration"
@@ -699,6 +700,13 @@ export function MessageTenantApplicationSettings() {
                 value={<Switch aria-label="자동 등록 시 인사 문자 발송" checked={clientRegistrationPolicy?.greetingOnAutoRegistration === true} disabled={!clientRegistrationPolicy?.clientAutoRegistration || updateClientRegistrationPolicyMutation.isPending} onCheckedChange={(checked) => updateClientRegistrationPolicyMutation.mutate({ greetingOnAutoRegistration: checked })} />}
               />
             </div>
+          </InfoCard>
+          <InfoCard data-component="desktop_messages_sections_settings-client-registration-automation-card" title="동작 방식">
+            <AutomationStatusNotice
+              data-component="desktop_messages_sections_settings-client-registration-automation-card_notice"
+              enabled={clientRegistrationPolicy?.clientAutoRegistration === true}
+              automation={clientRegistrationPolicy?.automation}
+            />
           </InfoCard>
         </DetailPanel>
       ) : selectedItem?.kind === "duplicate-send-policy" ? (
