@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
 
 import { MessageTriggerService } from "application/services/message-trigger.service";
+import { NotificationService } from "application/services/notification.service";
 import { persistClientMessageAutomationIntent, persistScheduleMessageAutomationIntent } from "application/services/message-automation-intent-writer";
 import { fulfillClientMessageAutomationIntent } from "application/services/client-message-automation-intent-fulfiller";
 import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
@@ -98,7 +99,10 @@ interface TransactionResult {
     status: LinkMirroredEformsignDocResult;
     createdClientId?: number;
     createdBranchId?: string;
+    createdScheduleId?: number;
 }
+
+const ASSIGNMENT_REQUIRED_NOTIFICATION_TYPE = "eformsign_assignment_required";
 
 /**
  * Reconciles a locally mirrored contract with its client.
@@ -121,6 +125,8 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
         private readonly messageTriggerService?: MessageTriggerService,
         @Optional()
         private readonly serviceRecordLifecycleService?: ServiceRecordLifecycleService,
+        @Optional()
+        private readonly notificationService?: NotificationService,
     ) {}
 
     async execute(
@@ -247,8 +253,61 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                 },
             });
             if (!postLinkApplied) return "mirror_not_ready";
+            // Historical imports must not page staff for old unassigned clients.
+            if (result.createdScheduleId === undefined && !options.suppressOutboundAutomation) {
+                await this.notifyAssignmentRequired(
+                    result.createdBranchId,
+                    documentId,
+                    result.createdClientId,
+                );
+            }
         }
         return result.status;
+    }
+
+    /**
+     * An auto-registered client without an initial assignment (caretaker
+     * unmatched, or the contract carried no service dates) is invisible work —
+     * tell the branch staff once per document so someone can pick it up.
+     */
+    private async notifyAssignmentRequired(
+        branchId: string,
+        documentId: string,
+        clientId: number,
+    ): Promise<void> {
+        if (!this.notificationService) return;
+        try {
+            const client = await this.prisma.client.findUnique({
+                where: { id: clientId },
+                select: { name: true },
+            });
+            const clientName = client?.name?.trim() || "미확인";
+            const result = await this.notificationService.sendToBranchUsers(
+                branchId,
+                "제공인력 지정 필요",
+                `${clientName} 산모님의 제공인력 지정이 필요합니다.`,
+                {
+                    type: ASSIGNMENT_REQUIRED_NOTIFICATION_TYPE,
+                    documentId,
+                    clientId,
+                    url: `/clients?id=${clientId}`,
+                },
+                {
+                    dedupe: {
+                        type: ASSIGNMENT_REQUIRED_NOTIFICATION_TYPE,
+                        documentId,
+                    },
+                },
+            );
+            this.logger.log(
+                `Assignment-required notification for document ${documentId}: ${result.sent} sent, ${result.failed} failed`,
+            );
+        } catch (error) {
+            this.logger.warn(
+                `Failed to send assignment-required notification for document ${documentId}: `
+                + (error instanceof Error ? error.name : "UnknownError"),
+            );
+        }
     }
 
     private async applyPostLinkEffects(params: {
@@ -539,6 +598,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                             status: "created",
                             createdClientId: client.id,
                             createdBranchId: creationBranchId,
+                            createdScheduleId: scheduleId ?? undefined,
                         };
                     },
                     { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },

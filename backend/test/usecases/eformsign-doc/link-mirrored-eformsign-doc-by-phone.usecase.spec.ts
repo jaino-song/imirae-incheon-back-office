@@ -134,6 +134,9 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
                 id: "automation-intent-1",
                 scheduled_for: new Date("2026-07-21T00:02:00.000Z"),
             }]),
+            client: {
+                findUnique: jest.fn().mockResolvedValue({ name: "김고객" }),
+            },
             user: {
                 findFirst: jest.fn().mockResolvedValue(null),
             },
@@ -169,6 +172,9 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         const serviceRecordLifecycle = {
             ensureForClient: jest.fn().mockResolvedValue(undefined),
         };
+        const notificationService = {
+            sendToBranchUsers: jest.fn().mockResolvedValue({ sent: 1, failed: 0 }),
+        };
         return {
             document,
             transaction,
@@ -176,12 +182,14 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
             settings,
             messageTrigger,
             serviceRecordLifecycle,
+            notificationService,
             usecase: new LinkMirroredEformsignDocByPhoneUsecase(
                 prisma as never,
                 config,
                 settings as never,
                 messageTrigger as never,
                 serviceRecordLifecycle as never,
+                notificationService as never,
             ),
         };
     }
@@ -581,6 +589,87 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
 
         expect(transaction.employee.findMany).not.toHaveBeenCalled();
         expect(transaction.employee_schedule.create).not.toHaveBeenCalled();
+        expect(transaction.client.create).toHaveBeenCalled();
+    });
+
+    it("notifies staff when an auto-registered client has no caretaker assignment", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetail(),
+        });
+        const { transaction, notificationService, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        expect(transaction.employee_schedule.create).not.toHaveBeenCalled();
+        expect(notificationService.sendToBranchUsers).toHaveBeenCalledWith(
+            "branch-1",
+            "제공인력 지정 필요",
+            "김고객 산모님의 제공인력 지정이 필요합니다.",
+            expect.objectContaining({
+                type: "eformsign_assignment_required",
+                documentId: "doc-1",
+                clientId: 31,
+                url: "/clients?id=31",
+            }),
+            expect.objectContaining({
+                dedupe: expect.objectContaining({
+                    type: "eformsign_assignment_required",
+                    documentId: "doc-1",
+                }),
+            }),
+        );
+    });
+
+    it("does not notify when caretakers were assigned during registration", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetailWithProviders(),
+        });
+        const { transaction, notificationService, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+        transaction.employee.findMany.mockResolvedValue([
+            { id: 55, name: "박관리사", phone: "010-5555-1111" },
+            { id: 56, name: "최관리사", phone: "01055552222" },
+        ]);
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        expect(transaction.employee_schedule.create).toHaveBeenCalled();
+        expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
+    });
+
+    it("does not notify for historical imports with suppressed automation", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetail(),
+        });
+        const { transaction, notificationService, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+
+        await expect(usecase.execute("doc-1", {
+            suppressOutboundAutomation: true,
+        })).resolves.toBe("created");
+
+        expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
+    });
+
+    it("keeps the registration successful when the assignment notification fails", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetail(),
+        });
+        const { transaction, notificationService, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+        notificationService.sendToBranchUsers.mockRejectedValue(new Error("push provider down"));
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
         expect(transaction.client.create).toHaveBeenCalled();
     });
 
