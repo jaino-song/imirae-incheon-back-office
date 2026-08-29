@@ -19,6 +19,7 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 import { TenantModule } from "infrastructure/tenant/tenant.module";
 import { EformsignDocModule } from "module/eformsign-doc.module";
 import { extractEformsignContractEndDate } from "application/utils/eformsign-contract-client-candidate";
+import { createEformsignWorkerPrincipal } from "application/services/eformsign-credential-boundary.service";
 import type { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 
 /**
@@ -284,7 +285,7 @@ const buildContract = (
         const result = await dispatchDocument.execute(branchId, {
             clientId: creationClientId,
             contractData: buildContract(customerName, employeeName, employeePhone),
-        });
+        }, createEformsignWorkerPrincipal(branchId));
         if (result.ok) remoteDocumentIds.add(result.documentId);
         else if (result.remoteDocumentId) remoteDocumentIds.add(result.remoteDocumentId);
 
@@ -322,7 +323,7 @@ const buildContract = (
         await expect(dispatchDocument.execute(branchId, {
             clientId: creationClientId,
             contractData: buildContract(customerName, employeeName, employeePhone),
-        })).resolves.toEqual(expect.objectContaining({
+        }, createEformsignWorkerPrincipal(branchId))).resolves.toEqual(expect.objectContaining({
             ok: false,
             reason: "duplicate_pending_document",
             existingDocumentId: recoveredId,
@@ -464,7 +465,7 @@ const buildContract = (
             await expect(finalizeDocument.execute({
                 documentId: documentId!,
                 prefillEndDate: REVIEW_END_DATE,
-            })).resolves.toMatchObject({ ok: true });
+            }, createEformsignWorkerPrincipal(branchId))).resolves.toMatchObject({ ok: true });
 
             completed = await waitForRemote(
                 documentId!,

@@ -3,11 +3,13 @@
 import { useMemo, useState } from "react";
 import { MoreVertical, SquarePen, Trash2 } from "lucide-react";
 
+import { ErrorFallback } from "@/components/app/ui/error-fallback";
+import { ListEmptyState } from "@/components/app/v3";
 import {
   type Employee,
   type EmployeeStatus,
   useDeleteEmployee,
-  useEmployeeActiveClients,
+  useEmployeeActiveClients, useEmployeeWorkHistory,
 } from "@/hooks/useEmployees";
 import { useInfiniteEmployees } from "@/hooks/useInfiniteEmployees";
 import { useListInfiniteScroll } from "@/hooks/useListInfiniteScroll";
@@ -44,9 +46,9 @@ import {
   MobileDetailTabPanel,
 } from "@/components/app/mobile-redesign/detail-sheet";
 import "@/components/app/mobile-redesign/redesign.css";
-import {
-  getOpenToNextWorkLabel,
-} from "@babyjamjam/shared/constants/employee-status";
+import { getOpenToNextWorkLabel } from "@babyjamjam/shared/constants/employee-status";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@babyjamjam/shared";
 import {
@@ -55,9 +57,7 @@ import {
   groupForEmployee,
   type EmployeeGroup,
 } from "@/lib/employee/list-helpers";
-
 const ALL_FILTER = "전체";
-
 function employeeInitial(name: string) {
   return name.trim().charAt(0) || "?";
 }
@@ -89,8 +89,8 @@ function employeeMeta(e: Employee) {
   return employeePrimaryArea(e);
 }
 
-function formatRegisteredDate(value: string | null | undefined): string {
-  return formatDateForDisplay(value);
+function formatRegisteredDate(value: string | null | undefined, fallback: string): string {
+  return formatDateForDisplay(value, fallback);
 }
 
 type DetailTabId = "basic" | "clients" | "history";
@@ -108,11 +108,13 @@ function EmployeeDetailContent({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const locale = useLocale();
   const group = groupForEmployee(employee);
   const availability = getOpenToNextWorkLabel(employee.openToNextWork);
   const availabilityTone = employee.openToNextWork ? "green" : "muted";
+  const unknownDateLabel = t(locale, "employees.form.registered-date-unknown");
   const { data: activeClients = [], isLoading: isActiveClientsLoading } =
-    useEmployeeActiveClients(employee.id);
+    useEmployeeActiveClients(employee.id); const { history: workHistory, isLoading: isWorkHistoryLoading, isError: isWorkHistoryError, refetch: refetchWorkHistory, hasNextPage: hasMoreWorkHistory, fetchNextPage: fetchMoreWorkHistory, isFetchingNextPage: isFetchingMoreWorkHistory } = useEmployeeWorkHistory(employee.id);
 
   return (
     <MobileDetailPage data-component="mobile_employees_detail-sheet_stack_detail-page_body" name="employees">
@@ -197,7 +199,10 @@ function EmployeeDetailContent({
           />
         </InfoCard>
         <InfoCard data-component="mobile_employees_detail-panel_info-card-2" title="등록 정보" delay={60}>
-          <InfoRow label="등록일" value={formatRegisteredDate(employee.registeredDate)} />
+          <InfoRow
+            label={t(locale, "employees.form.registered-date")}
+            value={formatRegisteredDate(employee.registeredDate, unknownDateLabel)}
+          />
         </InfoCard>
       </MobileDetailTabPanel>
 
@@ -243,12 +248,75 @@ function EmployeeDetailContent({
         data-component="mobile_employees_detail-sheet_stack_detail-page_body_tab-panel-3"
       >
         <InfoCard data-component="mobile_employees_detail-panel_info-card-4" title="이전 담당">
-          <div
-            className="detail-empty-state"
-            data-component="mobile_employees_detail-panel_info-card-4_empty"
-          >
-            근무 내역이 없습니다.
-          </div>
+          {isWorkHistoryLoading && workHistory.length === 0 ? (
+            <ListRowsSkeleton
+              data-component="mobile_employees_detail-panel_info-card-4_loading"
+              rowCount={2}
+              rightLines={1}
+            />
+          ) : isWorkHistoryError && workHistory.length === 0 ? (
+            <ErrorFallback
+              title="근무 내역을 불러오지 못했어요"
+              description="잠시 후 다시 시도해 주세요."
+              onReset={() => void refetchWorkHistory()}
+              resetLabel="다시 시도"
+              className="min-h-0 px-0 py-4"
+            />
+          ) : workHistory.length > 0 ? (
+            <>
+              {isWorkHistoryError ? (
+                <Alert
+                  variant="warning"
+                  role="status"
+                  aria-live="polite"
+                  data-component="mobile_employees_detail-panel_info-card-4_cached-data-error"
+                  className="mb-3"
+                >
+                  <AlertTitle>근무 내역을 새로 불러오지 못했어요</AlertTitle>
+                  <AlertDescription>
+                    <p>현재 저장된 근무 내역을 표시하고 있습니다. 잠시 후 다시 시도해 주세요.</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      data-component="mobile_employees_detail-panel_info-card-4_cached-data-error_retry"
+                      aria-label="근무 내역 다시 시도"
+                      className="mt-3"
+                      onClick={() => void refetchWorkHistory()}
+                    >
+                      다시 시도
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+              {workHistory.map((assignment) => (
+                <div
+                  key={assignment.scheduleId}
+                  data-component="mobile_employees_detail-panel_info-card-4_history-row"
+                >
+                  <DocRow
+                    initial={employeeInitial(assignment.clientName)}
+                    title={assignment.clientName}
+                    meta={`${formatDateForDisplay(assignment.startDate)} ~ ${formatDateForDisplay(assignment.endDate)} · ${assignment.role === "primary" ? "주담당" : "부담당"}`}
+                    badge={assignment.status === "replaced" ? "교체됨" : "종료"}
+                    tone={assignment.status === "replaced" ? "orange" : "muted"}
+                  />
+                </div>
+              ))}
+              {hasMoreWorkHistory ? (
+                <ListLoadMoreButton
+                  data-component="mobile_employees_detail-panel_info-card-4_load-more"
+                  onLoadMore={() => void fetchMoreWorkHistory()}
+                  isLoading={isFetchingMoreWorkHistory}
+                />
+              ) : null}
+            </>
+          ) : (
+            <ListEmptyState
+              name="mobile_employees_detail-panel_info-card-4_empty"
+              message="근무 내역이 없습니다."
+            />
+          )}
         </InfoCard>
       </MobileDetailTabPanel>
     </MobileDetailPage>

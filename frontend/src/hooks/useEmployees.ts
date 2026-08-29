@@ -20,7 +20,7 @@ export interface Employee {
     phone: string;
     grade: string;
     openToNextWork: boolean;
-    registeredDate: string;
+    registeredDate: string | null;
     status: EmployeeStatus;
     birthday?: string;
 }

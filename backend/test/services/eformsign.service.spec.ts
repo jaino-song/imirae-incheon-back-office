@@ -39,6 +39,22 @@ describe("EformsignService", () => {
         jest.restoreAllMocks();
     });
 
+    it("rejects a malformed outsider phone override before reading or calling the provider", async () => {
+        const service = new EformsignService(createConfigService());
+        const getDocument = jest.spyOn(service, "getDocumentById");
+
+        await expect(service.reRequestOutsiderDocument(
+            "access-token",
+            "doc-1",
+            "05",
+            "1",
+            "재요청",
+            { countryCode: "+82", phoneNumber: "not-a-phone" },
+        )).rejects.toThrow("valid Korean phone number");
+
+        expect(getDocument).not.toHaveBeenCalled();
+    });
+
     it("aborts a mirrored PDF request that does not return before the deadline", async () => {
         jest.useFakeTimers();
         const service = new EformsignService(createConfigService());
@@ -168,32 +184,6 @@ describe("EformsignService", () => {
 
         await expect(service.cancelDocuments("access-token", ["doc-1"]))
             .rejects.toMatchObject({ status: 400, vendorCode: "4000164" });
-    });
-
-    it("surfaces a vendor rejection of an access-token request as an api error", async () => {
-        const service = new EformsignService(createConfigService({
-            EFORMSIGN_PRIVATE_KEY: generateEformsignPrivateKeyHex(),
-        }));
-        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
-            JSON.stringify({ code: "4010001", ErrorMessage: "unauthorized" }),
-            { status: 401, headers: { "Content-Type": "application/json" } },
-        ));
-
-        await expect(service.getAccessToken(Date.now()))
-            .rejects.toMatchObject({ status: 401, vendorCode: "4010001" });
-    });
-
-    it("surfaces a vendor rejection of a refresh-token request as an api error", async () => {
-        const service = new EformsignService(createConfigService({
-            EFORMSIGN_PRIVATE_KEY: generateEformsignPrivateKeyHex(),
-        }));
-        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
-            JSON.stringify({ code: "4010002", ErrorMessage: "expired refresh token" }),
-            { status: 401, headers: { "Content-Type": "application/json" } },
-        ));
-
-        await expect(service.refreshAccessToken(Date.now(), "stale-refresh-token"))
-            .rejects.toMatchObject({ status: 401, vendorCode: "4010002" });
     });
 
     it("reads the normalized status from the vendor detail current_status shape", async () => {
@@ -407,6 +397,50 @@ describe("EformsignService", () => {
         );
     });
 
+    it("round-trips formatted whole-won prices as canonical provider values", () => {
+        const service = new EformsignService(createConfigService());
+        const contractData: ContractDataDto = {
+            customerName: "김정인",
+            customerContact: "010-1234-5678",
+            customerDOB: "900101",
+            customerAddress: "인천 서구",
+            caretaker1Name: "이관리",
+            caretaker1Contact: "010-9999-8888",
+            type: "A통합3형",
+            days: "6",
+            area: "Seogu",
+            contractDuration: "2026-08-03 ~ 2026-08-10",
+            startYear: "26",
+            startMonth: "08",
+            startDay: "03",
+            startDate: "2026-08-03",
+            endYear: "26",
+            endMonth: "08",
+            endDay: "10",
+            endDate: "2026-08-10",
+            paymentYear: "26",
+            paymentMonth: "08",
+            paymentDay: "03",
+            fullPrice: " 1,000원 ",
+            grant: "500원",
+            actualPrice: "500",
+        };
+
+        const options = service.generateDocumentOptions(
+            contractData,
+            "access-token",
+            "refresh-token",
+            "template-seogu",
+        );
+
+        expect(options.prefill.fields).toEqual(expect.arrayContaining([
+            { id: "서비스 비용", value: "1000" },
+            { id: "정부지원금", value: "500" },
+            { id: "본인부담금", value: "500" },
+            { id: "서비스 가격", value: "1000" },
+        ]));
+    });
+
     it("uses a two-digit year when finalizing templates with a fixed century prefix", async () => {
         const service = new EformsignService(createConfigService());
         jest.spyOn(global, "fetch").mockResolvedValue(new Response(
@@ -428,7 +462,7 @@ describe("EformsignService", () => {
         ]));
     });
 
-    it("uses e2e vendor stubs for token fetches and document listing without network access", async () => {
+    it("uses e2e vendor stubs for document listing without network access", async () => {
         const fetchSpy = jest.spyOn(global, "fetch");
         const service = new EformsignService(createConfigService({
             E2E_VENDOR_STUBS: "1",
@@ -440,13 +474,6 @@ describe("EformsignService", () => {
             EFORMSIGN_COMPANY_ID: undefined,
             EFORMSIGN_TEMPLATE_ID: undefined,
         }));
-
-        await expect(service.getAccessToken(Date.now())).resolves.toMatchObject({
-            oauth_token: {
-                access_token: "e2e-stub-token",
-                refresh_token: "e2e-stub-refresh-token",
-            },
-        });
 
         const documents = await service.getAllDocuments("ignored-token");
 

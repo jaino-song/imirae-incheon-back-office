@@ -387,6 +387,7 @@ export class AuthSessionService {
         sessionId: string,
         userId: string,
         reason = "logout",
+        pushEndpoint?: string,
     ): Promise<void> {
         const now = new Date();
         await this.prisma.$transaction(async (tx) => {
@@ -398,17 +399,21 @@ export class AuthSessionService {
                 where: { sessionId, revokedAt: null },
                 data: { revokedAt: now, activeMarker: null },
             });
+            if (this.shouldCleanUpPushSubscriptions(reason)) {
+                await this.deletePushSubscriptionsWithinTx(tx, userId, pushEndpoint);
+            }
         });
     }
 
     async revokeSessionByRefreshToken(
         rawToken: string,
         reason = "logout",
-    ): Promise<void> {
+        pushEndpoint?: string,
+    ): Promise<boolean> {
         const parsed = this.parseRefreshToken(rawToken);
-        if (!parsed) return;
+        if (!parsed) return false;
 
-        await this.prisma.$transaction(async (tx) => {
+        return this.prisma.$transaction(async (tx) => {
             const token = await tx.auth_refresh_token.findUnique({
                 where: { id: parsed.tokenId },
                 select: {
@@ -418,7 +423,7 @@ export class AuthSessionService {
                 },
             });
             if (!token || !this.matchesSecret(token.secretHash, parsed.secret)) {
-                return;
+                return false;
             }
             await this.revokeSessionWithinTx(
                 tx,
@@ -426,36 +431,58 @@ export class AuthSessionService {
                 new Date(),
                 reason,
             );
+            if (this.shouldCleanUpPushSubscriptions(reason)) {
+                await this.deletePushSubscriptionsWithinTx(
+                    tx,
+                    token.session.userId,
+                    pushEndpoint,
+                );
+            }
+            return true;
         });
     }
 
     async revokeSessionByAccessToken(
         rawToken: string,
         reason = "logout",
+        pushEndpoint?: string,
     ): Promise<void> {
+        let payload: {
+            sub?: string;
+            sid?: string;
+            type?: string;
+        };
         try {
-            const payload = await this.jwt.verifyAsync<{
+            payload = await this.jwt.verifyAsync<{
                 sub?: string;
                 sid?: string;
                 type?: string;
             }>(rawToken, { ignoreExpiration: true });
-            if (
-                payload.type !== "access"
-                || typeof payload.sub !== "string"
-                || typeof payload.sid !== "string"
-            ) {
-                return;
-            }
-            await this.revokeSession(payload.sid, payload.sub, reason);
         } catch {
+            // Invalid or unverifiable bearer tokens cannot identify an owner;
+            // keep logout idempotent without attempting a user-wide cleanup.
             return;
         }
+
+        if (
+            payload.type !== "access"
+            || typeof payload.sub !== "string"
+            || typeof payload.sid !== "string"
+        ) {
+            return;
+        }
+
+        // Deliberately keep revocation errors visible. A valid token with a
+        // failed transactional push cleanup must not be acknowledged as a
+        // successful server logout.
+        await this.revokeSession(payload.sid, payload.sub, reason, pushEndpoint);
     }
 
     async revokeAllUserSessions(
         userId: string,
         reason = "logout_all",
         exceptSessionId?: string,
+        pushEndpoint?: string,
     ): Promise<void> {
         const now = new Date();
         const sessionWhere = {
@@ -477,6 +504,29 @@ export class AuthSessionService {
                 },
                 data: { revokedAt: now, activeMarker: null },
             });
+            if (this.shouldCleanUpPushSubscriptions(reason)) {
+                await this.deletePushSubscriptionsWithinTx(tx, userId, pushEndpoint);
+            }
+        });
+    }
+
+    private shouldCleanUpPushSubscriptions(reason: string): boolean {
+        return reason === "logout" || reason === "logout_all";
+    }
+
+    private async deletePushSubscriptionsWithinTx(
+        tx: Prisma.TransactionClient,
+        userId: string,
+        pushEndpoint?: string,
+    ): Promise<void> {
+        // First-party logout pages pass the browser endpoint so other devices
+        // remain enrolled. Legacy/API callers cannot identify one browser, so
+        // remove every endpoint owned by the user rather than leave an
+        // account-bound delivery channel active after logout.
+        await tx.push_subscription.deleteMany({
+            where: pushEndpoint
+                ? { userId, endpoint: pushEndpoint }
+                : { userId },
         });
     }
 

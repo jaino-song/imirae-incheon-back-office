@@ -1,12 +1,14 @@
 import { Injectable } from "@nestjs/common";
-import { EmployeeEntity } from "domain/entities/employee.entity";
+import { deriveEmployeeStatus, EmployeeEntity } from "domain/entities/employee.entity";
+import { isoDateInKorea } from "domain/utils/business-days";
 import {
     ActiveClientByEmployee,
+    EmployeeWorkHistoryByEmployee,
     IEmployeeRepository,
+    PaginatedEmployeeWorkHistory,
 } from "domain/repositories/employee.repository.interface";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { EmployeeMapper } from "infrastructure/database/mapper/employee.mapper";
-import { normalizePhone } from "application/utils/normalize-phone";
 import type { Prisma } from "@prisma/client";
 import { employeeAgentTargetVersion } from "domain/entities/employee-agent-target";
 
@@ -39,15 +41,10 @@ export class SbEmployeeRepository implements IEmployeeRepository {
     }
 
     async findByPhone(branchid: string, normalizedPhone: string): Promise<EmployeeEntity | null> {
-        const candidates = await this.prismaService.employee.findMany({
-            where: { branchId: branchid },
-            select: { id: true, phone: true },
+        const employee = await this.prismaService.employee.findFirst({
+            where: { branchId: branchid, phoneNormalized: normalizedPhone },
         });
-        const matched = candidates.find(
-            (row) => normalizePhone(row.phone) === normalizedPhone,
-        );
-        if (!matched) return null;
-        return this.findById(branchid, matched.id);
+        return employee ? EmployeeMapper.toDomain(employee) : null;
     }
 
     async create(branchid: string, employee: EmployeeEntity, transaction?: Prisma.TransactionClient): Promise<EmployeeEntity> {
@@ -177,6 +174,64 @@ export class SbEmployeeRepository implements IEmployeeRepository {
         }));
     }
 
+    async findWorkHistoryByEmployee(
+        branchid: string,
+        id: number,
+        page: number,
+        limit: number,
+    ): Promise<PaginatedEmployeeWorkHistory> {
+        // employee_schedule.endDate is a PostgreSQL DATE represented at UTC midnight by Prisma.
+        const today = new Date(`${isoDateInKorea()}T00:00:00.000Z`);
+        const where: Prisma.employee_scheduleWhereInput = {
+            branchId: branchid,
+            client: { branchId: branchid },
+            OR: [
+                { primaryEmployeeId: id },
+                { secondaryEmployeeId: id },
+            ],
+            AND: [{ OR: [{ replaced: true }, { endDate: { lt: today } }] }],
+        };
+        const [schedules, total] = await Promise.all([
+            this.prismaService.employee_schedule.findMany({
+                where,
+                skip: (page - 1) * limit,
+                take: limit,
+                select: {
+                    id: true,
+                    primaryEmployeeId: true,
+                    secondaryEmployeeId: true,
+                    startDate: true,
+                    endDate: true,
+                    replaced: true,
+                    client: {
+                        select: {
+                            id: true,
+                            name: true,
+                        },
+                    },
+                },
+                orderBy: [{ startDate: "desc" }, { id: "desc" }],
+            }),
+            this.prismaService.employee_schedule.count({ where }),
+        ]);
+
+        return {
+            data: schedules.map((schedule): EmployeeWorkHistoryByEmployee => ({
+                scheduleId: schedule.id,
+                clientId: schedule.client.id,
+                clientName: schedule.client.name,
+                role: schedule.primaryEmployeeId === id ? "primary" : "secondary",
+                startDate: schedule.startDate,
+                endDate: schedule.endDate,
+                status: schedule.replaced ? "replaced" : "completed",
+            })),
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit),
+        };
+    }
+
     async findAll(branchid: string): Promise<EmployeeEntity[]> {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -206,15 +261,13 @@ export class SbEmployeeRepository implements IEmployeeRepository {
         return employees.map((emp) => {
             const entity = EmployeeMapper.toDomain(emp);
 
-            if (!entity.openToNextWork) {
-                entity.status = "unavailable";
-            } else {
-                const hasPrimarySchedule =
-                    emp.primaryEmployeeSchedules.length > 0;
-                const hasSecondarySchedule =
-                    emp.secondaryEmployeeSchedules.length > 0;
-                entity.status = hasPrimarySchedule || hasSecondarySchedule ? "working" : "available";
-            }
+            const hasActiveAssignment =
+                emp.primaryEmployeeSchedules.length > 0 ||
+                emp.secondaryEmployeeSchedules.length > 0;
+            entity.status = deriveEmployeeStatus(
+                hasActiveAssignment,
+                entity.openToNextWork,
+            );
 
             return entity;
         });

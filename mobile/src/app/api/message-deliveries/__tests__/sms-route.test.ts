@@ -90,6 +90,26 @@ describe("SMS delivery API route", () => {
     );
   });
 
+  it("forwards an explicit null clientId without converting it to a lookup value", async () => {
+    mockPost.mockResolvedValue({
+      status: 202,
+      data: { queued: true },
+    });
+    const payload = {
+      ...validSmsPayload,
+      clientId: null,
+    };
+
+    const response = await sendSms(createRequest(JSON.stringify(payload)));
+
+    expect(response.status).toBe(202);
+    expect(mockPost).toHaveBeenCalledWith(
+      "/message-deliveries/sms",
+      payload,
+      expect.anything(),
+    );
+  });
+
   it("does not return or log raw upstream SMS error payloads", async () => {
     mockPost.mockRejectedValue({
       response: {

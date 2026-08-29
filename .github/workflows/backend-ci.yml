@@ -16,6 +16,7 @@ on:
   # merges as eternally "expected" when the paths don't match.
   pull_request:
     branches: [ main, dev, preview, "feature/**", "fix/**", "ci/**" ]
+  merge_group:
 
 permissions:
   contents: read
@@ -31,7 +32,7 @@ jobs:
     # trust auth: no password exists at all (ephemeral localhost container).
     services:
       postgres:
-        image: postgres:16
+        image: postgres@sha256:c1b3783309b6499c795eed7c20135a1a4d25cae1b575c3d52c6f536129a1b109 # postgres:16
         env:
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
@@ -43,17 +44,17 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
         with:
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: 'pnpm'
@@ -84,10 +85,17 @@ jobs:
         run: pnpm --filter ./backend run agent:manifest:check
 
       - name: Protect legacy surfaces until D13 cutover evidence is complete
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: pnpm --filter ./backend run agent:cutover:guard
         env:
           AGENT_RELEASE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           AGENT_CUTOVER_MANIFEST_JSON: ${{ secrets.AGENT_CUTOVER_MANIFEST_JSON }}
+
+      - name: Protect legacy surfaces without protected evidence on pull requests or merge queue
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        run: pnpm --filter ./backend run agent:cutover:guard
+        env:
+          AGENT_RELEASE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Lint
         run: pnpm --filter ./backend run lint
@@ -135,7 +143,7 @@ jobs:
       STORAGE_BOOTSTRAP_DISABLED: '1'
     services:
       postgres:
-        image: postgres:16
+        image: postgres@sha256:c1b3783309b6499c795eed7c20135a1a4d25cae1b575c3d52c6f536129a1b109 # postgres:16
         env:
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
@@ -146,7 +154,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       valkey:
-        image: valkey/valkey:8-alpine
+        image: valkey/valkey@sha256:e0eb7c480958d32bdc4357a74bdd70653ae15f2f9b4c93c4a5a9fad1dc471c84 # valkey/valkey:8-alpine
         ports:
           - 6379:6379
         options: >-
@@ -155,19 +163,19 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       mailpit:
-        image: axllent/mailpit:v1.27
+        image: axllent/mailpit@sha256:e22dce5b36f93c77082e204a3942fb6b283b7896e057458400a4c88344c3df68 # axllent/mailpit:v1.27
         ports:
           - 1025:1025
           - 8025:8025
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
         with:
           run_install: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: 'pnpm'
@@ -205,23 +213,23 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Build and publish commit image
         id: build
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: backend/Dockerfile.lightsail
@@ -288,7 +296,7 @@ jobs:
           [[ "$LIGHTSAIL_SSM_TARGET_TAG" =~ ^[A-Za-z0-9._:/=+@-]{1,128}$ ]]
 
       - name: Authenticate to AWS with GitHub OIDC
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}

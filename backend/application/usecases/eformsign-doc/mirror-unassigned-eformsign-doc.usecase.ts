@@ -17,9 +17,12 @@ import {
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 import { eformsignExpiryDateFromRemainingDays } from "domain/utils/eformsign-expiry-date";
 import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
+import {
+    EformsignCredentialBoundary,
+    EformsignProviderPrincipal,
+} from "application/services/eformsign-credential-boundary.service";
 
 import { FetchEformsignDocFromApiUsecase } from "./fetch-eformsign-doc-from-api.usecase";
-import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
 
 export interface MirrorRemoteEformsignDocumentOptions {
     allowAssignedUpdate?: boolean;
@@ -32,7 +35,7 @@ export class MirrorUnassignedEformsignDocUsecase {
     private readonly logger = new Logger(MirrorUnassignedEformsignDocUsecase.name);
 
     constructor(
-        private readonly getAccessTokenUsecase: GetEformsignAccessTokenUsecase,
+        private readonly credentialBoundary: EformsignCredentialBoundary,
         private readonly fetchEformsignDocFromApiUsecase: FetchEformsignDocFromApiUsecase,
         @Inject(EFORMSIGN_DOC_REPOSITORY)
         private readonly eformsignDocRepository: IEformsignDocRepository,
@@ -40,12 +43,18 @@ export class MirrorUnassignedEformsignDocUsecase {
         private readonly documentSnapshotService?: EformsignDocumentSnapshotService,
     ) {}
 
-    async execute(documentId: string): Promise<EformsignDocEntity> {
+    async execute(
+        documentId: string,
+        principal: EformsignProviderPrincipal,
+    ): Promise<EformsignDocEntity> {
         const now = Date.now();
-        const token = await this.getAccessTokenUsecase.execute(now);
-        const remote = await this.fetchEformsignDocFromApiUsecase.execute(
-            token.oauth_token.access_token,
-            documentId,
+        const remote = await this.credentialBoundary.withCredentials(
+            principal,
+            "document.read",
+            ({ accessToken }) => this.fetchEformsignDocFromApiUsecase.execute(
+                accessToken,
+                documentId,
+            ),
         );
         return this.mirrorRemoteDocument(remote, {
             fallbackDocumentId: documentId,

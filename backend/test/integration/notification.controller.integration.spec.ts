@@ -35,7 +35,57 @@ describe("NotificationController", () => {
             configService as unknown as ConfigService,
         );
 
-        await expect(controller.testBroadcast()).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(controller.testBroadcast({ branchId: "branch-a" })).rejects.toBeInstanceOf(ForbiddenException);
         expect(notificationService.broadcastNotification).not.toHaveBeenCalled();
+    });
+
+    it("binds unsubscribe to the authenticated request user", async () => {
+        const notificationService = {
+            unsubscribePush: jest.fn().mockResolvedValue(undefined),
+        };
+        const controller = new NotificationController(
+            notificationService as unknown as NotificationService,
+            { get: jest.fn() } as unknown as ConfigService,
+        );
+
+        await expect(controller.unsubscribe(
+            { branchId: "branch-a" },
+            { user: { userId: "user-b", role: "user" } },
+            { endpoint: "https://push.example/shared-endpoint" },
+        )).resolves.toEqual({ success: true });
+        expect(notificationService.unsubscribePush).toHaveBeenCalledWith(
+            "branch-a",
+            "user-b",
+            "https://push.example/shared-endpoint",
+        );
+    });
+
+    it("reconciles subscribe through the authenticated request user", async () => {
+        const notificationService = {
+            subscribePush: jest.fn().mockResolvedValue(undefined),
+        };
+        const controller = new NotificationController(
+            notificationService as unknown as NotificationService,
+            { get: jest.fn() } as unknown as ConfigService,
+        );
+
+        await expect(controller.subscribe(
+            { branchId: "branch-a" },
+            { user: { userId: "user-b", role: "user" } },
+            {
+                endpoint: "https://push.example/shared-endpoint",
+                p256dh: "p256dh-b",
+                auth: "auth-b",
+                userAgent: "test-agent",
+            },
+        )).resolves.toEqual({ success: true });
+        expect(notificationService.subscribePush).toHaveBeenCalledWith(
+            "branch-a",
+            "user-b",
+            "https://push.example/shared-endpoint",
+            "p256dh-b",
+            "auth-b",
+            "test-agent",
+        );
     });
 });

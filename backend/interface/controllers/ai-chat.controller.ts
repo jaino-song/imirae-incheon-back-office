@@ -20,17 +20,22 @@ import { Request, Response } from "express";
 import { AIChatService } from "application/services/ai-chat.service";
 import { GetChatHistoryUsecase } from "application/usecases/ai-chat/get-chat-history.usecase";
 import { CleanupChatSessionsUsecase } from "application/usecases/ai-chat/cleanup-chat-sessions.usecase";
-import { ChatStreamDto, SessionIdParamDto, SessionResponse, ChatFeedbackDto, ChatPersistDto } from "interface/dto/ai-chat.dto";
+import { ChatStreamDto, SessionIdParamDto, SessionResponse, ChatFeedbackDto, ChatPersistDto, ChatConfirmDto } from "interface/dto/ai-chat.dto";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { AdminGuard } from "infrastructure/auth/admin.guard";
 import { ChatFeedbackRepository } from "infrastructure/database/repositories/chat-feedback.repository";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
+import { redactSensitiveLegacyChatContent } from "application/ai-chat/legacy-chat-confirmation.service";
+import type { VerifiedTenantPrincipal } from "infrastructure/tenant/tenant.context";
+import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
 
 interface JwtUser {
     userId: string;
     role: string;
 }
+
+type ChatTenant = VerifiedTenantPrincipal;
 
 @Controller("ai/chat")
 @UseGuards(JwtGuard)
@@ -54,7 +59,7 @@ export class AIChatController {
         @Body() dto: ChatStreamDto,
         @Req() req: Request,
         @Res() res: Response,
-        @CurrentTenant() tenant: { branchId?: string },
+        @CurrentTenant() tenant: VerifiedTenantPrincipal,
     ): Promise<void> {
         const user = req.user as JwtUser;
         const userId = user.userId;
@@ -65,42 +70,58 @@ export class AIChatController {
         res.setHeader("X-Accel-Buffering", "no");
         res.flushHeaders();
 
+        const streamAbortController = new AbortController();
+        const abortStream = (): void => {
+            streamAbortController.abort(new Error("AI chat client disconnected"));
+        };
+        res.once("close", abortStream);
+
         try {
             const stream = this.aiChatService.chatStream(
                 dto.sessionId,
                 userId,
                 dto.message,
-                tenant.branchId ?? "",
+                tenant.branchId,
+                tenant,
+                streamAbortController.signal,
+                tenant,
             );
 
             for await (const chunk of stream) {
+                if (streamAbortController.signal.aborted) {
+                    return;
+                }
                 const eventType = chunk.type === "error" ? "error" : "message";
                 res.write(`event: ${eventType}\ndata: ${JSON.stringify(chunk)}\n\n`);
             }
 
             res.end();
         } catch (error) {
+            if (streamAbortController.signal.aborted) {
+                return;
+            }
             this.logger.error(`Stream error: ${error}`);
-            const errorMessage = error instanceof Error ? error.message : "Unknown error";
-            res.write(`event: error\ndata: ${JSON.stringify({ type: "error", error: errorMessage })}\n\n`);
+            const errorMessage = sanitizeEformsignErrorMessage(error);
+            const safeErrorMessage = redactSensitiveLegacyChatContent(errorMessage);
+            res.write(`event: error\ndata: ${JSON.stringify({ type: "error", error: safeErrorMessage })}\n\n`);
             res.end();
+        } finally {
+            res.off("close", abortStream);
         }
     }
 
     @Get("sessions/:id")
+    @UseGuards(TenantGuard)
     async getSession(
         @Param() params: SessionIdParamDto,
         @Req() req: Request,
+        @CurrentTenant() tenant: ChatTenant,
     ): Promise<SessionResponse> {
         const user = req.user as JwtUser;
-        const session = await this.aiChatService.getSession(params.id);
+        const session = await this.aiChatService.getSession(params.id, user.userId, tenant.branchId);
 
         if (!session) {
             throw new NotFoundException("Session not found or expired");
-        }
-
-        if (session.userId !== user.userId) {
-            throw new NotFoundException("Session not found");
         }
 
         return {
@@ -108,7 +129,7 @@ export class AIChatController {
             userId: session.userId,
             messages: session.messages.map((m) => ({
                 role: m.role,
-                content: m.content,
+                content: redactSensitiveLegacyChatContent(m.content),
                 timestamp: m.timestamp,
             })),
             createdAt: session.createdAt.toISOString(),
@@ -117,10 +138,12 @@ export class AIChatController {
     }
 
     @Get("history")
+    @UseGuards(TenantGuard)
     async getChatHistory(
         @Query("offset", new DefaultValuePipe(0), ParseIntPipe) offset: number,
         @Query("limit", new DefaultValuePipe(20), ParseIntPipe) limit: number,
         @Req() req: Request,
+        @CurrentTenant() tenant: ChatTenant,
     ) {
         if (offset < 0) {
             throw new BadRequestException("offset must be >= 0");
@@ -130,7 +153,7 @@ export class AIChatController {
         }
 
         const user = req.user as JwtUser;
-        return this.getChatHistoryUsecase.execute(user.userId, offset, limit);
+        return this.getChatHistoryUsecase.execute(user.userId, offset, limit, tenant.branchId);
     }
 
     @Post("cleanup")
@@ -140,45 +163,40 @@ export class AIChatController {
     }
 
     @Delete("sessions/:id")
+    @UseGuards(TenantGuard)
     async deleteSession(
         @Param() params: SessionIdParamDto,
         @Req() req: Request,
         @Res() res: Response,
+        @CurrentTenant() tenant: ChatTenant,
     ): Promise<void> {
         const user = req.user as JwtUser;
-        const session = await this.aiChatService.getSession(params.id);
+        const session = await this.aiChatService.getSession(params.id, user.userId, tenant.branchId);
 
         if (!session) {
             throw new NotFoundException("Session not found");
         }
 
-        if (session.userId !== user.userId) {
-            throw new NotFoundException("Session not found");
-        }
-
-        await this.aiChatService.deleteSession(params.id);
+        await this.aiChatService.deleteSession(params.id, user.userId, tenant.branchId);
         res.status(HttpStatus.NO_CONTENT).send();
     }
 
     @Post("feedback")
+    @UseGuards(TenantGuard)
     async submitFeedback(
         @Body() dto: ChatFeedbackDto,
         @Req() req: Request,
+        @CurrentTenant() tenant: ChatTenant,
     ): Promise<{ success: boolean; id: string }> {
         const user = req.user as JwtUser;
 
         // Find the session and verify it exists
-        const session = await this.prisma.chat_session.findUnique({
-            where: { id: dto.sessionId },
+        const session = await this.prisma.chat_session.findFirst({
+            where: { id: dto.sessionId, userId: user.userId, branchId: tenant.branchId },
             include: { messages: { orderBy: { timestamp: 'asc' } } },
         });
 
         if (!session) {
-            throw new NotFoundException("Session not found");
-        }
-
-        // Ensure users can only submit feedback for their own sessions
-        if (session.userId !== user.userId) {
             throw new NotFoundException("Session not found");
         }
 
@@ -210,9 +228,11 @@ export class AIChatController {
     }
 
     @Post("persist")
+    @UseGuards(TenantGuard)
     async persistMessages(
         @Body() dto: ChatPersistDto,
         @Req() req: Request,
+        @CurrentTenant() tenant: ChatTenant,
     ): Promise<{ sessionId: string }> {
         const user = req.user as JwtUser;
         return this.aiChatService.persistMessages(
@@ -220,6 +240,24 @@ export class AIChatController {
             user.userId,
             dto.userMessage,
             dto.assistantContent,
+            tenant.branchId,
+        );
+    }
+
+    @Post("confirm")
+    @UseGuards(TenantGuard)
+    async confirmToolAction(
+        @Body() dto: ChatConfirmDto,
+        @Req() req: Request,
+        @CurrentTenant() tenant: ChatTenant,
+    ): Promise<unknown> {
+        const user = req.user as JwtUser;
+        return this.aiChatService.confirmToolAction(
+            user.userId,
+            tenant.branchId,
+            { intentId: dto.intentId, nonce: dto.nonce },
+            dto.sessionId,
+            tenant,
         );
     }
 }

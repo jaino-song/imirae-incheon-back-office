@@ -4,7 +4,20 @@ import { foldContractStats } from "@/lib/eformsign/status-codes";
 // foldContractStats reads the raw signals the /api/documents/status-counts
 // endpoint returns from the current step instead of iterating full eformsign
 // doc objects.
+const TEST_NOW = new Date("2026-08-01T03:00:00.000Z");
+const FAR_CONTRACT_END_DATE = "2027-12-31";
+const PAST_CONTRACT_END_DATE = "2026-01-01";
+
 describe("foldContractStats", () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(TEST_NOW);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it("excludes completed and cancelled from all buckets", () => {
     expect(
       foldContractStats([
@@ -38,13 +51,13 @@ describe("foldContractStats", () => {
     // End date far in the future → the review window has not opened yet.
     expect(
       foldContractStats([
-        { status_type: "060", step_type: "06", step_name: "제공기관 검토", step_recipient_types: ["01"], contract_end_date: "2099-12-31" },
+        { status_type: "060", step_type: "06", step_name: "제공기관 검토", step_recipient_types: ["01"], contract_end_date: FAR_CONTRACT_END_DATE },
       ]),
     ).toEqual({ reviewNeeded: 0, signed: 1, sendRequired: 0, drafting: 0, expired: 0 });
     // End date already passed → review is due.
     expect(
       foldContractStats([
-        { status_type: "060", step_type: "06", step_name: "제공기관 검토", step_recipient_types: ["01"], contract_end_date: "2000-01-01" },
+        { status_type: "060", step_type: "06", step_name: "제공기관 검토", step_recipient_types: ["01"], contract_end_date: PAST_CONTRACT_END_DATE },
       ]),
     ).toEqual({ reviewNeeded: 1, signed: 0, sendRequired: 0, drafting: 0, expired: 0 });
   });
@@ -91,7 +104,7 @@ describe("foldContractStats", () => {
         { status_type: "080", step_type: null, step_name: null, step_recipient_types: [] },
         { status_type: "001", step_type: "05", step_name: "이용자", step_recipient_types: ["01"] },
         { status_type: "060", step_type: "06", step_name: "제공기관 검토", step_recipient_types: ["01"] },
-        { status_type: "060", step_type: "06", step_name: "제공기관 검토", step_recipient_types: ["01"], contract_end_date: "2099-12-31" },
+        { status_type: "060", step_type: "06", step_name: "제공기관 검토", step_recipient_types: ["01"], contract_end_date: FAR_CONTRACT_END_DATE },
         { status_type: "060", step_type: "05", step_name: "이용자", step_recipient_types: ["01"] },
       ]),
     ).toEqual({ reviewNeeded: 1, signed: 1, sendRequired: 1, drafting: 1, expired: 1 });

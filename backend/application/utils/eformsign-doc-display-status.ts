@@ -3,7 +3,11 @@ import {
     isProviderReviewStep,
     type EformsignListDoc,
 } from "application/utils/eformsign-document-list";
-import { isBusinessDayKr, isoDateInKorea } from "domain/utils/business-days";
+import {
+    assertSupportedKoreanHolidayYear,
+    isBusinessDayKr,
+    isoDateInKorea,
+} from "domain/utils/business-days";
 
 /**
  * Wire enum for a document's display status, stamped on list pages, status
@@ -12,8 +16,9 @@ import { isBusinessDayKr, isoDateInKorea } from "domain/utils/business-days";
  * authority; clients map this to a label/variant and display it.
  *
  * Byte-identical copy of the rule in
- * packages/shared/src/constants/eformsign-doc-status.ts (the backend build
- * cannot import workspace TS). Parity is pinned by
+ * packages/shared/src/constants/eformsign-doc-status.ts. The backend domain
+ * surface re-exports the same versioned business-day module from the generated
+ * backend runtime package. Parity is pinned by
  * backend/test/utils/eformsign-doc-display-status.spec.ts, which mirrors the
  * shared test fixtures — change both files together.
  */
@@ -60,8 +65,9 @@ function subtractBusinessDaysKr(date: Date, days: number): Date {
 
 /**
  * True when today (KST) is on or after 1 Korean business day before the
- * contract end date — weekends and the hardcoded KR_HOLIDAYS table are both
- * skipped; a missing or malformed end date opens the window (legacy behavior).
+ * contract end date — weekends and the shared versioned Korean holiday
+ * calendar are both skipped; a missing or malformed end date opens the window
+ * (legacy behavior).
  */
 export function isContractReviewWindowOpen(
     contractEndDate: string | null | undefined,
@@ -69,6 +75,7 @@ export function isContractReviewWindowOpen(
 ): boolean {
     const endDate = contractEndDate ? parseYmdToUtc(contractEndDate) : null;
     if (!endDate) return true;
+    assertSupportedKoreanHolidayYear(endDate.getUTCFullYear());
 
     const threshold = subtractBusinessDaysKr(endDate, 1);
     return isoDateInKorea(now) >= threshold.toISOString().slice(0, 10);

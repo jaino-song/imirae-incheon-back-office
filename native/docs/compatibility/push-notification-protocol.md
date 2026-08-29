@@ -121,6 +121,14 @@ The current backend subscribe endpoint accepts **Web Push subscription objects**
 
 Push notifications require **backend changes** (CR-PUSH-01, CR-PUSH-02) before mobile push can work. These are **blocking** for the push notification feature but NOT blocking for the overall app (app can launch without push, adding it later).
 
+The committed native clients therefore intentionally do **not** persist or
+register FCM/APNs device tokens. Android still receives and displays FCM
+messages, and iOS still handles APNs permission and receipt callbacks, but no
+provider token is sent to the browser-only `/notifications/subscribe` endpoint.
+Browser Web Push remains the only supported subscription path until the
+CR-PUSH-01/02/04 architecture, provider credentials, and migration are
+approved and implemented.
+
 **Recommended approach**:
 1. Phase 0.4: Set up Firebase project + service account
 2. Backend team implements CR-PUSH-01 + CR-PUSH-02 in parallel with Phase 1-2

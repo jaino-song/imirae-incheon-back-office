@@ -3,6 +3,7 @@ import shared
 
 struct FileListView: View {
     @StateObject private var viewModel = FileListViewModelWrapper()
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
@@ -19,48 +20,19 @@ struct FileListView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: AppTheme.Spacing.sm) {
-                        ForEach(viewModel.files, id: \.id) { file in
-                            Button(action: { }) {
-                                HStack(spacing: AppTheme.Spacing.md) {
-                                    Image(systemName: fileIcon(mimeType: file.mimeType))
-                                        .foregroundColor(.appPrimary)
-                                        .font(.appHeading4)
-
-                                    VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
-                                        Text(file.name)
-                                            .font(.appBody)
-                                            .foregroundColor(.appForeground)
-                                            .lineLimit(2)
-
-                                        if let mime = file.mimeType, !mime.isEmpty {
-                                            Text(mime)
-                                                .font(.appCaption)
-                                                .foregroundColor(.appMutedForeground)
-                                        }
-
-                                        if let createdAt = file.createdAt, !createdAt.isEmpty {
-                                            Text(createdAt)
-                                                .font(.appCaption)
-                                                .foregroundColor(.appMutedForeground)
-                                        }
+                        ForEach(viewModel.files, id: \.id) { (file: FileItem) in
+                            Group {
+                                if let storageUrl = file.storageUrl,
+                                   !storageUrl.isEmpty,
+                                   let url = URL(string: storageUrl) {
+                                    Button(action: { openURL(url) }) {
+                                        fileCard(file)
                                     }
-
-                                    Spacer()
-
-                                    Image(systemName: "chevron.right")
-                                        .font(.appCaption)
-                                        .foregroundColor(.appMutedForeground)
+                                    .buttonStyle(.plain)
+                                } else {
+                                    fileCard(file)
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(AppTheme.Spacing.lg)
-                                .background(Color.appCard)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: AppTheme.Radius.lg)
-                                        .stroke(Color.appBorder, lineWidth: 1)
-                                )
-                                .cornerRadius(AppTheme.Radius.lg)
                             }
-                            .buttonStyle(.plain)
                             .accessibilityIdentifier("file-item-\(file.id)")
                         }
                     }
@@ -96,11 +68,7 @@ struct FileListView: View {
         }
     }
 
-    private func fileIcon(mimeType: String?) -> String {
-        guard let mimeType else {
-            return "doc.fill"
-        }
-
+    private func fileIcon(mimeType: String) -> String {
         if mimeType.contains("pdf") {
             return "doc.richtext.fill"
         }
@@ -115,12 +83,53 @@ struct FileListView: View {
         }
         return "doc.fill"
     }
+
+    private func fileCard(_ file: FileItem) -> some View {
+        HStack(spacing: AppTheme.Spacing.md) {
+            Image(systemName: fileIcon(mimeType: file.mimeType))
+                .foregroundColor(.appPrimary)
+                .font(.appHeading4)
+
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
+                Text(file.name)
+                    .font(.appBody)
+                    .foregroundColor(.appForeground)
+                    .lineLimit(2)
+
+                if !file.mimeType.isEmpty {
+                    Text(file.mimeType)
+                        .font(.appCaption)
+                        .foregroundColor(.appMutedForeground)
+                }
+
+                if let createdAt = file.createdAt, !createdAt.isEmpty {
+                    Text(createdAt)
+                        .font(.appCaption)
+                        .foregroundColor(.appMutedForeground)
+                }
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.appCaption)
+                .foregroundColor(.appMutedForeground)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(AppTheme.Spacing.lg)
+        .background(Color.appCard)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.Radius.lg)
+                .stroke(Color.appBorder, lineWidth: 1)
+        )
+        .cornerRadius(AppTheme.Radius.lg)
+    }
 }
 
 @MainActor
 final class FileListViewModelWrapper: ObservableObject {
     private let viewModel: FileListViewModel
-    private var observeTask: Task<Void, Never>?
+    private var stateCollector: IOSStateFlowCollector?
 
     @Published var isLoading: Bool = true
     @Published var files: [FileItem] = []
@@ -132,19 +141,23 @@ final class FileListViewModelWrapper: ObservableObject {
     }
 
     deinit {
-        observeTask?.cancel()
+        stateCollector?.stop()
     }
 
     private func observeUiState() {
-        observeTask = Task {
-            for await state in viewModel.uiState {
-                if Task.isCancelled {
-                    break
-                }
-
+        let collector = IOSStateFlowCollector { [weak self] value in
+            guard let state = value as? FileListUiState else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
                 self.isLoading = state.isLoading
                 self.files = state.files
                 self.errorMessage = state.error
+            }
+        }
+        stateCollector = collector
+        viewModel.uiState.collect(collector: collector) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.stateCollector?.stop()
             }
         }
     }

@@ -5,6 +5,7 @@ import "dayjs/locale/ko";
 import { useRouter } from "next/navigation";
 import { Check, X } from "lucide-react";
 import { getApiErrorMessage } from "@babyjamjam/shared";
+import { calcEndDateBusinessDays } from "@babyjamjam/shared/utils/business-days";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n/translations";
 import { createReconnectingEventSource } from "@/lib/sse/reconnecting-event-source";
@@ -56,69 +57,6 @@ import { formatIsoDateInput } from "@/lib/date/format-iso-input";
 import {
     isValidClientBirthdayInput,
 } from "@/lib/client/client-registration-formats";
-
-// 한국 공휴일 (대체공휴일 포함). 발급 가능 연도 기준 2026~2027 hardcode — 매년 갱신 필요.
-// 출처: 공공데이터포털 특일정보 / 인사혁신처 공고. 음력 기반 명절은 다음 양력 변환:
-// - 설날 2026: 2/16(월),17(화),18(수); 2027: 2/6(토),7(일),8(월) + 대체 2/9(화)
-// - 추석 2026: 9/24(목),25(금),26(토) + 대체 9/28(월); 2027: 9/14(화),15(수),16(목)
-// - 부처님오신날 2026: 5/24(일) + 대체 5/25(월); 2027: 5/13(목)
-const KR_HOLIDAYS = new Set<string>([
-  // 2026
-  "2026-01-01", // 신정
-  "2026-02-16", "2026-02-17", "2026-02-18", // 설날
-  "2026-03-01", // 삼일절
-  "2026-03-02", // 삼일절 대체 (일요일)
-  "2026-05-05", // 어린이날
-  "2026-05-24", "2026-05-25", // 부처님오신날 + 대체
-  "2026-06-06", // 현충일
-  "2026-08-15", // 광복절
-  "2026-08-17", // 광복절 대체 (토요일)
-  "2026-09-24", "2026-09-25", "2026-09-26", "2026-09-28", // 추석 + 대체
-  "2026-10-03", "2026-10-05", // 개천절 + 대체 (토요일)
-  "2026-10-09", // 한글날
-  "2026-12-25", // 크리스마스
-  // 2027
-  "2027-01-01", // 신정
-  "2027-02-06", "2027-02-07", "2027-02-08", "2027-02-09", // 설날 + 대체
-  "2027-03-01", // 삼일절
-  "2027-05-05", // 어린이날
-  "2027-05-13", // 부처님오신날
-  "2027-06-06", "2027-06-07", // 현충일 + 대체 (일요일)
-  "2027-08-15", "2027-08-16", // 광복절 + 대체 (일요일)
-  "2027-09-14", "2027-09-15", "2027-09-16", // 추석
-  "2027-10-03", "2027-10-04", // 개천절 + 대체 (일요일)
-  "2027-10-09", // 한글날
-  "2027-12-25",
-]);
-
-function isBusinessDayKr(iso: string): boolean {
-  // iso = "YYYY-MM-DD". new Date(iso) parses as UTC midnight; getUTCDay() returns DOW (0=Sun, 6=Sat).
-  if (!iso) return false;
-  const d = new Date(iso + "T00:00:00Z");
-  const dow = d.getUTCDay();
-  if (dow === 0 || dow === 6) return false;
-  return !KR_HOLIDAYS.has(iso);
-}
-
-// startISO를 1일차로 카운트하되, 시작일이 비영업일이면 다음 영업일부터 1일차.
-// 반환: N번째 영업일의 ISO 문자열.
-function calcEndDateBusinessDays(startISO: string, n: number): string {
-  if (!startISO || !Number.isFinite(n) || n <= 0) return "";
-  const startMatch = startISO.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!startMatch) return "";
-  const cursor = new Date(startISO + "T00:00:00Z");
-  let counted = 0;
-  // 안전 가드: 충분한 상한 (영업일 30일은 달력 60일 안에 끝남, 여유 2x)
-  for (let i = 0; i < 365 && counted < n; i++) {
-    const iso = cursor.toISOString().slice(0, 10);
-    if (isBusinessDayKr(iso)) {
-      counted++;
-      if (counted === n) return iso;
-    }
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  return "";
-}
 
 function formatYymmddInput(value: string): string {
   return value.replace(/\D/g, "").slice(0, 6);
@@ -929,13 +867,6 @@ export const ContractCreationForm = ({
           if (onSuccess) onSuccess();
           else onClose?.();
           return;
-        }
-
-        const executionTime = Date.now();
-        const authResult = await eformsignApi.authenticate(executionTime);
-
-        if (!authResult.success) {
-          throw new Error("Failed to authenticate");
         }
 
         // BJJ-90: when the flag is on, drive the iframe gate sequence on the

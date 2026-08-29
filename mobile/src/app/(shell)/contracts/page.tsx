@@ -1868,9 +1868,9 @@ export default function ContractsPage() {
       // Fallback to iframe via generateStaffDocument
       setIsFinalizeProgressOpen(false);
       try {
-        const authResult = await eformsignApi.authenticate(Date.now(), undefined, { force: true });
-        if (!authResult.success) throw new Error("eformsign 인증에 실패했어요");
-        const option = await eformsignApi.generateStaffDocument(documentId, undefined, undefined, endDateIso);
+        // Provider credentials stay server-side; this request returns only render options.
+        // Finalization fallback runs through the trusted server boundary.
+        const option = await eformsignApi.generateStaffDocument(documentId, endDateIso);
         setStaffDocumentOption(option as EformsignDocumentOption);
         setIsStaffIframeOpen(true);
         keepFinalizeSubmittingUntilIframeCloses = true;

@@ -1,61 +1,122 @@
 import SwiftUI
+import shared
 
 struct ClientNewView: View {
+    @StateObject private var viewModel = ClientListViewModelWrapper()
     @State private var name = ""
     @State private var phone = ""
-    @State private var email = ""
     @State private var address = ""
-    @State private var memo = ""
-    @State private var babyName = ""
     @State private var dueDate = ""
+    @State private var voucherClient = false
+    @State private var breastPump = false
     @State private var nameError: String?
-    @State private var isSubmitting = false
 
     var onNavigateBack: () -> Void = {}
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
                 HStack {
-                    Button(action: onNavigateBack) { Image(systemName: "chevron.left").font(.title3) }
-                        .accessibilityIdentifier("client-new-back")
-                    Text("고객 추가").font(.appHeading2).fontWeight(.bold).accessibilityIdentifier("client-new-title")
+                    Button(action: onNavigateBack) {
+                        Image(systemName: "chevron.left").font(.appHeading5)
+                    }
+                    .accessibilityIdentifier("client-new-back")
+                    Text("고객 추가")
+                        .font(.appHeading2)
+                        .fontWeight(.bold)
+                        .accessibilityIdentifier("client-new-title")
                 }
 
-                VStack(spacing: 12) {
+                if let errorMessage = viewModel.errorMessage {
+                    Text(errorMessage)
+                        .font(.appBodySmall)
+                        .foregroundColor(.appDestructive)
+                        .accessibilityIdentifier("client-new-error")
+                }
+
+                VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
                     AppFormField(label: "이름 *", text: $name, error: nameError, identifier: "client-new-name")
                     AppFormField(label: "전화번호", text: $phone, keyboardType: .phonePad, identifier: "client-new-phone")
-                    AppFormField(label: "이메일", text: $email, keyboardType: .emailAddress, identifier: "client-new-email")
                     AppFormField(label: "주소", text: $address, identifier: "client-new-address")
-                    AppFormField(label: "아기 이름", text: $babyName, identifier: "client-new-baby-name")
                     AppFormField(label: "출산 예정일 (YYYY-MM-DD)", text: $dueDate, identifier: "client-new-due-date")
-                    AppFormField(label: "메모", text: $memo, identifier: "client-new-memo")
+                    Toggle("바우처 고객", isOn: $voucherClient)
+                        .tint(.appPrimary)
+                        .accessibilityIdentifier("client-new-voucher-client")
+                    Toggle("유축기", isOn: $breastPump)
+                        .tint(.appPrimary)
+                        .accessibilityIdentifier("client-new-breast-pump")
                 }
-                .padding(16)
+                .padding(AppTheme.Spacing.lg)
                 .background(Color.appCard)
-                .cornerRadius(CGFloat(AppTheme.Radius.lg))
-                .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.Radius.lg)
+                        .stroke(Color.appBorder, lineWidth: 1)
+                )
+                .cornerRadius(AppTheme.Radius.lg)
 
-                Button(action: {
-                    nameError = name.isEmpty ? "이름을 입력해 주세요" : nil
-                    guard nameError == nil else { return }
-                    isSubmitting = true
-                    // TODO: Call ViewModel
-                }) {
+                Button(action: submit) {
                     HStack {
-                        if isSubmitting { ProgressView().tint(.white) }
-                        else { Text("저장").fontWeight(.semibold) }
+                        if viewModel.isCreating {
+                            ProgressView().tint(.white)
+                        } else {
+                            Text("저장").fontWeight(.semibold)
+                        }
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                    .padding(.vertical, AppTheme.Spacing.md)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.appPrimary)
-                .disabled(isSubmitting)
+                .disabled(viewModel.isCreating)
                 .accessibilityIdentifier("client-new-submit")
             }
-            .padding(16)
+            .padding(AppTheme.Spacing.lg)
+        }
+        .background(Color.appBackground)
+        .onChange(of: viewModel.createSuccess) { _, success in
+            if success { onNavigateBack() }
         }
         .accessibilityIdentifier("client-new-screen")
+    }
+
+    private func submit() {
+        nameError = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "이름을 입력해 주세요" : nil
+        guard nameError == nil else { return }
+
+        let request = CreateClientRequest(
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            voucherClient: voucherClient,
+            breastPump: breastPump,
+            primaryEmployeeId: nil,
+            secondaryEmployeeId: nil,
+            address: address.nilIfBlank,
+            phone: phone.nilIfBlank,
+            type: nil,
+            duration: nil,
+            fullPrice: nil,
+            grant: nil,
+            actualPrice: nil,
+            startDate: nil,
+            endDate: nil,
+            careCenter: nil,
+            birthday: nil,
+            dueDate: dueDate.nilIfBlank,
+            birthDate: nil,
+            serviceStatus: nil,
+            eDocId: nil,
+            areaId: nil,
+            suppressGreetingSms: nil,
+            applyMessageAutomation: nil,
+            reuseExistingClient: nil,
+            source: nil
+        )
+        viewModel.createClient(request)
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

@@ -5,6 +5,16 @@
   "type": "commonjs",
   "main": "agent/index.js",
   "types": "agent/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./agent/index.d.ts",
+      "require": "./agent/index.js"
+    },
+    "./utils/business-days": {
+      "types": "./utils/business-days.d.ts",
+      "require": "./utils/business-days.js"
+    }
+  },
   "dependencies": {
     "zod": "^4.3.6"
   },

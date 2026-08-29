@@ -9,6 +9,13 @@ import type {
     FunctionCall,
     GeminiStreamChunk,
 } from "./gemini-chat.gateway";
+import {
+    createGeminiStreamDeadline,
+    getGeminiStreamTermination,
+    getGeminiStreamTimeouts,
+    getSafeGeminiStreamError,
+    waitForGeminiStreamOperation,
+} from "./gemini-stream-timeout";
 
 function getNumberConfig(configService: ConfigService, key: string, fallback: number, min: number): number {
     const rawValue = configService.get<string | number>(key);
@@ -33,11 +40,13 @@ export class VercelGeminiGateway {
     private readonly model: string;
     private readonly temperature: number;
     private readonly maxOutputTokens: number;
+    private readonly streamTimeouts: ReturnType<typeof getGeminiStreamTimeouts>;
 
     constructor(private readonly configService: ConfigService) {
         this.model = this.configService.get<string>("GEMINI_CHAT_MODEL") || "gemini-2.5-flash-lite";
         this.temperature = getNumberConfig(this.configService, "GEMINI_CHAT_TEMPERATURE", 0.1, 0);
         this.maxOutputTokens = getNumberConfig(this.configService, "GEMINI_CHAT_MAX_OUTPUT_TOKENS", 4096, 1);
+        this.streamTimeouts = getGeminiStreamTimeouts(this.configService);
     }
 
     private getApiKey(): string {
@@ -48,7 +57,9 @@ export class VercelGeminiGateway {
         return apiKey;
     }
 
-    private createGoogleProvider() {
+    // Protected so deterministic tests can supply a local provider without
+    // making a network request or requiring a live Gemini credential.
+    protected createGoogleProvider() {
         return createGoogleGenerativeAI({
             apiKey: this.getApiKey(),
         });
@@ -97,6 +108,7 @@ export class VercelGeminiGateway {
     async *chatStream(
         messages: ChatMessage[],
         tools?: FunctionDeclaration[],
+        callerSignal?: AbortSignal,
     ): AsyncGenerator<GeminiStreamChunk> {
         const google = this.createGoogleProvider();
         const formattedMessages = this.formatMessagesForVercel(messages);
@@ -107,6 +119,11 @@ export class VercelGeminiGateway {
 
         // Convert tools to Vercel AI SDK format
         const vercelTools = tools ? convertToVercelTools(tools) : undefined;
+
+        const deadline = createGeminiStreamDeadline(this.streamTimeouts, callerSignal);
+        let iterator: AsyncIterator<unknown> | undefined;
+        let iteratorCompleted = false;
+        let terminated = false;
 
         try {
             const result = streamText({
@@ -119,13 +136,28 @@ export class VercelGeminiGateway {
                 tools: vercelTools,
                 temperature: this.temperature,
                 maxOutputTokens: this.maxOutputTokens,
+                abortSignal: deadline.signal,
                 onError: ({ error }) => {
-                    this.logger.error(`Gemini streaming error: ${error}`);
+                    this.logger.error("Gemini streaming provider error", error instanceof Error ? error.stack : undefined);
                 },
             });
 
-            // Process the full stream
-            for await (const part of result.fullStream) {
+            iterator = result.fullStream[Symbol.asyncIterator]();
+            while (true) {
+                const next = await waitForGeminiStreamOperation(iterator.next(), deadline);
+                if (next.done) {
+                    iteratorCompleted = true;
+                    break;
+                }
+
+                deadline.markChunkReceived();
+                const part = next.value as {
+                    type: string;
+                    text?: string;
+                    toolName?: string;
+                    input?: unknown;
+                    error?: unknown;
+                };
                 switch (part.type) {
                     case "text-delta":
                         if (part.text) {
@@ -134,6 +166,11 @@ export class VercelGeminiGateway {
                         break;
 
                     case "tool-call":
+                        if (!part.toolName) {
+                            yield { type: "error", error: "Gemini streaming provider error" };
+                            terminated = true;
+                            break;
+                        }
                         yield {
                             type: "function_call",
                             functionCall: {
@@ -145,24 +182,47 @@ export class VercelGeminiGateway {
 
                     case "finish":
                         yield { type: "done" };
+                        terminated = true;
                         break;
 
                     case "error":
                         yield {
                             type: "error",
                             error: part.error instanceof Error
-                                ? part.error.message
-                                : String(part.error),
+                                ? "Gemini streaming provider error"
+                                : "Gemini streaming provider error",
                         };
+                        terminated = true;
                         break;
                 }
+
+                if (terminated) {
+                    break;
+                }
+            }
+
+            if (!terminated) {
+                yield { type: "done" };
             }
         } catch (error) {
-            this.logger.error(`Gemini API error: ${error}`);
-            yield {
-                type: "error",
-                error: error instanceof Error ? error.message : "Unknown error",
-            };
+            terminated = true;
+            const termination = getGeminiStreamTermination(error, deadline);
+            if (!termination) {
+                this.logger.error(
+                    "Gemini streaming request failed",
+                    error instanceof Error ? error.stack : undefined,
+                );
+            }
+            yield { type: "error", error: getSafeGeminiStreamError(error, deadline) };
+        } finally {
+            if (iterator && !iteratorCompleted) {
+                try {
+                    void Promise.resolve(iterator.return?.()).catch(() => undefined);
+                } catch {
+                    // The SDK stream is already closing; deadline cleanup still runs.
+                }
+            }
+            deadline.cleanup();
         }
     }
 

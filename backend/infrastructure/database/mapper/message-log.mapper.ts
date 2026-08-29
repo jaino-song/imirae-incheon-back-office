@@ -1,6 +1,10 @@
 import { Prisma } from "@prisma/client";
 
-import { MessageLogEntity, MessageLogStatus } from "domain/entities/message-log.entity";
+import {
+    MessageLogEntity,
+    MessageLogStatus,
+    SmsProviderAcceptanceState,
+} from "domain/entities/message-log.entity";
 
 type MessageLogRow = {
     id: number;
@@ -22,6 +26,14 @@ type MessageLogRow = {
     nextRetryAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
+    providerAcceptanceKey?: string | null;
+    providerAcceptanceFingerprint?: string | null;
+    providerAcceptanceState?: string | null;
+    providerCallStartedAt?: Date | null;
+    providerAcceptedAt?: Date | null;
+    providerReconciledAt?: Date | null;
+    providerReconciledBy?: string | null;
+    providerReconciliationReason?: string | null;
 };
 
 export class MessageLogMapper {
@@ -46,6 +58,14 @@ export class MessageLogMapper {
             row.updatedAt,
             row.recipientName,
             row.recipientPhone,
+            row.providerAcceptanceKey ?? null,
+            row.providerAcceptanceFingerprint ?? null,
+            (row.providerAcceptanceState as SmsProviderAcceptanceState | undefined) ?? "legacy",
+            row.providerCallStartedAt ?? null,
+            row.providerAcceptedAt ?? null,
+            row.providerReconciledAt ?? null,
+            row.providerReconciledBy ?? null,
+            row.providerReconciliationReason ?? null,
         );
     }
 
@@ -67,6 +87,14 @@ export class MessageLogMapper {
             attempts: entity.attempts,
             lastAttemptAt: entity.lastAttemptAt,
             nextRetryAt: entity.nextRetryAt,
+            providerAcceptanceKey: entity.providerAcceptanceKey,
+            providerAcceptanceFingerprint: entity.providerAcceptanceFingerprint,
+            providerAcceptanceState: entity.providerAcceptanceState,
+            providerCallStartedAt: entity.providerCallStartedAt,
+            providerAcceptedAt: entity.providerAcceptedAt,
+            providerReconciledAt: entity.providerReconciledAt,
+            providerReconciledBy: entity.providerReconciledBy,
+            providerReconciliationReason: entity.providerReconciliationReason,
         };
     }
 
@@ -80,6 +108,13 @@ export class MessageLogMapper {
             nextRetryAt: entity.nextRetryAt,
             recipientName: entity.recipientName,
             recipientPhone: entity.recipientPhone,
+            providerAcceptanceFingerprint: entity.providerAcceptanceFingerprint,
+            providerAcceptanceState: entity.providerAcceptanceState,
+            providerCallStartedAt: entity.providerCallStartedAt,
+            providerAcceptedAt: entity.providerAcceptedAt,
+            providerReconciledAt: entity.providerReconciledAt,
+            providerReconciledBy: entity.providerReconciledBy,
+            providerReconciliationReason: entity.providerReconciliationReason,
         };
     }
 }

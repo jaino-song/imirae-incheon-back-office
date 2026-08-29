@@ -1,6 +1,5 @@
 import { EmployeeEntity } from "domain/entities/employee.entity";
 import { IEmployeeRepository } from "domain/repositories/employee.repository.interface";
-import { normalizePhone } from "application/utils/normalize-phone";
 import type { Prisma } from "@prisma/client";
 import { employeeAgentTargetVersion } from "domain/entities/employee-agent-target";
 
@@ -51,7 +50,7 @@ export class MockEmployeeRepository implements IEmployeeRepository {
 
     async findByPhone(_branchid: string, normalizedPhone: string): Promise<EmployeeEntity | null> {
         return Array.from(this.employees.values()).find(
-            (employee) => normalizePhone(employee.phone) === normalizedPhone,
+            (employee) => employee.phoneNormalized === normalizedPhone,
         ) ?? null;
     }
 
@@ -69,6 +68,9 @@ export class MockEmployeeRepository implements IEmployeeRepository {
             employee.grade,
             employee.openToNextWork,
             employee.registeredDate,
+            employee.birthday,
+            employee.deletedAt,
+            employee.phoneNormalized,
         );
         this.employees.set(id, newEmployee);
         return newEmployee;
@@ -128,6 +130,7 @@ export class MockEmployeeRepository implements IEmployeeRepository {
     async findByRegisteredDate(_branchid: string, registeredDate: Date): Promise<EmployeeEntity[]> {
         return Array.from(this.employees.values()).filter(
             employee =>
+                employee.registeredDate !== null &&
                 employee.registeredDate.toDateString() === registeredDate.toDateString(),
         );
     }
@@ -139,6 +142,7 @@ export class MockEmployeeRepository implements IEmployeeRepository {
     ): Promise<EmployeeEntity[]> {
         return Array.from(this.employees.values()).filter(
             employee =>
+                employee.registeredDate !== null &&
                 employee.registeredDate >= startDate &&
                 employee.registeredDate <= endDate,
         );

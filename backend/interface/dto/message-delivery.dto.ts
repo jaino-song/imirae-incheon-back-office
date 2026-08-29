@@ -35,7 +35,13 @@ export class SendSmsMessageDto {
 
     @IsOptional()
     @IsInt()
-    clientId?: number;
+    /** Optional client association; the backend resolves and verifies the branch-owned recipient. */
+    clientId?: number | null;
+
+    @IsOptional()
+    @IsInt()
+    /** Optional employee association; the employee must be active in the selected branch. */
+    employeeId?: number | null;
 
     @IsOptional()
     @IsIn(["AUTO", "SMS", "LMS"])
@@ -58,4 +64,11 @@ export class SendSmsMessageDto {
     @IsOptional()
     @IsBoolean()
     testMode?: boolean;
+
+    /** Client-supplied retry key; never forwarded to Aligo. */
+    @IsOptional()
+    @IsString()
+    @MaxLength(200)
+    @Matches(/^[A-Za-z0-9._:-]+$/, { message: "문자 요청 식별자 형식이 올바르지 않습니다." })
+    idempotencyKey?: string;
 }

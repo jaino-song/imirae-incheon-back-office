@@ -1,6 +1,7 @@
 import {
     BadGatewayException,
     BadRequestException,
+    ConflictException,
     ServiceUnavailableException,
 } from "@nestjs/common";
 import { AligoService } from "application/services/aligo.service";
@@ -12,7 +13,11 @@ describe("MessageDeliveryController", () => {
     let controller: MessageDeliveryController;
     let aligoService: jest.Mocked<Pick<AligoService, "sendSms">>;
     let messageSenderApprovalService: jest.Mocked<Pick<MessageSenderApprovalService, "ensureApproved">>;
-    let prismaService: { message_log: { create: jest.Mock; update: jest.Mock } };
+    let prismaService: {
+        client: { findFirst: jest.Mock; findMany?: jest.Mock };
+        employee?: { findFirst: jest.Mock; findMany?: jest.Mock };
+        message_log: { create: jest.Mock; update: jest.Mock };
+    };
 
     beforeEach(() => {
         aligoService = {
@@ -22,6 +27,16 @@ describe("MessageDeliveryController", () => {
             ensureApproved: jest.fn().mockResolvedValue(undefined),
         };
         prismaService = {
+            client: {
+                findFirst: jest.fn().mockImplementation(async ({ where }: { where: { id?: number; phone?: string } }) => ({
+                    id: where.id ?? 1,
+                    name: "테스트 수신자",
+                    phone: where.phone ?? "01012345678",
+                })),
+            },
+            employee: {
+                findFirst: jest.fn().mockResolvedValue(null),
+            },
             message_log: {
                 create: jest.fn().mockResolvedValue({
                     id: 42,
@@ -55,6 +70,48 @@ describe("MessageDeliveryController", () => {
                     triggerType: "scheduled",
                     scheduledDate: "2026-03-09",
                     scheduledTime: "20:05",
+                },
+            ),
+        ).rejects.toThrow(BadRequestException);
+
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+        expect(prismaService.message_log.create).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        { scheduledDate: "2026-02-30", scheduledTime: "12:00", reason: "impossible calendar day" },
+        { scheduledDate: "2026-02-28", scheduledTime: "24:00", reason: "midnight overflow" },
+        { scheduledDate: "2026-03-01", scheduledTime: "24:01", reason: "out-of-range time" },
+        { scheduledDate: "2026-03-01", scheduledTime: "12:60", reason: "minute overflow" },
+        { scheduledDate: "2026-2-01", scheduledTime: "12:00", reason: "malformed date" },
+    ])("should reject $reason before creating a log or calling Aligo", async ({ scheduledDate, scheduledTime }) => {
+        jest.spyOn(Date, "now").mockReturnValue(new Date("2026-01-01T00:00:00.000Z").getTime());
+
+        await expect(
+            controller.sendSms(
+                { branchId: "org-1" },
+                {
+                    receiver: "01012345678",
+                    message: "테스트 예약 발송",
+                    triggerType: "scheduled",
+                    scheduledDate,
+                    scheduledTime,
+                },
+            ),
+        ).rejects.toThrow(BadRequestException);
+
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+        expect(prismaService.message_log.create).not.toHaveBeenCalled();
+    });
+
+    it("should reject a scheduled request with missing date or time before side effects", async () => {
+        await expect(
+            controller.sendSms(
+                { branchId: "org-1" },
+                {
+                    receiver: "01012345678",
+                    message: "필수 예약 값 누락",
+                    triggerType: "scheduled",
                 },
             ),
         ).rejects.toThrow(BadRequestException);
@@ -99,9 +156,9 @@ describe("MessageDeliveryController", () => {
         );
 
         expect(aligoService.sendSms).toHaveBeenCalledWith({
-            receiver: "010-1234-5678",
+            receiver: "01012345678",
             message: "장문 테스트 메시지",
-            recipientName: "김산모",
+            recipientName: "테스트 수신자",
             title: "안내",
             msgType: undefined,
             scheduledDate: "20260309",
@@ -132,7 +189,7 @@ describe("MessageDeliveryController", () => {
                 branchId: "org-1",
                 provider: "aligo_sms",
                 templateKey: "안내",
-                receiver: "010-1234-5678",
+                receiver: "01012345678",
                 status: "pending",
                 attempts: 0,
             }),
@@ -191,6 +248,181 @@ describe("MessageDeliveryController", () => {
             data: expect.objectContaining({
                 status: "sent",
                 errorMessage: null,
+            }),
+        });
+        expect(prismaService.client.findFirst).toHaveBeenCalled();
+    });
+
+    it.each([
+        { description: "an omitted client ID", clientId: undefined },
+        { description: "an explicit null client ID", clientId: null },
+    ])("should resolve $description through a branch-owned recipient", async ({ clientId }) => {
+        aligoService.sendSms.mockResolvedValue({
+            request: {
+                senderPhone: "0212345678",
+                receiver: "01012345678",
+                msgType: "SMS",
+                testModeYn: "N",
+            },
+            response: {
+                result_code: 1,
+                message: "success",
+                msg_id: 123,
+                success_cnt: 1,
+                error_cnt: 0,
+                msg_type: "SMS",
+            },
+        });
+
+        await expect(
+            controller.sendSms(
+                { branchId: "branch-a" },
+                {
+                    receiver: "01012345678",
+                    message: "연결되지 않은 수신자 안내",
+                    ...(clientId === undefined ? {} : { clientId }),
+                },
+            ),
+        ).resolves.toMatchObject({ provider: "aligo_sms" });
+
+        expect(prismaService.client.findFirst).toHaveBeenCalled();
+        expect(prismaService.message_log.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({
+                branchId: "branch-a",
+                clientId: 1,
+            }),
+        });
+    });
+
+    it("should reject a client from another branch before approval, history, or provider side effects", async () => {
+        prismaService.client.findFirst.mockResolvedValue(null);
+
+        await expect(
+            controller.sendSms(
+                { branchId: "branch-a" },
+                {
+                    receiver: "01012345678",
+                    message: "다른 지점 고객 오염 시도",
+                    clientId: 7,
+                },
+            ),
+        ).rejects.toThrow("Client not found for branch");
+
+        expect(prismaService.client.findFirst).toHaveBeenCalledWith({
+            where: { id: 7, branchId: "branch-a" },
+            select: { id: true, name: true, phone: true },
+        });
+        expect(messageSenderApprovalService.ensureApproved).not.toHaveBeenCalled();
+        expect(prismaService.message_log.create).not.toHaveBeenCalled();
+        expect(prismaService.message_log.update).not.toHaveBeenCalled();
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+    });
+
+    it("should preserve the client association for a same-branch manual SMS", async () => {
+        prismaService.client.findFirst.mockResolvedValue({ id: 7, name: "지점 고객", phone: "01012345678" });
+        aligoService.sendSms.mockResolvedValue({
+            request: {
+                senderPhone: "0212345678",
+                receiver: "01012345678",
+                msgType: "SMS",
+                testModeYn: "N",
+            },
+            response: {
+                result_code: 1,
+                message: "success",
+                msg_id: 123,
+                success_cnt: 1,
+                error_cnt: 0,
+                msg_type: "SMS",
+            },
+        });
+
+        await expect(
+            controller.sendSms(
+                { branchId: "branch-a" },
+                {
+                    receiver: "01012345678",
+                    message: "같은 지점 고객 안내",
+                    clientId: 7,
+                },
+            ),
+        ).resolves.toMatchObject({ provider: "aligo_sms" });
+
+        expect(prismaService.client.findFirst).toHaveBeenCalledWith({
+            where: { id: 7, branchId: "branch-a" },
+            select: { id: true, name: true, phone: true },
+        });
+        expect(prismaService.message_log.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({ branchId: "branch-a", clientId: 7 }),
+        });
+        expect(aligoService.sendSms).toHaveBeenCalledTimes(1);
+    });
+
+    it("should reject a free-form recipient before approval, history, or provider side effects", async () => {
+        prismaService.client.findFirst.mockResolvedValue(null);
+        prismaService.employee?.findFirst.mockResolvedValue(null);
+
+        await expect(
+            controller.sendSms(
+                { branchId: "branch-a" },
+                {
+                    receiver: "01099998888",
+                    message: "임의 번호 발송 시도",
+                },
+            ),
+        ).rejects.toThrow("SMS recipient not found for branch");
+
+        expect(messageSenderApprovalService.ensureApproved).not.toHaveBeenCalled();
+        expect(prismaService.message_log.create).not.toHaveBeenCalled();
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+    });
+
+    it("should bind an employee-associated SMS to an active employee in the selected branch", async () => {
+        prismaService.client.findFirst.mockResolvedValue(null);
+        prismaService.employee?.findFirst.mockResolvedValue({
+            id: 12,
+            name: "지점 직원",
+            phone: "010-1234-5678",
+        });
+        aligoService.sendSms.mockResolvedValue({
+            request: {
+                senderPhone: "0212345678",
+                receiver: "01012345678",
+                msgType: "SMS",
+                testModeYn: "N",
+            },
+            response: {
+                result_code: 1,
+                message: "success",
+                msg_id: 124,
+                success_cnt: 1,
+                error_cnt: 0,
+                msg_type: "SMS",
+            },
+        });
+
+        await expect(
+            controller.sendSms(
+                { branchId: "branch-a" },
+                {
+                    receiver: "01012345678",
+                    employeeId: 12,
+                    recipientName: "caller-controlled",
+                    message: "직원 안내",
+                },
+            ),
+        ).resolves.toMatchObject({ provider: "aligo_sms" });
+
+        expect(prismaService.employee?.findFirst).toHaveBeenCalledWith({
+            where: { id: 12, branchId: "branch-a", deletedAt: null },
+            select: { id: true, name: true, phone: true },
+        });
+        expect(prismaService.message_log.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({
+                branchId: "branch-a",
+                clientId: null,
+                recipientName: "지점 직원",
+                variables: expect.objectContaining({ employeeId: 12 }),
             }),
         });
     });
@@ -359,6 +591,75 @@ describe("MessageDeliveryController", () => {
             "문자 공급자에는 접수되었지만 발송 기록 상태를 갱신하지 못했습니다.",
         );
 
+        expect(prismaService.message_log.create).toHaveBeenCalledTimes(1);
+        expect(aligoService.sendSms).toHaveBeenCalledTimes(1);
+    });
+
+    it("should fence a provider failure when the uncertain-state update also fails", async () => {
+        const row = {
+            id: 42,
+            variables: { triggerType: "immediate" },
+            providerAcceptanceState: "prepared",
+        };
+        prismaService.message_log.create.mockResolvedValue(row);
+        prismaService.message_log.update.mockRejectedValue(new Error("database unavailable"));
+        aligoService.sendSms.mockRejectedValue(new Error("provider connection reset"));
+
+        await expect(
+            controller.sendSms(
+                { branchId: "org-1" },
+                {
+                    receiver: "01012345678",
+                    message: "결과가 불확실한 발송",
+                    triggerType: "immediate",
+                },
+            ),
+        ).rejects.toThrow(BadGatewayException);
+
+        expect(row.providerAcceptanceState).toBe("started");
+        expect(prismaService.message_log.update).toHaveBeenCalledTimes(1);
+        expect(aligoService.sendSms).toHaveBeenCalledTimes(1);
+    });
+
+    it("should converge duplicate manual requests with one idempotency key before crossing Aligo", async () => {
+        let persistedRow: Record<string, unknown> | null = null;
+        const messageLogModel = prismaService.message_log as typeof prismaService.message_log & {
+            findUnique: jest.Mock;
+        };
+        messageLogModel.findUnique = jest.fn().mockImplementation(async () => persistedRow);
+        prismaService.message_log.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+            persistedRow = { ...data, id: 42 };
+            return persistedRow;
+        });
+        aligoService.sendSms.mockResolvedValue({
+            request: {
+                senderPhone: "0212345678",
+                receiver: "01012345678",
+                msgType: "SMS",
+                testModeYn: "N",
+            },
+            response: {
+                result_code: 1,
+                message: "success",
+                msg_id: 321,
+                success_cnt: 1,
+                error_cnt: 0,
+                msg_type: "SMS",
+            },
+        });
+
+        const request = {
+            receiver: "01012345678",
+            message: "멱등 요청",
+            triggerType: "immediate" as const,
+            idempotencyKey: "manual-request-42",
+        };
+        await expect(controller.sendSms({ branchId: "org-1" }, request)).resolves.toMatchObject({
+            provider: "aligo_sms",
+        });
+        await expect(controller.sendSms({ branchId: "org-1" }, request)).rejects.toThrow(ConflictException);
+
+        expect(messageLogModel.findUnique).toHaveBeenCalledTimes(2);
         expect(prismaService.message_log.create).toHaveBeenCalledTimes(1);
         expect(aligoService.sendSms).toHaveBeenCalledTimes(1);
     });

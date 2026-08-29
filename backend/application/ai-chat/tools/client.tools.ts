@@ -113,12 +113,8 @@ export const createClientSchema: FunctionDeclaration = {
                 type: "string",
                 description: "Client's birthday (YYMMDD format)",
             },
-            confirmed: {
-                type: "boolean",
-                description: "Set to true to confirm and execute the creation. Set to false to request confirmation first.",
-            },
         },
-        required: ["name", "primaryEmployeeId", "careCenter", "voucherClient", "confirmed"],
+        required: ["name", "primaryEmployeeId", "careCenter", "voucherClient"],
     },
 };
 
@@ -130,12 +126,12 @@ USE THIS TOOL when user asks:
 - "산모 정보 수정", "전화번호 변경", "연락처 바꿔줘", "주소 수정"
 
 ACTION-FIRST RULE:
-- Even when some update value is missing, call updateClient first with confirmed=false and available identifier (clientId or clientName).
+- Even when some update value is missing, call updateClient first with the available identifier (clientId or clientName).
 - Then ask the missing detail if needed.
 
 Examples:
-- "이수진 산모 전화번호 변경해줘" -> updateClient(clientName: "이수진", confirmed: false)
-- "김민지 산모 연락처 010-1234-5678로 바꿔줘" -> updateClient(clientName: "김민지", phone: "010-1234-5678", confirmed: false)`,
+- "이수진 산모 전화번호 변경해줘" -> updateClient(clientName: "이수진")
+- "김민지 산모 연락처 010-1234-5678로 바꿔줘" -> updateClient(clientName: "김민지", phone: "010-1234-5678")`,
     parameters: {
         type: "object",
         properties: {
@@ -188,12 +184,8 @@ Examples:
                 enum: ["pre_booking", "waiting", "replacement_requested", "active", "completed", "terminated"],
                 description: "Client service status: pre_booking, waiting, replacement_requested, active, completed, or terminated",
             },
-            confirmed: {
-                type: "boolean",
-                description: "Set to true to confirm and execute the update. Set to false to request confirmation first.",
-            },
         },
-        required: ["confirmed"],
+        required: [],
     },
 };
 
@@ -211,12 +203,8 @@ export const deleteClientSchema: FunctionDeclaration = {
                 type: "string",
                 description: "Client name when ID is unknown (e.g., '최민지')",
             },
-            confirmed: {
-                type: "boolean",
-                description: "Set to true to confirm and execute the deletion. Set to false to request confirmation first.",
-            },
         },
-        required: ["confirmed"],
+        required: [],
     },
 };
 
@@ -274,12 +262,8 @@ SYNONYMS: 산모 = 이용자 = 고객 = 엄마 = client`,
                 type: "string",
                 description: "Reason for termination (종료 사유)",
             },
-            confirmed: {
-                type: "boolean",
-                description: "Set to true to confirm. Set to false to request confirmation first.",
-            },
         },
-        required: ["confirmed"],
+        required: [],
     },
 };
 
@@ -316,12 +300,8 @@ SYNONYMS:
                 type: "number",
                 description: "ID of the new secondary employee (새 보조 관리사 ID, optional)",
             },
-            confirmed: {
-                type: "boolean",
-                description: "Set to true to confirm. Set to false to request confirmation first.",
-            },
         },
-        required: ["confirmed"],
+        required: [],
     },
 };
 

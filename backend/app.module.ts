@@ -38,6 +38,7 @@ import { ContractClientAssignmentGuardService } from "application/services/contr
 import { AgentModule } from "module/agent.module";
 import { resolveSchedulerModuleOptions } from "infrastructure/config/scheduler-config";
 import { HealthController } from "interface/controllers/health.controller";
+import { ReadinessService } from "infrastructure/health/readiness.service";
 
 const ENV_FILE_PATHS = [
     resolve(process.cwd(), "backend/.env.local"),
@@ -95,6 +96,7 @@ const ENV_FILE_PATHS = [
         ContractClientAssignmentGuardService,
         EformsignListShadowCompareService,
         EformsignMirrorListService,
+        ReadinessService,
     ],
 })
 export class AppModule {}

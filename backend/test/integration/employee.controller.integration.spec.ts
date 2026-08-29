@@ -1,13 +1,22 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { ExecutionContext, INestApplication, ValidationPipe } from "@nestjs/common";
+import { GUARDS_METADATA } from "@nestjs/common/constants";
 import request from "supertest";
 import { EmployeeController } from "interface/controllers/employee.controller";
 import { EmployeeService } from "application/services/employee.service";
 import { EmployeeEntity } from "domain/entities/employee.entity";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { TenantGuard } from "infrastructure/tenant/tenant.guard";
+import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 
 describe("EmployeeController (Integration)", () => {
+    it.each(["create", "changeOpenStatus", "update", "delete"])("requires owner/admin authority for %s", (methodName) => {
+        const guards = Reflect.getMetadata(
+            GUARDS_METADATA,
+            EmployeeController.prototype[methodName as keyof typeof EmployeeController.prototype],
+        ) ?? [];
+        expect(guards).toContain(OwnerOrAdminGuard);
+    });
     // ============================================
     // Test Fixtures & Setup
     // ============================================
@@ -50,6 +59,7 @@ describe("EmployeeController (Integration)", () => {
             findByRegisteredDateRange: jest.fn(),
             findAllOpenToNextWork: jest.fn(),
             listActiveClients: jest.fn(),
+            listWorkHistory: jest.fn(),
             checkPhoneExists: jest.fn(),
             changeOpenStatus: jest.fn(),
             update: jest.fn(),
@@ -133,6 +143,37 @@ describe("EmployeeController (Integration)", () => {
                         grade: "베스트",
                     }),
                 );
+            });
+
+            it("should expose the current Korean registration date when the field is omitted", async () => {
+                jest.useFakeTimers().setSystemTime(new Date("2026-08-27T23:30:00.000Z"));
+                try {
+                    const createDto = {
+                        name: "오늘 등록 직원",
+                        workArea: ["Seoul"],
+                        phone: "010-9999-7777",
+                        grade: "베스트",
+                        openToNextWork: true,
+                    };
+                    employeeService.create.mockResolvedValue(
+                        EmployeeEntity.create(
+                            createDto.name,
+                            createDto.workArea,
+                            createDto.phone,
+                            createDto.grade,
+                            createDto.openToNextWork,
+                        ),
+                    );
+
+                    const response = await request(app.getHttpServer())
+                        .post("/employees")
+                        .send(createDto);
+
+                    expect(response.status).toBe(201);
+                    expect(response.body.registeredDate).toBe("2026-08-28T00:00:00.000Z");
+                } finally {
+                    jest.useRealTimers();
+                }
             });
         });
 
@@ -301,6 +342,34 @@ describe("EmployeeController (Integration)", () => {
         });
     });
 
+    describe("GET /employees/:id/work-history", () => {
+        it("validates pagination and passes the selected branch to the service", async () => {
+            employeeService.listWorkHistory.mockResolvedValue({
+                data: [],
+                total: 0,
+                page: 2,
+                limit: 10,
+                totalPages: 0,
+            });
+
+            const response = await request(app.getHttpServer())
+                .get("/employees/7/work-history")
+                .query({ page: "2", limit: "10" });
+
+            expect(response.status).toBe(200);
+            expect(employeeService.listWorkHistory).toHaveBeenCalledWith("org-1", 7, 2, 10);
+        });
+
+        it("rejects invalid pagination before calling the service", async () => {
+            const response = await request(app.getHttpServer())
+                .get("/employees/7/work-history")
+                .query({ page: "0", limit: "10" });
+
+            expect(response.status).toBe(400);
+            expect(employeeService.listWorkHistory).not.toHaveBeenCalled();
+        });
+    });
+
     // ============================================
     // GET /employees/work-area - Find By Work Area
     // ============================================
@@ -402,6 +471,18 @@ describe("EmployeeController (Integration)", () => {
                 expect(employeeService.findByOpenStatus).toHaveBeenCalledWith(expect.any(String), true);
             });
         });
+
+        it.each(["garbage", "TRUE", "1"])(
+            "should reject an invalid openToNextWork value (%s) before calling the service",
+            async (openToNextWork) => {
+                const response = await request(app.getHttpServer())
+                    .get("/employees/open-status")
+                    .query({ openToNextWork });
+
+                expect(response.status).toBe(400);
+                expect(employeeService.findByOpenStatus).not.toHaveBeenCalled();
+            },
+        );
     });
 
     // ============================================

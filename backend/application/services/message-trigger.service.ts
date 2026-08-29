@@ -25,6 +25,7 @@ import {
 } from "domain/constants/message-trigger-catalog";
 import { findUnsupportedRequiredMessageTriggerVariables } from "domain/constants/message-trigger-variable-sources";
 import { SystemTemplateKey } from "domain/constants/system-template-registry";
+import { EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON } from "domain/constants/message-automation-intent";
 import {
     MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON,
     PAST_OCCURRENCE_GRACE_MS,
@@ -72,7 +73,7 @@ interface UpsertRuleParams {
 
 export interface MessageTriggerIntentSyncOptions {
     stableBatchAt: Date;
-    preserveExisting: true;
+    preserveExisting: boolean;
 }
 
 type MessageTriggerRuleValidationParams = Pick<
@@ -106,6 +107,9 @@ const MISSING_CATCH_UP_PREDECESSOR_CANCEL_REASON = "보충 발송 이전 순위 
 const USER_REQUESTED_CANCEL_REASON = "사용자가 발송을 취소함";
 const CANCEL_JOB_CONFLICT_MESSAGE = "이미 발송되었거나 취소할 수 없는 상태입니다";
 const MS_PER_MINUTE = 60 * 1000;
+// The authorization fence only validates the current claim/source and commits
+// a short CAS before any provider path opens another Prisma connection.
+const CLAIM_DISPATCH_AUTHORIZATION_TIMEOUT_MS = 5_000;
 
 function normalizeMessageTriggerOffsetDays(
     offsetType: MessageTriggerOffsetType,
@@ -239,10 +243,83 @@ interface ClientTriggerSource {
     area?: { bankAccountInfo: { bankName: string | null; accNum: string | null } | null } | null;
 }
 
+interface EmployeeAssignmentScheduleSource {
+    id: number;
+    branchId: string | null;
+    clientId: number;
+    workAddress: string;
+    startDate: Date;
+    endDate: Date;
+    replaced: boolean;
+    primaryEmployeeId: number;
+    secondaryEmployeeId: number | null;
+    client: { id: number; name: string };
+    primaryEmployee: { id: number; name: string; phone: string } | null;
+    secondaryEmployee: { id: number; name: string; phone: string } | null;
+}
+
+type EmployeeAssignmentScheduleFingerprintSource = Pick<
+    EmployeeAssignmentScheduleSource,
+    | "id"
+    | "branchId"
+    | "clientId"
+    | "workAddress"
+    | "startDate"
+    | "endDate"
+    | "replaced"
+    | "primaryEmployeeId"
+    | "secondaryEmployeeId"
+> & Partial<Pick<EmployeeAssignmentScheduleSource, "client" | "primaryEmployee" | "secondaryEmployee">>;
+
+function employeeAssignmentEmployeeFingerprint(
+    employee: EmployeeAssignmentScheduleSource["primaryEmployee"] | undefined,
+): { id: number; name: string; phone: string } | null {
+    if (!employee) return null;
+    return { id: employee.id, name: employee.name, phone: employee.phone };
+}
+
+/**
+ * A schedule has no version column. Persisting this opaque source fingerprint
+ * in the assignment job lets the dispatcher reject a claimed job built from
+ * any older schedule/assignment generation without copying address data into
+ * the provider payload.
+ */
+function employeeAssignmentScheduleFingerprint(
+    schedule: EmployeeAssignmentScheduleFingerprintSource,
+    recipientType: MessageTriggerRecipientType,
+): string {
+    return createHash("sha256").update(JSON.stringify({
+        version: "employee-assignment-source-v1",
+        recipientType,
+        id: schedule.id,
+        branchId: schedule.branchId,
+        clientId: schedule.clientId,
+        client: schedule.client
+            ? { id: schedule.client.id, name: schedule.client.name }
+            : null,
+        workAddress: schedule.workAddress,
+        startDate: schedule.startDate.toISOString(),
+        endDate: schedule.endDate.toISOString(),
+        replaced: schedule.replaced,
+        primaryEmployeeId: schedule.primaryEmployeeId,
+        secondaryEmployeeId: schedule.secondaryEmployeeId,
+        primaryEmployee: employeeAssignmentEmployeeFingerprint(schedule.primaryEmployee),
+        secondaryEmployee: employeeAssignmentEmployeeFingerprint(schedule.secondaryEmployee),
+    })).digest("hex");
+}
+
 type ClientRuleJobCandidate = {
     rule: MessageTriggerRuleEntity;
     job: MessageTriggerJobEntity;
 };
+
+type PreProviderSendFenceResult =
+    | { kind: "allow" }
+    | { kind: "stale"; reason: string }
+    | { kind: "lost" };
+
+const SMS_PROVIDER_ACCEPTANCE_UNCERTAIN_REASON =
+    "문자 발송 결과가 불확실하여 자동 재전송을 중단했습니다. 제공자 이력 확인 후 수동 확인이 필요합니다.";
 
 @Injectable()
 export class MessageTriggerService {
@@ -727,13 +804,13 @@ export class MessageTriggerService {
     }
 
     /**
-     * Cancel a scheduled trigger job on the user's behalf. Only a `pending`
-     * job scoped to the caller's branch can be canceled; the repository call
-     * is a single atomic conditional update, so there is no separate
+     * Cancel a scheduled trigger job on the user's behalf. Pending and
+     * processing jobs scoped to the caller's branch are canceled atomically;
+     * a processing claim is invalidated before the provider fence. The
+     * repository call is a single conditional update, so there is no separate
      * existence/branch pre-check to race against it. Every other outcome
-     * (already sent, currently processing, already canceled, or no such job)
-     * collapses to the same conflict-style failure — the caller does not
-     * need to know which.
+     * (already sent, already canceled, or no such job) collapses to the same
+     * conflict-style failure — the caller does not need to know which.
      */
     async cancelJobByUser(branchId: string, id: string): Promise<{ id: string; status: "canceled" }> {
         await this.ensureTriggerSchemaReady();
@@ -925,12 +1002,12 @@ export class MessageTriggerService {
         employeeScheduleId: number,
         includePast: boolean,
         intentOptions?: Pick<MessageTriggerIntentSyncOptions, "preserveExisting">,
-    ): Promise<void> {
+    ): Promise<boolean> {
         if (!(await this.hasTriggerSchema())) {
-            return;
+            return false;
         }
         if (!(await this.messageSenderApprovalService.isApproved(branchId))) {
-            return;
+            return false;
         }
 
         const schedule = await this.prisma.employee_schedule.findFirst({
@@ -941,20 +1018,28 @@ export class MessageTriggerService {
                 secondaryEmployee: true,
             },
         });
-        if (!schedule) return;
+        if (!schedule) return true;
 
         const rules = await this.ruleRepository.findActiveByEventTypes(branchId, [
             MessageTriggerEventType.EMPLOYEE_ASSIGNED,
         ]);
 
-        if (!intentOptions?.preserveExisting) {
-            await this.cancelPendingJobsForEmployeeSchedule(
+        // A replaced schedule is terminal for employee-assignment automation.
+        // Even an intent replay that normally preserves an existing generation
+        // must cancel any pending assignment before returning, and must not
+        // create a replacement for the retired schedule.
+        let retryable = false;
+        if (!intentOptions?.preserveExisting || schedule.replaced) {
+            const canceled = await this.cancelPendingJobsForEmployeeSchedule(
                 branchId,
                 rules,
                 employeeScheduleId,
-                "Employee assignment changed",
+                EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
             );
+            if (!canceled && !schedule.replaced) retryable = true;
         }
+
+        if (schedule.replaced) return true;
 
         for (const rule of rules) {
             const job = this.buildEmployeeAssignmentJob(rule, schedule);
@@ -962,14 +1047,91 @@ export class MessageTriggerService {
             if (await this.hasSentEmployeeAssignmentJobForSameEmployee(job)) {
                 continue;
             }
-            await this.persistPendingJob(
+            const persisted = await this.persistPendingJob(
                 job,
                 rule,
                 includePast,
                 false,
                 intentOptions?.preserveExisting === true,
             );
+            if (!persisted) retryable = true;
         }
+        return !retryable;
+    }
+
+    /**
+     * Refresh assignment jobs whose source payload contains the client's name.
+     * The schedule itself remains the same generation, so its deterministic
+     * dedupe key lets the mutable pending row be rebuilt in place.
+     */
+    async syncEmployeeAssignmentRulesForClient(
+        branchId: string,
+        clientId: number,
+    ): Promise<boolean> {
+        if (!(await this.hasTriggerSchema())) {
+            return false;
+        }
+        if (!(await this.messageSenderApprovalService.isApproved(branchId))) {
+            return false;
+        }
+
+        const schedules = await this.prisma.employee_schedule.findMany({
+            where: { branchId, clientId, replaced: false },
+            select: { id: true },
+            orderBy: { id: "asc" },
+        });
+
+        let retryable = false;
+        for (const schedule of schedules) {
+            const refreshed = await this.syncEmployeeAssignmentRulesForSchedule(
+                branchId,
+                schedule.id,
+                true,
+            );
+            if (refreshed === false) retryable = true;
+        }
+        return !retryable;
+    }
+
+    /**
+     * Refresh assignment jobs for every active schedule that references the
+     * employee. Branch and replacement predicates keep the reconciliation
+     * inside the caller's tenant and out of retired schedule generations.
+     */
+    async syncEmployeeAssignmentRulesForEmployee(
+        branchId: string,
+        employeeId: number,
+    ): Promise<boolean> {
+        if (!(await this.hasTriggerSchema())) {
+            return false;
+        }
+        if (!(await this.messageSenderApprovalService.isApproved(branchId))) {
+            return false;
+        }
+
+        const schedules = await this.prisma.employee_schedule.findMany({
+            where: {
+                branchId,
+                replaced: false,
+                OR: [
+                    { primaryEmployeeId: employeeId },
+                    { secondaryEmployeeId: employeeId },
+                ],
+            },
+            select: { id: true },
+            orderBy: { id: "asc" },
+        });
+
+        let retryable = false;
+        for (const schedule of schedules) {
+            const refreshed = await this.syncEmployeeAssignmentRulesForSchedule(
+                branchId,
+                schedule.id,
+                true,
+            );
+            if (refreshed === false) retryable = true;
+        }
+        return !retryable;
     }
 
     async hasActiveRulesForEvents(
@@ -1117,13 +1279,13 @@ export class MessageTriggerService {
         includePast: boolean,
         expectedJobsStale: boolean,
         preserveExisting = false,
-    ): Promise<void> {
-        if (!job) return;
+    ): Promise<boolean> {
+        if (!job) return true;
         if (!includePast) {
             const now = Date.now();
             const scheduledForTime = job.scheduledFor.getTime();
             if (scheduledForTime < now - PAST_OCCURRENCE_GRACE_MS) {
-                return;
+                return true;
             }
 
             // IMMEDIATE jobs must fire only on the live create/assign path (includePast=true).
@@ -1131,15 +1293,16 @@ export class MessageTriggerService {
                 rule.offsetType === MessageTriggerOffsetType.IMMEDIATE &&
                 scheduledForTime <= now
             ) {
-                return;
+                return true;
             }
         }
-        await this.jobRepository.upsertPendingForRuleGeneration(
+        const persisted = await this.jobRepository.upsertPendingForRuleGeneration(
             job,
             rule.updatedAt,
             expectedJobsStale,
             preserveExisting,
         );
+        return persisted !== null;
     }
 
     private async applyRetroactiveSendConfig(
@@ -1241,6 +1404,16 @@ export class MessageTriggerService {
             const rule = rulesById.get(job.ruleId);
             if (!rule) continue;
 
+            // A client mutation can race a job that was already claimed for
+            // delivery. Invalidate that active claim before refreshing the
+            // pending payload; the CAS update is intentionally skipped when
+            // another worker has already replaced the token.
+            if (job.status === "processing") {
+                job.cancel("Client data changed");
+                await this.jobRepository.update(job);
+                continue;
+            }
+
             const refreshedJob = this.buildClientJob(rule, client);
             if (!refreshedJob) continue;
 
@@ -1291,16 +1464,7 @@ export class MessageTriggerService {
 
     private buildEmployeeAssignmentJob(
         rule: MessageTriggerRuleEntity,
-        schedule: {
-            id: number;
-            clientId: number;
-            startDate: Date;
-            primaryEmployeeId: number;
-            secondaryEmployeeId: number | null;
-            client: { id: number; name: string };
-            primaryEmployee: { id: number; name: string; phone: string } | null;
-            secondaryEmployee: { id: number; name: string; phone: string } | null;
-        },
+        schedule: EmployeeAssignmentScheduleSource,
     ): MessageTriggerJobEntity | null {
         const employee =
             rule.recipientType === MessageTriggerRecipientType.PRIMARY_EMPLOYEE
@@ -1325,6 +1489,7 @@ export class MessageTriggerService {
                 clientName: schedule.client.name,
                 employeeId: employee.id,
                 employeeName: employee.name,
+                employeeScheduleFingerprint: employeeAssignmentScheduleFingerprint(schedule, rule.recipientType),
                 memberId,
                 recipientName: employee.name,
                 recipientPhone: employee.phone,
@@ -1767,9 +1932,10 @@ export class MessageTriggerService {
         rules: MessageTriggerRuleEntity[],
         employeeScheduleId: number,
         reason: string,
-    ): Promise<void> {
+    ): Promise<boolean> {
+        let succeeded = true;
         for (const rule of rules) {
-            await this.jobRepository.cancelPendingForRuleGeneration(
+            const canceled = await this.jobRepository.cancelPendingForRuleGeneration(
                 branchId,
                 rule.id,
                 rule.updatedAt,
@@ -1777,7 +1943,9 @@ export class MessageTriggerService {
                 reason,
                 { employeeScheduleId },
             );
+            if (canceled === null) succeeded = false;
         }
+        return succeeded;
     }
 
     private async dispatchClaimedJob(
@@ -1789,6 +1957,11 @@ export class MessageTriggerService {
         if (!claimed) {
             return;
         }
+
+        // The SQL claim returns the immutable attempt token. A claim without
+        // one is not safe to deliver: the pre-provider fence fails closed.
+        const claimToken = claimed;
+        job.claimToken = claimToken;
 
         if (sentIds.has(job.id)) {
             job.markSent();
@@ -1812,12 +1985,93 @@ export class MessageTriggerService {
             return;
         }
 
-        job.markProcessing();
+        job.markProcessing(claimToken);
+        const authorization = await this.authorizeClaimedJobForDispatch(job);
+        if (authorization.kind === "lost") {
+            return;
+        }
+        if (authorization.kind === "stale") {
+            // The authorization transaction already invalidated this claim
+            // when the source snapshot was stale. Keep the in-memory entity
+            // aligned so the token-CAS write below is a harmless no-op if a
+            // concurrent cancellation won the race first.
+            job.cancel(authorization.reason);
+            await this.persistTriggerJobStatus(job, "persist stale trigger job");
+            return;
+        }
+
+        // The transaction has committed the irreversible dispatching state.
+        // Provider delivery and its message_log writes must happen outside the
+        // claim transaction so the FK insert cannot wait on a held row lock.
+        job.markDispatchAuthorized();
+        await this.deliverClaimedJob(job);
+        await this.persistTriggerJobStatus(job, "persist dispatched trigger job");
+    }
+
+    /**
+     * Revalidate cancellation/source state and atomically authorize one
+     * claimed attempt for provider delivery. This transaction deliberately
+     * ends before `deliverClaimedJob`: the delivery service persists its own
+     * message_log attempt through another Prisma connection.
+     */
+    private async authorizeClaimedJobForDispatch(
+        job: MessageTriggerJobEntity,
+    ): Promise<PreProviderSendFenceResult> {
+        return this.prisma.$transaction(async (transaction) => {
+            // Employee schedule writers lock the source row before committing
+            // their replacement. Preserve that order here, then lock the job
+            // row for the token/CAS check; no provider work occurs while either
+            // lock is held.
+            const sourceFence = job.templateKey === MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED
+                && job.employeeScheduleId !== null
+                ? await this.fenceEmployeeAssignmentBeforeProviderSend(job, transaction)
+                : { kind: "allow" as const };
+            if (sourceFence.kind === "lost") {
+                return sourceFence;
+            }
+
+            const tokenFence = await this.fenceClaimTokenBeforeProviderSend(job, transaction);
+            if (tokenFence.kind === "lost") {
+                return tokenFence;
+            }
+            if (sourceFence.kind === "stale") {
+                const canceled = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+                    UPDATE "message_trigger_job"
+                    SET status = 'canceled',
+                        canceled_at = date_trunc('milliseconds', clock_timestamp()),
+                        cancel_reason = ${sourceFence.reason},
+                        claim_token = NULL,
+                        updated_at = date_trunc('milliseconds', clock_timestamp())
+                    WHERE id = ${job.id}
+                      AND status = 'processing'
+                      AND claim_token = ${job.claimToken}
+                    RETURNING id
+                `);
+                return canceled.length === 1 ? sourceFence : { kind: "lost" as const };
+            }
+
+            const authorized = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+                UPDATE "message_trigger_job"
+                SET status = 'dispatching',
+                    updated_at = date_trunc('milliseconds', clock_timestamp())
+                WHERE id = ${job.id}
+                  AND status = 'processing'
+                  AND claim_token = ${job.claimToken}
+                RETURNING id
+            `);
+            return authorized.length === 1 ? { kind: "allow" as const } : { kind: "lost" as const };
+        }, {
+            maxWait: CLAIM_DISPATCH_AUTHORIZATION_TIMEOUT_MS,
+            timeout: CLAIM_DISPATCH_AUTHORIZATION_TIMEOUT_MS,
+        });
+    }
+
+    private async deliverClaimedJob(job: MessageTriggerJobEntity): Promise<void> {
         try {
             const sent = await this.deliveryService.sendJob(job);
             if (sent) {
                 job.markSent();
-            } else if (job.status === "processing") {
+            } else if (job.status === "processing" || job.status === "dispatching") {
                 job.markFailed("Provider disabled or delivery failed");
             }
         } catch (error) {
@@ -1827,8 +2081,245 @@ export class MessageTriggerService {
                 job.markFailed(error instanceof Error ? error.message : String(error));
             }
         }
+    }
 
-        await this.persistTriggerJobStatus(job, "persist dispatched trigger job");
+    /**
+     * Re-read the claimed job and its schedule immediately before provider
+     * invocation. BJJ-35 fences pending rows in the schedule update
+     * transaction, but a row already claimed as `processing` needs this final
+     * source check as well. When called from the authorization transaction,
+     * the schedule row is locked only until that transaction commits; provider
+     * delivery never runs while this lock is held. A lost claim is left
+     * untouched so a concurrent user cancel or retry transition is never
+     * overwritten.
+     */
+    private async fenceEmployeeAssignmentBeforeProviderSend(
+        job: MessageTriggerJobEntity,
+        transaction: Prisma.TransactionClient,
+    ): Promise<PreProviderSendFenceResult> {
+        const employeeScheduleId = job.employeeScheduleId;
+        if (employeeScheduleId === null) return { kind: "lost" };
+        const currentJob = await transaction.message_trigger_job.findUnique({
+            where: { id: job.id },
+            select: {
+                status: true,
+                branchId: true,
+                ruleId: true,
+                clientId: true,
+                employeeScheduleId: true,
+                recipientType: true,
+                templateKey: true,
+                claimToken: true,
+            },
+        });
+        if (
+            !currentJob
+            || currentJob.status !== "processing"
+            || currentJob.branchId !== job.branchId
+            || currentJob.ruleId !== job.ruleId
+            || currentJob.clientId !== job.clientId
+            || currentJob.employeeScheduleId !== employeeScheduleId
+            || currentJob.recipientType !== job.recipientType
+            || currentJob.templateKey !== job.templateKey
+            || currentJob.claimToken !== job.claimToken
+        ) {
+            return { kind: "lost" };
+        }
+
+        const lockedSchedule = await transaction.$queryRaw<Array<{ id: number }>>(Prisma.sql`
+            SELECT id
+            FROM "employee_schedule"
+            WHERE id = ${employeeScheduleId}
+              AND "branch_id" = ${job.branchId}::uuid
+            FOR UPDATE
+        `);
+        if (lockedSchedule.length === 0) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        const schedule = await transaction.employee_schedule.findFirst({
+            where: {
+                id: employeeScheduleId,
+                branchId: job.branchId,
+            },
+            select: {
+                id: true,
+                branchId: true,
+                clientId: true,
+                workAddress: true,
+                startDate: true,
+                endDate: true,
+                replaced: true,
+                primaryEmployeeId: true,
+                secondaryEmployeeId: true,
+                client: { select: { id: true, name: true } },
+                primaryEmployee: { select: { id: true, name: true, phone: true } },
+                secondaryEmployee: { select: { id: true, name: true, phone: true } },
+            },
+        });
+
+        if (!schedule || schedule.branchId !== job.branchId || schedule.clientId !== job.clientId) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        // Replacement is a terminal source state. This explicit check is
+        // required for legacy jobs because they predate the source
+        // fingerprint and cannot otherwise prove replacement equality.
+        if (schedule.replaced) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        const fingerprint = job.payload.employeeScheduleFingerprint;
+        if (fingerprint) {
+            return employeeAssignmentScheduleFingerprint(schedule, job.recipientType) === fingerprint
+                ? { kind: "allow" }
+                : {
+                    kind: "stale",
+                    reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+                };
+        }
+
+        const expectedEmployeeId = job.payload.employeeId;
+        const currentEmployeeId = job.recipientType === MessageTriggerRecipientType.PRIMARY_EMPLOYEE
+            ? schedule.primaryEmployeeId
+            : schedule.secondaryEmployeeId;
+        if (typeof expectedEmployeeId !== "number" || expectedEmployeeId !== currentEmployeeId) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        const currentEmployee = job.recipientType === MessageTriggerRecipientType.PRIMARY_EMPLOYEE
+            ? schedule.primaryEmployee
+            : schedule.secondaryEmployee;
+        const expectedEmployeeName = job.payload.employeeName ?? job.payload.recipientName;
+        if (expectedEmployeeName && expectedEmployeeName !== currentEmployee?.name) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        const currentEmployeePhone = normalizePhone(currentEmployee?.phone);
+        const expectedRecipientPhones = [job.recipientPhone, job.payload.recipientPhone]
+            .filter((phone): phone is string => Boolean(phone));
+        if (expectedRecipientPhones.some((phone) => normalizePhone(phone) !== currentEmployeePhone)) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        const expectedClientNames = [
+            job.payload.clientName,
+            job.payload.templateVariables["clientName"],
+        ].filter((name): name is string => Boolean(name));
+        if (expectedClientNames.some((name) => name !== schedule.client.name)) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        const expectedTemplateEmployeeName = job.payload.templateVariables["employeeName"];
+        if (expectedTemplateEmployeeName && expectedTemplateEmployeeName !== currentEmployee?.name) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        const expectedStartDate = job.payload.templateVariables["serviceStartDate"];
+        if (expectedStartDate && this.formatDate(schedule.startDate) !== expectedStartDate) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        // Some pre-fingerprint jobs may already carry additional source
+        // snapshots. Compare them when present; old payloads without these
+        // keys remain compatible but are protected by the checks above.
+        const expectedEndDate = job.payload.templateVariables["serviceEndDate"];
+        if (expectedEndDate && this.formatDate(schedule.endDate) !== expectedEndDate) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        const expectedWorkAddress = job.payload.templateVariables["workAddress"];
+        if (expectedWorkAddress && schedule.workAddress !== expectedWorkAddress) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        return { kind: "allow" };
+    }
+
+    /**
+     * Lock and re-read the active claim as the final half of the dispatch
+     * authorization transaction. A mutation that wins before this check
+     * clears/replaces the token and fails closed; once the caller commits the
+     * `dispatching` CAS, later mutations cannot revoke an already-authorized
+     * provider crossing and terminal completion remains token fenced.
+     */
+    private async fenceClaimTokenBeforeProviderSend(
+        job: MessageTriggerJobEntity,
+        transaction: Prisma.TransactionClient,
+    ): Promise<PreProviderSendFenceResult> {
+        if (!job.claimToken) return { kind: "lost" };
+
+        const rows = await transaction.$queryRaw<Array<{
+            status: string;
+            claim_token: string | null;
+            branch_id?: string | null;
+            rule_id?: string;
+            client_id?: number | null;
+            employee_schedule_id?: number | null;
+            recipient_type?: string;
+            template_key?: string;
+        }>>(Prisma.sql`
+            SELECT status,
+                   claim_token,
+                   branch_id,
+                   rule_id,
+                   client_id,
+                   employee_schedule_id,
+                   recipient_type,
+                   template_key
+            FROM "message_trigger_job"
+            WHERE id = ${job.id}
+            FOR UPDATE
+        `);
+        const current = rows[0];
+        if (
+            !current
+            || current.status !== "processing"
+            || current.claim_token !== job.claimToken
+            || (current.branch_id !== undefined && current.branch_id !== job.branchId)
+            || (current.rule_id !== undefined && current.rule_id !== job.ruleId)
+            || (current.client_id !== undefined && current.client_id !== job.clientId)
+            || (current.employee_schedule_id !== undefined && current.employee_schedule_id !== job.employeeScheduleId)
+            || (current.recipient_type !== undefined && current.recipient_type !== job.recipientType)
+            || (current.template_key !== undefined && current.template_key !== job.templateKey)
+        ) {
+            return { kind: "lost" };
+        }
+
+        return { kind: "allow" };
     }
 
     private shouldSkipPreStartCatchUp(
@@ -1874,7 +2365,9 @@ export class MessageTriggerService {
 
         const intervalMs = catchUp.intervalMinutes * MS_PER_MINUTE;
         const now = Date.now();
-        const predecessorReference = predecessor.status === "pending" || predecessor.status === "processing"
+        const predecessorReference = predecessor.status === "pending"
+            || predecessor.status === "processing"
+            || predecessor.status === "dispatching"
             ? predecessor.nextAttemptAt ?? predecessor.scheduledFor
             : predecessor.sentAt ?? predecessor.canceledAt ?? predecessor.updatedAt;
         const earliestNextSend = new Date(predecessorReference.getTime() + intervalMs);
@@ -1882,6 +2375,7 @@ export class MessageTriggerService {
         if (
             predecessor.status === "pending" ||
             predecessor.status === "processing" ||
+            predecessor.status === "dispatching" ||
             earliestNextSend.getTime() > now
         ) {
             const retryAt = new Date(Math.max(earliestNextSend.getTime(), now + intervalMs));
@@ -2014,9 +2508,23 @@ export class MessageTriggerService {
         const sentIds = await this.messageLogRepository.findSentTriggerJobIds(
             stale.map((job) => job.id),
         );
+        const logRepository = this.messageLogRepository as IMessageLogRepository & {
+            findUncertainTriggerJobIds?: (jobIds: string[]) => Promise<Set<string>>;
+        };
+        const uncertainIds = typeof logRepository.findUncertainTriggerJobIds === "function"
+            ? await logRepository.findUncertainTriggerJobIds(stale.map((job) => job.id))
+            : new Set<string>();
         for (const job of stale) {
             if (sentIds.has(job.id)) {
                 job.markSent();
+            } else if (uncertainIds.has(job.id)) {
+                job.markFailed(SMS_PROVIDER_ACCEPTANCE_UNCERTAIN_REASON);
+            } else if (job.status === "dispatching") {
+                // Dispatch authorization is the irreversible crossing into
+                // the provider path. A worker crash after that CAS cannot
+                // prove that no provider request was accepted, so never
+                // re-queue the row for another send.
+                job.markFailed(SMS_PROVIDER_ACCEPTANCE_UNCERTAIN_REASON);
             } else {
                 job.defer("transient", "Reclaimed stale processing job");
             }

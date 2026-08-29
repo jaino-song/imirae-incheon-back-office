@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { AligoService } from "application/services/aligo.service";
 import { SystemTemplateService } from "application/services/system-template.service";
@@ -27,6 +27,11 @@ import {
     IMessageLogRepository,
 } from "domain/repositories/message-log.repository.interface";
 import { isTransientPrismaConnectivityError } from "infrastructure/database/prisma-error.utils";
+import {
+    buildSmsProviderAcceptanceFingerprint,
+    buildSmsProviderAcceptanceKey,
+    SmsProviderAcceptanceService,
+} from "./sms-provider-acceptance.service";
 
 export interface SmsTemplateDeliveryConfig {
     smsLogTemplateKey: string;
@@ -188,6 +193,8 @@ export class SmsTriggerDeliveryService {
         private readonly systemTemplateService: SystemTemplateService,
         @Inject(MESSAGE_LOG_REPOSITORY)
         private readonly logRepository: IMessageLogRepository,
+        @Optional()
+        private readonly acceptanceService?: SmsProviderAcceptanceService,
     ) {}
 
     canHandle(templateKey: MessageTriggerTemplateKey): boolean {
@@ -354,6 +361,44 @@ export class SmsTriggerDeliveryService {
         const payload = job.payload;
         const snapshot = await this.resolveDeliverySnapshot(job);
 
+        const pendingAttempt = this.buildSmsLog({
+            job,
+            config,
+            snapshot,
+            receiver: snapshot.receiver,
+            status: "pending",
+            aligoMid: null,
+            errorMessage: null,
+            msgType: snapshot.requestedDeliveryType,
+            templateVariables: payload.templateVariables,
+        });
+        // A few legacy in-process adapters return void from save even though
+        // the repository contract returns the persisted entity. Treat that as
+        // the newly staged attempt; production repositories always return the
+        // mapped row and therefore retain duplicate convergence semantics.
+        const persistedAttempt = (this.acceptanceService
+            ? await this.acceptanceService.prepare(pendingAttempt)
+            : await this.logRepository.save(pendingAttempt)) ?? pendingAttempt;
+
+        // A duplicate dispatch converges on the existing durable row. Never
+        // cross the provider boundary again once that row is started,
+        // uncertain, or already has a result.
+        if (persistedAttempt !== pendingAttempt
+            && persistedAttempt.providerAcceptanceState !== "prepared") {
+            if (persistedAttempt.providerAcceptanceState === "accepted"
+                || persistedAttempt.providerAcceptanceState === "reconciled_delivered"
+                || persistedAttempt.status === "sent") {
+                return true;
+            }
+            throw new Error(
+                "SMS provider attempt is already in progress or requires reconciliation; automatic resend is disabled",
+            );
+        }
+
+        const attempt = (this.acceptanceService
+            ? await this.acceptanceService.beginProviderCall(persistedAttempt)
+            : this.beginProviderCallWithoutBoundary(persistedAttempt)) ?? persistedAttempt;
+
         try {
             const result = await this.aligoService.sendSms({
                 receiver: snapshot.receiver,
@@ -363,38 +408,51 @@ export class SmsTriggerDeliveryService {
                 msgType: snapshot.requestedDeliveryType,
             });
             const isAccepted = this.isAcceptedSmsResult(result);
+            attempt.receiver = result.request.receiver;
+            attempt.providerAcceptanceState = isAccepted ? "accepted" : "rejected";
+            attempt.providerAcceptedAt = isAccepted ? new Date(Date.now()) : null;
+            attempt.aligoMid = result.response.msg_id ? String(result.response.msg_id) : null;
+            attempt.errorMessage = isAccepted ? null : result.response.message;
+            attempt.status = isAccepted ? "sent" : "failed";
+            attempt.attempts += 1;
+            attempt.lastAttemptAt = new Date(Date.now());
+            attempt.nextRetryAt = isAccepted ? null : new Date(Date.now() + SMS_DELIVERY_RETRY_DELAY_MS);
+            attempt.updatedAt = new Date(Date.now());
             job.payload.templateVariables["retrySafety"] = isAccepted ? "delivered" : "provider-rejected";
-            await this.recordSmsLog({
-                job,
-                config,
-                snapshot,
-                receiver: result.request.receiver,
-                status: isAccepted ? "sent" : "failed",
-                aligoMid: result.response.msg_id ? String(result.response.msg_id) : null,
-                errorMessage: isAccepted ? null : result.response.message,
-                msgType: result.request.msgType,
-                templateVariables: payload.templateVariables,
-            });
+            await this.persistAttempt(attempt);
             return isAccepted;
         } catch (error) {
             job.payload.templateVariables["retrySafety"] = "uncertain";
             const errorMessage = this.formatErrorMessage(error);
-            await this.recordSmsLog({
-                job,
-                config,
-                snapshot,
-                receiver: snapshot.receiver,
-                status: "failed",
-                aligoMid: null,
-                errorMessage,
-                msgType: snapshot.requestedDeliveryType,
-                templateVariables: payload.templateVariables,
-            }).catch((logError) => {
+            try {
+                if (attempt.providerAcceptanceState === "started") {
+                    attempt.markProviderOutcomeUncertain(errorMessage);
+                }
+                await this.persistAttempt(attempt);
+            } catch (logError) {
                 this.logger.warn(
                     `Failed to record SMS log: ${this.formatErrorMessage(logError)}`,
                 );
-            });
+            }
             throw error;
+        }
+    }
+
+    private beginProviderCallWithoutBoundary(log: MessageLogEntity): MessageLogEntity {
+        if (log.providerAcceptanceState !== "prepared") {
+            throw new Error(`SMS provider attempt cannot start from ${log.providerAcceptanceState}`);
+        }
+        log.providerAcceptanceState = "started";
+        log.providerCallStartedAt = new Date(Date.now());
+        return log;
+    }
+
+    private async persistAttempt(log: MessageLogEntity): Promise<void> {
+        const repository = this.logRepository as IMessageLogRepository & {
+            update?: (attempt: MessageLogEntity) => Promise<MessageLogEntity>;
+        };
+        if (typeof repository.update === "function") {
+            await repository.update(log);
         }
     }
 
@@ -538,7 +596,7 @@ export class SmsTriggerDeliveryService {
         return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_match, key) => variables[key] ?? "");
     }
 
-    private async recordSmsLog(params: {
+    private buildSmsLog(params: {
         job: MessageTriggerJobEntity;
         config: SmsTemplateDeliveryConfig;
         snapshot: SmsTriggerDeliverySnapshot;
@@ -548,7 +606,7 @@ export class SmsTriggerDeliveryService {
         errorMessage: string | null;
         msgType: string;
         templateVariables: Record<string, string>;
-    }): Promise<void> {
+    }): MessageLogEntity {
         const now = new Date();
         const variables: Record<string, string> = {
             ...this.sanitizeLogVariables(params.templateVariables),
@@ -569,30 +627,47 @@ export class SmsTriggerDeliveryService {
             variables["systemTemplateKey"] = params.config.systemTemplateKey;
         }
 
-        await this.logRepository.save(
-            MessageLogEntity.reconstitute(
-                0,
-                params.job.branchId,
-                "aligo_sms",
-                params.config.smsLogTemplateKey,
-                params.job.id,
-                params.receiver,
-                params.job.clientId,
-                params.snapshot.message,
-                variables,
-                params.status,
-                params.aligoMid,
-                params.errorMessage,
-                1,
-                now,
-                params.status === "failed"
-                    ? new Date(now.getTime() + SMS_DELIVERY_RETRY_DELAY_MS)
-                    : null,
-                now,
-                now,
-                params.job.payload.recipientName,
-                params.job.payload.recipientPhone,
-            ),
+        const providerAcceptanceKey = buildSmsProviderAcceptanceKey(
+            "automation",
+            `${params.job.branchId}:${params.job.id}`,
+        );
+        const providerAcceptanceFingerprint = buildSmsProviderAcceptanceFingerprint({
+            branchId: params.job.branchId,
+            triggerJobId: params.job.id,
+            templateKey: params.config.smsLogTemplateKey,
+            receiver: params.snapshot.receiver,
+            message: params.snapshot.message,
+            title: params.snapshot.title,
+            msgType: params.msgType,
+            snapshotHash: params.snapshot.snapshotHash,
+        });
+        return MessageLogEntity.reconstitute(
+            0,
+            params.job.branchId,
+            "aligo_sms",
+            params.config.smsLogTemplateKey,
+            params.job.id,
+            params.receiver,
+            params.job.clientId,
+            params.snapshot.message,
+            variables,
+            params.status,
+            params.aligoMid,
+            params.errorMessage,
+            params.status === "pending" ? 0 : 1,
+            params.status === "pending" ? null : now,
+            params.status === "failed"
+                ? new Date(now.getTime() + SMS_DELIVERY_RETRY_DELAY_MS)
+                : null,
+            now,
+            now,
+            params.job.payload.recipientName,
+            params.job.payload.recipientPhone,
+            providerAcceptanceKey,
+            providerAcceptanceFingerprint,
+            params.status === "pending" ? "prepared" : "legacy",
+            null,
+            null,
         );
     }
 

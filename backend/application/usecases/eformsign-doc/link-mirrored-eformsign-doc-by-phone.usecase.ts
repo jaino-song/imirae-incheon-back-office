@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
 
@@ -12,7 +12,13 @@ import {
     formatNormalizedKoreanPhone,
     toEformsignDocumentDetail,
 } from "application/utils/eformsign-contract-client-candidate";
-import { extractPhoneCandidates, normalizePhone } from "application/utils/normalize-phone";
+import {
+    assertRequiredPhone,
+    assertValidPhone,
+    extractPhoneCandidates,
+    InvalidPhoneError,
+    normalizePhone,
+} from "application/utils/normalize-phone";
 import {
     configuredServiceRecordTemplateIds,
     isServiceRecordEformsignDocument,
@@ -21,6 +27,10 @@ import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 import { normalizeClientPricing } from "domain/services/client-pricing";
 import { computeServiceStatus } from "domain/value-objects/service-status.vo";
+import {
+    assertClientDurationMatchesDates,
+    deriveClientDuration,
+} from "application/usecases/client/client-write-validation";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 const AUTO_REGISTRATION_ELIGIBLE_STATUS_CODES = new Set([
@@ -168,6 +178,14 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             ?? singleLegacyPhone(document.stepRecipientSms, detail !== null);
         if (!phone) {
             return "no_match";
+        }
+        try {
+            assertValidPhone(phone);
+        } catch (error) {
+            if (error instanceof InvalidPhoneError) {
+                throw new BadRequestException("customerPhone must be a valid Korean phone number");
+            }
+            throw error;
         }
 
         if (
@@ -339,6 +357,14 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                         if (!currentPhone || currentPhone !== params.phone) {
                             return { status: "no_match" };
                         }
+                        try {
+                            assertRequiredPhone(currentPhone);
+                        } catch (error) {
+                            if (error instanceof InvalidPhoneError) {
+                                throw new BadRequestException("customerPhone must be a valid Korean phone number");
+                            }
+                            throw error;
+                        }
 
                         const phoneSuffix = params.phone.slice(-PHONE_LOOKUP_SUFFIX_LENGTH);
                         const clients = await transaction.client.findMany({
@@ -382,11 +408,36 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                         if (!candidate || candidate.phone !== params.phone) {
                             return { status: "no_match" };
                         }
+                        assertRequiredPhone(candidate.phone);
                         if (
                             !params.canCreate
                             || params.creationBranchId !== creationBranchId
                         ) {
                             return { status: "disabled" };
+                        }
+
+                        let duration = candidate.duration;
+                        try {
+                            const derivedDuration = deriveClientDuration(
+                                candidate.startDate,
+                                candidate.endDate,
+                            );
+                            // The provider payload has no duration field for
+                            // some completed contracts; null here means
+                            // "not supplied", so derive it from the dates.
+                            if (candidate.duration !== null && candidate.duration !== undefined) {
+                                assertClientDurationMatchesDates(candidate.duration, derivedDuration);
+                            }
+                            if (derivedDuration !== null) duration = derivedDuration;
+                        } catch (error) {
+                            if (error instanceof BadRequestException) {
+                                this.logger.warn(
+                                    `[EFORMSIGN_CLIENT_INVALID_DURATION] 문서 ${params.documentId}의 서비스 기간이 `
+                                    + "한국 영업일 계산과 일치하지 않아 자동등록을 건너뜁니다.",
+                                );
+                                return { status: "skipped" };
+                            }
+                            throw error;
                         }
 
                         const pricing = normalizeClientPricing({
@@ -401,9 +452,10 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                                 name: candidate.name,
                                 address: candidate.address,
                                 phone: formatNormalizedKoreanPhone(candidate.phone),
+                                phoneNormalized: normalizePhone(candidate.phone),
                                 suppressGreetingSms: params.suppressGreetingSms,
                                 type: pricing.type,
-                                duration: candidate.duration,
+                                duration,
                                 fullPrice: pricing.fullPrice,
                                 grant: pricing.grant,
                                 actualPrice: pricing.actualPrice,

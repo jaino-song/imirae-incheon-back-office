@@ -2,12 +2,12 @@ import { FunctionDeclaration } from "infrastructure/api/gemini-chat.gateway";
 
 export const listBankAccountsSchema: FunctionDeclaration = {
     name: "listBankAccounts",
-    description: `List all bank account information by area.
+    description: `List branch bank account references by area (owner/admin only).
 
 USE THIS TOOL when user asks:
 - "계좌 정보", "입금 계좌", "은행 계좌 목록", "계좌번호"
 
-Returns: List of all bank accounts with area, bank name, account number`,
+Returns: List of branch-scoped accounts with area, bank name, and masked last four digits only. Full account numbers are never available to the assistant.`,
     parameters: {
         type: "object",
         properties: {},
@@ -17,7 +17,7 @@ Returns: List of all bank accounts with area, bank name, account number`,
 
 export const getBankAccountByAreaSchema: FunctionDeclaration = {
     name: "getBankAccountByArea",
-    description: `Get bank account information for a specific area.
+    description: `Get the masked bank account reference for a specific area (owner/admin only).
 
 USE THIS TOOL when user asks:
 - "인천 계좌", "강남구 입금 계좌", "지역별 계좌", "인천 계좌번호"`,

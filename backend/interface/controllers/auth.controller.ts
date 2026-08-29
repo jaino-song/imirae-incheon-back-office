@@ -507,6 +507,7 @@ export class AuthController {
         await this.authService.logoutWithCredentials({
             refreshToken: body.refreshToken || req.cookies?.["refresh_token"],
             accessToken,
+            pushEndpoint: body.pushEndpoint,
         });
         // Clear auth cookies
         res.clearCookie('auth_token', { path: '/' });

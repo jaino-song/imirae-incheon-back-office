@@ -8,6 +8,7 @@ import { MESSAGE_LOG_REPOSITORY } from "domain/repositories/message-log.reposito
 import { SbMessageLogRepository } from "infrastructure/database/repositories/sb.message-log.repository";
 import { DatabaseModule } from "infrastructure/database/database.module";
 import { createAligoPortClient } from "infrastructure/vendor-stubs/e2e-vendor-stubs";
+import { SmsProviderAcceptanceService } from "application/services/sms-provider-acceptance.service";
 
 @Module({
     imports: [DatabaseModule],
@@ -19,6 +20,7 @@ import { createAligoPortClient } from "infrastructure/vendor-stubs/e2e-vendor-st
         },
         { provide: ALIGO_SMS_API_PORT, useExisting: AligoApiClient },
         { provide: MESSAGE_LOG_REPOSITORY, useClass: SbMessageLogRepository },
+        SmsProviderAcceptanceService,
         SendAligoSmsUsecase,
         AligoService,
     ],
@@ -27,6 +29,7 @@ import { createAligoPortClient } from "infrastructure/vendor-stubs/e2e-vendor-st
         SendAligoSmsUsecase,
         MESSAGE_LOG_REPOSITORY,
         ALIGO_SMS_API_PORT,
+        SmsProviderAcceptanceService,
     ],
 })
 export class AligoModule {}

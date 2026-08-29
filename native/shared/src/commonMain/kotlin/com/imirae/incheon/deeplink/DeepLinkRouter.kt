@@ -45,10 +45,40 @@ class DeepLinkRouter {
         }
     }
 
+    /**
+     * Return the canonical allowlisted path for a URI.  Platform navigation
+     * consumes this shared mapping instead of reparsing untrusted URL text.
+     * Unknown, malformed, or foreign-host links return null.
+     */
+    fun routePath(uri: String): String? = when (val intent = route(uri)) {
+        NavigationIntent.Dashboard -> "/dashboard"
+        is NavigationIntent.ClientDetail -> "/clients/${intent.clientId}"
+        is NavigationIntent.EmployeeDetail -> "/employees/${intent.employeeId}"
+        is NavigationIntent.ContractDetail -> "/contracts/${intent.contractId}"
+        is NavigationIntent.MessageTemplateDetail -> "/messages/templates/${intent.templateId}"
+        NavigationIntent.Chat -> "/chat"
+        NavigationIntent.ClientList -> "/clients"
+        NavigationIntent.EmployeeList -> "/employees"
+        NavigationIntent.ContractList -> "/contracts"
+        NavigationIntent.Messages -> "/messages"
+        NavigationIntent.Settings -> "/settings"
+        NavigationIntent.Unknown -> null
+    }
+
     private fun parseUri(uri: String): NavigationIntent {
         // Support both https:// and custom scheme imirae://
         val normalized = when {
-            uri.startsWith("imirae://") -> uri.removePrefix("imirae://")
+            uri.startsWith("imirae://") -> {
+                val withoutScheme = uri.removePrefix("imirae://")
+                // Android's manifest declares `app` as the custom-scheme host,
+                // while older callers used a host-less form.  Accept both and
+                // still route through the same path allowlist.
+                when {
+                    withoutScheme == "app" -> ""
+                    withoutScheme.startsWith("app/") -> withoutScheme.removePrefix("app/")
+                    else -> withoutScheme
+                }
+            }
             uri.startsWith("https://") -> {
                 val withoutScheme = uri.removePrefix("https://")
                 val host = withoutScheme.substringBefore("/")

@@ -4,9 +4,9 @@ import { CallExtractionResult } from "domain/ports/call-extraction.port";
 
 describe("CallProcessingService", () => {
     const prisma = {
-        call_record: { findUnique: jest.fn(), update: jest.fn() },
+        call_record: { findUnique: jest.fn(), updateMany: jest.fn() },
         client: { findMany: jest.fn() },
-        client_draft: { create: jest.fn() },
+        client_draft: { createMany: jest.fn() },
         $transaction: jest.fn(),
     };
     const extractionPort = { extract: jest.fn() };
@@ -19,6 +19,7 @@ describe("CallProcessingService", () => {
         transcript: [{ speaker: "고객", text: "..." }],
         summary: null,
         processingStatus: "RECEIVED",
+        processingClaimedAt: null,
         extractionRetryCount: 0,
     };
 
@@ -37,8 +38,8 @@ describe("CallProcessingService", () => {
         jest.resetAllMocks();
         prisma.call_record.findUnique.mockResolvedValue(record);
         prisma.client.findMany.mockResolvedValue([]);
-        prisma.call_record.update.mockResolvedValue({});
-        prisma.client_draft.create.mockResolvedValue({ id: "draft-1" });
+        prisma.call_record.updateMany.mockResolvedValue({ count: 1 });
+        prisma.client_draft.createMany.mockResolvedValue({ count: 1 });
         prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<void>) => fn(prisma));
         service = new CallProcessingService(prisma as never, extractionPort as never);
     });
@@ -51,9 +52,9 @@ describe("CallProcessingService", () => {
 
         await service.processCallRecord("rec-1");
 
-        expect(prisma.client_draft.create).not.toHaveBeenCalled();
-        expect(prisma.call_record.update).toHaveBeenCalledWith(expect.objectContaining({
-            where: { id: "rec-1" },
+        expect(prisma.client_draft.createMany).not.toHaveBeenCalled();
+        expect(prisma.call_record.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ id: "rec-1" }),
             data: expect.objectContaining({ category: "OTHER", processingStatus: "EXTRACTED" }),
         }));
     });
@@ -74,7 +75,7 @@ describe("CallProcessingService", () => {
 
         await service.processCallRecord("rec-1");
 
-        const draftData = prisma.client_draft.create.mock.calls[0][0].data;
+        const draftData = prisma.client_draft.createMany.mock.calls[0][0].data;
         expect(draftData.type).toBe("NEW_CLIENT");
         expect(draftData.branchId).toBe("branch-1");
         expect(draftData.callRecordId).toBe("rec-1");
@@ -84,7 +85,7 @@ describe("CallProcessingService", () => {
             { field: "careCenter", value: false, evidence: "조리원은 안 가요", confidence: "high" },
         ]);
         expect(draftData.extractionMeta).toEqual(expect.objectContaining({ promptVersion: CALL_EXTRACTION_PROMPT_VERSION }));
-        expect(prisma.call_record.update).toHaveBeenCalledWith(expect.objectContaining({
+        expect(prisma.call_record.updateMany).toHaveBeenCalledWith(expect.objectContaining({
             data: expect.objectContaining({ callerPhone: "01048217763", callerName: "김서연" }),
         }));
     });
@@ -105,10 +106,10 @@ describe("CallProcessingService", () => {
 
         await service.processCallRecord("rec-1");
 
-        const draftData = prisma.client_draft.create.mock.calls[0][0].data;
+        const draftData = prisma.client_draft.createMany.mock.calls[0][0].data;
         expect(draftData.type).toBe("CLIENT_UPDATE");
         expect(draftData.clientId).toBe(142);
-        expect(prisma.call_record.update).toHaveBeenCalledWith(expect.objectContaining({
+        expect(prisma.call_record.updateMany).toHaveBeenCalledWith(expect.objectContaining({
             data: expect.objectContaining({ matchedClientId: 142 }),
         }));
     });
@@ -124,21 +125,110 @@ describe("CallProcessingService", () => {
 
         await service.processCallRecord("rec-1");
 
-        expect(prisma.client_draft.create.mock.calls[0][0].data.clientId).toBeNull();
+        expect(prisma.client_draft.createMany.mock.calls[0][0].data.clientId).toBeNull();
     });
+
+    it("does not manufacture a birthDate clear when extraction omits birthDate", async () => {
+        extractionPort.extract.mockResolvedValue(extraction({
+            category: "CLIENT_SERVICE",
+            proposals: [
+                { field: "startDate", value: "2026-06-23", evidence: "e", confidence: "high" },
+            ],
+        }));
+
+        await service.processCallRecord("rec-1");
+
+        const proposals = prisma.client_draft.createMany.mock.calls[0][0].data.proposals;
+        expect(proposals).toEqual([
+            { field: "startDate", value: "2026-06-23", evidence: "e", confidence: "high" },
+        ]);
+        expect(proposals.some((proposal: { field: string }) => proposal.field === "birthDate")).toBe(false);
+    });
+
+    it("keeps an explicit nullable birthDate clear as a proposal", async () => {
+        extractionPort.extract.mockResolvedValue(extraction({
+            category: "CLIENT_SERVICE",
+            proposals: [
+                { field: "birthDate", value: null, evidence: "출산일을 지워 주세요", confidence: "high" },
+            ],
+        }));
+
+        await service.processCallRecord("rec-1");
+
+        expect(prisma.client_draft.createMany.mock.calls[0][0].data.proposals).toEqual([
+            { field: "birthDate", value: null, evidence: "출산일을 지워 주세요", confidence: "high" },
+        ]);
+    });
+
+    it.each(["name", "voucherClient", "breastPump"])(
+        "rejects an explicit null proposal for non-nullable %s without creating a draft",
+        async (field) => {
+            extractionPort.extract.mockResolvedValue(extraction({
+                category: "CLIENT_SERVICE",
+                proposals: [{ field, value: null, evidence: "e", confidence: "high" }],
+            }));
+
+            await service.processCallRecord("rec-1");
+
+            expect(prisma.client_draft.createMany).not.toHaveBeenCalled();
+            expect(prisma.call_record.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+                where: expect.objectContaining({ id: "rec-1" }),
+                data: expect.objectContaining({
+                    processingStatus: "FAILED",
+                    failureReason: expect.stringContaining("non-nullable"),
+                }),
+            }));
+        },
+    );
 
     it("marks FAILED with reason when extraction throws", async () => {
         extractionPort.extract.mockRejectedValue(new Error("Gemini extraction failed (429)"));
 
         await service.processCallRecord("rec-1");
 
-        expect(prisma.call_record.update).toHaveBeenCalledWith(expect.objectContaining({
+        expect(prisma.call_record.updateMany).toHaveBeenCalledWith(expect.objectContaining({
             data: expect.objectContaining({
                 processingStatus: "FAILED",
                 failureReason: expect.stringContaining("429"),
             }),
         }));
-        expect(prisma.client_draft.create).not.toHaveBeenCalled();
+        expect(prisma.client_draft.createMany).not.toHaveBeenCalled();
+    });
+
+    it("marks FAILED and does not persist a draft when extraction returns a malformed caller phone", async () => {
+        extractionPort.extract.mockResolvedValue(extraction({
+            category: "NEW_CONSULTATION",
+            callerPhoneCandidates: ["not-a-phone"],
+            proposals: [{ field: "name", value: "김서연", evidence: "e", confidence: "high" }],
+        }));
+
+        await expect(service.processCallRecord("rec-1")).resolves.toBe("failed");
+
+        expect(prisma.client_draft.createMany).not.toHaveBeenCalled();
+        expect(prisma.call_record.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+            data: expect.objectContaining({
+                processingStatus: "FAILED",
+                failureReason: expect.stringContaining("valid Korean phone number"),
+            }),
+        }));
+    });
+
+    it("marks FAILED and does not persist a draft when a phone proposal is malformed", async () => {
+        extractionPort.extract.mockResolvedValue(extraction({
+            category: "CLIENT_SERVICE",
+            callerPhoneCandidates: [],
+            proposals: [{ field: "phone", value: "not-a-phone", evidence: "e", confidence: "high" }],
+        }));
+
+        await expect(service.processCallRecord("rec-1")).resolves.toBe("failed");
+
+        expect(prisma.client_draft.createMany).not.toHaveBeenCalled();
+        expect(prisma.call_record.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+            data: expect.objectContaining({
+                processingStatus: "FAILED",
+                failureReason: expect.stringContaining("valid Korean phone number"),
+            }),
+        }));
     });
 
     it("skips records that are not RECEIVED/FAILED (already extracted)", async () => {
@@ -162,10 +252,10 @@ describe("CallProcessingService", () => {
 
         await service.processCallRecord("rec-1");
 
-        expect(prisma.call_record.update).toHaveBeenCalledWith(expect.objectContaining({
+        expect(prisma.call_record.updateMany).toHaveBeenCalledWith(expect.objectContaining({
             data: expect.objectContaining({ matchedClientId: null }),
         }));
-        expect(prisma.client_draft.create.mock.calls[0][0].data.clientId).toBeNull();
+        expect(prisma.client_draft.createMany.mock.calls[0][0].data.clientId).toBeNull();
     });
 
     it("marks FAILED when the record+draft transaction fails (no silent EXTRACTED-without-draft)", async () => {
@@ -178,8 +268,8 @@ describe("CallProcessingService", () => {
 
         await service.processCallRecord("rec-1");
 
-        expect(prisma.call_record.update).toHaveBeenCalledWith(expect.objectContaining({
-            where: { id: "rec-1" },
+        expect(prisma.call_record.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ id: "rec-1" }),
             data: expect.objectContaining({
                 processingStatus: "FAILED",
                 failureReason: expect.stringContaining("persistence"),

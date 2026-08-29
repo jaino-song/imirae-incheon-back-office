@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { ClientEntity } from "domain/entities/client.entity";
 import {
     ClientWithInitialSchedule,
+    AutomaticServiceStatusUpdateResult,
     IClientRepository,
     InitialClientSchedule,
     PaginatedResult,
@@ -12,8 +13,17 @@ import {
     hasColumn,
     type SchemaCapabilityClient,
 } from "infrastructure/database/schema-capabilities";
-import { normalizePhone } from "application/utils/normalize-phone";
 import { clientAgentTargetVersion } from "application/usecases/client/client-agent-target";
+import {
+    isAutomaticServiceStatusTransitionAllowed,
+    ServiceStatusType,
+} from "domain/value-objects/service-status.vo";
+import {
+    CLIENT_RETENTION_BLOCKED,
+    CLIENT_RETENTION_BLOCKED_MESSAGE,
+    RetentionDeleteBlockedError,
+    ScopedDeleteNotFoundError,
+} from "domain/errors/retention-delete-blocked.error";
 import type { Prisma } from "@prisma/client";
 
 @Injectable()
@@ -30,6 +40,7 @@ export class SbClientRepository implements IClientRepository {
             name: true,
             address: true,
             phone: true,
+            phoneNormalized: true,
             type: true,
             duration: true,
             fullPrice: true,
@@ -251,6 +262,28 @@ export class SbClientRepository implements IClientRepository {
         return ClientMapper.toDomain(updated as any);
     }
 
+    async updateServiceStatusIfCurrent(
+        branchid: string,
+        id: number,
+        expectedServiceStatus: string | null,
+        newServiceStatus: ServiceStatusType,
+    ): Promise<AutomaticServiceStatusUpdateResult> {
+        if (!isAutomaticServiceStatusTransitionAllowed(expectedServiceStatus, newServiceStatus)) {
+            return "stale";
+        }
+
+        const result = await this.prismaService.client.updateMany({
+            where: {
+                id,
+                branchId: branchid,
+                serviceStatus: expectedServiceStatus,
+            },
+            data: { serviceStatus: newServiceStatus },
+        });
+
+        return result.count === 1 ? "updated" : "stale";
+    }
+
     async updateIfTargetVersion(
         branchid: string,
         id: number,
@@ -284,15 +317,73 @@ export class SbClientRepository implements IClientRepository {
     }
 
     async delete(branchid: string, id: number): Promise<void> {
-        // service_record_case.clientId and eformsign_doc.clientId are SetNull.
-        // Deleting only the tenant-scoped client preserves completed electronic
-        // documents and their snapshot data while removing live client data.
-        const result = await this.prismaService.client.deleteMany({
-            where: { id, branchId: branchid },
+        await this.prismaService.$transaction(async (transaction) => {
+            // The lock is the linearization point for this destructive action.
+            // Every dependency check and the delete itself must use this same
+            // transaction so a concurrent child insert cannot race the guard.
+            const lockedRows = await transaction.$queryRaw<Array<{ id: number }>>`
+                SELECT "id"
+                FROM "client"
+                WHERE "id" = ${id} AND "branch_id" = ${branchid}::uuid
+                FOR UPDATE
+            `;
+            if (lockedRows.length === 0) {
+                throw new ScopedDeleteNotFoundError("client", id);
+            }
+
+            const dependencyRows = await transaction.$queryRaw<Array<{ count: number }>>`
+                SELECT COUNT(*)::int AS "count"
+                FROM (
+                    SELECT 1 FROM "employee_schedule"
+                    WHERE "client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "service_record_case"
+                    WHERE "client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "eformsign_doc"
+                    WHERE "client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "eformsign_doc"
+                    WHERE "document_id" = (
+                        SELECT "e_doc_id"
+                        FROM "client"
+                        WHERE "id" = ${id} AND "branch_id" = ${branchid}::uuid
+                    )
+                    UNION ALL
+                    SELECT 1 FROM "eformsign_document_job"
+                    WHERE "client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "call_record"
+                    WHERE "matched_client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "client_draft"
+                    WHERE "client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "schedule_change_request"
+                    WHERE "client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "message_trigger_job"
+                    WHERE "client_id" = ${id}
+                    UNION ALL
+                    SELECT 1 FROM "message_log"
+                    WHERE "client_id" = ${id}
+                ) AS "dependencies"
+            `;
+
+            if (Number(dependencyRows[0]?.count ?? 0) > 0) {
+                throw new RetentionDeleteBlockedError(
+                    CLIENT_RETENTION_BLOCKED,
+                    CLIENT_RETENTION_BLOCKED_MESSAGE,
+                );
+            }
+
+            const result = await transaction.client.deleteMany({
+                where: { id, branchId: branchid },
+            });
+            if (result.count !== 1) {
+                throw new ScopedDeleteNotFoundError("client", id);
+            }
         });
-        if (result.count === 0) {
-            throw new Error("Client not found for branch");
-        }
     }
 
     async findByStartDate(branchid: string, date: Date): Promise<ClientEntity[]> {
@@ -473,14 +564,9 @@ export class SbClientRepository implements IClientRepository {
     }
 
     async findByPhone(branchid: string, normalizedPhone: string): Promise<ClientEntity | null> {
-        const candidates = await this.prismaService.client.findMany({
-            where: { branchId: branchid, phone: { not: null } },
-            select: { id: true, phone: true },
+        const client = await this.prismaService.client.findFirst({
+            where: { branchId: branchid, phoneNormalized: normalizedPhone },
         });
-        const matched = candidates.find(
-            (row) => normalizePhone(row.phone) === normalizedPhone
-        );
-        if (!matched) return null;
-        return this.findById(branchid, matched.id);
+        return client ? ClientMapper.toDomain(client as any) : null;
     }
 }

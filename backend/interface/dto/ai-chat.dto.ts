@@ -66,3 +66,17 @@ export class ChatPersistDto {
     @IsString()
     assistantContent!: string;
 }
+
+export class ChatConfirmDto {
+    @IsNotEmpty()
+    @IsString()
+    intentId!: string;
+
+    @IsNotEmpty()
+    @IsString()
+    nonce!: string;
+
+    @IsOptional()
+    @IsString()
+    sessionId?: string;
+}

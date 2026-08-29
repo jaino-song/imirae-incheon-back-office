@@ -28,7 +28,7 @@ fun DashboardScreen(
     onNavigateToClients: () -> Unit,
     onNavigateToEmployees: () -> Unit,
     onNavigateToContracts: () -> Unit,
-    onNavigateToClientDetail: (String) -> Unit,
+    onNavigateToClientDetail: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -39,7 +39,6 @@ fun DashboardScreen(
         uiState.isLoading -> LoadingScreen()
         uiState.error != null -> ErrorScreen(uiState.error!!, onRetry = { viewModel.refresh() })
         else -> {
-            val pullRefreshState = rememberTopAppBarState()
             LazyColumn(
                 modifier = modifier.fillMaxSize().padding(DesignTokens.Spacing.lg.dp).testTag("dashboard-screen"),
                 verticalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.lg.dp)
@@ -57,8 +56,10 @@ fun DashboardScreen(
                 }
                 item {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.md.dp)) {
-                        StatCard("활성 계약", uiState.stats.activeContracts.toString(), Icons.Default.Description, Color(DesignTokens.Colors.success), Modifier.weight(1f).clickable { onNavigateToContracts() }, "dashboard-stat-active-contracts")
-                        StatCard("대기 계약", uiState.stats.pendingContracts.toString(), Icons.Default.Pending, Color(DesignTokens.Colors.warning), Modifier.weight(1f).clickable { onNavigateToContracts() }, "dashboard-stat-pending-contracts")
+                        val contractValue = if (uiState.stats.contractsSupported) uiState.stats.activeContracts.toString() else "—"
+                        val pendingContractValue = if (uiState.stats.contractsSupported) uiState.stats.pendingContracts.toString() else "—"
+                        StatCard("활성 계약", contractValue, Icons.Default.Description, Color(DesignTokens.Colors.success), Modifier.weight(1f).clickable { onNavigateToContracts() }, "dashboard-stat-active-contracts")
+                        StatCard("대기 계약", pendingContractValue, Icons.Default.Pending, Color(DesignTokens.Colors.warning), Modifier.weight(1f).clickable { onNavigateToContracts() }, "dashboard-stat-pending-contracts")
                     }
                 }
 

@@ -7,6 +7,7 @@ import { SystemSettingService } from "application/services/system-setting.servic
 import { MessageSenderApprovalService } from "application/services/message-sender-approval.service";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { OwnerGuard } from "infrastructure/auth/owner.guard";
+import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 import { TenantGuard } from "infrastructure/tenant";
 import { SystemSettingEntity } from "domain/entities/system-setting.entity";
 import {
@@ -119,6 +120,7 @@ describe("SystemSettingController (Integration)", () => {
 
             expect(Reflect.getMetadata(PATH_METADATA, method)).toBe("message-automation-policies/past-trigger");
             expect(Reflect.getMetadata(METHOD_METADATA, method)).toBe(RequestMethod.PUT);
+            expect(Reflect.getMetadata(GUARDS_METADATA, method) ?? []).toContain(OwnerOrAdminGuard);
         });
 
         it("should return policies with values computed from runtime constants", async () => {

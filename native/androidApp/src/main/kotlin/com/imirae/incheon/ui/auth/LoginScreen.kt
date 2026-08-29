@@ -44,7 +44,8 @@ fun LoginScreen(
     onNavigateToVerifyEmail: () -> Unit,
     onNavigateToDashboard: () -> Unit,
     onNavigateToSelectBranch: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    shouldNavigateToDashboard: () -> Boolean = { true }
 ) {
     val authState by viewModel.authState.collectAsState()
     val context = LocalContext.current
@@ -62,7 +63,11 @@ fun LoginScreen(
 
     LaunchedEffect(authState) {
         when (authState) {
-            is AuthState.Authenticated -> onNavigateToDashboard()
+            is AuthState.Authenticated -> {
+                if (shouldNavigateToDashboard()) {
+                    onNavigateToDashboard()
+                }
+            }
             is AuthState.RequiresBranchSelection -> onNavigateToSelectBranch()
             else -> {}
         }

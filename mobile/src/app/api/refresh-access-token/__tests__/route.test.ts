@@ -3,114 +3,26 @@
  */
 import { NextRequest } from "next/server";
 
-import { serverAPIClient } from "@/lib/api/server";
-
 import { POST } from "../route";
 
-jest.mock("@/lib/api/server", () => ({
-    serverAPIClient: {
-        post: jest.fn(),
-    },
-}));
-
-const mockServerPost = serverAPIClient.post as jest.Mock;
-
-function createRequest(body: BodyInit = JSON.stringify({ executionTime: 1780000000000 })): NextRequest {
-    return new NextRequest("http://localhost/api/refresh-access-token", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            cookie: "auth_token=auth-token; eformsign_refresh_token=old-refresh-token",
-        },
-        body,
-    });
-}
-
 describe("POST /api/refresh-access-token", () => {
-    let consoleErrorSpy: jest.SpyInstance;
-
-    beforeEach(() => {
-        mockServerPost.mockReset();
-        consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
-    });
-
-    afterEach(() => {
-        consoleErrorSpy.mockRestore();
-    });
-
-    it("rejects requests without an auth cookie before proxying", async () => {
+    it("returns a deterministic tombstone and never issues provider cookies", async () => {
         const request = new NextRequest("http://localhost/api/refresh-access-token", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ executionTime: 1780000000000 }),
+            headers: {
+                "Content-Type": "application/json",
+                cookie: "auth_token=auth-token",
+            },
+            body: JSON.stringify({ executionTime: 1780000000000, refreshToken: "caller-refresh" }),
         });
 
         const response = await POST(request);
 
-        expect(response.status).toBe(401);
-        await expect(response.json()).resolves.toEqual({ error: "Authentication required. Please log in." });
-        expect(mockServerPost).not.toHaveBeenCalled();
-    });
-
-    it("rejects bodies missing executionTime before proxying", async () => {
-        const response = await POST(createRequest(JSON.stringify({})));
-
-        expect(response.status).toBe(400);
-        expect(mockServerPost).not.toHaveBeenCalled();
-    });
-
-    it("sets eformsign cookies from nested oauth_token response", async () => {
-        mockServerPost.mockResolvedValue({
-            status: 200,
-            data: {
-                oauth_token: {
-                    access_token: "new-access-token",
-                    refresh_token: "new-refresh-token",
-                },
-            },
-        });
-
-        const response = await POST(createRequest());
-
-        expect(response.status).toBe(200);
-        await expect(response.json()).resolves.toEqual({ success: true });
-        expect(response.headers.get("set-cookie")).toContain("eformsign_access_token=new-access-token");
-        expect(response.headers.get("set-cookie")).toContain("eformsign_refresh_token=new-refresh-token");
-        expect(mockServerPost).toHaveBeenCalledWith(
-            "/api/refresh-token",
-            {
-                executionTime: 1780000000000,
-                refreshToken: "old-refresh-token",
-            },
-            {
-                headers: { Authorization: "Bearer auth-token" },
-            },
-        );
-    });
-
-    it("does not expose raw backend error details from refresh failures", async () => {
-        mockServerPost.mockResolvedValue({
-            status: 502,
-            data: {
-                message: "oauth service path /tmp/refresh-token",
-                code: "EFORM_REFRESH_ERROR",
-                diagnostics: { host: "oauth.internal" },
-            },
-        });
-
-        const response = await POST(createRequest());
-
-        expect(response.status).toBe(502);
+        expect(response.status).toBe(410);
         await expect(response.json()).resolves.toEqual({
-            error: "Failed to refresh access token",
-            code: "EFORM_REFRESH_ERROR",
+            code: "EFORMSIGN_CREDENTIALS_SERVER_ONLY",
+            error: "Raw eformsign credentials are not exposed",
         });
-
-        const logged = consoleErrorSpy.mock.calls
-            .flat()
-            .map((entry) => (typeof entry === "string" ? entry : JSON.stringify(entry)))
-            .join(" ");
-        expect(logged).not.toContain("/tmp/refresh-token");
-        expect(logged).not.toContain("oauth.internal");
+        expect(response.headers.get("set-cookie")).toBeNull();
     });
 });

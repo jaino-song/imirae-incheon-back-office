@@ -87,12 +87,8 @@ SYNONYMS: 제공인력 = 관리사 = 이모님 = 직원 = employee`,
                 type: "string",
                 description: "Date joined company (입사일, YYYY-MM-DD format)",
             },
-            confirmed: {
-                type: "boolean",
-                description: "Set to true to confirm. Set to false to request confirmation first.",
-            },
         },
-        required: ["name", "phone", "grade", "confirmed"],
+        required: ["name", "phone", "grade"],
     },
 };
 
@@ -131,12 +127,8 @@ SYNONYMS: 제공인력 = 관리사 = 이모님 = 직원 = employee`,
                 type: "boolean",
                 description: "Whether available for new assignments (배정 가능 여부)",
             },
-            confirmed: {
-                type: "boolean",
-                description: "Set to true to confirm. Set to false to request confirmation first.",
-            },
         },
-        required: ["employeeId", "confirmed"],
+        required: ["employeeId"],
     },
 };
 
@@ -155,12 +147,8 @@ SYNONYMS: 제공인력 = 관리사 = 이모님 = 직원 = employee`,
                 type: "number",
                 description: "The unique ID of the employee (관리사/이모님 ID)",
             },
-            confirmed: {
-                type: "boolean",
-                description: "Set to true to confirm deletion. Set to false to request confirmation first.",
-            },
         },
-        required: ["employeeId", "confirmed"],
+        required: ["employeeId"],
     },
 };
 
@@ -240,12 +228,8 @@ SYNONYMS: 제공인력 = 관리사 = 이모님 = 직원 = employee`,
                 type: "boolean",
                 description: "true = 배정 가능, false = 배정 불가",
             },
-            confirmed: {
-                type: "boolean",
-                description: "Set to true to confirm. Set to false to request confirmation first.",
-            },
         },
-        required: ["employeeId", "available", "confirmed"],
+        required: ["employeeId", "available"],
     },
 };
 

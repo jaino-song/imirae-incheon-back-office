@@ -26,7 +26,12 @@ export function useInfiniteEmployees({
   const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
   const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { data: employees = [], isLoading } = useEmployees();
+  const {
+    data: employees = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useEmployees();
 
   // Reset visible count when filter/search changes
   useEffect(() => {
@@ -108,6 +113,8 @@ export function useInfiniteEmployees({
     allEmployees: employees,
     filteredCount: allFilteredEmployees.length,
     isLoading,
+    isError,
+    refetch,
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,

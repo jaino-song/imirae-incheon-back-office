@@ -13,6 +13,9 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { FooterNavigation } from "@/components/ui/footer-navigation";
 import { getRoleLabel } from "@/lib/constants/roles";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
+import { getCurrentPushEndpoint } from "@/lib/notifications/push-endpoint";
+import { logout } from "@/app/logout/actions";
 import { getUserBranches, setCurrentBranch } from "./actions";
 
 interface Branch {
@@ -59,12 +62,39 @@ export default function SelectBranchPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selecting, setSelecting] = useState<string | null>(null);
+    const [loggingOut, setLoggingOut] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
+
+    const handleLogout = useCallback(async () => {
+        if (loggingOut || selecting) return;
+
+        setLoggingOut(true);
+        try {
+            const pushEndpoint = await getCurrentPushEndpoint();
+            await resetAuthorityState(queryClient);
+            const result = await logout(pushEndpoint);
+            if (!result.success) {
+                setError(result.error || "로그아웃에 실패했습니다.");
+                setLoggingOut(false);
+                return;
+            }
+
+            router.replace("/login");
+        } catch (err) {
+            console.error("[Select Branch] Error logging out:", err);
+            setError("로그아웃에 실패했습니다.");
+            setLoggingOut(false);
+        }
+    }, [loggingOut, selecting, queryClient, router]);
 
     const handleSelectBranch = useCallback(async (branchId: string): Promise<boolean> => {
         setSelecting(branchId);
 
         try {
+            // Branch is part of the authority namespace. Clear before the
+            // server action so old-branch requests/drafts cannot survive a
+            // failed or successful switch, including a failed server action.
+            await resetAuthorityState(queryClient);
             const result = await setCurrentBranch(branchId);
 
             if (!result.success) {
@@ -72,11 +102,6 @@ export default function SelectBranchPage() {
                 setSelecting(null);
                 return false;
             }
-
-            // 지점 전환 시 이전 지점의 React Query 캐시(고객 목록·전자계약 등)를 모두 비운다.
-            // QueryClient는 브라우저 싱글톤이라 soft navigation(router.replace) 후에도
-            // 유지되므로, 비우지 않으면 이전 지점 데이터가 새로고침 전까지 그대로 남는다.
-            queryClient.clear();
 
             router.replace("/dashboard");
             return true;
@@ -206,15 +231,10 @@ export default function SelectBranchPage() {
                         </Button>
                         <Button
                             variant="outline"
-                            onClick={() => {
-                                // Clear auth cookies and redirect to login
-                                document.cookie = "auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-                                document.cookie = "refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-                                document.cookie = "selected_branch_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-                                router.replace("/login");
-                            }}
+                            onClick={handleLogout}
+                            disabled={loggingOut}
                         >
-                            로그아웃
+                            {loggingOut ? "로그아웃 중..." : "로그아웃"}
                         </Button>
                     </div>
                 </div>
@@ -260,36 +280,42 @@ export default function SelectBranchPage() {
         >
             <div data-component="desktop_select-branch_list" className="flex w-full flex-1 flex-col gap-3">
                 {paginatedBranches.map((org) => (
-                    <Card
+                    <Button
                         key={org.id}
-                        className={`cursor-pointer rounded-[24px] border-[1.35px] border-v3-border bg-white shadow-[0_4px_24px_hsla(214,50%,20%,0.06)] transition-all duration-300 ease-in-out hover:-translate-y-1 hover:border-v3-primary/35 hover:shadow-[0_12px_48px_hsla(214,50%,20%,0.12)] ${
+                        data-component="desktop_select-branch_list_card"
+                        className={`h-auto min-h-0 w-full justify-start rounded-[24px] border-[1.35px] border-v3-border bg-white p-0 text-left font-normal shadow-[0_4px_24px_hsla(214,50%,20%,0.06)] transition-all duration-300 ease-in-out hover:-translate-y-1 hover:border-v3-primary/35 hover:shadow-[0_12px_48px_hsla(214,50%,20%,0.12)] ${
                             selecting ? "opacity-60 cursor-not-allowed" : ""
                         }`}
+                        type="button"
+                        variant="ghost"
+                        aria-label={`${org.name} 지점 선택`}
+                        aria-busy={selecting ? "true" : undefined}
+                        disabled={Boolean(selecting)}
                         onClick={() => !selecting && handleSelectBranch(org.id)}
                     >
-                        <CardContent className="p-4">
-                            <div data-component="desktop_select-branch_list_card-row" className="flex items-center justify-between gap-4">
-                                <div data-component="desktop_select-branch_list_card-row_main" className="flex items-center gap-3">
+                        <span className="block w-full p-4">
+                            <span data-component="desktop_select-branch_list_card-row" className="flex items-center justify-between gap-4">
+                                <span data-component="desktop_select-branch_list_card-row_main" className="flex items-center gap-3">
                                     <Avatar className="h-11 w-11 rounded-[18px] bg-[linear-gradient(180deg,hsl(214,100%,34%),hsl(214,92%,28%))] ring-1 ring-v3-primary/15">
                                         <AvatarFallback className="rounded-[18px] bg-transparent text-primary-foreground">
                                             <Building2 className="w-5 h-5" />
                                         </AvatarFallback>
                                     </Avatar>
-                                    <div data-component="desktop_select-branch_list_card-row_main_text" className="flex min-w-0 flex-col gap-1">
-                                        <h3 className="text-base font-semibold tracking-[-0.02em] text-v3-dark">
+                                    <span data-component="desktop_select-branch_list_card-row_main_text" className="flex min-w-0 flex-col gap-1">
+                                        <span className="text-base font-semibold tracking-[-0.02em] text-v3-dark">
                                             {org.name}
-                                        </h3>
+                                        </span>
                                         {org.description && (
-                                            <p className="text-sm leading-5 text-v3-text-muted">
+                                            <span className="text-sm leading-5 text-v3-text-muted">
                                                 {org.description}
-                                            </p>
+                                            </span>
                                         )}
-                                    </div>
-                                </div>
+                                    </span>
+                                </span>
                                 {selecting === org.id ? (
-                                    <div data-component="desktop_select-branch_list_card-row_spinner" className="flex h-8 w-8 items-center justify-center rounded-full bg-v3-primary/10">
+                                    <span data-component="desktop_select-branch_list_card-row_spinner" className="flex h-8 w-8 items-center justify-center rounded-full bg-v3-primary/10">
                                         <Spinner size="sm" className="text-v3-primary" />
-                                    </div>
+                                    </span>
                                 ) : (
                                     <Badge
                                         variant={getRoleBadgeVariant(org.role)}
@@ -298,9 +324,9 @@ export default function SelectBranchPage() {
                                         {getRoleLabel(org.role)}
                                     </Badge>
                                 )}
-                            </div>
-                        </CardContent>
-                    </Card>
+                            </span>
+                        </span>
+                    </Button>
                 ))}
             </div>
             <FooterNavigation

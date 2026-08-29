@@ -4,6 +4,7 @@ import { EformsignDocumentJobWorkerService } from "application/services/eformsig
 import { EformsignDocumentJobEntity } from "domain/entities/eformsign-document-job.entity";
 
 const branchId = "00000000-0000-0000-0000-000000000010";
+const workerPrincipal = { branchId, source: "worker" as const };
 
 function job(overrides: Partial<EformsignDocumentJobEntity> = {}): EformsignDocumentJobEntity {
     return new EformsignDocumentJobEntity({
@@ -137,6 +138,7 @@ describe("EformsignDocumentJobWorkerService", () => {
         expect(dispatch.execute).toHaveBeenCalledWith(
             branchId,
             expect.objectContaining({ clientId: 7, contractData: expect.any(Object), onProgress: expect.any(Function) }),
+            workerPrincipal,
         );
         expect(repository.scheduleRetry).toHaveBeenCalledWith(
             claimed.id,
@@ -172,6 +174,7 @@ describe("EformsignDocumentJobWorkerService", () => {
         );
         expect(reconciliation.reconcile).toHaveBeenCalledWith(
             expect.objectContaining({ payload: claimed.payload }),
+            workerPrincipal,
         );
     });
 
@@ -301,7 +304,7 @@ describe("EformsignDocumentJobWorkerService", () => {
         expect(finalize.execute).toHaveBeenCalledWith(expect.objectContaining({
             documentId: "doc-2",
             prefillEndDate: "2026-08-17",
-        }));
+        }), workerPrincipal);
         expect(repository.markCompleted).toHaveBeenNthCalledWith(
             1,
             createJob.id,

@@ -155,6 +155,19 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         };
     }
 
+    it("rejects a malformed mirrored customer phone before auto-registration or linking", async () => {
+        const document = mirroredDocument({
+            customerPhone: "not-a-phone",
+        });
+        const { transaction, settings, usecase } = setup(document);
+
+        await expect(usecase.execute("doc-1")).rejects.toThrow("valid Korean phone number");
+
+        expect(settings.getClientAutoRegistrationEnabled).not.toHaveBeenCalled();
+        expect(transaction.client.create).not.toHaveBeenCalled();
+        expect(transaction.eformsign_doc.updateMany).not.toHaveBeenCalled();
+    });
+
     it("claims a later-mirrored legacy document for the one exact phone match", async () => {
         const { transaction, usecase } = setup();
 

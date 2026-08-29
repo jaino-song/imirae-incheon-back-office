@@ -1,4 +1,10 @@
 import { isProviderReviewWorkflowStep } from "./eformsign-status-codes";
+import { assertSupportedKoreanHolidayYear, isBusinessDayKr } from "../utils/business-days";
+
+// Preserve the historical named export for consumers that imported the
+// display-status module directly; the set itself now comes from the single
+// versioned calendar source rather than a second hand-maintained copy.
+export { KR_HOLIDAYS } from "../utils/business-days";
 
 /**
  * Display status for an eformsign document, shared verbatim by the desktop and
@@ -42,45 +48,6 @@ export function isContractDocDisplayStatus(value: unknown): value is ContractDoc
     return typeof value === "string" && value in CONTRACT_DOC_DISPLAY_STATUS_LABELS;
 }
 
-/**
- * 한국 공휴일 — backend/domain/utils/business-days.ts의 KR_HOLIDAYS 사본.
- * 발급 가능 연도 기준 2026~2027 hardcode, 매년 두 파일을 함께 갱신할 것.
- * (백엔드 빌드는 workspace TS를 import하지 못해 사본으로 유지한다.)
- */
-export const KR_HOLIDAYS = new Set<string>([
-    // 2026
-    "2026-01-01", // 신정
-    "2026-02-16", "2026-02-17", "2026-02-18", // 설날
-    "2026-03-01", // 삼일절
-    "2026-03-02", // 삼일절 대체 (일요일)
-    "2026-05-01", // 노동절
-    "2026-05-05", // 어린이날
-    "2026-05-24", "2026-05-25", // 부처님오신날 + 대체
-    "2026-06-03", // 제9회 전국동시지방선거
-    "2026-06-06", // 현충일
-    "2026-07-17", // 제헌절
-    "2026-08-15", // 광복절
-    "2026-08-17", // 광복절 대체 (토요일)
-    "2026-09-24", "2026-09-25", "2026-09-26", "2026-09-28", // 추석 + 대체
-    "2026-10-03", "2026-10-05", // 개천절 + 대체 (토요일)
-    "2026-10-09", // 한글날
-    "2026-12-25", // 크리스마스
-    // 2027
-    "2027-01-01", // 신정
-    "2027-02-06", "2027-02-07", "2027-02-08", "2027-02-09", // 설날 + 대체
-    "2027-03-01", // 삼일절
-    "2027-05-01", // 노동절
-    "2027-05-05", // 어린이날
-    "2027-05-13", // 부처님오신날
-    "2027-06-06", "2027-06-07", // 현충일 + 대체 (일요일)
-    "2027-07-17", // 제헌절
-    "2027-08-15", "2027-08-16", // 광복절 + 대체 (일요일)
-    "2027-09-14", "2027-09-15", "2027-09-16", // 추석
-    "2027-10-03", "2027-10-04", // 개천절 + 대체 (일요일)
-    "2027-10-09", // 한글날
-    "2027-12-25",
-]);
-
 const KST_TIME_ZONE = "Asia/Seoul";
 
 /** en-CA locale renders YYYY-MM-DD, giving the KST calendar day of an instant. */
@@ -111,12 +78,6 @@ function parseYmdToUtc(ymd: string): Date | null {
     return parsed;
 }
 
-function isBusinessDayKr(ymd: string, date: Date): boolean {
-    const weekday = date.getUTCDay();
-    if (weekday === 0 || weekday === 6) return false;
-    return !KR_HOLIDAYS.has(ymd);
-}
-
 const SUBTRACT_BUSINESS_DAY_SEARCH_LIMIT = 30;
 
 /** Step back `days` Korean business days (weekends AND KR holidays skipped). */
@@ -125,7 +86,7 @@ function subtractBusinessDays(date: Date, days: number): Date {
     let remaining = days;
     for (let i = 0; remaining > 0 && i < SUBTRACT_BUSINESS_DAY_SEARCH_LIMIT; i += 1) {
         result.setUTCDate(result.getUTCDate() - 1);
-        if (isBusinessDayKr(result.toISOString().slice(0, 10), result)) remaining -= 1;
+        if (isBusinessDayKr(result.toISOString().slice(0, 10))) remaining -= 1;
     }
     return result;
 }
@@ -145,6 +106,7 @@ export function isContractReviewWindowOpen(
 ): boolean {
     const endDate = contractEndDate ? parseYmdToUtc(contractEndDate) : null;
     if (!endDate) return true;
+    assertSupportedKoreanHolidayYear(endDate.getUTCFullYear());
 
     const threshold = subtractBusinessDays(endDate, 1);
     const todayKst = KST_YMD_FORMAT.format(now);

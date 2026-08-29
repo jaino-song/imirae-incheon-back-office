@@ -852,9 +852,8 @@ export function useContractCreationFlow(): ContractCreationFlow {
         throw new Error("고객 정보를 먼저 선택하거나 등록해 주세요.");
       }
 
-      const authResult = await eformsignApi.authenticate(Date.now(), undefined, { force: true });
-      if (!authResult.success) throw new Error("Failed to authenticate");
-
+      // Provider credentials are acquired only inside the server-mediated
+      // dispatch operation.
       const start = dayjs(startDate);
       const end = dayjs(endDate);
       const payment = dayjs(effectivePaymentDate);

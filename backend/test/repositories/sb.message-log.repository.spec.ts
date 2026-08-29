@@ -5,6 +5,7 @@ import { MessageLogEntity } from "domain/entities/message-log.entity";
 describe("SbMessageLogRepository", () => {
     const createMockPrismaMessageLog = () => ({
         create: jest.fn(),
+        findUnique: jest.fn(),
         findFirst: jest.fn(),
         findMany: jest.fn(),
         updateMany: jest.fn(),
@@ -187,6 +188,75 @@ describe("SbMessageLogRepository", () => {
                 branchId: "branch-1",
                 status: "failed",
             });
+        });
+    });
+
+    describe("reconcileProviderAttempt", () => {
+        it("does not reconcile an attempt while the provider call is still started", async () => {
+            const startedAt = new Date("2026-08-29T00:00:00.000Z");
+            const startedRow = {
+                id: 42,
+                branchId: "branch-1",
+                provider: "aligo_sms",
+                templateKey: "manual_sms",
+                triggerJobId: null,
+                receiver: "01012345678",
+                clientId: null,
+                recipientName: "수신자",
+                recipientPhone: "01012345678",
+                messageBody: "message",
+                variables: {},
+                status: "pending",
+                aligoMid: null,
+                errorMessage: null,
+                attempts: 0,
+                lastAttemptAt: null,
+                nextRetryAt: null,
+                createdAt: startedAt,
+                updatedAt: startedAt,
+                providerAcceptanceKey: "sms:key",
+                providerAcceptanceFingerprint: "fingerprint",
+                providerAcceptanceState: "started",
+                providerCallStartedAt: startedAt,
+                providerAcceptedAt: null,
+                providerReconciledAt: null,
+                providerReconciledBy: null,
+                providerReconciliationReason: null,
+            };
+            messageLogModel.findUnique.mockResolvedValue(startedRow);
+            const attempt = MessageLogEntity.reconstitute(
+                42,
+                "branch-1",
+                "aligo_sms",
+                "manual_sms",
+                null,
+                "01012345678",
+                null,
+                "message",
+                {},
+                "pending",
+                null,
+                null,
+                0,
+                null,
+                null,
+                startedAt,
+                startedAt,
+                "수신자",
+                "01012345678",
+                "sms:key",
+                "fingerprint",
+                "started",
+                startedAt,
+            );
+
+            await expect(repository.reconcileProviderAttempt(
+                attempt,
+                "not-delivered",
+                "operator-1",
+                "provider still in flight",
+            )).resolves.toBeNull();
+            expect(messageLogModel.updateMany).not.toHaveBeenCalled();
         });
     });
 });

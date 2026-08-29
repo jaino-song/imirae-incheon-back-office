@@ -67,6 +67,7 @@ export class EmployeeScheduleService {
                 branchId: branchid,
                 scheduleId: schedule.id,
                 includePast: true,
+                intentAt,
             })
             .catch((error) => {
                 this.logger.error(
@@ -111,13 +112,39 @@ export class EmployeeScheduleService {
         endDate?: string;
         replaced?: boolean;
     }): Promise<EmployeeScheduleEntity> {
-        const schedule = await this.updateEmployeeScheduleUsecase.execute(branchid, id, {
-            workAddress: params.workAddress,
-            startDate: params.startDate ? new Date(params.startDate) : undefined,
-            endDate: params.endDate ? new Date(params.endDate) : undefined,
-            replaced: params.replaced,
+        const intentAt = new Date();
+        const schedule = await this.prisma.$transaction(async (transaction) => {
+            const updated = await this.updateEmployeeScheduleUsecase.execute(branchid, id, {
+                workAddress: params.workAddress,
+                startDate: params.startDate ? new Date(params.startDate) : undefined,
+                endDate: params.endDate ? new Date(params.endDate) : undefined,
+                replaced: params.replaced,
+            }, transaction);
+            await this.messageAutomationIntentService.persistScheduleIntent(transaction, {
+                branchId: branchid,
+                clientId: updated.clientId,
+                scheduleId: updated.id,
+                includePast: true,
+                intentAt,
+                replaceExisting: true,
+            });
+            return updated;
         });
         await this.serviceRecordLifecycleService?.ensureForClient(schedule.clientId);
+        await this.messageAutomationIntentService
+            .fulfillScheduleIntent({
+                branchId: branchid,
+                scheduleId: schedule.id,
+                includePast: true,
+                replaceExisting: true,
+                intentAt,
+            })
+            .catch((error) => {
+                this.logger.error(
+                    `[MESSAGE_AUTOMATION_INTENT_FAILED] scheduleId=${schedule.id} — automatic retry pending`,
+                    error instanceof Error ? error.stack : String(error),
+                );
+            });
         if (params.endDate) {
             this.serviceRecordLinkService
                 ?.extendExpiryForEndDate(schedule.id, schedule.endDate)

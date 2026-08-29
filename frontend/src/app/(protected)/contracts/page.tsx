@@ -1500,12 +1500,12 @@ function ContractDetail({
         }
       }
 
-      const authResult = await eformsignApi.authenticate(Date.now());
-      if (!authResult.success) {
-        throw new Error("eformsign 인증에 실패했습니다.");
-      }
-
-      const option = await eformsignApi.generateStaffDocument(doc.id, undefined, undefined, endDate);
+      // Provider authentication runs only inside the server boundary.
+      // Client callers never receive or submit eformsign credentials.
+      // The server selects configured provider identity and capabilities.
+      // Keep this fallback limited to the server-mediated option request.
+      // (No client-side token acquisition.)
+      const option = await eformsignApi.generateStaffDocument(doc.id, endDate);
       return { kind: "iframe", option };
     },
     onSuccess: (result) => {

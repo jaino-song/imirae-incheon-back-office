@@ -3,6 +3,15 @@ import { Logger } from "@nestjs/common";
 import { MirrorUnassignedEformsignDocUsecase } from "application/usecases/eformsign-doc/mirror-unassigned-eformsign-doc.usecase";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 
+const TEST_PRINCIPAL = { branchId: "branch-1", globalRole: "owner" };
+const createBoundary = () => ({
+    withCredentials: jest.fn((
+        _principal: unknown,
+        _capability: unknown,
+        operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+    ) => operation({ accessToken: "access-token", refreshToken: "refresh-token" })),
+});
+
 function minimalRemoteDocument(documentId = "snapshot-doc") {
     return {
         id: documentId,
@@ -33,11 +42,6 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
     });
 
     it("fetches one remote document and persists it with unassigned defaults", async () => {
-        const getAccessTokenUsecase = {
-            execute: jest.fn().mockResolvedValue({
-                oauth_token: { access_token: "access-token" },
-            }),
-        };
         const fetchEformsignDocFromApiUsecase = {
             execute: jest.fn().mockResolvedValue({
                 id: "remote-doc",
@@ -72,14 +76,13 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
         const now = Date.parse("2026-07-03T00:00:00.000Z");
         jest.spyOn(Date, "now").mockReturnValue(now);
         const usecase = new MirrorUnassignedEformsignDocUsecase(
-            getAccessTokenUsecase as never,
+            createBoundary() as never,
             fetchEformsignDocFromApiUsecase as never,
             repository as never,
         );
 
-        const result = await usecase.execute("webhook-doc");
+        const result = await usecase.execute("webhook-doc", TEST_PRINCIPAL);
 
-        expect(getAccessTokenUsecase.execute).toHaveBeenCalledWith(now);
         expect(fetchEformsignDocFromApiUsecase.execute).toHaveBeenCalledWith(
             "access-token",
             "webhook-doc",
@@ -114,11 +117,6 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
 
     it("falls back to updated_date when remote created_date is invalid", async () => {
         const updatedDate = Date.parse("2026-07-02T02:00:00.000Z");
-        const getAccessTokenUsecase = {
-            execute: jest.fn().mockResolvedValue({
-                oauth_token: { access_token: "access-token" },
-            }),
-        };
         const fetchEformsignDocFromApiUsecase = {
             execute: jest.fn().mockResolvedValue({
                 id: "remote-doc",
@@ -146,12 +144,12 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
         };
         const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation();
         const usecase = new MirrorUnassignedEformsignDocUsecase(
-            getAccessTokenUsecase as never,
+            createBoundary() as never,
             fetchEformsignDocFromApiUsecase as never,
             repository as never,
         );
 
-        await expect(usecase.execute("webhook-doc")).resolves.toBeDefined();
+        await expect(usecase.execute("webhook-doc", TEST_PRINCIPAL)).resolves.toBeDefined();
 
         expect(repository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -173,11 +171,6 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
         // webhook forever — there is no backfill yet to pick it back up.
         const createdDate = Date.parse("2026-07-03T05:00:00.000Z");
         const updatedDate = Date.parse("2026-07-03T04:00:00.000Z");
-        const getAccessTokenUsecase = {
-            execute: jest.fn().mockResolvedValue({
-                oauth_token: { access_token: "access-token" },
-            }),
-        };
         const fetchEformsignDocFromApiUsecase = {
             execute: jest.fn().mockResolvedValue({
                 id: "reversed-doc",
@@ -205,12 +198,12 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
         };
         const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation();
         const usecase = new MirrorUnassignedEformsignDocUsecase(
-            getAccessTokenUsecase as never,
+            createBoundary() as never,
             fetchEformsignDocFromApiUsecase as never,
             repository as never,
         );
 
-        await expect(usecase.execute("webhook-doc")).resolves.toBeDefined();
+        await expect(usecase.execute("webhook-doc", TEST_PRINCIPAL)).resolves.toBeDefined();
 
         expect(repository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -225,7 +218,7 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
     });
 
     it("mirrors an already-fetched document without issuing token or detail API calls", async () => {
-        const getAccessTokenUsecase = { execute: jest.fn() };
+        const credentialBoundary = createBoundary();
         const fetchEformsignDocFromApiUsecase = { execute: jest.fn() };
         const repository = {
             upsertUnassignedByDocumentId: jest.fn(
@@ -233,7 +226,7 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
             ),
         };
         const usecase = new MirrorUnassignedEformsignDocUsecase(
-            getAccessTokenUsecase as never,
+            credentialBoundary as never,
             fetchEformsignDocFromApiUsecase as never,
             repository as never,
         );
@@ -261,7 +254,7 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
             now: Date.parse("2026-07-03T00:00:00.000Z"),
         });
 
-        expect(getAccessTokenUsecase.execute).not.toHaveBeenCalled();
+        expect(credentialBoundary.withCredentials).not.toHaveBeenCalled();
         expect(fetchEformsignDocFromApiUsecase.execute).not.toHaveBeenCalled();
         expect(repository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -450,7 +443,7 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
     });
 
     it("uses the shared template id fallback chain for list response shapes", async () => {
-        const getAccessTokenUsecase = { execute: jest.fn() };
+        const credentialBoundary = createBoundary();
         const fetchEformsignDocFromApiUsecase = { execute: jest.fn() };
         const repository = {
             upsertUnassignedByDocumentId: jest.fn(
@@ -458,7 +451,7 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
             ),
         };
         const usecase = new MirrorUnassignedEformsignDocUsecase(
-            getAccessTokenUsecase as never,
+            credentialBoundary as never,
             fetchEformsignDocFromApiUsecase as never,
             repository as never,
         );

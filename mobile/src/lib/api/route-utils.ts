@@ -1,16 +1,13 @@
 import { serverAPIClient } from "@/lib/api/server";
 import { getServerRuntimeConfig } from "@/lib/env";
 import {
-    COOKIE_NAMES,
     NO_STORE_CACHE_CONTROL,
     type ParsedBody,
     type ProxyBodyOptions,
     backendJsonResponse,
     createRouteUtils,
-    getAccessToken,
     getAuthHeaders,
     getAuthToken,
-    getRefreshToken,
     getUpstreamErrorStatus,
     invalidJsonResponse,
     logUpstreamError,
@@ -31,23 +28,19 @@ const {
     proxyGetRequest,
     proxyLocalGetRequest,
     proxyPostRequest,
-    setAuthCookies,
 } = createRouteUtils({
     secureCookies: getServerRuntimeConfig().isProductionNodeEnv,
     serverAPIClient,
 });
 
 export {
-    COOKIE_NAMES,
     NO_STORE_CACHE_CONTROL,
     type ParsedBody,
     type ProxyBodyOptions,
     backendJsonResponse,
     errorResponse,
-    getAccessToken,
     getAuthHeaders,
     getAuthToken,
-    getRefreshToken,
     getUpstreamErrorStatus,
     invalidJsonResponse,
     logUpstreamError,
@@ -58,7 +51,6 @@ export {
     proxyPostRequest,
     readJsonObjectBody,
     sanitizeUpstreamClientError,
-    setAuthCookies,
     unauthorizedResponse,
     upstreamJsonErrorResponse,
     upstreamSseErrorResponse,

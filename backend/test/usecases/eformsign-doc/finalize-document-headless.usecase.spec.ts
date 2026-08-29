@@ -1,27 +1,44 @@
 import { FinalizeDocumentHeadlessUsecase } from "application/usecases/eformsign-doc/finalize-document-headless.usecase";
 import { EformsignOperationAlreadyRunningError } from "infrastructure/locking/eformsign-operation-lock.service";
 
+const TEST_PRINCIPAL = {
+    userId: "test-user",
+    branchId: "branch-1",
+    globalRole: "owner",
+    branchRole: "owner",
+} as const;
+
+function createCredentialBoundary() {
+    return {
+        withCredentials: jest.fn(async (
+            _principal: unknown,
+            _capability: unknown,
+            operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+        ) => operation({ accessToken: "access-token", refreshToken: "refresh-token" })),
+    };
+}
+
 describe("FinalizeDocumentHeadlessUsecase", () => {
     it("does not start a second finalization for the same document", async () => {
         const headlessService = { dispatchFinalize: jest.fn() };
-        const getAccessTokenUsecase = { execute: jest.fn() };
+        const credentialBoundary = createCredentialBoundary();
         const operationLock = {
             runExclusive: jest.fn().mockRejectedValue(new EformsignOperationAlreadyRunningError()),
         };
         const usecase = new FinalizeDocumentHeadlessUsecase(
             { generateStaffDocumentOptions: jest.fn(), fetchDocumentStatusCode: jest.fn() } as never,
             headlessService as never,
-            getAccessTokenUsecase as never,
+            credentialBoundary as never,
             { emit: jest.fn() } as never,
             operationLock as never,
         );
 
-        await expect(usecase.execute({ documentId: "doc-1" })).resolves.toEqual(expect.objectContaining({
+        await expect(usecase.execute({ documentId: "doc-1" }, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({
             ok: false,
             reason: "operation_in_progress",
             fallbackHint: "manual_check",
         }));
-        expect(getAccessTokenUsecase.execute).not.toHaveBeenCalled();
+        expect(credentialBoundary.withCredentials).not.toHaveBeenCalled();
         expect(headlessService.dispatchFinalize).not.toHaveBeenCalled();
     });
     afterEach(() => {
@@ -38,14 +55,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
                 durationMs: 640,
             }),
         };
-        const getAccessTokenUsecase = {
-            execute: jest.fn().mockResolvedValue({
-                oauth_token: {
-                    access_token: "access-token",
-                    refresh_token: "refresh-token",
-                },
-            }),
-        };
+        const credentialBoundary = createCredentialBoundary();
         const progressService = {
             emit: jest.fn(),
         };
@@ -56,7 +66,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
         const usecase = new FinalizeDocumentHeadlessUsecase(
             eformsignService as never,
             headlessService as never,
-            getAccessTokenUsecase as never,
+            credentialBoundary as never,
             progressService as never,
             undefined,
             documentMirrorService as never,
@@ -65,7 +75,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
         await expect(usecase.execute({
             documentId: "service-record-1",
             progressId: "progress-1",
-        })).resolves.toEqual({
+        }, TEST_PRINCIPAL)).resolves.toEqual({
             ok: true,
             completed: true,
             durationMs: 640,
@@ -84,6 +94,12 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
         });
         expect(documentMirrorService.syncDocument).toHaveBeenCalledWith(
             "service-record-1",
+            {
+                branchId: "branch-1",
+                globalRole: "owner",
+                branchRole: "owner",
+                userId: "test-user",
+            },
             {
                 force: true,
                 publishChangeReason: "mirror:finalize",
@@ -111,17 +127,13 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
                     gateOutcome: "request-send-clicked",
                 }),
             } as never,
-            {
-                execute: jest.fn().mockResolvedValue({
-                    oauth_token: { access_token: "access-token", refresh_token: "refresh-token" },
-                }),
-            } as never,
+            createCredentialBoundary() as never,
             { emit: jest.fn() } as never,
             undefined,
             documentMirrorService as never,
         );
 
-        await expect(usecase.execute({ documentId: "doc-retry" })).resolves.toEqual({
+        await expect(usecase.execute({ documentId: "doc-retry" }, TEST_PRINCIPAL)).resolves.toEqual({
             ok: true,
             completed: true,
             durationMs: 640,
@@ -150,16 +162,10 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
                     ...(gateOutcome ? { gateOutcome } : {}),
                 }),
             };
-            const getAccessTokenUsecase = {
-                execute: jest.fn().mockResolvedValue({
-                    oauth_token: { access_token: "access-token", refresh_token: "refresh-token" },
-                }),
-            };
-
             return new FinalizeDocumentHeadlessUsecase(
                 eformsignService as never,
                 headlessService as never,
-                getAccessTokenUsecase as never,
+                createCredentialBoundary() as never,
                 { emit: jest.fn() } as never,
             );
         }
@@ -170,7 +176,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
             jest.useFakeTimers();
             const usecase = buildUsecase("success-latched", jest.fn().mockResolvedValue("070"));
 
-            const result = usecase.execute({ documentId: "doc-1" });
+            const result = usecase.execute({ documentId: "doc-1" }, TEST_PRINCIPAL);
             await jest.runAllTimersAsync();
 
             await expect(result).resolves.toEqual(
@@ -185,7 +191,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
         it("accepts the run when eformsign confirms the document completed", async () => {
             const usecase = buildUsecase("success-latched", jest.fn().mockResolvedValue("003"));
 
-            await expect(usecase.execute({ documentId: "doc-1" })).resolves.toEqual({
+            await expect(usecase.execute({ documentId: "doc-1" }, TEST_PRINCIPAL)).resolves.toEqual({
                 ok: true,
                 completed: true,
                 durationMs: 900,
@@ -199,7 +205,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
                 .mockResolvedValueOnce("072");
             const usecase = buildUsecase("success-latched", fetchDocumentStatusCode);
 
-            const result = usecase.execute({ documentId: "doc-1" });
+            const result = usecase.execute({ documentId: "doc-1" }, TEST_PRINCIPAL);
             await jest.runAllTimersAsync();
 
             await expect(result).resolves.toEqual({
@@ -217,7 +223,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
                 .mockResolvedValueOnce("072");
             const usecase = buildUsecase("success-latched", fetchDocumentStatusCode);
 
-            const result = usecase.execute({ documentId: "doc-1" });
+            const result = usecase.execute({ documentId: "doc-1" }, TEST_PRINCIPAL);
             await jest.runAllTimersAsync();
 
             await expect(result).resolves.toEqual({
@@ -232,7 +238,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
             jest.useFakeTimers();
             const usecase = buildUsecase("success-latched", jest.fn().mockResolvedValue(undefined));
 
-            const result = usecase.execute({ documentId: "doc-1" });
+            const result = usecase.execute({ documentId: "doc-1" }, TEST_PRINCIPAL);
             await jest.runAllTimersAsync();
 
             await expect(result).resolves.toEqual(
@@ -244,7 +250,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
             const fetchDocumentStatusCode = jest.fn();
             const usecase = buildUsecase("request-send-clicked", fetchDocumentStatusCode);
 
-            await expect(usecase.execute({ documentId: "doc-1" })).resolves.toEqual({
+            await expect(usecase.execute({ documentId: "doc-1" }, TEST_PRINCIPAL)).resolves.toEqual({
                 ok: true,
                 completed: true,
                 durationMs: 900,
@@ -278,11 +284,6 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
                     return { ok: false, reason: "gate timeout", durationMs: 31_000 };
                 }),
             };
-            const getAccessTokenUsecase = {
-                execute: jest.fn().mockResolvedValue({
-                    oauth_token: { access_token: "access-token", refresh_token: "refresh-token" },
-                }),
-            };
             const progressService = { emit: jest.fn() };
 
             return {
@@ -290,7 +291,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
                 usecase: new FinalizeDocumentHeadlessUsecase(
                     eformsignService as never,
                     headlessService as never,
-                    getAccessTokenUsecase as never,
+                    createCredentialBoundary() as never,
                     progressService as never,
                 ),
             };
@@ -301,7 +302,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
             // callback went missing.
             const { usecase, progressService } = buildUsecase(jest.fn().mockResolvedValue("072"));
 
-            await expect(usecase.execute({ documentId: "doc-1", progressId: "p-1" })).resolves.toEqual({
+            await expect(usecase.execute({ documentId: "doc-1", progressId: "p-1" }, TEST_PRINCIPAL)).resolves.toEqual({
                 ok: true,
                 completed: true,
                 durationMs: 31_000,
@@ -331,7 +332,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
                 true,
             );
 
-            await expect(usecase.execute({ documentId: "doc-1", progressId: "p-1" }))
+            await expect(usecase.execute({ documentId: "doc-1", progressId: "p-1" }, TEST_PRINCIPAL))
                 .resolves.toEqual({ ok: true, completed: false, durationMs: 31_000 });
             expect(fetchDocumentStatusCode).not.toHaveBeenCalled();
             expect(fetchDocumentWorkflowState).toHaveBeenCalledTimes(2);
@@ -358,7 +359,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
                 fetchDocumentWorkflowState,
             );
 
-            await expect(usecase.execute({ documentId: "doc-1", progressId: "p-1" }))
+            await expect(usecase.execute({ documentId: "doc-1", progressId: "p-1" }, TEST_PRINCIPAL))
                 .resolves.toEqual(expect.objectContaining({
                     ok: false,
                     reason: "eformsign_terminal_failure",
@@ -367,24 +368,14 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
             expect(progressService.emit).not.toHaveBeenCalledWith("p-1", "sent");
         });
 
-        it("asks for the iframe only when eformsign confirms the step is unfinished", async () => {
-            // 070 = doc_request_reviewer: still awaiting provider review.
+        it("requires a manual check when a send was attempted but the step remains pending", async () => {
+            // 070 = doc_request_reviewer: still awaiting provider review. The
+            // send click already happened, so reopening the iframe could send a
+            // duplicate document and is never a safe fallback.
             jest.useFakeTimers();
             const { usecase } = buildUsecase(jest.fn().mockResolvedValue("070"));
 
-            const result = usecase.execute({ documentId: "doc-1" });
-            await jest.runAllTimersAsync();
-
-            await expect(result).resolves.toEqual(
-                expect.objectContaining({ ok: false, fallbackHint: "iframe" }),
-            );
-        });
-
-        it("asks for a manual check when the vendor status cannot be read", async () => {
-            jest.useFakeTimers();
-            const { usecase } = buildUsecase(jest.fn().mockRejectedValue(new Error("502 Bad Gateway")));
-
-            const result = usecase.execute({ documentId: "doc-1" });
+            const result = usecase.execute({ documentId: "doc-1" }, TEST_PRINCIPAL);
             await jest.runAllTimersAsync();
 
             await expect(result).resolves.toEqual(
@@ -392,11 +383,46 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
             );
         });
 
+        it("asks for a manual check when the vendor status cannot be read", async () => {
+            jest.useFakeTimers();
+            const { usecase } = buildUsecase(jest.fn().mockRejectedValue(new Error("502 Bad Gateway")));
+
+            const result = usecase.execute({ documentId: "doc-1" }, TEST_PRINCIPAL);
+            await jest.runAllTimersAsync();
+
+            await expect(result).resolves.toEqual(
+                expect.objectContaining({ ok: false, fallbackHint: "manual_check" }),
+            );
+        });
+
+        it("keeps a thrown SDK error on manual check after the send callback", async () => {
+            const headlessService = {
+                dispatchFinalize: jest.fn().mockImplementation(async ({ onProgress }) => {
+                    await onProgress?.("creating");
+                    throw new Error("headless SDK disconnected");
+                }),
+            };
+            const usecase = new FinalizeDocumentHeadlessUsecase(
+                { generateStaffCompletionOptions: jest.fn().mockResolvedValue({ mode: { type: "02" } }) } as never,
+                headlessService as never,
+                createCredentialBoundary() as never,
+                { emit: jest.fn() } as never,
+            );
+
+            await expect(usecase.execute({ documentId: "doc-1" }, TEST_PRINCIPAL)).resolves.toEqual(
+                expect.objectContaining({
+                    ok: false,
+                    reason: "headless SDK disconnected",
+                    fallbackHint: "manual_check",
+                }),
+            );
+        });
+
         it("does not consult the vendor when the run never reached 전송", async () => {
             const fetchDocumentStatusCode = jest.fn();
             const { usecase } = buildUsecase(fetchDocumentStatusCode, false);
 
-            await expect(usecase.execute({ documentId: "doc-1" })).resolves.toEqual(
+            await expect(usecase.execute({ documentId: "doc-1" }, TEST_PRINCIPAL)).resolves.toEqual(
                 expect.objectContaining({ ok: false, fallbackHint: "iframe" }),
             );
             expect(fetchDocumentStatusCode).not.toHaveBeenCalled();

@@ -47,7 +47,7 @@ describe("route-utils proxy body parsing", () => {
         expect(mockPost).not.toHaveBeenCalled();
     });
 
-    it("preserves GET query params while keeping accessToken cookie-owned", async () => {
+    it("preserves safe GET query params while dropping provider credentials", async () => {
         mockGet.mockResolvedValue({
             status: 200,
             data: { documents: [], total_count: 0 },
@@ -74,7 +74,6 @@ describe("route-utils proxy body parsing", () => {
             "/api/documents/rejected",
             {
                 params: {
-                    accessToken: "eformsign-token",
                     limit: "20",
                     skip: "40",
                 },

@@ -352,7 +352,10 @@ export interface SendMessageDeliverySmsRequest {
   message: string;
   title?: string;
   recipientName?: string;
-  clientId?: number;
+  /** Optional client association; the backend resolves and verifies the branch-owned recipient. */
+  clientId?: number | null;
+  /** Optional employee association; the employee must be active in the selected branch. */
+  employeeId?: number | null;
   msgType?: MessageDeliverySmsType;
   triggerType?: MessageDeliveryTriggerType;
   scheduledDate?: string;

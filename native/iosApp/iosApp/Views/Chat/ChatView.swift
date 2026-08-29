@@ -175,7 +175,7 @@ private struct MarkdownText: View {
 @MainActor
 final class ChatViewModelWrapper: ObservableObject {
     private let viewModel: ChatViewModel
-    private var observeTask: Task<Void, Never>?
+    private var stateCollector: IOSStateFlowCollector?
 
     @Published var isLoading: Bool = false
     @Published var isSending: Bool = false
@@ -188,20 +188,24 @@ final class ChatViewModelWrapper: ObservableObject {
     }
 
     deinit {
-        observeTask?.cancel()
+        stateCollector?.stop()
     }
 
     private func observeUiState() {
-        observeTask = Task {
-            for await state in viewModel.uiState {
-                if Task.isCancelled {
-                    break
-                }
-
+        let collector = IOSStateFlowCollector { [weak self] value in
+            guard let state = value as? ChatUiState else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
                 self.isLoading = state.isLoading
                 self.isSending = state.isSending
                 self.messages = state.messages
                 self.errorMessage = state.error
+            }
+        }
+        stateCollector = collector
+        viewModel.uiState.collect(collector: collector) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.stateCollector?.stop()
             }
         }
     }

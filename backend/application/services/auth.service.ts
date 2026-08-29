@@ -124,6 +124,16 @@ export interface RegistrationResult {
     code?: string;
 }
 
+export function buildAuthEmailProviderIdempotencyKey(
+    tokenId: string,
+    kind: "email_verification" | "password_reset",
+): string {
+    return `auth-email:${crypto
+        .createHash("sha256")
+        .update(`${kind}:${tokenId}`)
+        .digest("hex")}`;
+}
+
 @Injectable()
 export class AuthService {
     private readonly logger = new Logger(AuthService.name);
@@ -926,8 +936,12 @@ export class AuthService {
         return this.authSessionService.rotateRefreshToken(refreshToken);
     }
 
-    async logoutSession(userId: string, sessionId: string): Promise<void> {
-        await this.authSessionService.revokeSession(sessionId, userId, "logout");
+    async logoutSession(
+        userId: string,
+        sessionId: string,
+        pushEndpoint?: string,
+    ): Promise<void> {
+        await this.authSessionService.revokeSession(sessionId, userId, "logout", pushEndpoint);
         this.logger.log(JSON.stringify({
             event: "auth_logout",
             result: "success",
@@ -938,16 +952,32 @@ export class AuthService {
     async logoutWithCredentials(params: {
         refreshToken?: string;
         accessToken?: string;
+        pushEndpoint?: string;
     }): Promise<void> {
         if (params.refreshToken) {
-            await this.authSessionService.revokeSessionByRefreshToken(
+            const revokedByRefreshToken = await this.authSessionService.revokeSessionByRefreshToken(
                 params.refreshToken,
                 "logout",
+                params.pushEndpoint,
             );
-        } else if (params.accessToken) {
+            // A stale or malformed refresh cookie must not prevent a valid
+            // bearer token from revoking the current session and its endpoint.
+            // Do not process both credentials when refresh revocation succeeds:
+            // that preserves the existing safety boundary for mismatched tokens.
+            if (revokedByRefreshToken) {
+                this.logger.log(JSON.stringify({
+                    event: "auth_logout",
+                    result: "success",
+                }));
+                return;
+            }
+        }
+
+        if (params.accessToken) {
             await this.authSessionService.revokeSessionByAccessToken(
                 params.accessToken,
                 "logout",
+                params.pushEndpoint,
             );
         }
         this.logger.log(JSON.stringify({
@@ -1100,6 +1130,10 @@ export class AuthService {
                     kind: "email_verification",
                     recipient: createdUser.email!,
                     name: createdUser.name,
+                    providerIdempotencyKey: buildAuthEmailProviderIdempotencyKey(
+                        verificationToken.tokenId,
+                        "email_verification",
+                    ),
                 },
             });
             return createdUser;
@@ -1142,6 +1176,10 @@ export class AuthService {
                     kind: "email_verification",
                     recipient: email,
                     name: user?.name ?? null,
+                    providerIdempotencyKey: buildAuthEmailProviderIdempotencyKey(
+                        verificationToken.tokenId,
+                        "email_verification",
+                    ),
                 },
             });
         });
@@ -1281,6 +1319,10 @@ export class AuthService {
                         kind: "password_reset",
                         recipient: user.email!,
                         name: user.name,
+                        providerIdempotencyKey: buildAuthEmailProviderIdempotencyKey(
+                            resetToken.tokenId,
+                            "password_reset",
+                        ),
                     },
                 });
             });

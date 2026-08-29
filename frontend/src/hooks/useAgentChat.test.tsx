@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 
-import { useAgentChat } from "./useAgentChat";
+import { useAgentChat, useAgentShellEnabled } from "./useAgentChat";
 
 jest.mock("ai", () => ({ DefaultChatTransport: jest.fn() }));
 jest.mock("@ai-sdk/react", () => ({ useChat: jest.fn() }));
@@ -499,5 +499,92 @@ describe("useAgentChat", () => {
 
         expect(stop).toHaveBeenCalled();
         expect(window.sessionStorage.getItem("agent_session_id")).toBeNull();
+    });
+});
+
+describe("useAgentShellEnabled capability discovery", () => {
+    const originalFlag = process.env.NEXT_PUBLIC_AGENT_SHELL_ENABLED;
+
+    beforeEach(() => {
+        process.env.NEXT_PUBLIC_AGENT_SHELL_ENABLED = "true";
+    });
+
+    afterEach(() => {
+        if (originalFlag === undefined) delete process.env.NEXT_PUBLIC_AGENT_SHELL_ENABLED;
+        else process.env.NEXT_PUBLIC_AGENT_SHELL_ENABLED = originalFlag;
+    });
+
+    it.each([401, 503])("fails closed for an HTTP %s capability response", async (status) => {
+        global.fetch = jest.fn().mockResolvedValue({ ok: false, status } as Response);
+
+        const { result } = renderHook(() => useAgentShellEnabled());
+
+        expect(result.current).toBe("loading");
+        await waitFor(() => expect(result.current).toBe("discovery-error"));
+    });
+
+    it("fails closed when capability discovery rejects", async () => {
+        global.fetch = jest.fn().mockRejectedValue(new Error("sensitive provider response"));
+
+        const { result } = renderHook(() => useAgentShellEnabled());
+
+        await waitFor(() => expect(result.current).toBe("discovery-error"));
+        expect(result.current).not.toBe(false);
+    });
+
+    it("fails closed when capability JSON is malformed", async () => {
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: jest.fn().mockRejectedValue(new Error("raw response details")),
+        } as unknown as Response);
+
+        const { result } = renderHook(() => useAgentShellEnabled());
+
+        await waitFor(() => expect(result.current).toBe("discovery-error"));
+    });
+
+    it.each([
+        ["empty", []],
+        ["unusable", [{}]],
+    ])("fails closed for an %s capability catalog", async (_label, catalog) => {
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: async () => catalog,
+        } as unknown as Response);
+
+        const { result } = renderHook(() => useAgentShellEnabled());
+
+        await waitFor(() => expect(result.current).toBe("discovery-error"));
+    });
+
+    it("enables the shell for a usable capability catalog", async () => {
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: async () => [{
+                name: "clients.search",
+                domain: "clients",
+                version: "1.0.0",
+                description: "Search clients",
+                risk: "read",
+                requiredRoles: ["owner"],
+                renderer: "entity-choice",
+                flagKey: "agent.capability.clients.search",
+                sideEffect: false,
+            }],
+        } as unknown as Response);
+
+        const { result } = renderHook(() => useAgentShellEnabled());
+
+        await waitFor(() => expect(result.current).toBe("enabled"));
+    });
+
+    it("keeps explicit compatibility-off mode out of discovery and on legacy chat", () => {
+        process.env.NEXT_PUBLIC_AGENT_SHELL_ENABLED = "false";
+        global.fetch = jest.fn();
+
+        const { result } = renderHook(() => useAgentShellEnabled());
+
+        expect(result.current).toBe("compatibility-off");
+        expect(global.fetch).not.toHaveBeenCalled();
     });
 });

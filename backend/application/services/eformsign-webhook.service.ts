@@ -37,6 +37,11 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 import { ServiceRecordLifecycleService } from "./service-record-lifecycle.service";
 import { EformsignDocumentSnapshotService } from "./eformsign-document-snapshot.service";
 import { EformsignDocumentMirrorService } from "./eformsign-document-mirror.service";
+import {
+    EformsignCredentialBoundary,
+    createEformsignGlobalWorkerPrincipal,
+    createEformsignWorkerPrincipal,
+} from "./eformsign-credential-boundary.service";
 
 /**
  * Eformsign document status codes (from document.status field)
@@ -134,6 +139,7 @@ export class EformsignWebhookService {
         private readonly notificationService: NotificationService,
         @Inject(EFORMSIGN_CLIENT_REPOSITORY)
         private readonly eformsignApiClient: IEformsignClientRepository,
+        private readonly credentialBoundary: EformsignCredentialBoundary,
         @Inject(CLIENT_REPOSITORY)
         private readonly clientRepository: IClientRepository,
         @Inject(EFORMSIGN_DOC_REPOSITORY)
@@ -189,10 +195,23 @@ export class EformsignWebhookService {
 
         if (localDocument === null) {
             try {
-                await this.mirrorUnassignedDocUsecase.execute(documentId);
-                this.logger.log(
-                    `Mirrored external document ${documentId} from webhook ${webhook_id} as unassigned`,
-                );
+                if (!context.mirroredDocument) {
+                    await this.mirrorUnassignedDocUsecase.execute(
+                        documentId,
+                        createEformsignGlobalWorkerPrincipal("webhook"),
+                    );
+                    this.logger.log(
+                        `Mirrored external document ${documentId} from webhook ${webhook_id} as unassigned`,
+                    );
+                } else {
+                    await this.mirrorUnassignedDocUsecase.mirrorRemoteDocument(
+                        context.mirroredDocument,
+                        { fallbackDocumentId: documentId },
+                    );
+                    this.logger.log(
+                        `Mirrored external document ${documentId} from webhook ${webhook_id} as unassigned`,
+                    );
+                }
             } catch (error) {
                 if (error instanceof EformsignDocOwnershipConflictError) {
                     return this.retryBranchOwnedWebhookAfterOwnershipConflict(
@@ -833,13 +852,15 @@ export class EformsignWebhookService {
                             persist,
                         );
                     } else {
-                        const accessTokenResponse =
-                            await this.eformsignApiClient.getAccessToken(Date.now());
-                        await this.syncClientEndDateUsecase.execute(
-                            branchid,
-                            documentId,
-                            accessTokenResponse.oauth_token.access_token,
-                            persist,
+                        await this.credentialBoundary.withCredentials(
+                            createEformsignWorkerPrincipal(branchid),
+                            "document.read",
+                            ({ accessToken }) => this.syncClientEndDateUsecase.execute(
+                                branchid,
+                                documentId,
+                                accessToken,
+                                persist,
+                            ),
                         );
                     }
                 } catch (error) {
@@ -1131,14 +1152,14 @@ export class EformsignWebhookService {
         }
 
         try {
-            const document = mirroredDocument ?? await (async () => {
-                const accessTokenResponse =
-                    await this.eformsignApiClient.getAccessToken(Date.now());
-                return this.eformsignApiClient.getDocument(
-                    accessTokenResponse.oauth_token.access_token,
+            const document = mirroredDocument ?? await this.credentialBoundary.withCredentials(
+                createEformsignWorkerPrincipal(branchid),
+                "document.read",
+                ({ accessToken }) => this.eformsignApiClient.getDocument(
+                    accessToken,
                     documentId,
-                );
-            })();
+                ),
+            );
 
             if (!this.isReviewRequiredStatus(document.current_status)) {
                 return;

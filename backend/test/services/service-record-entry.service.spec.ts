@@ -96,6 +96,7 @@ function createHarness(options: {
         count: existing?.clientSignature ? 0 : 1,
     })));
     const transactionClient = {
+        $queryRaw: jest.fn().mockResolvedValue([{ id: CASE_ID }]),
         service_record_case: {
             findUnique: jest.fn().mockResolvedValue(transactionRecord),
         },
@@ -122,7 +123,107 @@ function createHarness(options: {
         lifecycle as unknown as ServiceRecordLifecycleService,
     );
 
-    return { service, prisma, transactionClient, upsert, updateMany };
+    return { service, prisma, transactionClient, upsert, updateMany, lifecycle };
+}
+
+function createConcurrentHarness() {
+    type SessionWrite = Partial<ReturnType<typeof createDay>> & { locked: boolean };
+
+    let persistedDay: ReturnType<typeof createDay> | null = null;
+    let dayReadCount = 0;
+    let caseLockObserved = false;
+    let caseLockHeld = false;
+    const lockQueries: unknown[] = [];
+    const caseLockWaiters: Array<() => void> = [];
+    let releaseSecondDayRead: (() => void) | undefined;
+    const secondDayRead = new Promise<void>((resolve) => {
+        releaseSecondDayRead = resolve;
+    });
+    let releaseSubmitWrite: (() => void) | undefined;
+    const submitWrite = new Promise<void>((resolve) => {
+        releaseSubmitWrite = resolve;
+    });
+
+    const acquireCaseLock = async () => {
+        if (caseLockHeld) {
+            await new Promise<void>((resolve) => caseLockWaiters.push(resolve));
+        }
+        caseLockHeld = true;
+    };
+    const releaseCaseLock = () => {
+        const next = caseLockWaiters.shift();
+        if (next) {
+            next();
+            return;
+        }
+        caseLockHeld = false;
+    };
+
+    const caseModel = {
+        findUnique: jest.fn().mockResolvedValue(createRecord()),
+    };
+    const scheduleModel = {
+        findUnique: jest.fn().mockResolvedValue({ primaryEmployee: { name: "제공자" } }),
+    };
+    const dayModel = {
+        findUnique: jest.fn(async () => {
+            dayReadCount += 1;
+            if (dayReadCount === 2) releaseSecondDayRead?.();
+            return persistedDay ? { ...persistedDay } : null;
+        }),
+        upsert: jest.fn(async ({ create, update }: { create: SessionWrite; update: SessionWrite }) => {
+            const data = persistedDay ? update : create;
+            if (data.locked && !caseLockObserved) {
+                await secondDayRead;
+            }
+            if (data.locked) {
+                persistedDay = { ...(persistedDay ?? createDay({ locked: false, clientSignature: null, clientSignedAt: null })), ...data };
+                releaseSubmitWrite?.();
+            } else {
+                await submitWrite;
+                persistedDay = { ...(persistedDay ?? createDay({ locked: false, clientSignature: null, clientSignedAt: null })), ...data };
+            }
+            return persistedDay;
+        }),
+        updateMany: jest.fn(async ({ data }: { data: Partial<ReturnType<typeof createDay>> }) => {
+            if (!persistedDay || persistedDay.clientSignature) return { count: 0 };
+            persistedDay = { ...persistedDay, ...data };
+            return { count: 1 };
+        }),
+    };
+    const lifecycle = { recompute: jest.fn().mockResolvedValue(createRecord()) };
+    const prisma = {
+        service_record_case: {
+            findFirst: jest.fn().mockResolvedValue(createRecord()),
+        },
+        $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+            let acquired = false;
+            const tx = {
+                $queryRaw: jest.fn(async (query: unknown) => {
+                    lockQueries.push(query);
+                    caseLockObserved = true;
+                    await acquireCaseLock();
+                    acquired = true;
+                    return [{ id: CASE_ID }];
+                }),
+                service_record_case: caseModel,
+                employee_schedule: scheduleModel,
+                service_record_day: dayModel,
+            };
+            try {
+                return await callback(tx);
+            } finally {
+                if (acquired) releaseCaseLock();
+            }
+        }),
+    };
+    const service = new ServiceRecordEntryService(
+        prisma as unknown as PrismaService,
+        {} as ServiceRecordTokenService,
+        lifecycle as unknown as ServiceRecordLifecycleService,
+    );
+
+    return { service, prisma, dayModel, lockQueries, getPersistedDay: () => persistedDay };
 }
 
 function exceptionCode(error: unknown): unknown {
@@ -151,8 +252,8 @@ describe("ServiceRecordEntryService.upsertSession", () => {
         jest.useRealTimers();
     });
 
-    it("allows a locked session to be edited and resubmitted", async () => {
-        const existing = createDay();
+    it("allows an unlocked session to be edited and submitted", async () => {
+        const existing = createDay({ locked: false, clientSignature: null, clientSignedAt: null });
         const { service, upsert } = createHarness({ existing });
 
         await expect(service.upsertSession(context, 1, createDto({ notes: "수정" }), true)).resolves.toEqual(
@@ -161,6 +262,29 @@ describe("ServiceRecordEntryService.upsertSession", () => {
         expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
             update: expect.objectContaining({ notes: "수정", locked: true }),
         }));
+    });
+
+    it.each([
+        ["draft save", false, SERVICE_RECORD_CASE_STATUS.IN_PROGRESS],
+        ["submit", true, SERVICE_RECORD_CASE_STATUS.IN_PROGRESS],
+        ["draft save", false, SERVICE_RECORD_CASE_STATUS.READY_TO_FINALIZE],
+        ["submit", true, SERVICE_RECORD_CASE_STATUS.READY_TO_FINALIZE],
+    ])("rejects a locked session during %s while the case is %s", async (_operation, lock, status) => {
+        const existing = createDay();
+        const { service, prisma, upsert, updateMany, lifecycle } = createHarness({
+            existing,
+            transactionRecord: createRecord({ status }),
+        });
+
+        await expectException(
+            service.upsertSession(context, 1, createDto({ notes: "변조" }), lock),
+            ConflictException,
+            "SERVICE_RECORD_SESSION_LOCKED",
+        );
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(upsert).not.toHaveBeenCalled();
+        expect(updateMany).not.toHaveBeenCalled();
+        expect(lifecycle.recompute).not.toHaveBeenCalled();
     });
 
     it("accepts 기타서비스 40자와 특이사항 80자를 정확히 입력할 수 있다", async () => {
@@ -223,7 +347,7 @@ describe("ServiceRecordEntryService.upsertSession", () => {
 
     it("silently preserves an existing signature and signed timestamp", async () => {
         const signedAt = new Date("2026-07-01T01:00:00.000Z");
-        const existing = createDay({ clientSignature: SIGNATURE, clientSignedAt: signedAt });
+        const existing = createDay({ locked: false, clientSignature: SIGNATURE, clientSignedAt: signedAt });
         const { service, upsert, updateMany } = createHarness({
             existing,
             updateSignature: async () => ({ count: 0 }),
@@ -280,6 +404,23 @@ describe("ServiceRecordEntryService.upsertSession", () => {
         }));
     });
 
+    it("refuses a stale draft after a concurrent submission locks the session", async () => {
+        const { service, dayModel, lockQueries, getPersistedDay } = createConcurrentHarness();
+        const submit = service.upsertSession(context, 1, createDto(), true);
+        const draft = service.upsertSession(context, 1, createDto({ notes: "stale draft" }), false);
+
+        await expect(submit).resolves.toEqual(expect.objectContaining({ locked: true }));
+        await expect(draft).rejects.toMatchObject({
+            response: { code: "SERVICE_RECORD_SESSION_LOCKED" },
+        });
+        expect(dayModel.upsert).toHaveBeenCalledTimes(1);
+        expect(lockQueries).toHaveLength(2);
+        for (const query of lockQueries) {
+            expect((query as { strings: string[] }).strings.join(" ")).toContain("FOR UPDATE");
+        }
+        expect(getPersistedDay()).toEqual(expect.objectContaining({ locked: true }));
+    });
+
     it("records clientSignedAt only on the first successful signature write", async () => {
         jest.useFakeTimers({ now: new Date("2026-07-01T02:00:00.000Z") });
         let persistedSignedAt: Date | null = null;
@@ -300,7 +441,7 @@ describe("ServiceRecordEntryService.upsertSession", () => {
         expect(persistedSignedAt).toEqual(new Date("2026-07-01T02:00:00.000Z"));
     });
 
-    it("rejects changing serviceDate when resubmitting a locked session", async () => {
+    it("rejects changing any field when resubmitting a locked session", async () => {
         const { service, upsert } = createHarness({ existing: createDay() });
 
         await expectException(service.upsertSession(
@@ -308,32 +449,32 @@ describe("ServiceRecordEntryService.upsertSession", () => {
             1,
             createDto({ serviceDate: "2026-07-02T00:00:00.000Z" }),
             true,
-        ), BadRequestException, "SERVICE_DATE_IMMUTABLE");
+        ), ConflictException, "SERVICE_RECORD_SESSION_LOCKED");
         expect(upsert).not.toHaveBeenCalled();
     });
 
-    it("grandfathers a locked legacy session with no signature", async () => {
+    it("does not grandfather a locked legacy session with no signature", async () => {
         const existing = createDay({ clientSignature: null, clientSignedAt: null });
         const { service, updateMany } = createHarness({ existing });
 
-        await expect(service.upsertSession(
+        await expectException(service.upsertSession(
             context,
             1,
             createDto({ clientSignature: undefined }),
             true,
-        )).resolves.toEqual(expect.objectContaining({ locked: true }));
+        ), ConflictException, "SERVICE_RECORD_SESSION_LOCKED");
         expect(updateMany).not.toHaveBeenCalled();
     });
 
-    it("ignores a signature on draft save and preserves prior locked state", async () => {
-        const existing = createDay({ clientSignature: null, clientSignedAt: null });
+    it("ignores a signature on draft save while the session remains unlocked", async () => {
+        const existing = createDay({ locked: false, clientSignature: null, clientSignedAt: null });
         const { service, upsert, updateMany } = createHarness({ existing });
 
         await service.upsertSession(context, 1, createDto(), false);
 
         expect(updateMany).not.toHaveBeenCalled();
         expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
-            update: expect.objectContaining({ locked: true }),
+            update: expect.objectContaining({ locked: false }),
         }));
     });
 });

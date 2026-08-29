@@ -1,5 +1,6 @@
 import axios from "axios";
 import type { AxiosError, AxiosRequestConfig } from "axios";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
 
 type AxiosMockInternals = {
     requestInterceptorUse: jest.Mock;
@@ -40,6 +41,10 @@ jest.mock("axios", () => {
     };
 });
 
+jest.mock("@/lib/auth/authority-state", () => ({
+    resetAuthorityState: jest.fn(),
+}));
+
 import "../client";
 
 type RetryableRequestConfig = AxiosRequestConfig & {
@@ -47,6 +52,7 @@ type RetryableRequestConfig = AxiosRequestConfig & {
     _appAuthRetry?: boolean;
 };
 const mockAxios = axios as unknown as AxiosFunctionMock;
+const mockResetAuthorityState = jest.mocked(resetAuthorityState);
 
 function getResponseRejectedHandler(): (err: AxiosError) => Promise<unknown> {
     const rejectedHandler = mockAxios.__mockApi.responseInterceptorUse.mock.calls[0]?.[1];
@@ -165,6 +171,7 @@ describe("api client app-session refresh", () => {
     beforeEach(() => {
         mockAxios.mockClear();
         mockAxios.__mockApi.barePost.mockReset();
+        mockResetAuthorityState.mockReset();
         window.history.replaceState({}, "", "/login");
     });
 
@@ -220,6 +227,59 @@ describe("api client app-session refresh", () => {
 
         expect(mockAxios.__mockApi.barePost).not.toHaveBeenCalled();
         expect(mockAxios).not.toHaveBeenCalled();
+    });
+
+    it("settles the initiating 401 while redirect reset skips its own cancellation", async () => {
+        let resolveReset: (() => void) | undefined;
+        mockResetAuthorityState.mockImplementation((_client, options) => {
+            if (options?.waitForCancellation === false) {
+                return new Promise<void>((resolve) => {
+                    resolveReset = resolve;
+                });
+            }
+            return new Promise<void>(() => undefined);
+        });
+        const refreshError = createUnauthorizedError({
+            method: "POST",
+            url: "/api/auth/refresh",
+        });
+        mockAxios.__mockApi.barePost.mockRejectedValue(refreshError);
+        window.history.replaceState({}, "", "/dashboard");
+
+        const originalLocation = Object.getOwnPropertyDescriptor(window, "location");
+        const location = { pathname: "/dashboard", href: "http://localhost/dashboard" };
+        Object.defineProperty(window, "location", {
+            configurable: true,
+            value: location,
+        });
+
+        try {
+            const originalRequest: RetryableRequestConfig = {
+                method: "GET",
+                url: "/clients",
+            };
+            const request = getResponseRejectedHandler()(createUnauthorizedError(originalRequest));
+            const pendingOutcome = await Promise.race([
+                request.then(() => "resolved", () => "rejected"),
+                new Promise<string>((resolve) => setTimeout(() => resolve("timed out"), 100)),
+            ]);
+
+            expect(pendingOutcome).toBe("timed out");
+            expect(mockResetAuthorityState).toHaveBeenCalledWith(
+                undefined,
+                { waitForCancellation: false },
+            );
+            expect(location.href).toBe("http://localhost/dashboard");
+
+            resolveReset?.();
+            await expect(request).rejects.toBe(refreshError);
+            expect(location.href).toBe("/login");
+        } finally {
+            resolveReset?.();
+            if (originalLocation) {
+                Object.defineProperty(window, "location", originalLocation);
+            }
+        }
     });
 });
 

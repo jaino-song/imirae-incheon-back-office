@@ -56,23 +56,19 @@ env:
 
 jobs:
   validate-build-package:
-    name: validate, test, build, and package SAM
+    name: validate, test, and build SAM
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
-      id-token: write
-    env:
-      SAM_PACKAGE_BUCKET: ${{ vars.SAM_PACKAGE_BUCKET }}
-      SAM_PACKAGE_ROLE_ARN: ${{ vars.AWS_FAILOVER_PACKAGE_ROLE_ARN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
 
@@ -94,16 +90,49 @@ jobs:
         working-directory: ${{ env.CONTROL_PLANE_DIR }}
         run: sam build --template-file template.yaml --cached --parallel
 
+  package-trusted:
+    name: package SAM artifacts · trusted branch
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: validate-build-package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SAM_PACKAGE_BUCKET: ${{ vars.SAM_PACKAGE_BUCKET }}
+      SAM_PACKAGE_ROLE_ARN: ${{ vars.AWS_FAILOVER_PACKAGE_ROLE_ARN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      - name: Require AWS SAM CLI
+        run: |
+          set -euo pipefail
+          command -v sam
+          sam --version
+
+      - name: Build SAM artifacts for trusted package
+        working-directory: ${{ env.CONTROL_PLANE_DIR }}
+        run: sam build --template-file template.yaml --cached --parallel
+
       - name: Authenticate package-only AWS session
-        if: github.event_name != 'pull_request' && env.SAM_PACKAGE_BUCKET != '' && env.SAM_PACKAGE_ROLE_ARN != ''
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        if: env.SAM_PACKAGE_BUCKET != '' && env.SAM_PACKAGE_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ env.SAM_PACKAGE_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           mask-aws-account-id: true
 
       - name: Package SAM artifacts without deployment
-        if: github.event_name != 'pull_request' && env.SAM_PACKAGE_BUCKET != '' && env.SAM_PACKAGE_ROLE_ARN != ''
+        if: env.SAM_PACKAGE_BUCKET != '' && env.SAM_PACKAGE_ROLE_ARN != ''
         working-directory: ${{ env.CONTROL_PLANE_DIR }}
         env:
           PACKAGED_TEMPLATE: ${{ runner.temp }}/db-failover-packaged.yaml
@@ -133,7 +162,9 @@ jobs:
         )
       ) &&
       inputs.environment == 'preview'
-    needs: validate-build-package
+    needs:
+      - validate-build-package
+      - package-trusted
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
@@ -156,11 +187,11 @@ jobs:
       MANAGED_NODE_TAG_VALUE: babyjamjam-admin-server
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
       - name: Perform read-only live Sentry rule audit
@@ -170,7 +201,7 @@ jobs:
           SENTRY_EXPECTED_ENVIRONMENT: preview
         run: node scripts/audit-sentry-rule.mjs
       - name: Authenticate to the protected preview environment
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -212,7 +243,9 @@ jobs:
         )
       ) &&
       inputs.environment == 'production'
-    needs: validate-build-package
+    needs:
+      - validate-build-package
+      - package-trusted
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
@@ -235,11 +268,11 @@ jobs:
       MANAGED_NODE_TAG_VALUE: babyjamjam-admin-server
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
       - name: Perform read-only live Sentry rule audit
@@ -249,7 +282,7 @@ jobs:
           SENTRY_EXPECTED_ENVIRONMENT: production
         run: node scripts/audit-sentry-rule.mjs
       - name: Authenticate to the protected production environment
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}

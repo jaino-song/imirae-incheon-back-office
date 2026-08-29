@@ -17,6 +17,10 @@ const nextConfig: NextConfig = {
     env: {
         NEXT_PUBLIC_SENTRY_RELEASE: sentryRelease,
     },
+    // Playwright's loopback harness may use 127.0.0.1. Next's development
+    // HMR origin check must allow that host so client hydration can complete.
+    // Keep the exception out of production configuration and CORS behavior.
+    ...(process.env.NODE_ENV === "production" ? {} : { allowedDevOrigins: ["127.0.0.1"] }),
     // Workspace package ships TS source; Next transpiles it in-app.
     transpilePackages: ["@babyjamjam/shared"],
     turbopack: {

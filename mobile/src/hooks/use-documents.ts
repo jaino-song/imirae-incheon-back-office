@@ -122,8 +122,8 @@ export function useUploadDocument() {
             });
             return data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: documentQueryKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: documentQueryKeys.all });
         },
         onError: (error) => {
             console.error("[useUploadDocument] onError called:", error);
@@ -142,9 +142,11 @@ export function useUpdateDocument() {
             const { data } = await api.put<Document>(`/file-storage/files/${id}`, params);
             return data;
         },
-        onSuccess: (data) => {
-            queryClient.invalidateQueries({ queryKey: documentQueryKeys.all });
-            queryClient.invalidateQueries({ queryKey: documentQueryKeys.detail(data.id) });
+        onSuccess: async (data) => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: documentQueryKeys.all }),
+                queryClient.invalidateQueries({ queryKey: documentQueryKeys.detail(data.id) }),
+            ]);
         },
         onError: (error) => {
             console.error("[useUpdateDocument] onError called:", error);
@@ -163,8 +165,8 @@ export function useDeleteDocument() {
              await api.delete(`/file-storage/files/${id}`);
              return id;
          },
-         onSuccess: () => {
-             queryClient.invalidateQueries({ queryKey: documentQueryKeys.all });
+         onSuccess: async () => {
+             await queryClient.invalidateQueries({ queryKey: documentQueryKeys.all });
          },
          onError: (error) => {
              console.error("[useDeleteDocument] onError called:", error);

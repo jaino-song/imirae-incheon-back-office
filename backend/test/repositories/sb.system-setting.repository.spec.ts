@@ -132,6 +132,10 @@ describe("SbSystemSettingRepository", () => {
             await expect(repository.compareAndSet("alimtalk_provider", "old", entity, (value) => value ?? "missing"))
                 .resolves.toEqual(expect.objectContaining({ value: "new" }));
             expect((prisma.$transaction as jest.Mock)).toHaveBeenCalled();
+            expect((prisma.$queryRawUnsafe as jest.Mock)).toHaveBeenCalledWith(
+                'SELECT "key" FROM "system_setting" WHERE "key" = $1 FOR UPDATE',
+                "alimtalk_provider",
+            );
             expect(systemSettingModel.update).toHaveBeenCalledWith(expect.objectContaining({ where: { key: "alimtalk_provider" } }));
         });
 

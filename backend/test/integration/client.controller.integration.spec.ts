@@ -499,6 +499,18 @@ describe("ClientController (Integration)", () => {
             });
         });
 
+        it.each(["name", "voucherClient", "breastPump"])(
+            "should reject explicit null for non-nullable %s before invoking the service",
+            async (field) => {
+                const response = await request(app.getHttpServer())
+                    .patch("/clients/4")
+                    .send({ [field]: null });
+
+                expect(response.status).toBe(400);
+                expect(clientService.update).not.toHaveBeenCalled();
+            },
+        );
+
         describe("given an empty update", () => {
             it("should preserve the relink-only wire contract", async () => {
                 const existingClient = createMockClient({ id: 5 });

@@ -1,9 +1,8 @@
-import { PwaNotificationSchedulerService } from "application/services/pwa-notification-scheduler.service";
-import { DailyDigestSection, NotificationService } from "application/services/notification.service";
+import type { DailyDigestSection, NotificationService } from "application/services/notification.service";
 import { IBranchRepository } from "domain/repositories/branch.repository.interface";
 import { IClientRepository } from "domain/repositories/client.repository.interface";
 import { IMessageTriggerJobRepository } from "domain/repositories/message-trigger-job.repository.interface";
-import { SystemSettingService } from "application/services/system-setting.service";
+import type { SystemSettingService } from "application/services/system-setting.service";
 import {
     MESSAGE_TRIGGER_TEMPLATE_CATALOG,
     MessageTriggerRecipientType,
@@ -11,8 +10,9 @@ import {
 } from "domain/constants/message-trigger-catalog";
 
 describe("PwaNotificationSchedulerService", () => {
+    const testFrontendUrl = "https://admin.babyjamjam.com";
     const emailTemplateContext = {
-        ctaUrl: "https://admin.babyjamjam.com/login",
+        ctaUrl: `${testFrontendUrl}/login`,
         ctaLabel: "로그인해서 확인하기",
     };
     const notificationService = {
@@ -32,10 +32,35 @@ describe("PwaNotificationSchedulerService", () => {
         countRecentUndeliveredByBranch: jest.fn(),
     };
     const systemSettingService = {
+        claimPwaDigestDelivery: jest.fn(),
+        completePwaDigestDelivery: jest.fn(),
         getPwaUndeliveredDigestWatermark: jest.fn(),
         setPwaUndeliveredDigestWatermark: jest.fn(),
     };
-    let service: PwaNotificationSchedulerService;
+    let PwaNotificationSchedulerServiceClass: typeof import("application/services/pwa-notification-scheduler.service").PwaNotificationSchedulerService;
+    let service: InstanceType<typeof PwaNotificationSchedulerServiceClass>;
+    const originalNodeEnv = process.env["NODE_ENV"];
+    const originalProductionFrontendUrl = process.env["PRODUCTION_FRONTEND_URL"];
+
+    beforeAll(async () => {
+        // The full backend Jest run may execute an AppModule test in the same
+        // worker first, which loads backend/.env and leaves DEVELOPMENT_FRONTEND_URL
+        // in process.env. Isolate this module with an explicit production URL so
+        // the CTA assertion is deterministic without changing any .env file.
+        process.env["NODE_ENV"] = "production";
+        process.env["PRODUCTION_FRONTEND_URL"] = testFrontendUrl;
+        await jest.isolateModulesAsync(async () => {
+            ({ PwaNotificationSchedulerService: PwaNotificationSchedulerServiceClass } =
+                await import("application/services/pwa-notification-scheduler.service"));
+        });
+    });
+
+    afterAll(() => {
+        if (originalNodeEnv === undefined) delete process.env["NODE_ENV"];
+        else process.env["NODE_ENV"] = originalNodeEnv;
+        if (originalProductionFrontendUrl === undefined) delete process.env["PRODUCTION_FRONTEND_URL"];
+        else process.env["PRODUCTION_FRONTEND_URL"] = originalProductionFrontendUrl;
+    });
 
     const digestCall = (index = 0): [string, string, DailyDigestSection[], typeof emailTemplateContext] =>
         notificationService.sendDailyDigestToBranchUsers.mock.calls[index];
@@ -44,7 +69,7 @@ describe("PwaNotificationSchedulerService", () => {
         MESSAGE_TRIGGER_TEMPLATE_CATALOG[templateKey].name;
 
     beforeEach(() => {
-        service = new PwaNotificationSchedulerService(
+        service = new PwaNotificationSchedulerServiceClass(
             notificationService as unknown as NotificationService,
             clientRepository as unknown as IClientRepository,
             branchRepository as unknown as IBranchRepository,
@@ -76,6 +101,8 @@ describe("PwaNotificationSchedulerService", () => {
             },
         ]);
         messageTriggerJobRepository.countRecentUndeliveredByBranch.mockResolvedValue(1);
+        systemSettingService.claimPwaDigestDelivery.mockResolvedValue("claim-token");
+        systemSettingService.completePwaDigestDelivery.mockResolvedValue(true);
         systemSettingService.getPwaUndeliveredDigestWatermark.mockResolvedValue(null);
         systemSettingService.setPwaUndeliveredDigestWatermark.mockResolvedValue(undefined);
         notificationService.sendDailyDigestToBranchUsers.mockResolvedValue({ sent: 2, failed: 0 });
@@ -242,6 +269,48 @@ describe("PwaNotificationSchedulerService", () => {
         expect(clientRepository.findStartingWithinDays).toHaveBeenCalledWith("branch-2", 7);
     });
 
+    it("should allow only one overlapping replica to dispatch a branch/date digest", async () => {
+        systemSettingService.claimPwaDigestDelivery
+            .mockReset()
+            .mockResolvedValueOnce("claim-token")
+            .mockResolvedValueOnce(null);
+
+        await Promise.all([
+            service.sendDailySummaryNotifications(),
+            service.sendDailySummaryNotifications(),
+        ]);
+
+        expect(notificationService.sendDailyDigestToBranchUsers).toHaveBeenCalledTimes(1);
+        expect(systemSettingService.claimPwaDigestDelivery).toHaveBeenCalledTimes(2);
+        expect(systemSettingService.claimPwaDigestDelivery.mock.calls[0]![0]).toBe(
+            systemSettingService.claimPwaDigestDelivery.mock.calls[1]![0],
+        );
+        expect(systemSettingService.completePwaDigestDelivery).toHaveBeenCalledWith(
+            expect.stringMatching(/^branch:branch-1:daily:\d{4}-\d{2}-\d{2}$/),
+            "claim-token",
+            "sent",
+        );
+    });
+
+    it("should derive one delivery date from KST even when the host clock is UTC", async () => {
+        const runStartedAt = new Date("2026-08-28T15:00:00.000Z");
+        jest.spyOn(Date, "now").mockReturnValue(runStartedAt.getTime());
+
+        await service.sendDailySummaryNotifications();
+
+        expect(systemSettingService.claimPwaDigestDelivery).toHaveBeenCalledWith(
+            "branch:branch-1:daily:2026-08-29",
+            runStartedAt,
+        );
+        expect(notificationService.sendDailyDigestToBranchUsers).toHaveBeenCalledWith(
+            "branch-1",
+            "인천점",
+            expect.any(Array),
+            emailTemplateContext,
+            "branch:branch-1:daily:2026-08-29",
+        );
+    });
+
     it("should keep processing later branches when one branch digest throws", async () => {
         branchRepository.findAllActive.mockResolvedValue([
             { id: "branch-1", name: "인천점" },
@@ -263,11 +332,11 @@ describe("PwaNotificationSchedulerService", () => {
         ]);
         const sendBranchDigestSpy = jest
             .spyOn(
-                service as unknown as { sendBranchDigest: (...args: unknown[]) => Promise<void> },
+                service as unknown as { sendBranchDigest: (...args: unknown[]) => Promise<boolean> },
                 "sendBranchDigest",
             )
             .mockRejectedValueOnce(new Error("boom before the internal try/catch"))
-            .mockResolvedValueOnce(undefined);
+            .mockResolvedValueOnce(true);
 
         await expect(service.sendDailySummaryNotifications()).resolves.toBeUndefined();
 
@@ -278,6 +347,7 @@ describe("PwaNotificationSchedulerService", () => {
             "인천점",
             expect.any(Date),
             expect.any(Date),
+            expect.stringMatching(/^branch:branch-1:daily:\d{4}-\d{2}-\d{2}$/),
         );
         expect(sendBranchDigestSpy).toHaveBeenNthCalledWith(
             2,
@@ -285,6 +355,7 @@ describe("PwaNotificationSchedulerService", () => {
             "부천점",
             expect.any(Date),
             expect.any(Date),
+            expect.stringMatching(/^branch:branch-2:daily:\d{4}-\d{2}-\d{2}$/),
         );
     });
 

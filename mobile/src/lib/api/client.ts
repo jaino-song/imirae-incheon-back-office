@@ -2,6 +2,7 @@ import axios, { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } fro
 import { parse } from "cookie";
 
 import { isPublicAuthPath } from "@/lib/auth/routes";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
 import { getServerRuntimeConfig } from "@/lib/env";
 import { captureServiceRecordError } from "@/lib/observability/capture-service-record-error";
 import { safeStorageRemoveItem, safeStorageSetItem } from "@/lib/safe-storage";
@@ -185,6 +186,7 @@ api.interceptors.response.use(
                     const isNoLoginWizard = currentPath.startsWith("/service-record");
                     if (!isAuthPage && !isNoLoginWizard) {
                         isRedirectingToLogin = true;
+                        await resetAuthorityState(undefined, { waitForCancellation: false });
                         window.location.href = '/login';
                     }
                 }

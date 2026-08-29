@@ -121,10 +121,9 @@ export class EformsignApiClient implements IEformsignClientRepository {
      * Get access token from eformsign API (uses base API URL)
      * POST /v2.0/api_auth/access_token
      */
-    async getAccessToken(executionTime: number, memberEmail?: string): Promise<EformsignTokenResponse> {
+    async getAccessToken(executionTime: number): Promise<EformsignTokenResponse> {
         this.assertConfigured();
         const signature = this.generateSignature(executionTime);
-        const email = memberEmail || this.USER_EMAIL;
 
         // API key must be Base64 encoded according to eformsign docs
         const encodedApiKey = Buffer.from(this.EFORMSIGN_API_KEY).toString("base64");
@@ -141,7 +140,9 @@ export class EformsignApiClient implements IEformsignClientRepository {
                 },
                 body: JSON.stringify({
                     execution_time: executionTime,
-                    member_id: email,
+                    // The provider identity is configuration-owned.  Never
+                    // accept member_id from a request/controller caller.
+                    member_id: this.USER_EMAIL,
                 }),
             },
             "Failed to get access token",

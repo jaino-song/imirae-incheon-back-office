@@ -13,6 +13,7 @@ import { Request } from "express";
 import { ServiceRecordEntryService } from "application/services/service-record-entry.service";
 import { ScheduleChangeService } from "application/services/schedule-change.service";
 import { ServiceRecordGuard } from "infrastructure/auth/service-record.guard";
+import { RateLimitGuard } from "infrastructure/auth/rate-limit.guard";
 import { ServiceRecordTokenContext } from "application/services/service-record-token.service";
 import {
     VerifyServiceRecordPhoneDto,
@@ -35,11 +36,13 @@ export class ServiceRecordEntryController {
     ) {}
 
     @Get("link/:linkToken")
+    @UseGuards(RateLimitGuard)
     linkStatus(@Param("linkToken") linkToken: string) {
         return this.service.linkStatus(linkToken);
     }
 
     @Post("verify")
+    @UseGuards(RateLimitGuard)
     verify(@Body() dto: VerifyServiceRecordPhoneDto) {
         return this.service.verify(dto.linkToken, dto.phone);
     }

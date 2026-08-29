@@ -1,18 +1,11 @@
 import { Controller, Post, Body, Get, Query, Patch, Delete, UseGuards } from "@nestjs/common";
 import { AreaTemplateService } from "application/services/area-template.service";
+import {
+    CreateAreaTemplateDto,
+    UpdateAreaTemplateDto,
+} from "interface/dto/area-template.dto";
 import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
-
-interface CreateAreaTemplateDto {
-    area: string;
-    templateId: string;
-    templateName?: string | null;
-}
-
-interface UpdateAreaTemplateDto {
-    templateId?: string;
-    templateName?: string | null;
-}
 
 @Controller("area-templates")
 @UseGuards(JwtGuard, TenantGuard)
