@@ -91,4 +91,19 @@ describe("eformsign documents API route", () => {
     expect(mockGet).toHaveBeenCalledTimes(3);
     await expect(otherViewerResponse.json()).resolves.toEqual({ documents: [] });
   });
+
+  it("forwards the section filter for the backend to resolve the template filter", async () => {
+    mockGet.mockResolvedValue({ status: 200, data: { documents: [] } });
+
+    await GET(createRequest(
+      "http://localhost/api/eformsign/documents?limit=20&skip=0&section=maternity",
+    ));
+
+    expect(mockGet).toHaveBeenCalledWith(
+      "/api/documents",
+      expect.objectContaining({
+        params: expect.objectContaining({ section: "maternity" }),
+      }),
+    );
+  });
 });

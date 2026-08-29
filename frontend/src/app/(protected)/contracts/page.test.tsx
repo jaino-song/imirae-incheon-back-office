@@ -45,11 +45,16 @@ describe("ContractsPage maternity template whitelist", () => {
   // A guard against reintroduction, not a behaviour test. The maternity list once
   // showed every non-제공기록지 document in the eformsign account — including
   // unrelated templates (e.g. 근로계약서) — because the section's filter was a
-  // blacklist. The whitelist decision now lives in
-  // src/lib/eformsign/contract-template-filter.ts, which carries the real
-  // behaviour tests; this only checks the page still delegates to it.
-  it("derives the maternity list filter through the shared template filter builder", () => {
-    expect(source).toContain("buildContractTemplateFilter(");
+  // blacklist. It was later whitelisted by client-side template arithmetic, which
+  // mobile never picked up and the two surfaces diverged. The decision now lives
+  // in the backend (EformsignTemplateScopeService resolves the branch's
+  // area_template registry from section=maternity), so the page must only name
+  // the section; computing template lists here would silently drift from mobile
+  // again.
+  it("names the section and lets the server resolve the template filter", () => {
+    expect(source).toContain("section: contractsSection");
+    expect(source).not.toContain("buildContractTemplateFilter(");
+    expect(source).not.toContain("maternityTemplateIds");
   });
 });
 

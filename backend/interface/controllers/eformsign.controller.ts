@@ -29,6 +29,10 @@ import {
     enrichMirrorPage,
 } from "application/services/eformsign-mirror-list.service";
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
+import {
+    EformsignTemplateScopeService,
+    type EformsignListSection,
+} from "application/services/eformsign-template-scope.service";
 import { EformsignPermanentPurgeRequest } from "domain/repositories/eformsign-document-mirror.repository.interface";
 import { GetContractClientCandidateUsecase } from "application/usecases/eformsign-doc/get-contract-client-candidate.usecase";
 import {
@@ -126,6 +130,12 @@ function parseDisplayStatus(value: string | undefined): EformsignDocDisplayStatu
     throw new BadRequestException("displayStatus must be signed or review");
 }
 
+function parseSection(value: string | undefined): EformsignListSection | undefined {
+    if (value === undefined || value === "") return undefined;
+    if (value === "maternity" || value === "service-records") return value;
+    throw new BadRequestException("section must be maternity or service-records");
+}
+
 function shouldExcludeSnapshotTombstones(
     scope: string,
     excludeDeleted: boolean | undefined,
@@ -191,6 +201,7 @@ export class EformsignController {
         private readonly documentSnapshotService: EformsignDocumentSnapshotService,
         private readonly mirrorListService: EformsignMirrorListService,
         private readonly documentMirrorService: EformsignDocumentMirrorService,
+        private readonly templateScopeService: EformsignTemplateScopeService,
         private readonly getContractClientCandidateUsecase: GetContractClientCandidateUsecase,
         private readonly credentialBoundary: EformsignCredentialBoundary,
     ) { }
@@ -317,6 +328,26 @@ export class EformsignController {
         return documents.filter((document) => visibleDocumentIds.has(document.id));
     }
 
+    /**
+     * section 요청이면 템플릿 필터를 서버 정본(area_template 레지스트리 + 제공기록지
+     * 티어 설정)으로 결정해 클라이언트가 보낸 templateId/templateMatch를 덮어쓴다.
+     * frontend와 mobile이 같은 목록을 보도록 하는 단일 결정 지점이다.
+     * section이 없으면 클라이언트 값을 그대로 되돌린다(기존 pass-through 동작 유지).
+     */
+    private async resolveListTemplateFilter(
+        sectionValue: string | undefined,
+        branchId: string,
+        clientTemplateId?: string,
+        clientTemplateMatch: TemplateMatch = "include",
+    ): Promise<{ templateId?: string; templateMatch: TemplateMatch }> {
+        const section = parseSection(sectionValue);
+        const sectionFilter = await this.templateScopeService.resolveTemplateFilter(section, branchId);
+        return {
+            templateId: sectionFilter?.templateId ?? clientTemplateId,
+            templateMatch: sectionFilter?.templateMatch ?? clientTemplateMatch,
+        };
+    }
+
     private toSnapshotEntries(documents: EformsignListDoc[]): DocumentSnapshotEntry<EformsignListDoc>[] {
         return documents.map((document) => ({
             document,
@@ -412,6 +443,7 @@ export class EformsignController {
         @Query("search") search?: string,
         @Query("excludeDeleted") excludeDeletedValue?: string,
         @Query("displayStatus") displayStatusValue?: string,
+        @Query("section") sectionValue?: string,
     ) {
         try {
             const parsedLimit = parseInteger(limit, "limit", { defaultValue: 100, min: 1, max: 100 });
@@ -423,14 +455,20 @@ export class EformsignController {
             const branchId = tenant.branchId ?? "";
 
             const isHeadquarters = await this.isHeadquartersBranch(branchId);
+            const listTemplateFilter = await this.resolveListTemplateFilter(
+                sectionValue,
+                branchId,
+                templateId,
+                templateMatch,
+            );
             return await this.listFromMirror({
                 branchId,
                 isHeadquarters,
                 scope: "all",
                 limit: parsedLimit,
                 skip: parsedSkip,
-                templateId,
-                templateMatch,
+                templateId: listTemplateFilter.templateId,
+                templateMatch: listTemplateFilter.templateMatch,
                 statusCategory,
                 search,
                 excludeDeleted,
@@ -454,11 +492,18 @@ export class EformsignController {
         @Query("templateMatch") templateMatchValue?: string,
         @Query("search") search?: string,
         @Query("excludeDeleted") excludeDeletedValue?: string,
+        @Query("section") sectionValue?: string,
     ) {
         try {
             const templateMatch = parseTemplateMatch(templateMatchValue);
             const excludeDeleted = parseBooleanQuery(excludeDeletedValue, "excludeDeleted", false);
             const branchId = tenant.branchId ?? "";
+            const listTemplateFilter = await this.resolveListTemplateFilter(
+                sectionValue,
+                branchId,
+                templateId,
+                templateMatch,
+            );
             // 인천점(본사)은 다른 지점 소유분 제외 전체, 그 외 지점은 보유 문서 전체를 모은다.
             // 목록과 같은 "all" 스냅샷을 공유해 StatsBar 카운터와 목록이 항상 같은 세대를 본다.
             const isHeadquarters = await this.isHeadquartersBranch(branchId);
@@ -487,8 +532,8 @@ export class EformsignController {
                     branchId,
                     isHeadquarters,
                     scope: "all",
-                    templateId,
-                    templateMatch,
+                    templateId: listTemplateFilter.templateId,
+                    templateMatch: listTemplateFilter.templateMatch,
                     search,
                     excludeDeleted,
                 },
@@ -511,19 +556,26 @@ export class EformsignController {
         @Query("templateMatch") templateMatchValue?: string,
         @Query("statusCategory") statusCategoryValue?: string,
         @Query("search") search?: string,
+        @Query("section") sectionValue?: string,
     ) {
         try {
             const parsedLimit = parseInteger(limit, "limit", { defaultValue: 100, min: 1, max: 100 });
             const parsedSkip = parseInteger(skip, "skip", { defaultValue: 0, min: 0 });
             const templateMatch = parseTemplateMatch(templateMatchValue);
             const statusCategory = parseStatusCategory(statusCategoryValue);
+            const listTemplateFilter = await this.resolveListTemplateFilter(
+                sectionValue,
+                tenant.branchId ?? "",
+                templateId,
+                templateMatch,
+            );
             return await this.getBranchScopedStatusPage(
                 tenant.branchId ?? "",
                 parsedLimit,
                 parsedSkip,
                 "in-progress",
-                templateId,
-                templateMatch,
+                listTemplateFilter.templateId,
+                listTemplateFilter.templateMatch,
                 statusCategory,
                 search,
             );
@@ -544,19 +596,26 @@ export class EformsignController {
         @Query("templateMatch") templateMatchValue?: string,
         @Query("statusCategory") statusCategoryValue?: string,
         @Query("search") search?: string,
+        @Query("section") sectionValue?: string,
     ) {
         try {
             const parsedLimit = parseInteger(limit, "limit", { defaultValue: 100, min: 1, max: 100 });
             const parsedSkip = parseInteger(skip, "skip", { defaultValue: 0, min: 0 });
             const templateMatch = parseTemplateMatch(templateMatchValue);
             const statusCategory = parseStatusCategory(statusCategoryValue);
+            const listTemplateFilter = await this.resolveListTemplateFilter(
+                sectionValue,
+                tenant.branchId ?? "",
+                templateId,
+                templateMatch,
+            );
             return await this.getBranchScopedStatusPage(
                 tenant.branchId ?? "",
                 parsedLimit,
                 parsedSkip,
                 "completed",
-                templateId,
-                templateMatch,
+                listTemplateFilter.templateId,
+                listTemplateFilter.templateMatch,
                 statusCategory,
                 search,
             );
@@ -577,19 +636,26 @@ export class EformsignController {
         @Query("templateMatch") templateMatchValue?: string,
         @Query("statusCategory") statusCategoryValue?: string,
         @Query("search") search?: string,
+        @Query("section") sectionValue?: string,
     ) {
         try {
             const parsedLimit = parseInteger(limit, "limit", { defaultValue: 100, min: 1, max: 100 });
             const parsedSkip = parseInteger(skip, "skip", { defaultValue: 0, min: 0 });
             const templateMatch = parseTemplateMatch(templateMatchValue);
             const statusCategory = parseStatusCategory(statusCategoryValue);
+            const listTemplateFilter = await this.resolveListTemplateFilter(
+                sectionValue,
+                tenant.branchId ?? "",
+                templateId,
+                templateMatch,
+            );
             return await this.getBranchScopedStatusPage(
                 tenant.branchId ?? "",
                 parsedLimit,
                 parsedSkip,
                 "rejected",
-                templateId,
-                templateMatch,
+                listTemplateFilter.templateId,
+                listTemplateFilter.templateMatch,
                 statusCategory,
                 search,
             );

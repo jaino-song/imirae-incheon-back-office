@@ -29,6 +29,9 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get("type");
     const templateId = searchParams.get("templateId") || "";
     const templateMatch = searchParams.get("templateMatch") || "include";
+    // Forwarded verbatim: the backend validates section and, when present, resolves
+    // the template whitelist itself (server-side area_template registry).
+    const section = searchParams.get("section") || "";
     const backendPathByType: Record<string, string> = {
         "in-progress": "/api/documents/in-progress",
         completed: "/api/documents/completed",
@@ -47,6 +50,7 @@ export async function GET(request: NextRequest) {
                 limit,
                 skip,
                 ...(templateId ? { templateId, templateMatch } : {}),
+                ...(section ? { section } : {}),
                 ...(searchParams.get("statusCategory")
                     ? { statusCategory: searchParams.get("statusCategory") }
                     : {}),

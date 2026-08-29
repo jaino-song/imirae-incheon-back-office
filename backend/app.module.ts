@@ -7,6 +7,7 @@ import { EformsignController } from "interface/controllers/eformsign.controller"
 import { EformsignService } from "application/services/eformsign.service";
 import { EformsignListShadowCompareService } from "application/services/eformsign-list-shadow-compare.service";
 import { EformsignMirrorListService } from "application/services/eformsign-mirror-list.service";
+import { EformsignTemplateScopeService } from "application/services/eformsign-template-scope.service";
 import { ConfigModule } from "@nestjs/config";
 import { PassportModule } from "@nestjs/passport";
 import { ScheduleModule } from "@nestjs/schedule";
@@ -96,6 +97,7 @@ const ENV_FILE_PATHS = [
         ContractClientAssignmentGuardService,
         EformsignListShadowCompareService,
         EformsignMirrorListService,
+        EformsignTemplateScopeService,
         ReadinessService,
     ],
 })

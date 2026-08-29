@@ -146,14 +146,20 @@ export type EformsignStatusCategoryParam =
     | "expired"
     | "unknown";
 
-export type EformsignTemplateMatchParam = "include" | "exclude";
+/**
+ * Contracts-page section names the backend document list accepts as `section`.
+ * When present, the backend resolves the template filter itself (maternity =
+ * whitelist of the branch's registered 계약서 templates; service-records = the
+ * configured 제공기록지 tiers), so clients never send templateId/templateMatch.
+ */
+export type EformsignContractsSectionParam = "maternity" | "service-records";
 export type EformsignDisplayStatusParam = "signed" | "review";
 
 export interface GetAllDocumentsParams {
     limit?: number;
     skip?: number;
-    templateId?: string;
-    templateMatch?: EformsignTemplateMatchParam;
+    /** Server-resolved section filter; overrides templateId/templateMatch on the backend. */
+    section?: EformsignContractsSectionParam;
     /** Server-side status bucket filter, applied before the limit/skip slice. */
     statusCategory?: EformsignStatusCategoryParam;
     /** Provider-review display split, applied before the limit/skip slice. */
@@ -193,8 +199,7 @@ function buildDocumentListParams(
     const query: Record<string, string | number> = {};
     if (params.limit !== undefined) query.limit = params.limit;
     if (params.skip !== undefined) query.skip = params.skip;
-    if (params.templateId) query.templateId = params.templateId;
-    if (params.templateMatch) query.templateMatch = params.templateMatch;
+    if (params.section) query.section = params.section;
     if (params.statusCategory) query.statusCategory = params.statusCategory;
     if (params.displayStatus) query.displayStatus = params.displayStatus;
 
@@ -421,7 +426,7 @@ export const eformsignApi = {
     // Raw per-document status signals with the same pre-slice filters as the list.
     // Used to fold filter-pill counts client-side without fetching full documents.
     getStatusCounts: async (
-        params?: Pick<GetAllDocumentsParams, "templateId" | "templateMatch" | "search" | "excludeDeleted">,
+        params?: Pick<GetAllDocumentsParams, "section" | "search" | "excludeDeleted">,
     ): Promise<EformsignStatusCountsResponse> => {
         const { data } = await api.get('/eformsign/documents/status-counts', {
             params: buildDocumentListParams(params),
