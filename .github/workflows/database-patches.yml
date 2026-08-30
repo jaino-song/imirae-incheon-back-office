@@ -962,6 +962,16 @@ jobs:
             exit 1
           fi
 
+      - name: Pre-check canonical phone duplicates
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+        # Fails before any patch is applied when production data already holds
+        # duplicate (branch_id, phone_normalized) groups, so the canonical
+        # phone identity migration cannot abort mid-workflow.
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-canonical-phone-duplicates.sql
+
       - name: Apply message schema compatibility patches
         working-directory: backend
         env:
