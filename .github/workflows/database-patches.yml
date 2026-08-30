@@ -160,13 +160,6 @@ jobs:
           DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260717000000_employee_client_hardening/migration.sql
 
-      - name: Verify employee/client hardening patch
-        working-directory: backend
-        env:
-          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
-          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-employee-client-hardening.sql
-
       - name: Apply client pre-booking status patch
         working-directory: backend
         env:
@@ -386,6 +379,16 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829130000_add_auth_email_provider_boundary/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829130000_add_canonical_phone_identity/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829140000_add_message_trigger_job_claim_token/migration.sql
+
+      # The hardening verify asserts client/employee phone_normalized, which the
+      # post-lease patches above create — it must run after them, not before.
+      - name: Verify employee/client hardening patch
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-employee-client-hardening.sql
+
   apply-preview:
     name: apply preview database patches
     if: >-
@@ -651,13 +654,6 @@ jobs:
           DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260717000000_employee_client_hardening/migration.sql
 
-      - name: Verify employee/client hardening patch
-        working-directory: backend
-        env:
-          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
-          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
-        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-employee-client-hardening.sql
-
       - name: Apply client pre-booking status patch
         working-directory: backend
         env:
@@ -913,6 +909,15 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829130000_add_auth_email_provider_boundary/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829130000_add_canonical_phone_identity/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829140000_add_message_trigger_job_claim_token/migration.sql
+
+      # Runs after the post-lease patches: it asserts phone_normalized columns
+      # those patches create.
+      - name: Verify employee/client hardening patch
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-employee-client-hardening.sql
 
   apply-production:
     name: apply production database patches
@@ -1193,13 +1198,6 @@ jobs:
           DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260717000000_employee_client_hardening/migration.sql
 
-      - name: Verify employee/client hardening patch
-        working-directory: backend
-        env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
-          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-employee-client-hardening.sql
-
       - name: Apply client pre-booking status patch
         working-directory: backend
         env:
@@ -1419,3 +1417,12 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829130000_add_auth_email_provider_boundary/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829130000_add_canonical_phone_identity/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829140000_add_message_trigger_job_claim_token/migration.sql
+
+      # Runs after the post-lease patches: it asserts phone_normalized columns
+      # those patches create.
+      - name: Verify employee/client hardening patch
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-employee-client-hardening.sql

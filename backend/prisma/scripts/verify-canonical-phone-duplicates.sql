@@ -13,6 +13,22 @@ DECLARE
     _client_offending_rows   text;
     _employee_offending_rows text;
 BEGIN
+    -- First run: the post-lease patches have not added phone_normalized yet,
+    -- so there is nothing to scan. The migration's own fail-closed duplicate
+    -- check covers that case when it creates the columns.
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'client'
+          AND column_name = 'phone_normalized'
+    ) OR NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'employee'
+          AND column_name = 'phone_normalized'
+    ) THEN
+        RAISE NOTICE 'phone_normalized columns not present yet — canonical phone duplicate pre-check skipped';
+        RETURN;
+    END IF;
+
     SELECT string_agg(
         format('%s (branch=%s, phone_normalized=%s, rows=%s)',
                group_id, branch_id, phone_normalized, row_count),
