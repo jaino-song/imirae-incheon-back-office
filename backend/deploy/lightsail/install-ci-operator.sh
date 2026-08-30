@@ -19,9 +19,11 @@ INSTALLED_OPERATOR_ARTIFACT="$ARTIFACT_DIRECTORY/ci-operator.sh"
 INSTALLED_DEPLOY_ARTIFACT="$ARTIFACT_DIRECTORY/deploy.sh"
 INSTALLED_ROLLBACK_ARTIFACT="$ARTIFACT_DIRECTORY/rollback.sh"
 INSTALLED_COMPOSE_ARTIFACT="$ARTIFACT_DIRECTORY/compose.lightsail.yml"
+INSTALLED_MANIFEST="$ARTIFACT_DIRECTORY/bundle.manifest"
 LOG_DIRECTORY="/var/log/babyjamjam-deploy"
 STATE_ROOT="/opt/babyjamjam/environments"
 ROUTE_STATE_ROOT="/opt/babyjamjam/db-failover-state"
+readonly BUNDLE_MANIFEST_VERSION="1"
 readonly ROUTE_STATE_FILE_NAME="db-route-state"
 readonly DEPLOY_USER="ubuntu"
 readonly DEPLOY_GROUP="ubuntu"
@@ -49,14 +51,19 @@ CMD_RUNUSER="/usr/sbin/runuser"
 CMD_STAT="/usr/bin/stat"
 CMD_TIMEOUT="/usr/bin/timeout"
 CMD_UNLINK="/usr/bin/unlink"
+CMD_SHA256SUM="/usr/bin/sha256sum"
+CMD_SBIN_SHA256SUM="/sbin/sha256sum"
+CMD_SHASUM="/usr/bin/shasum"
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     readonly INSTALLED_OPERATOR ARTIFACT_DIRECTORY INSTALLED_OPERATOR_ARTIFACT
     readonly INSTALLED_DEPLOY_ARTIFACT INSTALLED_ROLLBACK_ARTIFACT INSTALLED_COMPOSE_ARTIFACT
+    readonly INSTALLED_MANIFEST BUNDLE_MANIFEST_VERSION
     readonly LOG_DIRECTORY STATE_ROOT ROUTE_STATE_ROOT
     readonly CMD_BASH CMD_CAT CMD_CHMOD CMD_CHOWN CMD_CMP CMD_CP CMD_DATE CMD_DIRNAME
     readonly CMD_DOCKER CMD_GIT CMD_CURL CMD_FLOCK CMD_INSTALL CMD_MKTEMP CMD_MV
     readonly CMD_MKDIR CMD_RM CMD_RMDIR CMD_RUNUSER CMD_STAT CMD_TIMEOUT CMD_UNLINK
+    readonly CMD_SHA256SUM CMD_SBIN_SHA256SUM CMD_SHASUM
 fi
 
 usage() {
@@ -71,6 +78,160 @@ EOF
 die() {
     echo "$*" >&2
     exit 1
+}
+
+sha256_file() {
+    local path="$1"
+    local digest_output
+
+    [[ -f "$path" && ! -L "$path" ]] || return 1
+    if [[ -x "$CMD_SHA256SUM" ]]; then
+        digest_output="$("$CMD_SHA256SUM" "$path")" || return 1
+    elif [[ -x "$CMD_SBIN_SHA256SUM" ]]; then
+        digest_output="$("$CMD_SBIN_SHA256SUM" "$path")" || return 1
+    elif [[ -x "$CMD_SHASUM" ]]; then
+        digest_output="$("$CMD_SHASUM" -a 256 "$path")" || return 1
+    else
+        return 1
+    fi
+    digest_output="${digest_output%% *}"
+    [[ "$digest_output" =~ ^[0-9a-fA-F]{64}$ ]] || return 1
+    printf '%s\n' "$digest_output"
+}
+
+manifest_entry_value() {
+    local path="$1"
+    local owner="$2"
+    local group="$3"
+    local mode="$4"
+    local digest
+
+    digest="$(sha256_file "$path")" || die "Unable to hash an operator bundle artifact."
+    printf '%s:%s:%s:%s\n' "$owner" "$group" "$mode" "$digest"
+}
+
+write_bundle_manifest() {
+    local target="$1"
+    local operator_path="$2"
+    local deploy_path="$3"
+    local rollback_path="$4"
+    local compose_path="$5"
+    local operator_digest
+
+    [[ "$target" == /* && ! -L "$target" ]] || die "Bundle manifest path is invalid."
+    operator_digest="$(sha256_file "$operator_path")" \
+        || die "Unable to hash the CI operator artifact."
+    {
+        printf 'version=%s\n' "$BUNDLE_MANIFEST_VERSION"
+        printf 'entrypoint=root:root:750:%s\n' "$operator_digest"
+        printf 'ci-operator.sh=%s\n' "$(manifest_entry_value "$operator_path" root root 750)"
+        printf 'deploy.sh=%s\n' "$(manifest_entry_value "$deploy_path" root root 750)"
+        printf 'rollback.sh=%s\n' "$(manifest_entry_value "$rollback_path" root root 750)"
+        printf 'compose.lightsail.yml=%s\n' "$(manifest_entry_value "$compose_path" root root 640)"
+    } >"$target" || die "Unable to write the operator bundle manifest."
+}
+
+validate_bundle_manifest_entry() {
+    local label="$1"
+    local path="$2"
+    local expected_mode="$3"
+    local encoded_value="$4"
+    local owner
+    local group
+    local mode
+    local digest
+    local extra
+    local metadata
+    local actual_digest
+
+    IFS=':' read -r owner group mode digest extra <<<"$encoded_value"
+    [[ -z "$extra" && "$owner" == root && "$group" == root \
+        && "$mode" == "$expected_mode" && "$digest" =~ ^[0-9a-f]{64}$ ]] \
+        || die "The installed operator bundle manifest is invalid: $label."
+    [[ -f "$path" && ! -L "$path" ]] \
+        || die "The installed operator bundle artifact is missing or invalid: $label."
+    metadata="$($CMD_STAT -c '%U:%G:%a' "$path")" \
+        || die "Unable to inspect the installed operator bundle artifact: $label."
+    [[ "$metadata" == "root:root:$expected_mode" ]] \
+        || die "The installed operator bundle ownership or mode is invalid: $label."
+    actual_digest="$(sha256_file "$path")" \
+        || die "Unable to hash the installed operator bundle artifact: $label."
+    [[ "$actual_digest" == "$digest" ]] \
+        || die "The installed operator bundle hash does not match its manifest: $label."
+}
+
+validate_bundle_manifest() {
+    local manifest_path="$1"
+    local manifest_metadata
+    local manifest_line
+    local manifest_key
+    local manifest_value
+    local line_count=0
+    local seen_version=false
+    local seen_entrypoint=false
+    local seen_operator=false
+    local seen_deploy=false
+    local seen_rollback=false
+    local seen_compose=false
+
+    validate_no_symlink_path "$manifest_path"
+    [[ -f "$manifest_path" && ! -L "$manifest_path" ]] \
+        || die "The installed operator bundle manifest is missing or invalid."
+    manifest_metadata="$($CMD_STAT -c '%U:%G:%a' "$manifest_path")" \
+        || die "Unable to inspect the installed operator bundle manifest."
+    [[ "$manifest_metadata" == "root:root:640" ]] \
+        || die "The installed operator bundle manifest has unexpected ownership or mode."
+
+    while IFS= read -r manifest_line || [[ -n "$manifest_line" ]]; do
+        ((line_count += 1))
+        [[ "$manifest_line" == *=* ]] \
+            || die "The installed operator bundle manifest is malformed."
+        manifest_key="${manifest_line%%=*}"
+        manifest_value="${manifest_line#*=}"
+        case "$manifest_key" in
+            version)
+                [[ "$seen_version" == false ]] || die "The installed operator bundle manifest contains a duplicate key."
+                seen_version=true
+                [[ "$manifest_value" == "$BUNDLE_MANIFEST_VERSION" ]] \
+                    || die "The installed operator bundle manifest version is unsupported."
+                ;;
+            entrypoint)
+                [[ "$seen_entrypoint" == false ]] || die "The installed operator bundle manifest contains a duplicate key."
+                seen_entrypoint=true
+                validate_bundle_manifest_entry entrypoint "$INSTALLED_OPERATOR" 750 "$manifest_value"
+                ;;
+            ci-operator.sh)
+                [[ "$seen_operator" == false ]] || die "The installed operator bundle manifest contains a duplicate key."
+                seen_operator=true
+                validate_bundle_manifest_entry ci-operator.sh "$INSTALLED_OPERATOR_ARTIFACT" 750 "$manifest_value"
+                ;;
+            deploy.sh)
+                [[ "$seen_deploy" == false ]] || die "The installed operator bundle manifest contains a duplicate key."
+                seen_deploy=true
+                validate_bundle_manifest_entry deploy.sh "$INSTALLED_DEPLOY_ARTIFACT" 750 "$manifest_value"
+                ;;
+            rollback.sh)
+                [[ "$seen_rollback" == false ]] || die "The installed operator bundle manifest contains a duplicate key."
+                seen_rollback=true
+                validate_bundle_manifest_entry rollback.sh "$INSTALLED_ROLLBACK_ARTIFACT" 750 "$manifest_value"
+                ;;
+            compose.lightsail.yml)
+                [[ "$seen_compose" == false ]] || die "The installed operator bundle manifest contains a duplicate key."
+                seen_compose=true
+                validate_bundle_manifest_entry compose.lightsail.yml "$INSTALLED_COMPOSE_ARTIFACT" 640 "$manifest_value"
+                ;;
+            *)
+                die "The installed operator bundle manifest contains an unexpected key."
+                ;;
+        esac
+    done <"$manifest_path"
+
+    [[ "$line_count" -eq 6 && "$seen_version" == true && "$seen_entrypoint" == true \
+        && "$seen_operator" == true && "$seen_deploy" == true \
+        && "$seen_rollback" == true && "$seen_compose" == true ]] \
+        || die "The installed operator bundle manifest is incomplete."
+    "$CMD_CMP" -s "$INSTALLED_OPERATOR" "$INSTALLED_OPERATOR_ARTIFACT" \
+        || die "The installed operator does not match its manifest artifact."
 }
 
 require_root() {
@@ -521,13 +682,16 @@ verify_installed_files() {
     local operator_metadata
     local operator_artifact_metadata
     local rollback_metadata
+    local manifest_metadata
     local route_state_directory
     local route_state_directory_metadata
     local route_state_file
     local route_state_root_metadata
     local route_state_metadata
 
-    [[ -x "$INSTALLED_OPERATOR" ]] || die "Installed CI operator is missing."
+    validate_no_symlink_path "$INSTALLED_OPERATOR"
+    [[ -f "$INSTALLED_OPERATOR" && ! -L "$INSTALLED_OPERATOR" && -x "$INSTALLED_OPERATOR" ]] \
+        || die "Installed CI operator is missing or invalid."
     artifact_parent_directory="$("$CMD_DIRNAME" "$ARTIFACT_DIRECTORY")"
     validate_no_symlink_path "$artifact_parent_directory"
     [[ -d "$artifact_parent_directory" && ! -L "$artifact_parent_directory" ]] \
@@ -550,6 +714,8 @@ verify_installed_files() {
         || die "Protected rollback artifact is missing or invalid."
     [[ -f "$INSTALLED_COMPOSE_ARTIFACT" && ! -L "$INSTALLED_COMPOSE_ARTIFACT" ]] \
         || die "Protected Compose artifact is missing or invalid."
+    [[ -f "$INSTALLED_MANIFEST" && ! -L "$INSTALLED_MANIFEST" ]] \
+        || die "Protected operator bundle manifest is missing or invalid."
     [[ -d "$LOG_DIRECTORY" ]] || die "CI deployment log directory is missing."
 
     artifact_directory_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$ARTIFACT_DIRECTORY")"
@@ -558,6 +724,7 @@ verify_installed_files() {
     deploy_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$INSTALLED_DEPLOY_ARTIFACT")"
     rollback_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$INSTALLED_ROLLBACK_ARTIFACT")"
     compose_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$INSTALLED_COMPOSE_ARTIFACT")"
+    manifest_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$INSTALLED_MANIFEST")"
     log_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$LOG_DIRECTORY")"
     [[ "$artifact_directory_metadata" == "root:root:700" ]] \
         || die "Unexpected CI artifact directory ownership or mode: $artifact_directory_metadata"
@@ -566,10 +733,29 @@ verify_installed_files() {
     [[ "$operator_artifact_metadata" == "root:root:750" \
         && "$deploy_metadata" == "root:root:750" \
         && "$rollback_metadata" == "root:root:750" \
-        && "$compose_metadata" == "root:root:640" ]] \
+        && "$compose_metadata" == "root:root:640" \
+        && "$manifest_metadata" == "root:root:640" ]] \
         || die "Unexpected protected deployment artifact ownership or mode."
     "$CMD_CMP" -s "$INSTALLED_OPERATOR" "$INSTALLED_OPERATOR_ARTIFACT" \
         || die "Installed operator does not match its protected artifact."
+    local artifact_path
+    for artifact_path in "$ARTIFACT_DIRECTORY"/*; do
+        [[ -e "$artifact_path" || -L "$artifact_path" ]] || continue
+        case "$artifact_path" in
+            "$INSTALLED_OPERATOR_ARTIFACT"|"$INSTALLED_DEPLOY_ARTIFACT"|"$INSTALLED_ROLLBACK_ARTIFACT"|"$INSTALLED_COMPOSE_ARTIFACT"|"$INSTALLED_MANIFEST")
+                ;;
+            *)
+                die "The installed CI operator bundle contains an unexpected path."
+                ;;
+        esac
+    done
+    # Normal globs do not include dotfiles.  Reject hidden leftovers (for
+    # example an interrupted manifest staging file) just as strictly as any
+    # visible extra artifact so the bundle cannot be mixed or stale.
+    for artifact_path in "$ARTIFACT_DIRECTORY"/.[!.]* "$ARTIFACT_DIRECTORY"/..?*; do
+        [[ -e "$artifact_path" || -L "$artifact_path" ]] || continue
+        die "The installed CI operator bundle contains an unexpected path."
+    done
     [[ "$log_metadata" == "root:root:700" ]] \
         || die "Unexpected CI log directory ownership or mode: $log_metadata"
     validate_route_state_parent
@@ -604,6 +790,7 @@ verify_installed_files() {
     "$CMD_BASH" -n "$INSTALLED_OPERATOR" || die "Installed CI operator is not valid Bash."
     "$CMD_BASH" -n "$INSTALLED_DEPLOY_ARTIFACT" || die "Installed deploy artifact is not valid Bash."
     "$CMD_BASH" -n "$INSTALLED_ROLLBACK_ARTIFACT" || die "Installed rollback artifact is not valid Bash."
+    validate_bundle_manifest "$INSTALLED_MANIFEST"
     echo "Lightsail CI operator installation is valid."
 }
 
@@ -670,6 +857,9 @@ install_lock_prepare_exit() {
 cleanup_install_operator_temp() {
     local exit_status="${1:-0}"
 
+    if [[ -n "${manifest_stage:-}" && -e "$manifest_stage" ]]; then
+        "$CMD_UNLINK" "$manifest_stage" || exit_status=1
+    fi
     if [[ -n "${temporary_directory:-}" && -d "$temporary_directory" ]]; then
         "$CMD_RM" -rf "$temporary_directory" || exit_status=1
     fi
@@ -888,6 +1078,9 @@ install_transaction_exit() {
         fi
     fi
     release_install_transaction_locks
+    if [[ -n "${manifest_stage:-}" && -e "$manifest_stage" ]]; then
+        "$CMD_UNLINK" "$manifest_stage" || exit_status=1
+    fi
     if [[ -n "${temporary_directory:-}" && -d "$temporary_directory" ]]; then
         "$CMD_RM" -rf "$temporary_directory" || exit_status=1
     fi
@@ -904,19 +1097,26 @@ installed_bundle_matches_candidates() {
     local deploy_candidate="$2"
     local rollback_candidate="$3"
     local compose_candidate="$4"
+    local manifest_candidate="${5:-}"
 
     [[ -f "$INSTALLED_OPERATOR" && ! -L "$INSTALLED_OPERATOR" \
         && -d "$ARTIFACT_DIRECTORY" && ! -L "$ARTIFACT_DIRECTORY" \
         && -f "$INSTALLED_OPERATOR_ARTIFACT" && ! -L "$INSTALLED_OPERATOR_ARTIFACT" \
         && -f "$INSTALLED_DEPLOY_ARTIFACT" && ! -L "$INSTALLED_DEPLOY_ARTIFACT" \
         && -f "$INSTALLED_ROLLBACK_ARTIFACT" && ! -L "$INSTALLED_ROLLBACK_ARTIFACT" \
-        && -f "$INSTALLED_COMPOSE_ARTIFACT" && ! -L "$INSTALLED_COMPOSE_ARTIFACT" ]] \
+        && -f "$INSTALLED_COMPOSE_ARTIFACT" && ! -L "$INSTALLED_COMPOSE_ARTIFACT" \
+        && -f "$INSTALLED_MANIFEST" && ! -L "$INSTALLED_MANIFEST" ]] \
         || return 1
     "$CMD_CMP" -s "$operator_candidate" "$INSTALLED_OPERATOR" \
         && "$CMD_CMP" -s "$operator_candidate" "$INSTALLED_OPERATOR_ARTIFACT" \
         && "$CMD_CMP" -s "$deploy_candidate" "$INSTALLED_DEPLOY_ARTIFACT" \
         && "$CMD_CMP" -s "$rollback_candidate" "$INSTALLED_ROLLBACK_ARTIFACT" \
-        && "$CMD_CMP" -s "$compose_candidate" "$INSTALLED_COMPOSE_ARTIFACT"
+        && "$CMD_CMP" -s "$compose_candidate" "$INSTALLED_COMPOSE_ARTIFACT" \
+        && if [[ -n "$manifest_candidate" ]]; then
+            "$CMD_CMP" -s "$manifest_candidate" "$INSTALLED_MANIFEST"
+        else
+            validate_bundle_manifest "$INSTALLED_MANIFEST"
+        fi
 }
 
 validate_root_directory_boundary() {
@@ -985,6 +1185,7 @@ validate_uninstall_bundle() {
     local deploy_metadata
     local rollback_metadata
     local operator_artifact_metadata
+    local manifest_metadata
 
     artifact_parent_directory="$($CMD_DIRNAME "$ARTIFACT_DIRECTORY")"
     operator_parent_directory="$($CMD_DIRNAME "$INSTALLED_OPERATOR")"
@@ -998,10 +1199,12 @@ validate_uninstall_bundle() {
     validate_no_symlink_path "$INSTALLED_DEPLOY_ARTIFACT"
     validate_no_symlink_path "$INSTALLED_ROLLBACK_ARTIFACT"
     validate_no_symlink_path "$INSTALLED_COMPOSE_ARTIFACT"
+    validate_no_symlink_path "$INSTALLED_MANIFEST"
     [[ -f "$INSTALLED_OPERATOR_ARTIFACT" && ! -L "$INSTALLED_OPERATOR_ARTIFACT" \
         && -f "$INSTALLED_DEPLOY_ARTIFACT" && ! -L "$INSTALLED_DEPLOY_ARTIFACT" \
         && -f "$INSTALLED_ROLLBACK_ARTIFACT" && ! -L "$INSTALLED_ROLLBACK_ARTIFACT" \
-        && -f "$INSTALLED_COMPOSE_ARTIFACT" && ! -L "$INSTALLED_COMPOSE_ARTIFACT" ]] \
+        && -f "$INSTALLED_COMPOSE_ARTIFACT" && ! -L "$INSTALLED_COMPOSE_ARTIFACT" \
+        && -f "$INSTALLED_MANIFEST" && ! -L "$INSTALLED_MANIFEST" ]] \
         || die "The installed CI operator bundle is incomplete or invalid."
 
     operator_metadata="$($CMD_STAT -c '%U:%G:%a' "$INSTALLED_OPERATOR")"
@@ -1010,12 +1213,14 @@ validate_uninstall_bundle() {
     deploy_metadata="$($CMD_STAT -c '%U:%G:%a' "$INSTALLED_DEPLOY_ARTIFACT")"
     rollback_metadata="$($CMD_STAT -c '%U:%G:%a' "$INSTALLED_ROLLBACK_ARTIFACT")"
     compose_metadata="$($CMD_STAT -c '%U:%G:%a' "$INSTALLED_COMPOSE_ARTIFACT")"
+    manifest_metadata="$($CMD_STAT -c '%U:%G:%a' "$INSTALLED_MANIFEST")"
     [[ "$operator_metadata" == root:root:750 \
         && "$artifact_directory_metadata" == root:root:700 \
         && "$operator_artifact_metadata" == root:root:750 \
         && "$deploy_metadata" == root:root:750 \
         && "$rollback_metadata" == root:root:750 \
-        && "$compose_metadata" == root:root:640 ]] \
+        && "$compose_metadata" == root:root:640 \
+        && "$manifest_metadata" == root:root:640 ]] \
         || die "The installed CI operator bundle has unexpected ownership or mode."
     "$CMD_CMP" -s "$INSTALLED_OPERATOR" "$INSTALLED_OPERATOR_ARTIFACT" \
         || die "The installed operator does not match its protected artifact."
@@ -1023,12 +1228,16 @@ validate_uninstall_bundle() {
     for artifact_path in "$ARTIFACT_DIRECTORY"/*; do
         [[ -e "$artifact_path" || -L "$artifact_path" ]] || continue
         case "$artifact_path" in
-            "$INSTALLED_OPERATOR_ARTIFACT"|"$INSTALLED_DEPLOY_ARTIFACT"|"$INSTALLED_ROLLBACK_ARTIFACT"|"$INSTALLED_COMPOSE_ARTIFACT")
+            "$INSTALLED_OPERATOR_ARTIFACT"|"$INSTALLED_DEPLOY_ARTIFACT"|"$INSTALLED_ROLLBACK_ARTIFACT"|"$INSTALLED_COMPOSE_ARTIFACT"|"$INSTALLED_MANIFEST")
                 ;;
             *)
                 die "The installed CI operator bundle contains an unexpected path."
                 ;;
         esac
+    done
+    for artifact_path in "$ARTIFACT_DIRECTORY"/.[!.]* "$ARTIFACT_DIRECTORY"/..?*; do
+        [[ -e "$artifact_path" || -L "$artifact_path" ]] || continue
+        die "The installed CI operator bundle contains an unexpected path."
     done
 
     "$CMD_BASH" -n "$INSTALLED_OPERATOR" \
@@ -1037,6 +1246,7 @@ validate_uninstall_bundle() {
         || die "Installed deploy artifact is not valid Bash."
     "$CMD_BASH" -n "$INSTALLED_ROLLBACK_ARTIFACT" \
         || die "Installed rollback artifact is not valid Bash."
+    validate_bundle_manifest "$INSTALLED_MANIFEST"
 }
 
 verify_uninstall_bundle_absent() {
@@ -1103,6 +1313,7 @@ uninstall_operator() (
     capture_install_snapshot "$INSTALLED_DEPLOY_ARTIFACT"
     capture_install_snapshot "$INSTALLED_ROLLBACK_ARTIFACT"
     capture_install_snapshot "$INSTALLED_COMPOSE_ARTIFACT"
+    capture_install_snapshot "$INSTALLED_MANIFEST"
     capture_install_snapshot "$ARTIFACT_DIRECTORY"
     for snapshot_index in "${!INSTALL_TRANSACTION_SNAPSHOT_PATHS[@]}"; do
         verify_install_snapshot_entry "$snapshot_index" \
@@ -1115,6 +1326,7 @@ uninstall_operator() (
     remove_uninstall_file "$INSTALLED_DEPLOY_ARTIFACT" "the protected deploy artifact"
     remove_uninstall_file "$INSTALLED_ROLLBACK_ARTIFACT" "the protected rollback artifact"
     remove_uninstall_file "$INSTALLED_COMPOSE_ARTIFACT" "the protected Compose artifact"
+    remove_uninstall_file "$INSTALLED_MANIFEST" "the protected bundle manifest"
 
     [[ -d "$ARTIFACT_DIRECTORY" && ! -L "$ARTIFACT_DIRECTORY" ]] \
         || die "The protected artifact directory changed or is invalid."
@@ -1134,6 +1346,8 @@ install_operator() (
     local rollback_candidate
     local compose_candidate
     local artifact_parent_directory
+    local manifest_candidate
+    local manifest_stage=""
 
     [[ -z "$replace_existing" || "$replace_existing" == "--replace" ]] || {
         usage
@@ -1147,6 +1361,7 @@ install_operator() (
     deploy_candidate="$temporary_directory/deploy"
     rollback_candidate="$temporary_directory/rollback"
     compose_candidate="$temporary_directory/compose"
+    manifest_candidate="$temporary_directory/manifest"
     artifact_parent_directory="$("$CMD_DIRNAME" "$ARTIFACT_DIRECTORY")"
     trap 'cleanup_install_operator_temp "$?"' EXIT
 
@@ -1154,10 +1369,12 @@ install_operator() (
     "$CMD_INSTALL" -o root -g root -m 0750 "$SOURCE_DEPLOY_HELPER" "$deploy_candidate"
     "$CMD_INSTALL" -o root -g root -m 0750 "$SOURCE_ROLLBACK_HELPER" "$rollback_candidate"
     "$CMD_INSTALL" -o root -g root -m 0640 "$SOURCE_COMPOSE_FILE" "$compose_candidate"
+    write_bundle_manifest "$manifest_candidate" \
+        "$operator_candidate" "$deploy_candidate" "$rollback_candidate" "$compose_candidate"
 
     if [[ "$replace_existing" != "--replace" ]] && installed_bundle_exists; then
         installed_bundle_matches_candidates \
-            "$operator_candidate" "$deploy_candidate" "$rollback_candidate" "$compose_candidate" \
+            "$operator_candidate" "$deploy_candidate" "$rollback_candidate" "$compose_candidate" "$manifest_candidate" \
             || die "The CI operator already exists; inspect it before using install --replace."
     fi
 
@@ -1173,7 +1390,7 @@ install_operator() (
     # early comparison; plain install must not overwrite that newer bundle.
     if [[ "$replace_existing" != "--replace" ]] && installed_bundle_exists; then
         if ! installed_bundle_matches_candidates \
-            "$operator_candidate" "$deploy_candidate" "$rollback_candidate" "$compose_candidate"; then
+            "$operator_candidate" "$deploy_candidate" "$rollback_candidate" "$compose_candidate" "$manifest_candidate"; then
             die "The CI operator already exists; inspect it before using install --replace."
         fi
     fi
@@ -1186,6 +1403,7 @@ install_operator() (
     capture_install_snapshot "$INSTALLED_DEPLOY_ARTIFACT"
     capture_install_snapshot "$INSTALLED_ROLLBACK_ARTIFACT"
     capture_install_snapshot "$INSTALLED_COMPOSE_ARTIFACT"
+    capture_install_snapshot "$INSTALLED_MANIFEST"
     capture_install_snapshot "$LOG_DIRECTORY"
     capture_install_snapshot "$ROUTE_STATE_ROOT"
     capture_install_snapshot "$ROUTE_STATE_ROOT/preview"
@@ -1233,6 +1451,16 @@ install_operator() (
     if ! "$CMD_INSTALL" -o root -g root -m 0640 "$compose_candidate" "$INSTALLED_COMPOSE_ARTIFACT"; then
         return 1
     fi
+    [[ ! -L "$INSTALLED_MANIFEST" ]] || return 1
+    manifest_stage="$("$CMD_MKTEMP" "$ARTIFACT_DIRECTORY/.bundle-manifest.XXXXXX")" || return 1
+    if ! "$CMD_INSTALL" -o root -g root -m 0640 "$manifest_candidate" "$manifest_stage"; then
+        return 1
+    fi
+    [[ -f "$manifest_stage" && ! -L "$manifest_stage" ]] || return 1
+    if ! "$CMD_MV" "$manifest_stage" "$INSTALLED_MANIFEST"; then
+        return 1
+    fi
+    manifest_stage=""
     if ! "$CMD_INSTALL" -o root -g root -m 0750 "$operator_candidate" "$INSTALLED_OPERATOR"; then
         return 1
     fi
@@ -1240,7 +1468,7 @@ install_operator() (
         return 1
     fi
     if ! installed_bundle_matches_candidates \
-        "$operator_candidate" "$deploy_candidate" "$rollback_candidate" "$compose_candidate"; then
+        "$operator_candidate" "$deploy_candidate" "$rollback_candidate" "$compose_candidate" "$manifest_candidate"; then
         return 1
     fi
     INSTALL_TRANSACTION_ACTIVE=false
