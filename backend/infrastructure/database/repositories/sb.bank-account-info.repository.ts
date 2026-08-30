@@ -15,10 +15,14 @@ export class SbBankAccountInfoRepository implements IBankAccountInfoRepository {
         return bankAccountInfos.map(BankAccountInfoMapper.toDomain);
     }
 
-    async findByArea(area: string): Promise<BankAccountInfoEntity | null> {
-        const bankAccountInfo = await this.prismaService.bank_account_info.findUnique({
-            where: { areaId: area },
-        });
+    async findByArea(area: string, branchId?: string): Promise<BankAccountInfoEntity | null> {
+        const bankAccountInfo = branchId
+            ? await this.prismaService.bank_account_info.findFirst({
+                where: { areaId: area, area: { branchId } },
+            })
+            : await this.prismaService.bank_account_info.findUnique({
+                where: { areaId: area },
+            });
         return bankAccountInfo ? BankAccountInfoMapper.toDomain(bankAccountInfo) : null;
     }
 

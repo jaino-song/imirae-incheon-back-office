@@ -317,6 +317,34 @@ describe("SmsRetryService", () => {
         );
     });
 
+    it.each([
+        { scheduledDate: "20260230", scheduledTime: "1200", reason: "impossible calendar day" },
+        { scheduledDate: "20260229", scheduledTime: "1200", reason: "non-leap-year calendar day" },
+        { scheduledDate: "20240229", scheduledTime: "2400", reason: "out-of-range hour" },
+        { scheduledDate: "20260605", scheduledTime: undefined, reason: "missing scheduled time" },
+    ])("marks a $reason historical schedule failed before any retry or provider action", async ({ scheduledDate, scheduledTime }) => {
+        const log = createSmsRetryLog();
+        log.variables = {
+            ...log.variables,
+            scheduledDate,
+            ...(scheduledTime ? { scheduledTime } : {}),
+        };
+
+        await service.retry(log);
+
+        expect(logRepository.startRetryAttempt).not.toHaveBeenCalled();
+        expect(messageSenderApprovalService.ensureApproved).not.toHaveBeenCalled();
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+        expect(logRepository.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                id: 77,
+                status: "failed",
+                nextRetryAt: null,
+                errorMessage: expect.stringContaining("예약 발송 일시"),
+            }),
+        );
+    });
+
     it("records a still-future scheduled retry as pending", async () => {
         const log = createSmsRetryLog();
         log.variables = {
@@ -333,6 +361,27 @@ describe("SmsRetryService", () => {
 
         expect(logRepository.update).toHaveBeenCalledWith(
             expect.objectContaining({ id: 78, status: "pending", nextRetryAt: null }),
+        );
+    });
+
+    it("marks a scheduled historical row with no date or time failed before retrying immediately", async () => {
+        const log = createSmsRetryLog();
+        log.variables = {
+            ...log.variables,
+            triggerType: "scheduled",
+        };
+
+        await service.retry(log);
+
+        expect(logRepository.startRetryAttempt).not.toHaveBeenCalled();
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+        expect(logRepository.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                id: 77,
+                status: "failed",
+                nextRetryAt: null,
+                errorMessage: expect.stringContaining("예약 발송 일시"),
+            }),
         );
     });
 

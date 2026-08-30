@@ -23,6 +23,13 @@ function makeService() {
         eventBus: { emit: jest.fn() },
         notificationService: {},
         eformsignApiClient: { getAccessToken: jest.fn().mockResolvedValue({ oauth_token: { access_token: "x" } }) },
+        credentialBoundary: {
+            withCredentials: jest.fn((
+                _principal: unknown,
+                _capability: unknown,
+                operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+            ) => operation({ accessToken: "x", refreshToken: "r" })),
+        },
         clientRepository: {},
         eformsignDocRepository,
         employeeScheduleRepository: {},
@@ -36,6 +43,7 @@ function makeService() {
         deps.eventBus as any,
         deps.notificationService as any,
         deps.eformsignApiClient as any,
+        deps.credentialBoundary as any,
         deps.clientRepository as any,
         deps.eformsignDocRepository as any,
         deps.employeeScheduleRepository as any,

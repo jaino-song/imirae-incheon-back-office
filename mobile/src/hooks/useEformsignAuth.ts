@@ -47,8 +47,12 @@ export function useEformsignAuth(
       setIsLoading(true);
       setError(null);
       
+      const authStatus = await eformsignApi.getAuthStatus();
+      if (!authStatus.hasAppAuthToken) {
+        throw new Error("Authentication required");
+      }
+
       const executionTime = Date.now();
-      await eformsignApi.authenticate(executionTime);
       
       // Store auth timestamp in sessionStorage
       safeStorageSetItem("session", "eformsign_auth_time", executionTime.toString());
@@ -83,7 +87,7 @@ export function useEformsignAuth(
         }
 
         const authStatus = await eformsignApi.getAuthStatus();
-        if (authStatus.hasAppAuthToken && authStatus.hasAccessToken) {
+        if (authStatus.hasAppAuthToken) {
           setIsAuthenticated(true);
           return;
         }

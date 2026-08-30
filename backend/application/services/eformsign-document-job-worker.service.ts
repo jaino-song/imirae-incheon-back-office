@@ -27,6 +27,7 @@ import {
     CLIENT_REPOSITORY,
     IClientRepository,
 } from "domain/repositories/client.repository.interface";
+import { createEformsignWorkerPrincipal } from "application/services/eformsign-credential-boundary.service";
 
 const WORKER_INTERVAL_MS = 5_000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -185,17 +186,21 @@ export class EformsignDocumentJobWorkerService {
         }
 
         let latestProgressStep: EformsignHeadlessProgressStep | undefined;
-        const result = await this.dispatchUsecase.execute(job.branchId, {
-            contractData: payload.contractData,
-            clientId: payload.clientId,
-            progressId: payload.progressId,
-            force: payload.force,
-            onProgress: async (step) => {
-                latestProgressStep = step;
-                onProgressStep?.(step);
-                await this.recordProgress(job.id, leaseToken, step);
+        const result = await this.dispatchUsecase.execute(
+            job.branchId,
+            {
+                contractData: payload.contractData,
+                clientId: payload.clientId,
+                progressId: payload.progressId,
+                force: payload.force,
+                onProgress: async (step) => {
+                    latestProgressStep = step;
+                    onProgressStep?.(step);
+                    await this.recordProgress(job.id, leaseToken, step);
+                },
             },
-        });
+            createEformsignWorkerPrincipal(job.branchId),
+        );
 
         if (result.ok) {
             await this.repository.markCompleted(job.id, leaseToken, result.documentId);
@@ -228,16 +233,20 @@ export class EformsignDocumentJobWorkerService {
 
         let latestProgressStep: EformsignHeadlessProgressStep | undefined;
         for (let step = 0; step < MAX_CONSECUTIVE_FINALIZE_STEPS; step += 1) {
-            const result = await this.finalizeUsecase.execute({
-                documentId,
-                prefillEndDate: payload.prefillEndDate,
-                progressId: payload.progressId,
-                onProgress: async (progressStep) => {
-                    latestProgressStep = progressStep;
-                    onProgressStep?.(progressStep);
-                    await this.recordProgress(job.id, leaseToken, progressStep);
+            const result = await this.finalizeUsecase.execute(
+                {
+                    branchId: job.branchId,
+                    documentId,
+                    prefillEndDate: payload.prefillEndDate,
+                    progressId: payload.progressId,
+                    onProgress: async (progressStep) => {
+                        latestProgressStep = progressStep;
+                        onProgressStep?.(progressStep);
+                        await this.recordProgress(job.id, leaseToken, progressStep);
+                    },
                 },
-            });
+                createEformsignWorkerPrincipal(job.branchId),
+            );
 
             if (!result.ok) {
                 if (this.isAmbiguous(result, latestProgressStep)) {
@@ -318,7 +327,20 @@ export class EformsignDocumentJobWorkerService {
     }
 
     private async reconcile(job: EformsignDocumentJobEntity): Promise<void> {
-        const result = await this.reconciliationService.reconcile(job);
+        if (!(await this.ownsTarget(job))) {
+            if (job.leaseToken) {
+                await this.repository.markRequiresAttention(
+                    job.id,
+                    job.leaseToken,
+                    "JOB_TARGET_NOT_OWNED_BY_BRANCH",
+                );
+            }
+            return;
+        }
+        const result = await this.reconciliationService.reconcile(
+            job,
+            createEformsignWorkerPrincipal(job.branchId),
+        );
         if (
             result.status === "requires_attention"
             && job.source === "auto_finalize"

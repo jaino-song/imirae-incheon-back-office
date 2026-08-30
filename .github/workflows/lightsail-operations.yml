@@ -85,7 +85,7 @@ jobs:
 
       - name: Set up Docker Buildx for immutable image lookup
         if: inputs.operation == 'deploy'
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Resolve published image digest
         if: inputs.operation == 'deploy'
@@ -97,7 +97,7 @@ jobs:
           printf 'digest=%s\n' "$image_digest" >>"$GITHUB_OUTPUT"
 
       - name: Authenticate with short-lived GitHub OIDC credentials
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ env.AWS_OPERATION_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}

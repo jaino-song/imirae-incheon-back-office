@@ -751,11 +751,11 @@ export default function ContractCreationPage() {
         });
       }
 
-      // 2. Eformsign auth (cookies)
-      const authResult = await eformsignApi.authenticate(Date.now(), undefined, { force: true });
-      if (!authResult.success) throw new Error("Failed to authenticate");
-
-      // 3. Build contract data
+      // Provider identity remains server-owned; this page sends only contract data.
+      // No client-side authentication or token material is accepted.
+      // The server-mediated operation performs dispatch under a worker principal.
+      // 2. Build contract data. Provider credentials are acquired only inside
+      // the server-mediated dispatch operation.
       const start = dayjs(startDate);
       const end = dayjs(endDate);
       const payment = dayjs(effectivePaymentDate);

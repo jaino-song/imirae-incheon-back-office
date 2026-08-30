@@ -1868,9 +1868,9 @@ export default function ContractsPage() {
       // Fallback to iframe via generateStaffDocument
       setIsFinalizeProgressOpen(false);
       try {
-        const authResult = await eformsignApi.authenticate(Date.now(), undefined, { force: true });
-        if (!authResult.success) throw new Error("eformsign 인증에 실패했어요");
-        const option = await eformsignApi.generateStaffDocument(documentId, undefined, undefined, endDateIso);
+        // Provider credentials stay server-side; this request returns only render options.
+        // Finalization fallback runs through the trusted server boundary.
+        const option = await eformsignApi.generateStaffDocument(documentId, endDateIso);
         setStaffDocumentOption(option as EformsignDocumentOption);
         setIsStaffIframeOpen(true);
         keepFinalizeSubmittingUntilIframeCloses = true;
@@ -1924,26 +1924,25 @@ export default function ContractsPage() {
     staleTime: 1000 * 60 * 5,
   });
 
-  // 섹션(산모 계약서/제공기록지)은 제공기록지 template id의 include/exclude로 서버에서 필터한다.
-  // template id가 미설정(null)인 설치에서는 모든 문서를 산모 계약서로 취급한다 —
-  // 산모 섹션은 템플릿 필터 없이 조회하고, 제공기록지 섹션만 비활성(빈 목록)으로 남긴다.
+  // 제공기록지 template id는 문서 분류(제공기록지 배지·완료 플로우)와 미설정 설치에서의
+  // 제공기록지 섹션 비활성 판단에 쓴다. 목록 필터 자체는 section 파라미터로 서버가
+  // 결정한다(산모 계약서 = 등록된 계약서 템플릿 화이트리스트).
   const serviceRecordTemplateIds = useMemo(
     () => serviceRecordTemplateData?.templateIds
       ?? (serviceRecordTemplateData?.templateId ? [serviceRecordTemplateData.templateId] : []),
     [serviceRecordTemplateData],
   );
-  const serviceRecordTemplateId = useMemo(
-    () => serviceRecordTemplateIds.length > 0
-      ? serviceRecordTemplateIds.join(",")
-      : null,
-    [serviceRecordTemplateIds],
-  );
   const isServiceRecordTemplateResolved =
     serviceRecordTemplateData !== undefined || isServiceRecordTemplateError;
-  const sectionTemplateMatch = activeSection === "service-records" ? "include" : "exclude";
+  // API section 값: 페이지 섹션 이름(maternal-contracts)을 백엔드 값(maternity)으로 매핑한다.
+  const sectionParam = activeSection === "maternal-contracts" ? "maternity" : "service-records";
+  // 산모 계약서 섹션은 서버가 필터를 결정하므로 클라이언트 데이터 없이 조회 가능.
+  // 제공기록지 섹션은 템플릿이 미설정된 설치에서 비활성(빈 목록)을 유지한다 —
+  // section=service-records를 보내도 서버가 필터를 구성하지 못해 전체가 반환되는
+  // 것을 막는 클라이언트 게이트다.
   const sectionFilterReady =
-    isServiceRecordTemplateResolved
-    && (activeSection === "maternal-contracts" || serviceRecordTemplateIds.length > 0);
+    activeSection === "maternal-contracts"
+    || (isServiceRecordTemplateResolved && serviceRecordTemplateIds.length > 0);
   const debouncedSearchQuery = useDebouncedValue(searchQuery.trim(), 300);
   const statusCategoryParam = FILTER_TO_STATUS_CATEGORY[activeFilter];
   const displayStatusParam = activeFilter in FILTER_TO_DISPLAY_STATUS
@@ -1965,8 +1964,7 @@ export default function ContractsPage() {
     statusCategory: statusCategoryParam,
     displayStatus: displayStatusParam,
     search: debouncedSearchQuery,
-    templateId: serviceRecordTemplateId,
-    templateMatch: sectionTemplateMatch,
+    section: sectionParam,
     enabled: isAuthenticated && sectionFilterReady,
   });
 
@@ -1984,12 +1982,10 @@ export default function ContractsPage() {
       branchId ?? "unknown",
       activeSection,
       debouncedSearchQuery,
-      serviceRecordTemplateId ?? "no-template",
     ],
     queryFn: () =>
       eformsignApi.getStatusCounts({
-        templateId: serviceRecordTemplateId ?? undefined,
-        templateMatch: serviceRecordTemplateId ? sectionTemplateMatch : undefined,
+        section: sectionParam,
         search: debouncedSearchQuery || undefined,
         excludeDeleted: true,
       }),

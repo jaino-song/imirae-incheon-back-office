@@ -6,8 +6,6 @@ import {
     ListEformsignDocsUsecase,
     ListOtherBranchDocumentIdsUsecase,
     ListEformsignDocDisplayFieldsUsecase,
-    GetEformsignAccessTokenUsecase,
-    RefreshEformsignAccessTokenUsecase,
     FetchAllEformsignDocsFromApiUsecase,
     FetchEformsignDocFromApiUsecase,
     CreateEformsignDocUsecase,
@@ -19,13 +17,12 @@ import {
     LinkDocumentToClientUsecase,
 } from "application/usecases/eformsign-doc";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
-import {
-    EformsignTokenResponse,
-    EformsignApiDocumentResponse,
-} from "domain/repositories/eformsign.client.interface";
+import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 import { EformsignDocDisplayFields } from "domain/repositories/eformsign-doc.repository.interface";
 import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 import { EformsignDocumentSnapshotService } from "./eformsign-document-snapshot.service";
+import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
+import { EformsignProviderPrincipal } from "./eformsign-credential-boundary.service";
 
 const COMPLETED_STATUS_CODES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
 const REJECTED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045", "047", "049", "061", "071", "080"]);
@@ -45,9 +42,8 @@ export class EformsignDocService {
         private readonly createEformsignDocUsecase: CreateEformsignDocUsecase,
         private readonly updateEformsignDocStatusUsecase: UpdateEformsignDocStatusUsecase,
         private readonly linkDocumentToClientUsecase: LinkDocumentToClientUsecase,
-        // External API use cases
-        private readonly getEformsignAccessTokenUsecase: GetEformsignAccessTokenUsecase,
-        private readonly refreshEformsignAccessTokenUsecase: RefreshEformsignAccessTokenUsecase,
+        // External API use cases (all credentialed calls are made by an
+        // application boundary that owns the server-side provider identity)
         private readonly fetchAllEformsignDocsFromApiUsecase: FetchAllEformsignDocsFromApiUsecase,
         private readonly fetchEformsignDocFromApiUsecase: FetchEformsignDocFromApiUsecase,
         // Contract creation
@@ -146,24 +142,6 @@ export class EformsignDocService {
     // ============ External API Operations ============
 
     /**
-     * Get access token from eformsign API
-     * @param executionTime - timestamp used for signature generation
-     * @param memberEmail - optional member email (uses default if not provided)
-     */
-    getAccessToken(executionTime: number, memberEmail?: string): Promise<EformsignTokenResponse> {
-        return this.getEformsignAccessTokenUsecase.execute(executionTime, memberEmail);
-    }
-
-    /**
-     * Refresh access token using refresh token
-     * @param executionTime - timestamp used for signature generation
-     * @param refreshToken - the refresh token from previous token response
-     */
-    refreshAccessToken(executionTime: number, refreshToken: string): Promise<EformsignTokenResponse> {
-        return this.refreshEformsignAccessTokenUsecase.execute(executionTime, refreshToken);
-    }
-
-    /**
      * Fetch all documents from eformsign API
      * @param accessToken - valid access token
      */
@@ -204,9 +182,10 @@ export class EformsignDocService {
 
     createAndSendContract(
         branchid: string,
-        params: CreateAndSendContractParams
+        params: CreateAndSendContractParams,
+        principal: EformsignProviderPrincipal,
     ): Promise<CreateAndSendContractResult> {
-        return this.createAndSendContractUsecase.execute(branchid, params);
+        return this.createAndSendContractUsecase.execute(branchid, params, principal);
     }
 
     private statusDetail(statusType: string, stepName: string | null | undefined): string {
@@ -223,7 +202,9 @@ export class EformsignDocService {
         try {
             await this.linkDocumentToClientUsecase.execute(branchid, documentId);
         } catch (error) {
-            this.logger.warn(`Failed to link eformsign doc ${documentId} to client: ${error}`);
+            this.logger.warn(
+                `Failed to link eformsign doc ${documentId} to client: ${sanitizeEformsignErrorMessage(error)}`,
+            );
         }
     }
 }

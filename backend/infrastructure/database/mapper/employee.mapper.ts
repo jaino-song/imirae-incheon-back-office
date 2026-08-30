@@ -11,6 +11,7 @@ type EmployeeRow = {
     companyRegisteredDate: Date | null;
     birthday: string | null;
     deletedAt?: Date | null;
+    phoneNormalized?: string | null;
 };
 
 export class EmployeeMapper {
@@ -22,9 +23,10 @@ export class EmployeeMapper {
             row.phone,
             normalizeEmployeeGrade(row.grade),
             row.openToNextWork,
-            row.companyRegisteredDate ?? new Date(),
+            row.companyRegisteredDate,
             row.birthday ?? undefined,
             row.deletedAt ?? undefined,
+            row.phoneNormalized,
         );
     }
 
@@ -33,6 +35,7 @@ export class EmployeeMapper {
             name: entity.name,
             workArea: entity.workArea,
             phone: entity.phone,
+            phoneNormalized: entity.phoneNormalized,
             grade: normalizeEmployeeGrade(entity.grade),
             openToNextWork: entity.openToNextWork,
             companyRegisteredDate: entity.registeredDate,
@@ -45,6 +48,7 @@ export class EmployeeMapper {
             name: entity.name,
             workArea: entity.workArea,
             phone: entity.phone,
+            phoneNormalized: entity.phoneNormalized,
             grade: normalizeEmployeeGrade(entity.grade),
             openToNextWork: entity.openToNextWork,
             birthday: entity.birthday ?? null,

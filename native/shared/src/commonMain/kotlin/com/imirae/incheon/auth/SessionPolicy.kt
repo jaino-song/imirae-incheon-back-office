@@ -8,7 +8,10 @@ sealed class SessionAction {
     data object RefreshToken : SessionAction()
 }
 
-class SessionPolicy(private val secureStorage: SecureStorage) {
+class SessionPolicy private constructor(private val secureStorage: AuthStorage) {
+    constructor(secureStorage: SecureStorage) : this(SecureStorageAdapter(secureStorage))
+
+    internal constructor(secureStorage: AuthStorage, @Suppress("UNUSED_PARAMETER") testOnly: Unit = Unit) : this(secureStorage)
     private val idleTimeoutMs = 30 * 60 * 1000L // 30 minutes
     private val lastActivityKey = "last_activity"
     private val deviceIdKey = "device_id"

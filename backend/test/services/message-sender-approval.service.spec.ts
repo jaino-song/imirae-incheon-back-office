@@ -74,6 +74,67 @@ describe("MessageSenderApprovalService", () => {
             ).rejects.toBeInstanceOf(ForbiddenException);
             expect(prisma.branch.update).not.toHaveBeenCalled();
         });
+
+        it("persists the branch approval audit in the same transaction", async () => {
+            const requestedAt = new Date("2026-06-05T00:00:00.000Z");
+            const auditedPrisma = createAuditedPrisma({
+                smsSenderApprovalStatus: "not_requested",
+                smsSenderApprovalRequestedAt: null,
+                smsSenderApprovalApprovedAt: null,
+            }, {
+                smsSenderApprovalStatus: "pending",
+                smsSenderApprovalRequestedAt: requestedAt,
+                smsSenderApprovalApprovedAt: null,
+            });
+            const audit = { append: jest.fn().mockResolvedValue(undefined) };
+            service = new MessageSenderApprovalService(
+                auditedPrisma as unknown as PrismaService,
+                audit as never,
+            );
+
+            await service.requestApproval({
+                branchId: "branch-1",
+                userId: "user-1",
+                branchRole: "owner",
+                actor: { userId: "user-1", globalRole: "owner", branchRole: "owner" },
+            });
+
+            expect(auditedPrisma.$transaction).toHaveBeenCalled();
+            expect(audit.append).toHaveBeenCalledWith(
+                auditedPrisma,
+                expect.objectContaining({
+                    action: "branch.sms_sender_approval.requested",
+                    outcome: "success",
+                    targetId: "branch-1",
+                    actor: expect.objectContaining({ userId: "user-1" }),
+                }),
+            );
+        });
+
+        it("refuses an audited mutation when audit persistence fails", async () => {
+            const auditedPrisma = createAuditedPrisma({
+                smsSenderApprovalStatus: "not_requested",
+                smsSenderApprovalRequestedAt: null,
+                smsSenderApprovalApprovedAt: null,
+            }, {
+                smsSenderApprovalStatus: "pending",
+                smsSenderApprovalRequestedAt: new Date("2026-06-05T00:00:00.000Z"),
+                smsSenderApprovalApprovedAt: null,
+            });
+            const audit = { append: jest.fn().mockRejectedValue(new Error("audit unavailable")) };
+            service = new MessageSenderApprovalService(
+                auditedPrisma as unknown as PrismaService,
+                audit as never,
+            );
+
+            await expect(service.requestApproval({
+                branchId: "branch-1",
+                userId: "user-1",
+                branchRole: "owner",
+                actor: { userId: "user-1", globalRole: "owner", branchRole: "owner" },
+            })).rejects.toThrow("audit unavailable");
+            expect(auditedPrisma.$transaction).toHaveBeenCalled();
+        });
     });
 
     describe("approvePendingRequest", () => {
@@ -226,3 +287,20 @@ describe("MessageSenderApprovalService", () => {
         });
     });
 });
+
+function createAuditedPrisma(
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+) {
+    const prisma = {
+        branch: {
+            findUnique: jest.fn().mockResolvedValue(before),
+            update: jest.fn().mockResolvedValue(after),
+        },
+        $transaction: jest.fn(),
+    };
+    prisma.$transaction.mockImplementation(
+        async (callback: (transaction: typeof prisma) => unknown) => callback(prisma),
+    );
+    return prisma;
+}

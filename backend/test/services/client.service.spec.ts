@@ -70,7 +70,12 @@ describe("ClientService", () => {
             },
             employee: {
                 findMany: jest.fn().mockImplementation(({ where }) =>
-                    Promise.resolve(where.id.in.map((id: number) => ({ id }))),
+                    Promise.resolve(where.id.in.map((id: number) => ({
+                        id,
+                        branchId: where.branchId ?? "org-1",
+                        deletedAt: null,
+                        openToNextWork: true,
+                    }))),
                 ),
             },
             client: {
@@ -105,6 +110,7 @@ describe("ClientService", () => {
     const createMockTriggerService = () => ({
         ensureDefaultRulesForBranch: jest.fn().mockResolvedValue(undefined),
         syncClientRulesForClient: jest.fn().mockResolvedValue(undefined),
+        syncEmployeeAssignmentRulesForClient: jest.fn().mockResolvedValue(undefined),
         syncEmployeeAssignmentRulesForSchedule: jest.fn().mockResolvedValue(undefined),
         cancelPendingJobsForClientDeletion: jest.fn().mockResolvedValue(undefined),
     });
@@ -182,6 +188,7 @@ describe("ClientService", () => {
         create: jest.fn(),
         createWithInitialSchedule: jest.fn(),
         update: jest.fn(),
+        updateServiceStatusIfCurrent: jest.fn().mockResolvedValue("updated"),
         updateIfTargetVersion: jest.fn(),
         delete: jest.fn(),
         findByStartDate: jest.fn(),
@@ -305,6 +312,39 @@ describe("ClientService", () => {
     // create
     // ============================================
     describe("create", () => {
+        it("rejects malformed phone before settings, repository, or automation work", async () => {
+            await expect(service.create(branchId, {
+                name: "Malformed",
+                phone: "not-a-phone",
+                careCenter: false,
+                voucherClient: false,
+                breastPump: false,
+            })).rejects.toThrow("valid Korean phone number");
+
+            expect(systemSettingService.getClientAutoRegistrationEnabled).not.toHaveBeenCalled();
+            expect(clientRepository.findByPhone).not.toHaveBeenCalled();
+            expect(createClientUsecase.execute).not.toHaveBeenCalled();
+            expect(triggerService.syncClientRulesForClient).not.toHaveBeenCalled();
+        });
+
+        it("allows an explicit null phone clear on create", async () => {
+            const client = createClientEntity();
+            createClientUsecase.execute.mockResolvedValue(client);
+
+            await expect(service.create(branchId, {
+                name: "No Phone",
+                phone: null,
+                careCenter: false,
+                voucherClient: false,
+                breastPump: false,
+                applyMessageAutomation: false,
+            })).resolves.toBe(client);
+            expect(createClientUsecase.execute).toHaveBeenCalledWith(
+                branchId,
+                expect.objectContaining({ phone: null }),
+                expect.anything(),
+            );
+        });
         describe("given valid client data with primary employee", () => {
             it("should create the client and employee schedule atomically", async () => {
                 // Arrange
@@ -1364,6 +1404,16 @@ describe("ClientService", () => {
     // update
     // ============================================
     describe("update", () => {
+        it("rejects malformed phone before reading or mutating the client", async () => {
+            await expect(service.update(branchId, 1, { phone: "not-a-phone" }))
+                .rejects.toThrow("valid Korean phone number");
+
+            expect(findClientByIdUsecase.execute).not.toHaveBeenCalled();
+            expect(clientRepository.findByPhone).not.toHaveBeenCalled();
+            expect(prismaService.$transaction).not.toHaveBeenCalled();
+            expect(triggerService.syncClientRulesForClient).not.toHaveBeenCalled();
+        });
+
         describe("given existing client and no employee change", () => {
             it("should update client without creating new schedule", async () => {
                 // Arrange
@@ -1387,6 +1437,150 @@ describe("ClientService", () => {
                 expect(result).toBe(existingClient);
             });
 
+            it("should refresh assignment jobs when the client name changes", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await service.update(branchId, existingClient.id, { name: "새 고객 이름" });
+
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledTimes(1);
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledWith(
+                    branchId,
+                    existingClient.id,
+                );
+            });
+
+            it("persists one deduped retry intent per active schedule when refresh is retryable", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                triggerService.syncEmployeeAssignmentRulesForClient.mockResolvedValue(false);
+                prismaService.employee_schedule.findMany.mockResolvedValue([
+                    { id: 12 },
+                    { id: 9 },
+                    { id: 12 },
+                ]);
+
+                await service.update(branchId, existingClient.id, { name: "새 고객 이름" });
+
+                expect(prismaService.employee_schedule.findMany).toHaveBeenCalledWith({
+                    where: { branchId, clientId: existingClient.id, replaced: false },
+                    select: { id: true },
+                    orderBy: { id: "asc" },
+                });
+                expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenCalledTimes(2);
+                expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenNthCalledWith(
+                    1,
+                    prismaService,
+                    expect.objectContaining({
+                        branchId,
+                        clientId: existingClient.id,
+                        scheduleId: 9,
+                        includePast: true,
+                        intentAt: expect.any(Date),
+                        replaceExisting: true,
+                    }),
+                );
+                expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenNthCalledWith(
+                    2,
+                    prismaService,
+                    expect.objectContaining({
+                        branchId,
+                        clientId: existingClient.id,
+                        scheduleId: 12,
+                        includePast: true,
+                        intentAt: expect.any(Date),
+                        replaceExisting: true,
+                    }),
+                );
+            });
+
+            it("persists schedule retry intents when the immediate refresh throws", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                triggerService.syncEmployeeAssignmentRulesForClient.mockRejectedValue(
+                    new Error("assignment refresh unavailable"),
+                );
+                prismaService.employee_schedule.findMany.mockResolvedValue([{ id: 12 }]);
+
+                await expect(service.update(branchId, existingClient.id, { name: "새 고객 이름" }))
+                    .resolves.toBe(existingClient);
+
+                expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenCalledWith(
+                    prismaService,
+                    expect.objectContaining({
+                        branchId,
+                        clientId: existingClient.id,
+                        scheduleId: 12,
+                        includePast: true,
+                        replaceExisting: true,
+                    }),
+                );
+            });
+
+            it("keeps the client update successful when retry intent persistence fails", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                triggerService.syncEmployeeAssignmentRulesForClient.mockResolvedValue(false);
+                prismaService.employee_schedule.findMany.mockResolvedValue([{ id: 12 }]);
+                messageAutomationIntentService.persistScheduleIntent.mockRejectedValue(
+                    new Error("intent store unavailable"),
+                );
+
+                await expect(service.update(branchId, existingClient.id, { name: "새 고객 이름" }))
+                    .resolves.toBe(existingClient);
+            });
+
+            it("does not select schedules or enqueue retry intents after a successful refresh", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                triggerService.syncEmployeeAssignmentRulesForClient.mockResolvedValue(true);
+
+                await service.update(branchId, existingClient.id, { name: "새 고객 이름" });
+
+                expect(prismaService.employee_schedule.findMany).not.toHaveBeenCalled();
+                expect(messageAutomationIntentService.persistScheduleIntent).not.toHaveBeenCalled();
+            });
+
+            it("should not refresh assignment jobs when an unrelated client field changes", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await service.update(branchId, existingClient.id, { address: "새 주소" });
+
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).not.toHaveBeenCalled();
+            });
+
+            it("should not refresh assignment jobs when the client name is unchanged", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await service.update(branchId, existingClient.id, { name: existingClient.name });
+
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledTimes(1);
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledWith(
+                    branchId,
+                    existingClient.id,
+                );
+            });
+
+            it("refreshes assignment jobs when a supplied name matches the stale pre-write snapshot", async () => {
+                const staleClient = createClientEntity();
+                const committedClient = createClientEntity();
+                staleClient.name = "이전 이름";
+                committedClient.name = "최종 이름";
+                findClientByIdUsecase.execute
+                    .mockResolvedValueOnce(staleClient)
+                    .mockResolvedValueOnce(committedClient);
+
+                await service.update(branchId, staleClient.id, { name: staleClient.name });
+
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledTimes(1);
+                expect(triggerService.syncEmployeeAssignmentRulesForClient).toHaveBeenCalledWith(
+                    branchId,
+                    staleClient.id,
+                );
+            });
+
             it("clears birthDate when the caller explicitly sends null (tri-state, mirrors areaId)", async () => {
                 // Arrange
                 const existingClient = createClientEntity();
@@ -1401,6 +1595,60 @@ describe("ClientService", () => {
                     data: expect.objectContaining({ birthDate: null }),
                 }));
             });
+
+            it.each([
+                ["address", "address"],
+                ["phone", "phone"],
+                ["type", "type"],
+                ["fullPrice", "fullPrice"],
+                ["grant", "grant"],
+                ["actualPrice", "actualPrice"],
+                ["startDate", "startDate"],
+                ["endDate", "endDate"],
+                ["careCenter", "careCenter"],
+                ["birthday", "birthday"],
+                ["dueDate", "dueDate"],
+                ["birthDate", "birthDate"],
+                ["serviceStatus", "serviceStatus"],
+                ["eDocId", "eDocId"],
+                ["areaId", "areaId"],
+            ])("writes explicit null for nullable %s instead of treating it as omission", async (field, dataKey) => {
+                findClientByIdUsecase.execute.mockResolvedValue(createClientEntity());
+
+                await service.update(branchId, 1, { [field]: null } as never);
+
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    where: { id: 1, branchId },
+                    data: expect.objectContaining({ [dataKey]: null }),
+                }));
+            });
+
+            it("writes an explicit null duration for a client whose service period is incomplete", async () => {
+                const existingClient = createClientEntity();
+                existingClient.startDate = null;
+                existingClient.endDate = null;
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await service.update(branchId, 1, { duration: null });
+
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    where: { id: 1, branchId },
+                    data: expect.objectContaining({ duration: null }),
+                }));
+            });
+
+            it.each(["name", "voucherClient", "breastPump"])(
+                "rejects null for non-nullable %s before opening the transaction",
+                async (field) => {
+                    findClientByIdUsecase.execute.mockResolvedValue(createClientEntity());
+
+                    await expect(service.update(branchId, 1, { [field]: null } as never))
+                        .rejects.toBeInstanceOf(BadRequestException);
+
+                    expect(prismaService.$transaction).not.toHaveBeenCalled();
+                    expect(prismaService.client.updateMany).not.toHaveBeenCalled();
+                },
+            );
 
             it("sets birthDate to a parsed Date when a value is provided", async () => {
                 // Arrange
@@ -1463,6 +1711,21 @@ describe("ClientService", () => {
                 expect(data.birthDate).toBeUndefined();
             });
 
+            it("persists the canonical phone identity while preserving display formatting", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                clientRepository.findByPhone.mockResolvedValue(null);
+
+                await service.update(branchId, 1, { phone: "+82 10 9999 0000" });
+
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    data: expect.objectContaining({
+                        phone: "+82 10 9999 0000",
+                        phoneNormalized: "01099990000",
+                    }),
+                }));
+            });
+
             it("preserves explicit null service dates and allows equal dates", async () => {
                 const existingClient = createClientEntity();
                 findClientByIdUsecase.execute.mockResolvedValue(existingClient);
@@ -1473,6 +1736,37 @@ describe("ClientService", () => {
                     where: { id: 1, branchId },
                     data: expect.objectContaining({ startDate: null, endDate: null }),
                 }));
+            });
+
+            it("clears duration when a date patch leaves the service period incomplete", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await service.update(branchId, 1, { endDate: null });
+
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    where: { id: 1, branchId },
+                    data: expect.objectContaining({ endDate: null, duration: null }),
+                }));
+            });
+
+            it("rejects a duration-only mismatch when the existing service period is complete", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await expect(service.update(branchId, 1, { duration: 1 }))
+                    .rejects.toThrow("duration must equal the Korean business-day count (102)");
+                expect(prismaService.$transaction).not.toHaveBeenCalled();
+                expect(prismaService.client.updateMany).not.toHaveBeenCalled();
+            });
+
+            it("rejects a non-null duration when a date patch cannot derive a complete period", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await expect(service.update(branchId, 1, { endDate: null, duration: 5 }))
+                    .rejects.toThrow("duration requires a complete service period");
+                expect(prismaService.$transaction).not.toHaveBeenCalled();
             });
 
             it("merges a partial service period with the existing client before rejecting reversed dates", async () => {
@@ -2595,7 +2889,7 @@ describe("ClientService", () => {
     // delete
     // ============================================
     describe("delete", () => {
-        it("should cancel pending message jobs before deleting the client", async () => {
+        it("should only run legacy pending-job cleanup after a successful guarded delete", async () => {
             // Arrange
             deleteClientUsecase.execute.mockResolvedValue(undefined);
 
@@ -2607,7 +2901,16 @@ describe("ClientService", () => {
             expect(deleteClientUsecase.execute).toHaveBeenCalledWith(branchId, 1);
             expect(
                 triggerService.cancelPendingJobsForClientDeletion.mock.invocationCallOrder[0],
-            ).toBeLessThan(deleteClientUsecase.execute.mock.invocationCallOrder[0] ?? 0);
+            ).toBeGreaterThan(deleteClientUsecase.execute.mock.invocationCallOrder[0] ?? 0);
+        });
+
+        it("must not cancel pending jobs when the guarded delete is rejected", async () => {
+            const blocked = new Error("CLIENT_RETENTION_BLOCKED");
+            deleteClientUsecase.execute.mockRejectedValue(blocked);
+
+            await expect(service.delete(branchId, 1)).rejects.toBe(blocked);
+
+            expect(triggerService.cancelPendingJobsForClientDeletion).not.toHaveBeenCalled();
         });
     });
 
@@ -2867,6 +3170,317 @@ describe("ClientService", () => {
                     .toThrow("Client with id 999 not found");
             });
         });
+    });
+
+    describe("retained assignment eligibility", () => {
+        type EmployeeCandidate = {
+            id: number;
+            branchId: string;
+            deletedAt: Date | null;
+            openToNextWork: boolean;
+        };
+
+        const candidate = (id: number, overrides: Partial<EmployeeCandidate> = {}): EmployeeCandidate => ({
+            id,
+            branchId,
+            deletedAt: null,
+            openToNextWork: true,
+            ...overrides,
+        });
+
+        it("allows an unavailable retained primary when adding an available secondary", async () => {
+            const existingClient = createClientEntity();
+            findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+            prismaService.employee_schedule.findFirst.mockResolvedValue({
+                id: 10,
+                clientId: existingClient.id,
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: null,
+            });
+            prismaService.employee.findMany.mockResolvedValue([
+                candidate(5, { openToNextWork: false }),
+                candidate(8),
+            ]);
+            prismaService.employee_schedule.update.mockResolvedValue({});
+            prismaService.employee_schedule.create.mockResolvedValue({ id: 20, clientId: existingClient.id });
+
+            await expect(service.update(branchId, existingClient.id, { secondaryEmployeeId: 8 }))
+                .resolves.toBe(existingClient);
+
+            expect(prismaService.employee_schedule.create).toHaveBeenCalledWith({
+                data: expect.objectContaining({
+                    primaryEmployeeId: 5,
+                    secondaryEmployeeId: 8,
+                    replaced: false,
+                }),
+            });
+        });
+
+        it("rejects an unavailable newly added secondary while retaining an unavailable primary", async () => {
+            const existingClient = createClientEntity();
+            findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+            prismaService.employee_schedule.findFirst.mockResolvedValue({
+                id: 10,
+                clientId: existingClient.id,
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: null,
+            });
+            prismaService.employee.findMany.mockResolvedValue([
+                candidate(5, { openToNextWork: false }),
+                candidate(8, { openToNextWork: false }),
+            ]);
+
+            await expect(service.update(branchId, existingClient.id, { secondaryEmployeeId: 8 }))
+                .rejects.toBeInstanceOf(BadRequestException);
+
+            expect(prismaService.employee_schedule.update).not.toHaveBeenCalled();
+            expect(prismaService.employee_schedule.create).not.toHaveBeenCalled();
+            expect(prismaService.client.updateMany).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            ["wrong branch", candidate(5, { branchId: "branch-b", openToNextWork: false })],
+            ["soft deleted", candidate(5, {
+                deletedAt: new Date("2026-01-01T00:00:00.000Z"),
+                openToNextWork: false,
+            })],
+        ])("still rejects a retained %s employee", async (_label, retainedEmployee) => {
+            const existingClient = createClientEntity();
+            findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+            prismaService.employee_schedule.findFirst.mockResolvedValue({
+                id: 10,
+                clientId: existingClient.id,
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: null,
+            });
+            prismaService.employee.findMany.mockResolvedValue([retainedEmployee, candidate(8)]);
+
+            await expect(service.update(branchId, existingClient.id, { secondaryEmployeeId: 8 }))
+                .rejects.toBeInstanceOf(BadRequestException);
+
+            expect(prismaService.employee_schedule.update).not.toHaveBeenCalled();
+            expect(prismaService.employee_schedule.create).not.toHaveBeenCalled();
+        });
+
+        it("allows an unavailable retained primary when duplicate-client reuse adds an available secondary", async () => {
+            const existingClient = createClientEntity();
+            clientRepository.findByPhone.mockResolvedValue(existingClient);
+            prismaService.employee_schedule.findFirst.mockResolvedValue({
+                id: 10,
+                clientId: existingClient.id,
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: null,
+            });
+            prismaService.employee.findMany.mockResolvedValue([
+                candidate(5, { openToNextWork: false }),
+                candidate(8),
+            ]);
+            prismaService.employee_schedule.create.mockResolvedValue({ id: 33, clientId: existingClient.id });
+
+            await expect(service.create(branchId, {
+                name: "Existing Client",
+                phone: existingClient.phone,
+                secondaryEmployeeId: 8,
+                careCenter: false,
+                voucherClient: true,
+                breastPump: false,
+                reuseExistingClient: true,
+            })).resolves.toBe(existingClient);
+
+            expect(prismaService.employee_schedule.create).toHaveBeenCalledWith({
+                data: expect.objectContaining({
+                    primaryEmployeeId: 5,
+                    secondaryEmployeeId: 8,
+                    replaced: false,
+                }),
+            });
+        });
+
+        it("rejects an unavailable newly added secondary during duplicate-client reuse", async () => {
+            const existingClient = createClientEntity();
+            clientRepository.findByPhone.mockResolvedValue(existingClient);
+            prismaService.employee_schedule.findFirst.mockResolvedValue({
+                id: 10,
+                clientId: existingClient.id,
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: null,
+            });
+            prismaService.employee.findMany.mockResolvedValue([
+                candidate(5, { openToNextWork: false }),
+                candidate(8, { openToNextWork: false }),
+            ]);
+
+            await expect(service.create(branchId, {
+                name: "Existing Client",
+                phone: existingClient.phone,
+                secondaryEmployeeId: 8,
+                careCenter: false,
+                voucherClient: true,
+                breastPump: false,
+                reuseExistingClient: true,
+            })).rejects.toBeInstanceOf(BadRequestException);
+
+            expect(prismaService.employee_schedule.update).not.toHaveBeenCalled();
+            expect(prismaService.employee_schedule.create).not.toHaveBeenCalled();
+        });
+
+        it("allows an unavailable retained counterpart in a replacement request", async () => {
+            const existingClient = createClientEntity();
+            findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+            prismaService.employee_schedule.findFirst.mockResolvedValue({
+                id: 10,
+                clientId: existingClient.id,
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: 6,
+            });
+            prismaService.employee.findMany.mockResolvedValue([
+                candidate(7),
+                candidate(6, { openToNextWork: false }),
+            ]);
+            prismaService.employee_schedule.update.mockResolvedValue({});
+            prismaService.employee_schedule.create.mockResolvedValue({ id: 20, clientId: existingClient.id });
+
+            await expect(service.requestReplacement(branchId, existingClient.id, 7, 6))
+                .resolves.toBe(existingClient);
+
+            expect(prismaService.employee_schedule.create).toHaveBeenCalledWith({
+                data: expect.objectContaining({
+                    primaryEmployeeId: 7,
+                    secondaryEmployeeId: 6,
+                    replaced: false,
+                }),
+            });
+        });
+
+        it("rejects an unavailable newly requested replacement employee", async () => {
+            const existingClient = createClientEntity();
+            findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+            prismaService.employee_schedule.findFirst.mockResolvedValue({
+                id: 10,
+                clientId: existingClient.id,
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: 6,
+            });
+            prismaService.employee.findMany.mockResolvedValue([
+                candidate(7, { openToNextWork: false }),
+                candidate(6, { openToNextWork: false }),
+            ]);
+
+            await expect(service.requestReplacement(branchId, existingClient.id, 7, 6))
+                .rejects.toBeInstanceOf(BadRequestException);
+
+            expect(prismaService.client.updateMany).not.toHaveBeenCalled();
+            expect(prismaService.employee_schedule.update).not.toHaveBeenCalled();
+            expect(prismaService.employee_schedule.create).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("assignment eligibility refusal", () => {
+        type EmployeeCandidate = {
+            id: number;
+            branchId: string;
+            deletedAt: Date | null;
+            openToNextWork: boolean;
+        };
+
+        const eligible = (id = 2): EmployeeCandidate => ({
+            id,
+            branchId,
+            deletedAt: null,
+            openToNextWork: true,
+        });
+
+        const invalidCases: Array<[
+            string,
+            EmployeeCandidate[],
+            number,
+            number | null,
+        ]> = [
+            ["wrong branch", [], 2, null],
+            ["soft deleted", [{ ...eligible(2), deletedAt: new Date("2026-01-01T00:00:00.000Z") }], 2, null],
+            ["unavailable", [{ ...eligible(2), openToNextWork: false }], 2, null],
+            ["missing", [], 999, null],
+            ["wrong branch secondary", [eligible(2), { ...eligible(3), branchId: "branch-b" }], 2, 3],
+            ["soft deleted secondary", [eligible(2), { ...eligible(3), deletedAt: new Date("2026-01-01T00:00:00.000Z") }], 2, 3],
+            ["unavailable secondary", [eligible(2), { ...eligible(3), openToNextWork: false }], 2, 3],
+            ["missing secondary", [eligible(2)], 2, 999],
+            ["same employee in both roles", [eligible(2)], 2, 2],
+        ];
+
+        const expectNoAssignmentResidue = () => {
+            expect(prismaService.employee_schedule.update).not.toHaveBeenCalled();
+            expect(prismaService.employee_schedule.create).not.toHaveBeenCalled();
+            expect(prismaService.client.updateMany).not.toHaveBeenCalled();
+            expect(createClientUsecase.execute).not.toHaveBeenCalled();
+            expect(createClientUsecase.executeWithInitialSchedule).not.toHaveBeenCalled();
+            expect(messageAutomationIntentService.persistClientIntent).not.toHaveBeenCalled();
+            expect(messageAutomationIntentService.persistScheduleIntent).not.toHaveBeenCalled();
+            expect(messageAutomationIntentService.fulfillClientIntent).not.toHaveBeenCalled();
+            expect(messageAutomationIntentService.fulfillScheduleIntent).not.toHaveBeenCalled();
+            expect(triggerService.syncClientRulesForClient).not.toHaveBeenCalled();
+            expect(triggerService.syncEmployeeAssignmentRulesForSchedule).not.toHaveBeenCalled();
+            expect(serviceRecordLinkService.revoke).not.toHaveBeenCalled();
+            expect(serviceRecordLinkService.scheduleForServiceStart).not.toHaveBeenCalled();
+            expect(serviceRecordLifecycleService.ensureForClient).not.toHaveBeenCalled();
+        };
+
+        it.each(invalidCases)(
+            "refuses %s during client assignment without writes or side effects",
+            async (_label, employees, primaryEmployeeId, secondaryEmployeeId) => {
+                prismaService.employee.findMany.mockResolvedValue(employees);
+
+                await expect(service.create(branchId, {
+                    name: "Invalid Assignment",
+                    primaryEmployeeId,
+                    secondaryEmployeeId,
+                    careCenter: false,
+                    voucherClient: true,
+                    breastPump: false,
+                })).rejects.toBeInstanceOf(BadRequestException);
+
+                expectNoAssignmentResidue();
+            },
+        );
+
+        it.each(invalidCases)(
+            "refuses %s during client reassignment before replacing the current schedule",
+            async (_label, employees, primaryEmployeeId, secondaryEmployeeId) => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                prismaService.employee_schedule.findFirst.mockResolvedValue({
+                    id: 10,
+                    clientId: existingClient.id,
+                    primaryEmployeeId: 1,
+                    secondaryEmployeeId: null,
+                });
+                prismaService.employee.findMany.mockResolvedValue(employees);
+
+                await expect(service.update(branchId, existingClient.id, {
+                    primaryEmployeeId,
+                    secondaryEmployeeId,
+                })).rejects.toBeInstanceOf(BadRequestException);
+
+                expectNoAssignmentResidue();
+            },
+        );
+
+        it.each(invalidCases)(
+            "refuses %s during replacement before changing client status",
+            async (_label, employees, primaryEmployeeId, secondaryEmployeeId) => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                prismaService.employee.findMany.mockResolvedValue(employees);
+
+                await expect(service.requestReplacement(
+                    branchId,
+                    existingClient.id,
+                    primaryEmployeeId,
+                    secondaryEmployeeId,
+                )).rejects.toBeInstanceOf(BadRequestException);
+
+                expectNoAssignmentResidue();
+            },
+        );
     });
 
     // ============================================

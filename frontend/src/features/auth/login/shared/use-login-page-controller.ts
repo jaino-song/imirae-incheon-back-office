@@ -7,6 +7,7 @@ import { resendVerificationEmail } from "@/features/auth/shared/auth-api";
 import { useNavigationPending } from "@/lib/hooks/use-navigation-pending";
 import { loginSchema, type LoginFormData } from "@/lib/validations/auth";
 import { safeStorageGetItem, safeStorageRemoveItem, safeStorageSetItem } from "@/lib/safe-storage";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
 import { loginWithEmail } from "@/app/(auth)/login/actions";
 
 export function useLoginPageController() {
@@ -82,6 +83,10 @@ export function useLoginPageController() {
         safeStorageRemoveItem("local", "login:savedEmail");
       }
 
+      // A successful login can replace the current browser identity. Clear
+      // before the request so an existing user cannot remain visible while the
+      // new session is being established; failed login attempts are safe too.
+      await resetAuthorityState();
       const response = await loginWithEmail(result.data.email, result.data.password, autoLogin);
 
       if (response.success) {

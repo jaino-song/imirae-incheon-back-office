@@ -222,6 +222,18 @@ describe('EmployeesTable', () => {
       expect(screen.queryByText('이영희')).not.toBeInTheDocument();
       expect(screen.queryByText('박민수')).not.toBeInTheDocument();
     });
+
+    it('filters a working employee by derived status even when next-work availability is false', async () => {
+      const user = userEvent.setup();
+      render(<EmployeesTable />);
+
+      await user.click(screen.getByRole('combobox'));
+      await user.click(await screen.findByRole('option', { name: '근무 중' }));
+
+      expect(screen.getByText('이영희')).toBeInTheDocument();
+      expect(screen.queryByText('김철수')).not.toBeInTheDocument();
+      expect(screen.queryByText('박민수')).not.toBeInTheDocument();
+    });
   });
 
   describe('Search', () => {

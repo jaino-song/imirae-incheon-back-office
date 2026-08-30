@@ -21,10 +21,24 @@ import { LinkMirroredEformsignDocByPhoneUsecase } from "application/usecases/efo
 import {
     assertAllowedClientArea,
     assertAllowedServiceStatus,
+    assertClientDurationMatchesDates,
+    assertClientPhoneInput,
+    deriveClientDuration,
     findClientByNormalizedPhone,
     mergeAndValidateClientServicePeriod,
     parseClientDate,
 } from "application/usecases/client/client-write-validation";
+import {
+    assertEmployeeAssignmentEligibility,
+    assertEmployeeAssignmentShape,
+    type EmployeeAssignmentCandidate,
+} from "application/policies/employee-assignment-eligibility.policy";
+import {
+    assertNoActiveEmployeeScheduleOverlap,
+    employeeScheduleReplacementEndDate,
+    lockClientForScheduleWrite,
+    lockEmployeesForScheduleWrite,
+} from "application/policies/employee-schedule-invariants.policy";
 import { ClientEntity } from "domain/entities/client.entity";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
@@ -32,7 +46,12 @@ import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.clie
 import { normalizeClientPricing } from "domain/services/client-pricing";
 import { addBusinessDaysKr, diffBusinessDaysKr, isoDateInKorea } from "domain/utils/business-days";
 import { PrismaService } from "infrastructure/database/prisma.service";
-import { computeServiceStatus, SERVICE_STATUS, ServiceStatusType } from "domain/value-objects/service-status.vo";
+import {
+    computeServiceStatus,
+    isAutomaticServiceStatusTransitionAllowed,
+    SERVICE_STATUS,
+    ServiceStatusType,
+} from "domain/value-objects/service-status.vo";
 import { MessageTriggerService } from "./message-trigger.service";
 import { MessageAutomationIntentService } from "./message-automation-intent.service";
 import { ServiceRecordLinkService } from "./service-record-link.service";
@@ -766,31 +785,39 @@ export class ClientService {
         branchid: string,
         primaryEmployeeId: number | null,
         secondaryEmployeeId: number | null,
+        transaction: Prisma.TransactionClient,
+        retainedEmployeeIds?: ReadonlySet<number>,
     ): Promise<void> {
-        if (primaryEmployeeId === null) {
-            if (secondaryEmployeeId !== null) {
-                throw new BadRequestException("primary employee is required when a secondary employee is selected");
-            }
-            return;
-        }
-        if (primaryEmployeeId === secondaryEmployeeId) {
-            throw new BadRequestException("주담당과 부담당은 같은 직원일 수 없습니다.");
-        }
+        assertEmployeeAssignmentShape(primaryEmployeeId, secondaryEmployeeId);
+        if (primaryEmployeeId === null) return;
 
         const employeeIds = [primaryEmployeeId, secondaryEmployeeId].filter(
             (employeeId): employeeId is number => employeeId !== null,
         );
-        const employees = await this.prismaService.employee.findMany({
+        await lockEmployeesForScheduleWrite(
+            transaction,
+            branchid,
+            [...employeeIds, ...(retainedEmployeeIds ? [...retainedEmployeeIds] : [])],
+        );
+        const employees: EmployeeAssignmentCandidate[] = await transaction.employee.findMany({
             where: {
                 id: { in: employeeIds },
                 branchId: branchid,
-                deletedAt: null,
             },
-            select: { id: true },
+            select: {
+                id: true,
+                branchId: true,
+                deletedAt: true,
+                openToNextWork: true,
+            },
         });
-        if (employees.length !== employeeIds.length) {
-            throw new BadRequestException("selected employees must belong to the client branch");
-        }
+        assertEmployeeAssignmentEligibility(
+            branchid,
+            primaryEmployeeId,
+            secondaryEmployeeId,
+            employees,
+            retainedEmployeeIds,
+        );
     }
 
     private async syncEmployeeAssignment(branchid: string, params: {
@@ -802,35 +829,60 @@ export class ClientService {
         endDate: Date;
         applyMessageAutomation: boolean;
     }): Promise<{ createdScheduleId: number | null; replacedScheduleId: number | null }> {
-        const currentSchedule = await this.prismaService.employee_schedule.findFirst({
-            where: { clientId: params.clientId, branchId: branchid, replaced: false },
-            orderBy: { id: "desc" },
-        });
-        const currentPrimaryEmployeeId = currentSchedule?.primaryEmployeeId ?? null;
-        const currentSecondaryEmployeeId = currentSchedule?.secondaryEmployeeId ?? null;
-        const newPrimaryEmployeeId = params.primaryEmployeeId ?? currentPrimaryEmployeeId;
-        const newSecondaryEmployeeId = params.secondaryEmployeeId !== undefined
-            ? params.secondaryEmployeeId
-            : currentSecondaryEmployeeId;
-
-        if (
-            newPrimaryEmployeeId === currentPrimaryEmployeeId &&
-            newSecondaryEmployeeId === currentSecondaryEmployeeId
-        ) {
-            return { createdScheduleId: null, replacedScheduleId: null };
-        }
-
-        await this.assertAllowedEmployees(branchid, newPrimaryEmployeeId, newSecondaryEmployeeId);
-        if (newPrimaryEmployeeId === null) {
-            throw new BadRequestException("primary employee is required to create an assignment");
-        }
-
         const intentAt = new Date();
         const newSchedule = await this.prismaService.$transaction(async (transaction) => {
+            await lockClientForScheduleWrite(transaction, branchid, params.clientId);
+            const currentSchedule = await transaction.employee_schedule.findFirst({
+                where: { clientId: params.clientId, branchId: branchid, replaced: false },
+                orderBy: { id: "desc" },
+            });
+            const currentPrimaryEmployeeId = currentSchedule?.primaryEmployeeId ?? null;
+            const currentSecondaryEmployeeId = currentSchedule?.secondaryEmployeeId ?? null;
+            const newPrimaryEmployeeId = params.primaryEmployeeId ?? currentPrimaryEmployeeId;
+            const newSecondaryEmployeeId = params.secondaryEmployeeId !== undefined
+                ? params.secondaryEmployeeId
+                : currentSecondaryEmployeeId;
+
+            if (
+                newPrimaryEmployeeId === currentPrimaryEmployeeId &&
+                newSecondaryEmployeeId === currentSecondaryEmployeeId
+            ) {
+                return null;
+            }
+
+            assertEmployeeAssignmentShape(newPrimaryEmployeeId, newSecondaryEmployeeId);
+            if (newPrimaryEmployeeId === null) {
+                throw new BadRequestException("primary employee is required to create an assignment");
+            }
+
+            const retainedEmployeeIds = new Set(
+                [currentPrimaryEmployeeId, currentSecondaryEmployeeId]
+                    .filter((employeeId): employeeId is number => employeeId !== null),
+            );
+            await this.assertAllowedEmployees(
+                branchid,
+                newPrimaryEmployeeId,
+                newSecondaryEmployeeId,
+                transaction,
+                retainedEmployeeIds,
+            );
+            await assertNoActiveEmployeeScheduleOverlap(transaction, {
+                branchId: branchid,
+                clientId: params.clientId,
+                primaryEmployeeId: newPrimaryEmployeeId,
+                secondaryEmployeeId: newSecondaryEmployeeId,
+                startDate: params.startDate,
+                endDate: params.endDate,
+                replaced: false,
+                excludeScheduleId: currentSchedule?.id,
+            });
             if (currentSchedule) {
                 await transaction.employee_schedule.update({
                     where: { id: currentSchedule.id },
-                    data: { replaced: true, endDate: new Date() },
+                    data: {
+                        replaced: true,
+                        endDate: employeeScheduleReplacementEndDate(new Date(), currentSchedule.startDate),
+                    },
                 });
             }
             const newSchedule = await transaction.employee_schedule.create({
@@ -854,12 +906,19 @@ export class ClientService {
                     intentAt,
                 });
             }
-            return newSchedule;
+            return {
+                schedule: newSchedule,
+                replacedScheduleId: currentSchedule?.id ?? null,
+            };
         });
 
+        if (newSchedule === null) {
+            return { createdScheduleId: null, replacedScheduleId: null };
+        }
+
         return {
-            createdScheduleId: newSchedule.id,
-            replacedScheduleId: currentSchedule?.id ?? null,
+            createdScheduleId: newSchedule.schedule.id,
+            replacedScheduleId: newSchedule.replacedScheduleId,
         };
     }
 
@@ -890,11 +949,17 @@ export class ClientService {
         reuseExistingClient?: boolean;
         source?: string;
     }): Promise<ClientEntity> {
+        // Reject malformed identity input before settings lookups, duplicate
+        // checks, automation, or any other write/provider side effect.
+        assertClientPhoneInput(params.phone);
         const startDate = parseClientDate(params.startDate) ?? null;
         const endDate = parseClientDate(params.endDate) ?? null;
         const dueDate = parseClientDate(params.dueDate) ?? null;
         const birthDate = parseClientDate(params.birthDate) ?? null;
         mergeAndValidateClientServicePeriod(null, { startDate, endDate });
+        const derivedDuration = deriveClientDuration(startDate, endDate);
+        assertClientDurationMatchesDates(params.duration, derivedDuration);
+        const duration = derivedDuration ?? params.duration ?? null;
         assertAllowedServiceStatus(params.serviceStatus);
         await assertAllowedClientArea(this.prismaService, branchid, params.areaId);
 
@@ -972,7 +1037,7 @@ export class ClientService {
             address: params.address ?? null,
             phone: params.phone ?? null,
             type: normalizedPricing.type,
-            duration: params.duration ?? null,
+            duration,
             fullPrice: normalizedPricing.fullPrice,
             grant: normalizedPricing.grant,
             actualPrice: normalizedPricing.actualPrice,
@@ -992,19 +1057,35 @@ export class ClientService {
 
         const primaryEmployeeId = params.primaryEmployeeId ?? null;
         const secondaryEmployeeId = params.secondaryEmployeeId ?? null;
-        await this.assertAllowedEmployees(branchid, primaryEmployeeId, secondaryEmployeeId);
+        assertEmployeeAssignmentShape(primaryEmployeeId, secondaryEmployeeId);
 
         let client: ClientEntity;
         let createdScheduleId: number | null = null;
         const automationIntentAt = new Date();
         if (primaryEmployeeId !== null) {
             const result = await this.prismaService.$transaction(async (transaction) => {
+                await this.assertAllowedEmployees(
+                    branchid,
+                    primaryEmployeeId,
+                    secondaryEmployeeId,
+                    transaction,
+                );
+                const initialScheduleStartDate = startDate ?? new Date();
+                const initialScheduleEndDate = endDate ?? new Date(Date.now() + DEFAULT_SERVICE_PERIOD_MS);
+                await assertNoActiveEmployeeScheduleOverlap(transaction, {
+                    branchId: branchid,
+                    primaryEmployeeId,
+                    secondaryEmployeeId,
+                    startDate: initialScheduleStartDate,
+                    endDate: initialScheduleEndDate,
+                    replaced: false,
+                });
                 const created = await this.createClientUsecase.executeWithInitialSchedule(branchid, createParams, {
                     primaryEmployeeId,
                     secondaryEmployeeId,
                     workAddress: params.address ?? "",
-                    startDate: startDate ?? new Date(),
-                    endDate: endDate ?? new Date(Date.now() + DEFAULT_SERVICE_PERIOD_MS),
+                    startDate: initialScheduleStartDate,
+                    endDate: initialScheduleEndDate,
                 }, transaction);
                 if (applyMessageAutomation) {
                     await this.messageAutomationIntentService.persistClientIntent(transaction, {
@@ -1072,7 +1153,7 @@ export class ClientService {
 
     async findAll(branchid: string): Promise<ClientWithEmployees[]> {
         const clients = await this.listClientsUsecase.execute(branchid);
-        return this.attachEmployeesToClients(clients);
+        return this.attachEmployeesToClients(clients, branchid);
     }
 
     async findAllPaginated(
@@ -1087,7 +1168,7 @@ export class ClientService {
             limit,
             search
         );
-        const clientsWithEmployees = await this.attachEmployeesToClients(result.data);
+        const clientsWithEmployees = await this.attachEmployeesToClients(result.data, branchid);
         return {
             data: clientsWithEmployees,
             total: result.total,
@@ -1109,7 +1190,7 @@ export class ClientService {
         const client = await this.findClientByIdUsecase.execute(branchid, id);
         if (!client) return null;
 
-        const [withEmployees] = await this.attachEmployeesToClients([client]);
+        const [withEmployees] = await this.attachEmployeesToClients([client], branchid);
         return withEmployees ?? null;
     }
 
@@ -1146,14 +1227,17 @@ export class ClientService {
                 clients = [];
         }
 
-        return this.attachEmployeesToClients(clients);
+        return this.attachEmployeesToClients(clients, branchid);
     }
 
     /**
      * Helper method to attach employee info to clients and compute service status
      * Implements lazy update: computes status on access and updates DB if changed
      */
-    private async attachEmployeesToClients(clients: ClientEntity[]): Promise<ClientWithEmployees[]> {
+    private async attachEmployeesToClients(
+        clients: ClientEntity[],
+        branchid: string,
+    ): Promise<ClientWithEmployees[]> {
         if (clients.length === 0) return [];
 
         const clientIds = clients.map(c => c.id);
@@ -1191,7 +1275,11 @@ export class ClientService {
         const latestContractMap = await this.findLatestContractByClientId(clientIds);
 
         // Compute and update service status for each client (lazy update strategy)
-        const clientsNeedingUpdate: { id: number; newStatus: ServiceStatusType }[] = [];
+        const clientsNeedingUpdate: {
+            id: number;
+            expectedServiceStatus: string | null;
+            newStatus: ServiceStatusType;
+        }[] = [];
 
         const result = clients.map(client => {
             const schedule = scheduleMap.get(client.id);
@@ -1205,8 +1293,12 @@ export class ClientService {
             );
 
             // Track clients that need status update in DB
-            if (client.serviceStatus !== computedStatus) {
-                clientsNeedingUpdate.push({ id: client.id, newStatus: computedStatus });
+            if (isAutomaticServiceStatusTransitionAllowed(client.serviceStatus, computedStatus)) {
+                clientsNeedingUpdate.push({
+                    id: client.id,
+                    expectedServiceStatus: client.serviceStatus,
+                    newStatus: computedStatus,
+                });
             }
             const latestContract = latestContractMap.get(client.id);
             const documentStatus = latestContract?.permanentPurgeRequestedAt != null
@@ -1289,7 +1381,7 @@ export class ClientService {
 
         // Batch update clients whose status changed (non-blocking)
         if (clientsNeedingUpdate.length > 0) {
-            this.updateServiceStatusesInBackground(clientsNeedingUpdate);
+            this.updateServiceStatusesInBackground(branchid, clientsNeedingUpdate);
         }
 
         return result;
@@ -1300,18 +1392,28 @@ export class ClientService {
      * Does not block the main response
      */
     private updateServiceStatusesInBackground(
-        updates: { id: number; newStatus: ServiceStatusType }[]
+        branchid: string,
+        updates: {
+            id: number;
+            expectedServiceStatus: string | null;
+            newStatus: ServiceStatusType;
+        }[],
     ): void {
         // Use Promise.allSettled to handle each update independently
         Promise.allSettled(
-            updates.map(async ({ id, newStatus }) => {
+            updates.map(async ({ id, expectedServiceStatus, newStatus }) => {
                 try {
-                    await this.prismaService.client.update({
-                        where: { id },
-                        data: { serviceStatus: newStatus },
-                        select: { id: true },
-                    });
-                    this.logger.debug(`Updated client ${id} service status to ${newStatus}`);
+                    const result = await this.clientRepository.updateServiceStatusIfCurrent(
+                        branchid,
+                        id,
+                        expectedServiceStatus,
+                        newStatus,
+                    );
+                    if (result === "updated") {
+                        this.logger.debug(`Updated client ${id} service status to ${newStatus}`);
+                    } else {
+                        this.logger.debug(`Skipped stale client ${id} service status update`);
+                    }
                 } catch (error) {
                     this.logger.warn(`Failed to update client ${id} service status: ${error}`);
                 }
@@ -1319,6 +1421,47 @@ export class ClientService {
         ).catch(error => {
             this.logger.error(`Error in background status updates: ${error}`);
         });
+    }
+
+    /**
+     * Keep client-name assignment refreshes durable when the immediate rebuild
+     * cannot complete. The intent writer owns branch/schedule deduplication;
+     * this helper only selects the active schedules in the caller's branch and
+     * persists their existing schedule intents in one transaction.
+     */
+    private async persistEmployeeAssignmentRefreshIntents(
+        branchId: string,
+        clientId: number,
+    ): Promise<void> {
+        try {
+            const activeSchedules = await this.prismaService.employee_schedule.findMany({
+                where: { branchId, clientId, replaced: false },
+                select: { id: true },
+                orderBy: { id: "asc" },
+            });
+            const scheduleIds = [...new Set(activeSchedules.map(({ id }) => id))]
+                .sort((left, right) => left - right);
+            if (scheduleIds.length === 0) return;
+
+            const intentAt = new Date();
+            await this.prismaService.$transaction(async (transaction) => {
+                for (const scheduleId of scheduleIds) {
+                    await this.messageAutomationIntentService.persistScheduleIntent(transaction, {
+                        branchId,
+                        clientId,
+                        scheduleId,
+                        includePast: true,
+                        intentAt,
+                        replaceExisting: true,
+                    });
+                }
+            });
+        } catch (error) {
+            this.logger.error(
+                `Failed to persist employee assignment refresh retries for client ${clientId}: ` +
+                `${error instanceof Error ? error.message : String(error)}`,
+            );
+        }
     }
 
     private mapStatusTypeToDocumentStatus(statusType?: string): DocumentStatusType {
@@ -1358,10 +1501,19 @@ export class ClientService {
         eDocId?: string | null;
         areaId?: string | null;
     }): Promise<ClientEntity> {
+        // Keep invalid phone input from reaching lifecycle/provider work or a
+        // transaction that could partially mutate schedule state.
+        assertClientPhoneInput(params.phone);
         // Get existing client
         const existingClient = await this.findClientByIdUsecase.execute(branchid, id);
         if (!existingClient) {
             throw new NotFoundException(`Client with id ${id} not found`);
+        }
+
+        for (const field of ["name", "voucherClient", "breastPump"] as const) {
+            if (Object.prototype.hasOwnProperty.call(params, field) && params[field] === null) {
+                throw new BadRequestException(`${field} cannot be null`);
+            }
         }
 
         const hasRequestedUpdate = Object.values(params).some((value) => value !== undefined);
@@ -1396,17 +1548,8 @@ export class ClientService {
         // rather than with a raw `new Date`: that reads "2026-08" as 1 August
         // and hands anything it cannot parse to Prisma as an Invalid Date. Both
         // become a 400 here instead, and before the transaction opens.
-        const dueDateUpdate = params.dueDate ? parseClientDate(params.dueDate) : undefined;
-        const birthDateUpdate = params.birthDate === undefined
-            ? undefined
-            : (params.birthDate ? parseClientDate(params.birthDate) : null);
-        await this.serviceRecordLifecycleService?.validatePeriodChange({
-            clientId: id,
-            startDate: startDateUpdate,
-            endDate: endDateUpdate,
-            duration: params.duration,
-        });
-
+        const dueDateUpdate = params.dueDate === undefined ? undefined : parseClientDate(params.dueDate);
+        const birthDateUpdate = params.birthDate === undefined ? undefined : parseClientDate(params.birthDate);
         const { existingClient: clientWithPhone } = await findClientByNormalizedPhone(
             this.clientRepository,
             branchid,
@@ -1416,90 +1559,144 @@ export class ClientService {
             throw new ConflictException({ statusCode: 409, code: "P2002", error: "Conflict", field: "phone" });
         }
 
+        // Keep the display value untouched while persisting the canonical
+        // identity key used by branch-scoped uniqueness and lookups.
+        const normalizedPhoneUpdate = params.phone === undefined
+            ? undefined
+            : normalizePhone(params.phone);
+
         const mergedServicePeriod = mergeAndValidateClientServicePeriod(existingClient, {
             startDate: startDateUpdate,
             endDate: endDateUpdate,
+        });
+        const hasDateUpdate = params.startDate !== undefined || params.endDate !== undefined;
+        const derivedDuration = deriveClientDuration(
+            mergedServicePeriod.startDate,
+            mergedServicePeriod.endDate,
+        );
+        assertClientDurationMatchesDates(params.duration, derivedDuration);
+        if (hasDateUpdate && params.duration === null && derivedDuration !== null) {
+            throw new BadRequestException(
+                `duration must equal the Korean business-day count (${derivedDuration}) for the submitted service period`,
+            );
+        }
+        if (hasDateUpdate && derivedDuration === null && params.duration !== undefined && params.duration !== null) {
+            throw new BadRequestException("duration requires a complete service period");
+        }
+        // Complete calendar dates own the persisted duration even when the
+        // caller changes an unrelated profile field. Incomplete periods keep
+        // the explicit policy duration (or null) because no derived count
+        // exists yet.
+        const duration = derivedDuration !== null
+            ? derivedDuration
+            : hasDateUpdate
+                ? null
+                : params.duration;
+        await this.serviceRecordLifecycleService?.validatePeriodChange({
+            clientId: id,
+            startDate: startDateUpdate,
+            endDate: endDateUpdate,
+            duration,
         });
         const startDate = mergedServicePeriod.startDate ?? new Date();
         const endDate = mergedServicePeriod.endDate ?? new Date(startDate.getTime() + DEFAULT_SERVICE_PERIOD_MS);
 
         // Check if employee assignment is being changed
         const employeeChanged = params.primaryEmployeeId !== undefined || params.secondaryEmployeeId !== undefined;
+        const clientNameSupplied = params.name !== undefined;
 
         let createdScheduleId: number | null = null;
         let replacedScheduleId: number | null = null;
-        let currentSchedule: {
-            id: number;
-            primaryEmployeeId: number;
-            secondaryEmployeeId: number | null;
-        } | null = null;
-        let assignmentChanged = false;
-        if (employeeChanged) {
-            currentSchedule = await this.prismaService.employee_schedule.findFirst({
-                where: { clientId: id, branchId: branchid, replaced: false },
-                orderBy: { id: "desc" },
-            });
-            const primaryEmployeeId = params.primaryEmployeeId ?? currentSchedule?.primaryEmployeeId ?? null;
-            const secondaryEmployeeId = params.secondaryEmployeeId !== undefined
-                ? params.secondaryEmployeeId
-                : currentSchedule?.secondaryEmployeeId ?? null;
-            await this.assertAllowedEmployees(branchid, primaryEmployeeId, secondaryEmployeeId);
-            assignmentChanged = primaryEmployeeId !== (currentSchedule?.primaryEmployeeId ?? null)
-                || secondaryEmployeeId !== (currentSchedule?.secondaryEmployeeId ?? null);
-        }
 
         await this.prismaService.$transaction(async (transaction) => {
-            if (assignmentChanged) {
-                const primaryEmployeeId = params.primaryEmployeeId ?? currentSchedule?.primaryEmployeeId ?? null;
+            if (employeeChanged) {
+                await lockClientForScheduleWrite(transaction, branchid, id);
+                const currentSchedule = await transaction.employee_schedule.findFirst({
+                    where: { clientId: id, branchId: branchid, replaced: false },
+                    orderBy: { id: "desc" },
+                });
+                const currentPrimaryEmployeeId = currentSchedule?.primaryEmployeeId ?? null;
+                const currentSecondaryEmployeeId = currentSchedule?.secondaryEmployeeId ?? null;
+                const primaryEmployeeId = params.primaryEmployeeId ?? currentPrimaryEmployeeId;
                 const secondaryEmployeeId = params.secondaryEmployeeId !== undefined
                     ? params.secondaryEmployeeId
-                    : currentSchedule?.secondaryEmployeeId ?? null;
-                if (primaryEmployeeId === null) {
-                    throw new BadRequestException("primary employee is required to create an assignment");
-                }
-                if (currentSchedule) {
-                    await transaction.employee_schedule.update({
-                        where: { id: currentSchedule.id },
-                        data: { replaced: true, endDate: new Date() },
-                    });
-                    replacedScheduleId = currentSchedule.id;
-                }
-                const schedule = await transaction.employee_schedule.create({
-                    data: {
-                        clientId: id,
-                        branchId: branchid,
+                    : currentSecondaryEmployeeId;
+                assertEmployeeAssignmentShape(primaryEmployeeId, secondaryEmployeeId);
+                const assignmentChanged = primaryEmployeeId !== currentPrimaryEmployeeId
+                    || secondaryEmployeeId !== currentSecondaryEmployeeId;
+                if (assignmentChanged) {
+                    if (primaryEmployeeId === null) {
+                        throw new BadRequestException("primary employee is required to create an assignment");
+                    }
+                    const retainedEmployeeIds = new Set(
+                        [currentPrimaryEmployeeId, currentSecondaryEmployeeId]
+                            .filter((employeeId): employeeId is number => employeeId !== null),
+                    );
+                    await this.assertAllowedEmployees(
+                        branchid,
                         primaryEmployeeId,
                         secondaryEmployeeId,
-                        workAddress: params.address ?? existingClient.address ?? "",
+                        transaction,
+                        retainedEmployeeIds,
+                    );
+                    await assertNoActiveEmployeeScheduleOverlap(transaction, {
+                        branchId: branchid,
+                        clientId: id,
+                        primaryEmployeeId,
+                        secondaryEmployeeId,
                         startDate,
                         endDate,
                         replaced: false,
-                    },
-                });
-                createdScheduleId = schedule.id;
+                        excludeScheduleId: currentSchedule?.id,
+                    });
+                    if (currentSchedule) {
+                        await transaction.employee_schedule.update({
+                            where: { id: currentSchedule.id },
+                            data: {
+                                replaced: true,
+                                endDate: employeeScheduleReplacementEndDate(new Date(), currentSchedule.startDate),
+                            },
+                        });
+                        replacedScheduleId = currentSchedule.id;
+                    }
+                    const schedule = await transaction.employee_schedule.create({
+                        data: {
+                            clientId: id,
+                            branchId: branchid,
+                            primaryEmployeeId,
+                            secondaryEmployeeId,
+                            workAddress: params.address ?? existingClient.address ?? "",
+                            startDate,
+                            endDate,
+                            replaced: false,
+                        },
+                    });
+                    createdScheduleId = schedule.id;
+                }
             }
 
             const result = await transaction.client.updateMany({
                 where: { id, branchId: branchid },
                 data: {
                     name: params.name,
-                    address: params.address ?? undefined,
+                    address: params.address === undefined ? undefined : params.address,
                     phone: params.phone === undefined ? undefined : params.phone,
+                    phoneNormalized: normalizedPhoneUpdate,
                     type: normalizedPricing?.type,
-                    duration: params.duration ?? undefined,
+                    duration: duration === undefined ? undefined : duration,
                     fullPrice: normalizedPricing?.fullPrice,
                     grant: normalizedPricing?.grant,
                     actualPrice: normalizedPricing?.actualPrice,
                     startDate: startDateUpdate,
                     endDate: endDateUpdate,
-                    careCenter: params.careCenter ?? undefined,
+                    careCenter: params.careCenter === undefined ? undefined : params.careCenter,
                     voucherClient: params.voucherClient,
-                    birthday: params.birthday ?? undefined,
+                    birthday: params.birthday === undefined ? undefined : params.birthday,
                     dueDate: dueDateUpdate,
                     birthDate: birthDateUpdate,
                     serviceStatus: params.serviceStatus === undefined ? undefined : params.serviceStatus,
                     breastPump: params.breastPump,
-                    eDocId: params.eDocId ?? undefined,
+                    eDocId: params.eDocId === undefined ? undefined : params.eDocId,
                     areaId: params.areaId === undefined ? undefined : params.areaId,
                 },
             });
@@ -1524,13 +1721,26 @@ export class ClientService {
             await this.triggerService.syncClientRulesForClient(branchid, id, false).catch((error) => {
                 this.logger.error(`Failed to sync client trigger rules: ${error}`);
             });
+            if (clientNameSupplied) {
+                try {
+                    const refreshed = await this.triggerService.syncEmployeeAssignmentRulesForClient(branchid, id);
+                    if (refreshed === false) {
+                        await this.persistEmployeeAssignmentRefreshIntents(branchid, id);
+                    }
+                } catch (error) {
+                    this.logger.error(`Failed to sync employee assignment triggers for client ${id}: ${error}`);
+                    await this.persistEmployeeAssignmentRefreshIntents(branchid, id);
+                }
+            }
         }
         if (createdScheduleId !== null) {
-            await this.triggerService
-                ?.syncEmployeeAssignmentRulesForSchedule(branchid, createdScheduleId, true)
-                ?.catch((error) => {
-                    this.logger.error(`Failed to sync employee assignment triggers: ${error}`);
-                });
+            if (!clientNameSupplied) {
+                await this.triggerService
+                    ?.syncEmployeeAssignmentRulesForSchedule(branchid, createdScheduleId, true)
+                    ?.catch((error) => {
+                        this.logger.error(`Failed to sync employee assignment triggers: ${error}`);
+                    });
+            }
             await this.serviceRecordLinkService
                 ?.scheduleForServiceStart(createdScheduleId)
                 ?.catch((error) => {
@@ -1612,15 +1822,13 @@ export class ClientService {
         if (!client) {
             throw new NotFoundException(`Client with id ${clientId} not found`);
         }
-        await this.assertAllowedEmployees(
-            branchid,
-            newPrimaryEmployeeId,
-            newSecondaryEmployeeId ?? null,
-        );
+        assertEmployeeAssignmentShape(newPrimaryEmployeeId, newSecondaryEmployeeId ?? null);
 
         mergeAndValidateClientServicePeriod(client, {});
         const replacementStartDate = new Date();
-        const replacementEndDate = client.endDate ?? new Date(replacementStartDate.getTime() + DEFAULT_SERVICE_PERIOD_MS);
+        const replacementEndDate = client.endDate && client.endDate.getTime() >= replacementStartDate.getTime()
+            ? client.endDate
+            : new Date(replacementStartDate.getTime() + DEFAULT_SERVICE_PERIOD_MS);
 
         this.logger.log(
             `Replacement requested for client ${clientId}: ` +
@@ -1629,6 +1837,32 @@ export class ClientService {
 
         let replacedScheduleId: number | null = null;
         const replacementSchedule = await this.prismaService.$transaction(async (transaction) => {
+            await lockClientForScheduleWrite(transaction, branchid, clientId);
+            const currentSchedule = await transaction.employee_schedule.findFirst({
+                where: { clientId, branchId: branchid, replaced: false },
+                orderBy: { id: "desc" },
+            });
+            const retainedEmployeeIds = new Set(
+                [currentSchedule?.primaryEmployeeId ?? null, currentSchedule?.secondaryEmployeeId ?? null]
+                    .filter((employeeId): employeeId is number => employeeId !== null),
+            );
+            await this.assertAllowedEmployees(
+                branchid,
+                newPrimaryEmployeeId,
+                newSecondaryEmployeeId ?? null,
+                transaction,
+                retainedEmployeeIds,
+            );
+            await assertNoActiveEmployeeScheduleOverlap(transaction, {
+                branchId: branchid,
+                clientId,
+                primaryEmployeeId: newPrimaryEmployeeId,
+                secondaryEmployeeId: newSecondaryEmployeeId ?? null,
+                startDate: replacementStartDate,
+                endDate: replacementEndDate,
+                replaced: false,
+                excludeScheduleId: currentSchedule?.id,
+            });
             const updateResult = await transaction.client.updateMany({
                 where: { id: clientId, branchId: branchid },
                 data: { serviceStatus: SERVICE_STATUS.REPLACEMENT_REQUESTED },
@@ -1637,14 +1871,13 @@ export class ClientService {
                 throw new NotFoundException(`Client with id ${clientId} not found`);
             }
 
-            const currentSchedule = await transaction.employee_schedule.findFirst({
-                where: { clientId, branchId: branchid, replaced: false },
-                orderBy: { id: "desc" },
-            });
             if (currentSchedule) {
                 await transaction.employee_schedule.update({
                     where: { id: currentSchedule.id },
-                    data: { replaced: true, endDate: replacementStartDate },
+                    data: {
+                        replaced: true,
+                        endDate: employeeScheduleReplacementEndDate(replacementStartDate, currentSchedule.startDate),
+                    },
                 });
                 replacedScheduleId = currentSchedule.id;
             }
@@ -1719,8 +1952,12 @@ export class ClientService {
     }
 
     async delete(branchid: string, id: number): Promise<void> {
-        await this.triggerService?.cancelPendingJobsForClientDeletion(branchid, id);
         await this.deleteClientUsecase.execute(branchid, id);
+        // The delete use case holds the client row lock and rejects any
+        // retained message-trigger job before the physical delete. Keep this
+        // legacy cleanup hook after a successful delete so a blocked request
+        // cannot partially mutate pending jobs.
+        await this.triggerService?.cancelPendingJobsForClientDeletion(branchid, id);
     }
 
     async getStats(branchid: string): Promise<{

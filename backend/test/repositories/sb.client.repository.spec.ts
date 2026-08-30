@@ -48,7 +48,7 @@ describe("SbClientRepository", () => {
         address: "Test Address",
         phone: "010-0000-1111",
         type: "B",
-        duration: 12,
+        duration: 123,
         fullPrice: "120000",
         grant: "60000",
         actualPrice: "60000",
@@ -68,6 +68,7 @@ describe("SbClientRepository", () => {
     const branchId = "org-1";
 
     let clientModel: ReturnType<typeof createMockPrismaClient>;
+    let transactionQueryRaw: jest.Mock;
     let prisma: PrismaService;
     let repository: SbClientRepository;
 
@@ -78,9 +79,14 @@ describe("SbClientRepository", () => {
         // answer and silently pass/fail for the wrong reason.
         clearSchemaCapabilityCache();
         clientModel = createMockPrismaClient();
+        transactionQueryRaw = jest.fn()
+            .mockResolvedValueOnce([{ id: 1 }])
+            .mockResolvedValue([{ count: 0 }]);
         prisma = {
             client: clientModel,
             $queryRawUnsafe: jest.fn().mockResolvedValue([{ exists: true }]),
+            $transaction: jest.fn(async (callback: (transaction: unknown) => Promise<unknown>) =>
+                callback({ client: clientModel, $queryRaw: transactionQueryRaw })),
         } as unknown as PrismaService;
         repository = new SbClientRepository(prisma);
     });
@@ -372,7 +378,7 @@ describe("SbClientRepository", () => {
                         address: "Test Address",
                         phone: "010-0000-1111",
                         type: "B",
-                        duration: 12,
+                        duration: 123,
                         fullPrice: "120000",
                         grant: "60000",
                         actualPrice: "60000",
@@ -574,6 +580,7 @@ describe("SbClientRepository", () => {
                         name: "Updated Name",
                         address: "Updated Address",
                         phone: "010-3333-4444",
+                        phoneNormalized: "01033334444",
                         type: "C",
                         duration: 6,
                         fullPrice: "60000",
@@ -736,6 +743,92 @@ describe("SbClientRepository", () => {
             expect(result).toBeNull();
             expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
             expect(transaction.client.updateMany).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("automatic service-status CAS", () => {
+        it("updates only when the branch and observed status still match", async () => {
+            clientModel.updateMany.mockResolvedValue({ count: 1 });
+
+            const result = await repository.updateServiceStatusIfCurrent(
+                branchId,
+                1,
+                "waiting",
+                "active",
+            );
+
+            expect(result).toBe("updated");
+            expect(clientModel.updateMany).toHaveBeenCalledWith({
+                where: { id: 1, branchId, serviceStatus: "waiting" },
+                data: { serviceStatus: "active" },
+            });
+        });
+
+        it("returns stale when the expected status no longer matches", async () => {
+            clientModel.updateMany.mockResolvedValue({ count: 0 });
+
+            const result = await repository.updateServiceStatusIfCurrent(
+                branchId,
+                1,
+                "waiting",
+                "active",
+            );
+
+            expect(result).toBe("stale");
+            expect(clientModel.updateMany).toHaveBeenCalledWith({
+                where: { id: 1, branchId, serviceStatus: "waiting" },
+                data: { serviceStatus: "active" },
+            });
+        });
+
+        it.each(["pre_booking", "terminated", "replacement_requested"])(
+            "rejects automatic movement from manual %s before touching the database",
+            async (manualStatus) => {
+                const result = await repository.updateServiceStatusIfCurrent(
+                    branchId,
+                    1,
+                    manualStatus,
+                    "active",
+                );
+
+                expect(result).toBe("stale");
+                expect(clientModel.updateMany).not.toHaveBeenCalled();
+            },
+        );
+
+        it("returns stale for a missing or wrong-branch client without an unscoped write", async () => {
+            clientModel.updateMany.mockResolvedValue({ count: 0 });
+
+            await expect(repository.updateServiceStatusIfCurrent(
+                "wrong-branch",
+                999,
+                "waiting",
+                "active",
+            )).resolves.toBe("stale");
+
+            expect(clientModel.updateMany).toHaveBeenCalledWith({
+                where: { id: 999, branchId: "wrong-branch", serviceStatus: "waiting" },
+                data: { serviceStatus: "active" },
+            });
+        });
+
+        it("refuses a late first generation after a newer background generation has won", async () => {
+            clientModel.updateMany
+                .mockResolvedValueOnce({ count: 1 })
+                .mockResolvedValueOnce({ count: 0 });
+
+            await expect(repository.updateServiceStatusIfCurrent(
+                branchId,
+                1,
+                "waiting",
+                "active",
+            )).resolves.toBe("updated");
+            await expect(repository.updateServiceStatusIfCurrent(
+                branchId,
+                1,
+                "waiting",
+                "completed",
+            )).resolves.toBe("stale");
         });
     });
 

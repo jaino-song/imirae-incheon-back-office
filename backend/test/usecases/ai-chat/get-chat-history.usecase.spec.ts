@@ -28,9 +28,9 @@ describe("GetChatHistoryUsecase", () => {
             repo.findActiveByUserId.mockResolvedValue(null);
             const usecase = new GetChatHistoryUsecase(repo);
 
-            const result = await usecase.execute("user-1", 0, 20);
+            const result = await usecase.execute("user-1", 0, 20, "branch-1");
 
-            expect(repo.findActiveByUserId).toHaveBeenCalledWith("user-1");
+            expect(repo.findActiveByUserId).toHaveBeenCalledWith("user-1", "branch-1");
             expect(result).toEqual({
                 messages: [],
                 total: 0,
@@ -48,13 +48,14 @@ describe("GetChatHistoryUsecase", () => {
                 createMessages(5),
                 new Date("2026-01-01T00:00:00.000Z"),
                 new Date("2099-01-01T00:00:00.000Z"),
+                "branch-1",
             );
             repo.findActiveByUserId.mockResolvedValue(session);
 
             const usecase = new GetChatHistoryUsecase(repo);
-            const result = await usecase.execute("user-1", 1, 2);
+            const result = await usecase.execute("user-1", 1, 2, "branch-1");
 
-            expect(repo.findActiveByUserId).toHaveBeenCalledWith("user-1");
+            expect(repo.findActiveByUserId).toHaveBeenCalledWith("user-1", "branch-1");
             expect(result.total).toBe(5);
             expect(result.messages.map((m: ChatMessage) => m.content)).toEqual(["m2", "m3"]);
             expect(result.hasMore).toBe(true);

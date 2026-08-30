@@ -11,6 +11,15 @@ import {
 import { normalizeEformsignDocumentResponse } from "infrastructure/api/eformsign-response.normalizer";
 import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
 
+const TEST_PRINCIPAL = { branchId: "branch-1", globalRole: "owner" };
+const createBoundary = () => ({
+    withCredentials: jest.fn((
+        _principal: unknown,
+        _capability: unknown,
+        operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+    ) => operation({ accessToken: "vendor-token", refreshToken: "vendor-refresh-token" })),
+});
+
 const PDF = Buffer.from("%PDF-1.4\nlocal mirror test\n%%EOF");
 const UPDATED_AT = Date.parse("2026-07-29T03:00:00.000Z");
 
@@ -80,6 +89,7 @@ describe("EformsignDocumentMirrorService", () => {
                     oauth_token: { access_token: "vendor-token" },
                 }),
             } as never,
+            createBoundary() as never,
             repository as never,
             {} as never,
             {} as never,
@@ -96,7 +106,7 @@ describe("EformsignDocumentMirrorService", () => {
             missingFileTypes: [],
         });
 
-        await expect(service.syncDocument("doc-1", {
+        await expect(service.syncDocument("doc-1", TEST_PRINCIPAL, {
             publishChangeReason: "mirror:finalize",
         })).resolves.toEqual(expect.objectContaining({ status: "synced" }));
 
@@ -114,6 +124,7 @@ describe("EformsignDocumentMirrorService", () => {
                     oauth_token: { access_token: "vendor-token" },
                 }),
             } as never,
+            createBoundary() as never,
             {
                 findState: jest.fn().mockRejectedValue(new Error("branch lookup unavailable")),
             } as never,
@@ -132,7 +143,7 @@ describe("EformsignDocumentMirrorService", () => {
             missingFileTypes: [],
         });
 
-        await expect(service.syncDocument("doc-1", {
+        await expect(service.syncDocument("doc-1", TEST_PRINCIPAL, {
             publishChangeReason: "mirror:finalize",
         })).resolves.toEqual(expect.objectContaining({ status: "synced" }));
     });
@@ -145,6 +156,7 @@ describe("EformsignDocumentMirrorService", () => {
                     oauth_token: { access_token: "vendor-token" },
                 }),
             } as never,
+            createBoundary() as never,
             {
                 findState: jest.fn().mockResolvedValue({ branchId: null }),
             } as never,
@@ -163,7 +175,7 @@ describe("EformsignDocumentMirrorService", () => {
             missingFileTypes: [],
         });
 
-        await expect(service.syncDocument("doc-1", {
+        await expect(service.syncDocument("doc-1", TEST_PRINCIPAL, {
             publishChangeReason: "mirror:finalize",
         })).resolves.toEqual(expect.objectContaining({ status: "synced" }));
 
@@ -186,6 +198,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             {} as never,
+            createBoundary() as never,
             repository as never,
             {} as never,
             {} as never,
@@ -228,6 +241,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             {} as never,
+            createBoundary() as never,
             repository as never,
             {} as never,
             {} as never,
@@ -328,6 +342,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirrorUsecase as never,
             linkByPhoneUsecase as never,
@@ -434,6 +449,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "doc-1" }) } as never,
             linkByPhoneUsecase as never,
@@ -482,6 +498,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             mirrorUsecase as never,
             { execute: jest.fn().mockResolvedValue("linked") } as never,
@@ -522,6 +539,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             mirrorUsecase as never,
             { execute: jest.fn().mockResolvedValue("linked") } as never,
@@ -556,6 +574,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             mirrorUsecase as never,
             {} as never,
@@ -592,6 +611,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             {
                 mirrorRemoteDocument: jest.fn().mockResolvedValue({
@@ -641,6 +661,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             client as never,
+            createBoundary() as never,
             repository as never,
             {} as never,
             linkByPhoneUsecase as never,
@@ -686,6 +707,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "doc-1" }) } as never,
             { execute: jest.fn().mockResolvedValue("already_linked") } as never,
@@ -729,6 +751,7 @@ describe("EformsignDocumentMirrorService", () => {
         const vendorService = { downloadDocumentFile: jest.fn() };
         const service = new EformsignDocumentMirrorService(
             client as never,
+            createBoundary() as never,
             repository as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "doc-1" }) } as never,
             { execute: jest.fn().mockResolvedValue("already_linked") } as never,
@@ -820,6 +843,7 @@ describe("EformsignDocumentMirrorService", () => {
             };
             const service = new EformsignDocumentMirrorService(
                 { getDocument: jest.fn().mockResolvedValue(scenario.detail) } as never,
+                createBoundary() as never,
                 repository as never,
                 { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "doc-1" }) } as never,
                 { execute: jest.fn().mockResolvedValue("already_linked") } as never,
@@ -843,6 +867,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             {} as never,
+            createBoundary() as never,
             {
                 findState: jest.fn().mockResolvedValue({
                     documentId: "doc-1",
@@ -882,6 +907,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             {} as never,
+            createBoundary() as never,
             {
                 findState: jest.fn().mockResolvedValue({
                     documentId: "doc-1",
@@ -938,6 +964,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "doc-1" }) } as never,
             linkByPhoneUsecase as never,
@@ -1006,6 +1033,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "doc-1" }) } as never,
             linkByPhoneUsecase as never,
@@ -1072,6 +1100,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "doc-1" }) } as never,
             { execute: jest.fn() } as never,
@@ -1137,6 +1166,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "doc-1" }) } as never,
             { execute: jest.fn() } as never,
@@ -1197,6 +1227,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "doc-1" }) } as never,
             { execute: jest.fn() } as never,
@@ -1250,6 +1281,7 @@ describe("EformsignDocumentMirrorService", () => {
         const client = { getDocument: jest.fn() };
         const service = new EformsignDocumentMirrorService(
             client as never,
+            createBoundary() as never,
             repository as never,
             {} as never,
             linkByPhoneUsecase as never,
@@ -1292,6 +1324,7 @@ describe("EformsignDocumentMirrorService", () => {
         const client = { getDocument: jest.fn() };
         const service = new EformsignDocumentMirrorService(
             client as never,
+            createBoundary() as never,
             { findState: jest.fn().mockResolvedValue(readyState) } as never,
             {} as never,
             {} as never,
@@ -1334,6 +1367,7 @@ describe("EformsignDocumentMirrorService", () => {
         const completedMirrorReconciler = { execute: jest.fn() };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn() } as never,
+            createBoundary() as never,
             repository as never,
             {} as never,
             linkByPhoneUsecase as never,
@@ -1366,6 +1400,7 @@ describe("EformsignDocumentMirrorService", () => {
             {
                 getDocument: jest.fn().mockResolvedValue(detail),
             } as never,
+            createBoundary() as never,
             repository as never,
             {
                 mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "doc-1" }),
@@ -1424,6 +1459,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "doc-1" }) } as never,
             {} as never,
@@ -1501,6 +1537,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             mirrorUsecase as never,
             linkByPhoneUsecase as never,
@@ -1555,6 +1592,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "doc-1" }) } as never,
             linkByPhoneUsecase as never,
@@ -1594,6 +1632,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             client as never,
+            createBoundary() as never,
             repository as never,
             {} as never,
             {} as never,
@@ -1621,6 +1660,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             {} as never,
+            createBoundary() as never,
             repository as never,
             {} as never,
             {} as never,
@@ -1650,13 +1690,14 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             client as never,
+            createBoundary() as never,
             repository as never,
             {} as never,
             {} as never,
             {} as never,
         );
 
-        const result = await service.fetchCurrentDetail("doc-1");
+        const result = await service.fetchCurrentDetail("doc-1", TEST_PRINCIPAL);
 
         expect(client.getDocument).toHaveBeenCalledWith("vendor-token", "doc-1");
         expect(result).not.toHaveProperty("external_token");
@@ -1680,6 +1721,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             {} as never,
+            createBoundary() as never,
             repository as never,
             {} as never,
             {} as never,
@@ -1722,6 +1764,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             {} as never,
+            createBoundary() as never,
             repository as never,
             {} as never,
             {} as never,
@@ -1767,6 +1810,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             {} as never,
+            createBoundary() as never,
             repository as never,
             {} as never,
             {} as never,
@@ -1809,6 +1853,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             {} as never,
+            createBoundary() as never,
             repository as never,
             {} as never,
             {} as never,
@@ -1855,6 +1900,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "doc-1" }) } as never,
             { execute: jest.fn().mockResolvedValue("already_linked") } as never,
@@ -1882,6 +1928,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             {
                 mirrorRemoteDocument: jest.fn().mockResolvedValue({
@@ -1922,6 +1969,7 @@ describe("EformsignDocumentMirrorService", () => {
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
+            createBoundary() as never,
             repository as never,
             {
                 mirrorRemoteDocument: jest.fn().mockResolvedValue({

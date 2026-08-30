@@ -30,7 +30,7 @@ import {
 import { useEformsignAuth } from "@/hooks/useEformsignAuth";
 import { useEformsignDocsLiveStream } from "@/hooks/useEformsignDocsLiveStream";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useInfiniteContracts } from "@/hooks/useInfiniteContracts";
+import { useInfiniteContracts, type ContractsSectionParam } from "@/hooks/useInfiniteContracts";
 import { ServiceRecordHeaderCard } from "@/features/service-records/components/ServiceRecordHeaderCard";
 import { useClientServiceRecords } from "@/features/service-records/hooks/use-service-records";
 import type { EformsignDocument, EformsignDocumentOption } from "@/lib/eformsign/types";
@@ -99,9 +99,8 @@ import {
   extractReRequestEvents,
 } from "@/lib/eformsign/document-details";
 import { resolveDocumentCustomerName } from "@/lib/eformsign/display-name";
-import { buildContractTemplateFilter } from "@/lib/eformsign/contract-template-filter";
 import { formatIsoDateInput } from "@/lib/date/format-iso-input";
-import { useAllVoucherPriceInfos, useAreaTemplates } from "@/hooks/useVoucherData";
+import { useAllVoucherPriceInfos } from "@/hooks/useVoucherData";
 import { inferVoucherDurationFromAmounts } from "@/lib/voucher/duration";
 import { contractCandidateToClientPrefill } from "@/lib/client/contract-client-prefill";
 import { ContractsListItem } from "@/components/app/contracts/ContractsListItem";
@@ -493,16 +492,7 @@ export default function ContractsPage() {
       });
     }
   }, [registerCandidateQuery.isError, registerClientDocumentId, toast]);
-  const { data: serviceRecordTemplateConfig, isLoading: isServiceRecordTemplateLoading } = useQuery({
-    queryKey: ["eformsign-docs", "service-record-template-id"],
-    queryFn: () => eformsignApi.getServiceRecordTemplateId(),
-    enabled: isAuthenticated,
-    staleTime: 1000 * 60 * 60,
-  });
-  const {
-    data: documentClientSummaries = [],
-    isPending: isClientSummariesPending,
-  } = useQuery({
+  const { data: documentClientSummaries = [], isPending: isClientSummariesPending } = useQuery({
     queryKey: ["eformsign-client-names"],
     queryFn: () => eformsignApi.getDocumentClientNames(),
     enabled: isAuthenticated,
@@ -520,22 +510,6 @@ export default function ContractsPage() {
     },
     [documentClientSummaryById],
   );
-  // BJJ-multi-tier: match documents created on ANY configured 제공기록지 tier's template, not
-  // just the base 5회 one. Falls back to the single base id for older backend responses.
-  // Memoized so the array identity is stable for the useMemo deps below.
-  const serviceRecordTemplateIds = useMemo(
-    () => serviceRecordTemplateConfig?.templateIds
-      ?? (serviceRecordTemplateConfig?.templateId ? [serviceRecordTemplateConfig.templateId] : []),
-    [serviceRecordTemplateConfig],
-  );
-  // 산모 계약서 화이트리스트: 지점 doc_template(지역별 계약서 템플릿)에 등록된 템플릿으로 만든
-  // 문서만 섹션에 노출한다. 같은 eformsign 계정의 무관한 템플릿(예: 근로계약서) 문서가
-  // 섞이는 것을 막는다. Memoized so the array identity is stable for the useMemo deps below.
-  const { data: areaTemplates = [], isLoading: isAreaTemplatesLoading } = useAreaTemplates();
-  const maternityTemplateIds = useMemo(
-    () => [...new Set(areaTemplates.map((template) => template.templateId).filter(Boolean))],
-    [areaTemplates],
-  );
   const activeListTab = activeSection === "service-records" ? serviceRecordActiveTab : activeTab;
   const filterType: DocumentFilterType = activeListTab === "all" ? null : (activeListTab as DocumentFilterType);
   // Search is applied server-side (chosung-aware), so each keystroke would be a
@@ -546,21 +520,14 @@ export default function ContractsPage() {
   const [debouncedServiceRecordSearchQuery] = useDebounce(serviceRecordSearchQuery.trim(), 300);
   const activeSearchQuery =
     activeSection === "service-records" ? debouncedServiceRecordSearchQuery : debouncedSearchQuery;
-  const templateFilter = useMemo(() => {
-    if (activeSection !== "maternity" && activeSection !== "service-records") {
-      return undefined;
-    }
-    return buildContractTemplateFilter({
-      activeSection,
-      maternityTemplateIds,
-      serviceRecordTemplateIds,
-    });
-  }, [activeSection, maternityTemplateIds, serviceRecordTemplateIds]);
-  const canFetchDocuments =
-    isAuthenticated &&
-    !isServiceRecordTemplateLoading &&
-    (activeSection !== "service-records" || serviceRecordTemplateIds.length > 0) &&
-    (activeSection !== "maternity" || !isAreaTemplatesLoading);
+  // 템플릿 필터는 section 파라미터로 서버가 결정한다(산모 계약서 = 등록된 계약서
+  // 템플릿 화이트리스트, 제공기록지 = 설정된 티어 템플릿). 클라이언트는 어느 섹션의
+  // 목록인지만 알려준다 — frontend와 mobile이 같은 필터를 보장받는 단일 결정 지점.
+  const contractsSection: ContractsSectionParam | undefined =
+    activeSection === "maternity" || activeSection === "service-records"
+      ? activeSection
+      : undefined;
+  const canFetchDocuments = isAuthenticated;
 
   // Fetch filtered docs with infinite scroll for the current tab
   const {
@@ -573,7 +540,7 @@ export default function ContractsPage() {
   } = useInfiniteContracts({
     enabled: canFetchDocuments,
     filterType,
-    templateFilter,
+    section: contractsSection,
     search: activeSearchQuery,
   });
   // 전체 탭 StatsBar 카운터: 서버가 지점(인천=회사 전체) 상태 신호를 한 번 모아 내려주고
@@ -586,7 +553,7 @@ export default function ContractsPage() {
   });
   const isBootstrappingAuth = isLoadingAuth && !isAuthenticated;
   // Initial loading: first auth bootstrap or first "all" data fetch
-  const isInitialLoading = isBootstrappingAuth || isServiceRecordTemplateLoading || isLoadingInfinite;
+  const isInitialLoading = isBootstrappingAuth || isLoadingInfinite;
   // Content loading: fetching filtered data after initial load is complete
   const isContentLoading = !isInitialLoading && isLoadingInfinite;
   // Stats are derived from the "전체" tab's data and are independent of which
@@ -600,16 +567,12 @@ export default function ContractsPage() {
   // searched set and pagination stops when the matches run out.
   const documents = infiniteDocuments;
 
-  const serviceRecordDocuments = useMemo(() => {
-    if (serviceRecordTemplateIds.length === 0) return [];
-    return infiniteDocuments.filter(
+  const serviceRecordDocuments = useMemo(
+    () => infiniteDocuments.filter(
       (doc) => matchesDocumentStatusTab(doc, serviceRecordActiveTab),
-    );
-  }, [
-    serviceRecordTemplateIds,
-    infiniteDocuments,
-    serviceRecordActiveTab,
-  ]);
+    ),
+    [infiniteDocuments, serviceRecordActiveTab],
+  );
 
   const stats = useMemo(
     () => foldContractStats(statusCounts?.documents ?? []),
@@ -1500,12 +1463,12 @@ function ContractDetail({
         }
       }
 
-      const authResult = await eformsignApi.authenticate(Date.now());
-      if (!authResult.success) {
-        throw new Error("eformsign 인증에 실패했습니다.");
-      }
-
-      const option = await eformsignApi.generateStaffDocument(doc.id, undefined, undefined, endDate);
+      // Provider authentication runs only inside the server boundary.
+      // Client callers never receive or submit eformsign credentials.
+      // The server selects configured provider identity and capabilities.
+      // Keep this fallback limited to the server-mediated option request.
+      // (No client-side token acquisition.)
+      const option = await eformsignApi.generateStaffDocument(doc.id, endDate);
       return { kind: "iframe", option };
     },
     onSuccess: (result) => {

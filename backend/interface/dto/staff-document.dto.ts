@@ -5,14 +5,6 @@ export class GenerateStaffDocumentRequestDto {
     @IsNotEmpty()
     documentId!: string;
 
-    @IsString()
-    @IsNotEmpty()
-    accessToken!: string;
-
-    @IsString()
-    @IsNotEmpty()
-    refreshToken!: string;
-
     @IsOptional()
     @IsString()
     prefillEndDate?: string;

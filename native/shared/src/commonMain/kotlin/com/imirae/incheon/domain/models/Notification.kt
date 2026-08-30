@@ -1,3 +1,18 @@
 package com.imirae.incheon.domain.models
+
 import kotlinx.serialization.Serializable
-@Serializable data class Notification(val id: String, val title: String, val body: String, val type: String, val read: Boolean = false, val data: Map<String, String>? = null, val createdAt: String? = null)
+import kotlinx.serialization.json.JsonObject
+
+@Serializable
+data class Notification(
+    val id: Int,
+    val title: String,
+    val body: String,
+    val data: JsonObject? = null,
+    val sentAt: String,
+    val readAt: String? = null,
+    val isRead: Boolean = false,
+)
+
+@Serializable
+data class UnreadCountResponse(val count: Int)

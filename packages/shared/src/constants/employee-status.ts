@@ -15,6 +15,19 @@ export const EMPLOYEE_STATUS_LABELS: Readonly<Record<EmployeeStatus, string>> = 
 };
 
 /**
+ * Derive the employee's current work status from the authoritative inputs.
+ * An active assignment describes current work; availability only describes
+ * whether another assignment may be accepted when no work is active.
+ */
+export function deriveEmployeeStatus(
+    hasActiveAssignment: boolean,
+    openToNextWork: boolean,
+): EmployeeStatus {
+    if (hasActiveAssignment) return "working";
+    return openToNextWork ? "available" : "unavailable";
+}
+
+/**
  * Labels for the `openToNextWork` (다음 배정 가능 여부) toggle, kept
  * separate from `EMPLOYEE_STATUS_LABELS` because the boolean toggle and the
  * derived employee status remain different data fields even when they share

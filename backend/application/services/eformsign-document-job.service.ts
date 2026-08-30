@@ -1,6 +1,5 @@
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
-
-import { Inject, Injectable } from "@nestjs/common";
 
 import { ContractDataDto } from "application/dto/contract.dto";
 import {
@@ -15,6 +14,7 @@ import {
 } from "domain/repositories/eformsign-document-job.repository.interface";
 import { EFORMSIGN_DOC_REPOSITORY, IEformsignDocRepository } from "domain/repositories/eformsign-doc.repository.interface";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
+import { assertRequiredPhone, InvalidPhoneError } from "application/utils/normalize-phone";
 
 export interface EnqueueCreateDocumentParams {
     branchId: string;
@@ -42,6 +42,26 @@ export interface EnqueueDocumentJobResult {
     existing: boolean;
 }
 
+function assertContractDataPhones(contractData: ContractDataDto): void {
+    const fields: Array<[string, unknown, boolean]> = [
+        ["customerContact", contractData.customerContact, true],
+        ["caretaker1Contact", contractData.caretaker1Contact, true],
+        ["issuerPhone", contractData.issuerPhone, false],
+    ];
+
+    for (const [field, value, required] of fields) {
+        if (!required && (value === undefined || value === null)) continue;
+        try {
+            assertRequiredPhone(value as string | null | undefined);
+        } catch (error) {
+            if (error instanceof InvalidPhoneError) {
+                throw new BadRequestException(`${field} must be a valid Korean phone number`);
+            }
+            throw error;
+        }
+    }
+}
+
 /**
  * Application boundary for durable eformsign work.
  *
@@ -64,6 +84,11 @@ export class EformsignDocumentJobService {
     ): Promise<EnqueueDocumentJobResult> {
         const client = await this.clientRepository.findById(params.branchId, params.clientId);
         if (!client) throw new Error("EFORMSIGN_DOCUMENT_JOB_CLIENT_NOT_FOUND");
+        // Validate the durable payload before inserting a resumable job. The
+        // controller DTO normally performs this check, but this service is
+        // also called by internal retry/repair paths and must not persist an
+        // identity value that cannot be canonicalized.
+        assertContractDataPhones(params.contractData);
         const payload: EformsignDocumentJobPayload = {
             clientId: params.clientId,
             contractData: params.contractData,

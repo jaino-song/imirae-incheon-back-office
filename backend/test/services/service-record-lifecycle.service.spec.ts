@@ -162,6 +162,36 @@ describe("ServiceRecordLifecycleService", () => {
         expect(ensureSpy).toHaveBeenCalledWith(1, transactionClient);
     });
 
+    it("persists the canonical business-day duration with a contract end-date sync", async () => {
+        const transactionClient = {
+            service_record_case: {
+                findUnique: jest.fn().mockResolvedValue(null),
+            },
+            client: {
+                findUnique: jest.fn().mockResolvedValue({
+                    startDate: date("2026-08-03"),
+                }),
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+        };
+        const prisma = {
+            $transaction: jest.fn((callback: (tx: typeof transactionClient) => Promise<unknown>) =>
+                callback(transactionClient)),
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+        jest.spyOn(service, "ensureForClient").mockResolvedValue(null);
+
+        await service.syncEndDateFromContract({
+            branchId: rawQueryBranchId,
+            clientId: 1,
+            endDate: date("2026-08-10"),
+        });
+
+        expect(transactionClient.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            data: { endDate: date("2026-08-10"), duration: 6 },
+        }));
+    });
+
     it("does not let a stale mirror version update a client after the parent-row fence loses", async () => {
         const transactionClient = {
             $queryRaw: jest.fn().mockResolvedValue([]),

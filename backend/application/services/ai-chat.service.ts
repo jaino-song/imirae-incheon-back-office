@@ -1,10 +1,16 @@
 import { Injectable, Inject, Logger } from "@nestjs/common";
 import { ChatMessage, GeminiStreamChunk, FunctionDeclaration, FunctionCall } from "infrastructure/api/gemini-chat.gateway";
-import { ToolExecutorService } from "application/ai-chat/tool-executor.service";
+import { ToolExecutorService, LegacyChatToolContext, ToolExecutionResult } from "application/ai-chat/tool-executor.service";
 import { CHAT_SESSION_REPOSITORY, IChatSessionRepository } from "domain/repositories/chat-session.repository.interface";
 import { ChatSessionEntity, ChatMessage as SessionMessage } from "domain/entities/chat-session.entity";
 import { allTools } from "application/ai-chat/tools";
 import { GEMINI_GATEWAY } from "module/ai-chat.tokens";
+import {
+    LegacyChatConfirmationService,
+    LegacyChatConfirmationToken,
+    redactSensitiveLegacyChatContent,
+} from "application/ai-chat/legacy-chat-confirmation.service";
+import type { EformsignProviderPrincipal } from "application/services/eformsign-credential-boundary.service";
 
 /**
  * Interface for Gemini gateway implementations.
@@ -19,6 +25,7 @@ export interface IGeminiGateway {
     chatStream(
         messages: ChatMessage[],
         tools?: FunctionDeclaration[],
+        callerSignal?: AbortSignal,
     ): AsyncGenerator<GeminiStreamChunk>;
 
     sendFunctionResult(
@@ -67,7 +74,7 @@ i can help you with:
 **information & stats:**
 - dashboard statistics (총 현황)
 - voucher pricing (바우처 가격표)
-- bank account information by area
+- masked bank account references by the current branch (owner/admin only)
 - schedule overview
 
 **messages:**
@@ -109,7 +116,7 @@ other synonyms:
    - when you can help, CALL THE TOOL IMMEDIATELY
    - DO NOT ask clarifying questions if you can infer intent
    - if missing info, call tool with what you have and let the user refine
-   - for update/delete/terminate/replacement requests, call the target action tool first with confirmed=false and available identifiers (e.g., clientName), then ask any follow-up details
+   - for update/delete/terminate/replacement requests, call the target action tool first with available identifiers (e.g., clientName); the server returns a confirmation intent for the user to approve
    - for operational requests (counts/search/create/update/delete/contracts), the first response MUST include at least one tool call before any conversational text
 
 3. **intent-first mappings** (use these tools for these expressions):
@@ -157,9 +164,9 @@ other synonyms:
    - "전화번호 변경" / "번호 수정" / "연락처 바꿔줘" → updateClient (use clientName when ID is unknown)
 
 4. **confirmation for changes**: for create, update, delete operations:
-   - first call with confirmed=false to show what will happen
-   - wait for user confirmation ("네", "확인", "yes")
-   - then call with confirmed=true to execute
+   - first call to show what will happen; wait for the server-issued confirmation intent
+   - the user must invoke the explicit confirmation action ("네", "확인", "yes" alone is not authority)
+   - then use the explicit confirmation action returned by the server
 
 5. **formatting**: use markdown tables for lists and data
    | 이름 | 연락처 | 상태 |
@@ -181,10 +188,10 @@ other synonyms:
 - "현황" / "통계" → getDashboardStats
 
 **Client CRUD:**
-- "새 산모 등록" / "산모 추가" → createClient(confirmed=false)
-- "산모 정보 수정" → updateClient(confirmed=false)
-- "산모 전화번호 변경" / "연락처 수정" → updateClient(clientName=..., phone=..., confirmed=false)
-- "산모 삭제" → deleteClient(confirmed=false)
+- "새 산모 등록" / "산모 추가" → createClient
+- "산모 정보 수정" → updateClient
+- "산모 전화번호 변경" / "연락처 수정" → updateClient(clientName=..., phone=...)
+- "산모 삭제" → deleteClient
 
 **Employee by Grade:**
 - "프리미엄 관리사" / "베스트 관리사" / "스탠다드 관리사" / "등급별" → getEmployeesByGrade
@@ -198,14 +205,14 @@ other synonyms:
 **Schedules:**
 - "일정" / "스케줄" / "배정" / "근무" → listSchedules
 
-**Bank Accounts:**
+**Bank Accounts (owner/admin only; masked last four digits):**
 - "계좌" / "돈" / "입금" / "송금" → listBankAccounts or getBankAccountByArea
 
 **Message Templates:**
 - "메시지 조회" / "템플릿 보기" → getMessages
-- "새 메시지" / "메시지 만들어" → createMessage(confirmed=false)
-- "메시지 수정" → updateMessage(confirmed=false)
-- "메시지 삭제" → deleteMessage(confirmed=false)
+- "새 메시지" / "메시지 만들어" → createMessage
+- "메시지 수정" → updateMessage
+- "메시지 삭제" → deleteMessage
 
 **Contracts:**
 - "계약서 양식" / "템플릿 목록" → listAvailableTemplates
@@ -220,17 +227,17 @@ other synonyms:
 When user says "박지영 산모에게 계약서 발송해줘" or similar:
 1. FIRST call searchClients(query="박지영") to find the client and get their clientId
 2. From the search result, extract the client's area for areaId
-3. THEN call createAndSendContract(clientId=X, areaId="incheon", confirmed=false)
-4. Wait for user confirmation, then call with confirmed=true
+3. THEN call createAndSendContract(clientId=X, areaId="incheon") and present the server-issued confirmation intent
+4. Wait for the user to invoke the explicit confirmation action
 
 Example flow:
 User: "박지영 산모에게 계약서 보내줘"
 Step 1: [call searchClients(query="박지영")]
 Step 2: Found clientId=5, area=인천
-Step 3: [call createAndSendContract(clientId=5, areaId="incheon", confirmed=false)]
+Step 3: [call createAndSendContract(clientId=5, areaId="incheon")]
 Step 4: "박지영 산모(ID: 5)에게 계약서를 발송할까요?"
 User: "네"
-Step 5: [call createAndSendContract(clientId=5, areaId="incheon", confirmed=true)]
+Step 5: [invoke the explicit confirmation action with the returned intent and nonce]
 
 **Contract Status Check (계약서 상태 확인):**
 When user asks "이수진 산모 계약서 상태 확인":
@@ -239,24 +246,24 @@ When user asks "이수진 산모 계약서 상태 확인":
 
 **Employee Replacement (관리사 교체):**
 When user asks "김서연 산모 관리사 교체해줘":
-1. Prefer direct action call first: requestEmployeeReplacement(clientName="김서연", confirmed=false)
+1. Prefer direct action call first: requestEmployeeReplacement(clientName="김서연")
 2. If user specifically asks for replacement candidates, call getAvailableEmployees and then retry with selected 관리사
 
 **Client Updates/Deletes:**
 When user says "이수진 산모 삭제해줘":
-1. Prefer direct action call: deleteClient(clientName="이수진", confirmed=false)
+1. Prefer direct action call: deleteClient(clientName="이수진")
 2. If the tool reports ambiguous results, ask user to choose by ID and retry
 
 **Employee Updates/Deletes:**
 When user says "김영자 이모님 삭제해줘":
 1. FIRST call searchEmployees(query="김영자") to find employeeId
-2. THEN call deleteEmployee(employeeId=X, confirmed=false)
+2. THEN call deleteEmployee(employeeId=X)
 
 **Message Updates/Deletes:**
 When user says "입소 안내 메시지 삭제해줘":
 1. FIRST call getMessages() to list all messages
 2. Find the matching message by name
-3. THEN call deleteMessage(messageId=X, confirmed=false)
+3. THEN call deleteMessage(messageId=X)
 
 **REMEMBER: Prefer the target action tool. If ID is unknown, pass name fields (clientName/newPrimaryEmployeeName) or run a lookup only when needed.**
 </multi_step_workflows>
@@ -279,7 +286,7 @@ assistant: "현재 배정 가능한 관리사 목록이에요:
 user: "돈 어디로?"
 [call listBankAccounts]
 assistant: "입금 계좌 정보에요:
-| 지역 | 은행 | 계좌번호 |
+| 지역 | 은행 | 계좌번호(끝 4자리) |
 |------|------|----------|
 ..."
 
@@ -322,6 +329,41 @@ assistant: "날씨 정보는 제가 확인하기 어려워요. 😅 대신 산�
 
 const MAX_TOOL_CALLS_PER_TURN = 5;
 const MAX_CONTEXT_MESSAGES = 24;
+const STREAM_REDACTION_HOLDBACK = 192;
+
+/**
+ * Gemini may split a sensitive account number across arbitrary text chunks.
+ * Keep a bounded suffix until the next chunk (or stream completion) so the
+ * redactor always sees the complete account-labelled value before yielding it.
+ */
+class LegacyChatStreamRedactor {
+    private rawContent = "";
+    private emittedLength = 0;
+
+    append(content: string): string {
+        this.rawContent += content;
+        return this.emit(false);
+    }
+
+    flush(): string {
+        return this.emit(true);
+    }
+
+    private emit(force: boolean): string {
+        const safeContent = redactSensitiveLegacyChatContent(this.rawContent);
+        const targetLength = force
+            ? safeContent.length
+            : Math.max(0, safeContent.length - STREAM_REDACTION_HOLDBACK);
+
+        if (targetLength <= this.emittedLength) {
+            return "";
+        }
+
+        const delta = safeContent.slice(this.emittedLength, targetLength);
+        this.emittedLength = targetLength;
+        return delta;
+    }
+}
 
 type DashboardStatsData = {
     totalClients: number;
@@ -338,6 +380,9 @@ export interface ChatStreamEvent {
     toolName?: string;
     toolStatus?: string;
     confirmationMessage?: string;
+    confirmationIntentId?: string;
+    confirmationNonce?: string;
+    confirmationExpiresAt?: string;
     sessionId?: string;
     error?: string;
 }
@@ -352,6 +397,7 @@ export class AIChatService {
         private readonly toolExecutor: ToolExecutorService,
         @Inject(CHAT_SESSION_REPOSITORY)
         private readonly sessionRepository: IChatSessionRepository,
+        private readonly confirmationService?: LegacyChatConfirmationService,
     ) { }
 
     async *chatStream(
@@ -359,27 +405,39 @@ export class AIChatService {
         userId: string,
         userMessage: string,
         branchid: string,
+        principal?: EformsignProviderPrincipal,
+        callerSignal?: AbortSignal,
+        actor?: Pick<LegacyChatToolContext, "globalRole" | "branchRole">,
     ): AsyncGenerator<ChatStreamEvent> {
         let session = sessionId
-            ? await this.sessionRepository.findById(sessionId)
+            ? await this.sessionRepository.findById(sessionId, userId, branchid)
             : null;
 
-        if (!session || session.isExpired()) {
-            session = ChatSessionEntity.create(userId);
+        if (sessionId && !session) {
+            throw new Error("Session not found or expired");
+        }
+
+        if (!session) {
+            session = ChatSessionEntity.create(userId, branchid);
             session = await this.sessionRepository.create(session);
             this.logger.log(`Created new session: ${session.id} for user: ${userId}`);
         }
 
-        session.addMessage('user', userMessage);
+        session.addMessage('user', redactSensitiveLegacyChatContent(userMessage));
 
         if (this.shouldDirectDashboardStats(userMessage)) {
             yield { type: 'tool_call', toolName: 'getDashboardStats', toolStatus: 'executing' };
-            const dashboardResult = await this.toolExecutor.execute(branchid, "getDashboardStats", {});
+            const dashboardResult = await this.toolExecutor.execute({
+                userId,
+                branchId: branchid,
+                sessionId: session.id,
+                ...actor,
+            }, "getDashboardStats", {}, principal);
 
             if (dashboardResult.success && this.isDashboardStatsData(dashboardResult.data)) {
                 const responseText = this.formatDashboardResponse(userMessage, dashboardResult.data);
                 session.addMessage('assistant', responseText);
-                await this.sessionRepository.update(session);
+                await this.sessionRepository.update(session, userId, branchid);
 
                 yield { type: 'chunk', content: responseText };
                 yield { type: 'done', sessionId: session.id };
@@ -405,29 +463,48 @@ export class AIChatService {
                 const MAX_RETRIES = 1;
 
                 while (retryCount <= MAX_RETRIES) {
+                    const streamRedactor = new LegacyChatStreamRedactor();
                     try {
-                        for await (const chunk of this.geminiGateway.chatStream(messages, allTools)) {
+                        for await (const chunk of this.geminiGateway.chatStream(messages, allTools, callerSignal)) {
                             if (chunk.type === 'text' && chunk.content) {
-                                accumulatedText += chunk.content;
-                                yield { type: 'chunk', content: chunk.content };
+                                const safeContent = streamRedactor.append(chunk.content);
+                                accumulatedText += safeContent;
+                                if (safeContent) {
+                                    yield { type: 'chunk', content: safeContent };
+                                }
                             }
 
                             if (chunk.type === 'function_call' && chunk.functionCall) {
+                                const safeTail = streamRedactor.flush();
+                                if (safeTail) {
+                                    accumulatedText += safeTail;
+                                    yield { type: 'chunk', content: safeTail };
+                                }
+
                                 toolCallCount++;
                                 const { name, args } = chunk.functionCall;
 
                                 yield { type: 'tool_call', toolName: name, toolStatus: 'executing' };
 
-                                const result = await this.toolExecutor.execute(branchid, name, args);
+                                const result = await this.toolExecutor.execute({
+                                    userId,
+                                    branchId: branchid,
+                                    sessionId: session.id,
+                                    ...actor,
+                                }, name, args, principal);
 
                                 if (result.requiresConfirmation) {
                                     yield {
                                         type: 'confirmation',
                                         confirmationMessage: result.confirmationMessage,
+                                        confirmationIntentId: result.confirmationIntentId,
+                                        confirmationNonce: result.confirmationNonce,
+                                        confirmationExpiresAt: result.confirmationExpiresAt,
+                                        sessionId: session.id,
                                     };
 
                                     session.addMessage('assistant', result.confirmationMessage || '');
-                                    await this.sessionRepository.update(session);
+                                    await this.sessionRepository.update(session, userId, branchid);
 
                                     yield { type: 'done', sessionId: session.id };
                                     return;
@@ -447,6 +524,12 @@ export class AIChatService {
                             }
 
                             if (chunk.type === 'done') {
+                                const safeTail = streamRedactor.flush();
+                                if (safeTail) {
+                                    accumulatedText += safeTail;
+                                    yield { type: 'chunk', content: safeTail };
+                                }
+
                                 const text = accumulatedText.trim();
                                 if (!text) {
                                     continue;
@@ -462,9 +545,18 @@ export class AIChatService {
                             }
 
                             if (chunk.type === 'error') {
-                                yield { type: 'error', error: chunk.error };
+                                yield {
+                                    type: 'error',
+                                    error: chunk.error ? redactSensitiveLegacyChatContent(chunk.error) : chunk.error,
+                                };
                                 return;
                             }
+                        }
+
+                        const safeTail = streamRedactor.flush();
+                        if (safeTail) {
+                            accumulatedText += safeTail;
+                            yield { type: 'chunk', content: safeTail };
                         }
                         break; // Success, exit retry loop
                     } catch (error) {
@@ -488,21 +580,22 @@ export class AIChatService {
                 this.logger.warn(`Max tool calls reached for session ${session.id}`);
             }
 
-            await this.sessionRepository.update(session);
+            await this.sessionRepository.update(session, userId, branchid);
             yield { type: 'done', sessionId: session.id };
 
         } catch (error) {
-            this.logger.error(`Chat stream error: ${error}`);
-            yield { type: 'error', error: error instanceof Error ? error.message : 'Unknown error' };
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            this.logger.error(`Chat stream error: ${redactSensitiveLegacyChatContent(errorMessage)}`);
+            yield { type: 'error', error: redactSensitiveLegacyChatContent(errorMessage) };
         }
     }
 
-    async getSession(sessionId: string): Promise<ChatSessionEntity | null> {
-        return this.sessionRepository.findById(sessionId);
+    async getSession(sessionId: string, userId: string, branchId: string): Promise<ChatSessionEntity | null> {
+        return this.sessionRepository.findById(sessionId, userId, branchId);
     }
 
-    async deleteSession(sessionId: string): Promise<void> {
-        await this.sessionRepository.delete(sessionId);
+    async deleteSession(sessionId: string, userId: string, branchId: string): Promise<void> {
+        await this.sessionRepository.delete(sessionId, userId, branchId);
     }
 
     async persistMessages(
@@ -510,23 +603,66 @@ export class AIChatService {
         userId: string,
         userMessage: string,
         assistantContent: string,
+        branchId: string,
     ): Promise<{ sessionId: string }> {
         let session = sessionId
-            ? await this.sessionRepository.findById(sessionId)
+            ? await this.sessionRepository.findById(sessionId, userId, branchId)
             : null;
 
-        if (!session || session.isExpired()) {
-            session = ChatSessionEntity.create(userId);
+        if (sessionId && !session) {
+            throw new Error("Session not found or expired");
+        }
+
+        if (!session) {
+            session = ChatSessionEntity.create(userId, branchId);
             session = await this.sessionRepository.create(session);
             this.logger.log(`Created new session for persist: ${session.id} for user: ${userId}`);
         }
 
-        session.addMessage('user', userMessage);
-        session.addMessage('assistant', assistantContent);
-        await this.sessionRepository.update(session);
+        session.addMessage('user', redactSensitiveLegacyChatContent(userMessage));
+        session.addMessage('assistant', redactSensitiveLegacyChatContent(assistantContent));
+        await this.sessionRepository.update(session, userId, branchId);
 
         this.logger.log(`Persisted messages to session: ${session.id}`);
         return { sessionId: session.id };
+    }
+
+    async confirmToolAction(
+        userId: string,
+        branchId: string,
+        token: LegacyChatConfirmationToken,
+        sessionId?: string,
+        principal?: EformsignProviderPrincipal,
+    ): Promise<ToolExecutionResult> {
+        if (!this.confirmationService) {
+            throw new Error("Confirmation service is not configured");
+        }
+
+        return this.confirmationService.consumeAndExecute(
+            { userId, branchId, sessionId },
+            token,
+            async (intent) => {
+                const executionContext = {
+                    userId,
+                    branchId,
+                    sessionId: intent.sessionId,
+                };
+                return principal
+                    ? this.toolExecutor.executeAuthorized(
+                        executionContext,
+                        intent.toolName,
+                        intent.payload,
+                        intent,
+                        principal,
+                    )
+                    : this.toolExecutor.executeAuthorized(
+                        executionContext,
+                        intent.toolName,
+                        intent.payload,
+                        intent,
+                    );
+            },
+        );
     }
 
     private buildGeminiMessages(sessionMessages: SessionMessage[]): ChatMessage[] {
@@ -538,7 +674,7 @@ export class AIChatService {
         for (const msg of recentMessages) {
             messages.push({
                 role: msg.role === 'user' ? 'user' : 'model',
-                content: msg.content,
+                content: redactSensitiveLegacyChatContent(msg.content),
             });
         }
 

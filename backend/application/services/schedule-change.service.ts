@@ -7,6 +7,11 @@ import {
     Optional,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import {
+    assertNoActiveEmployeeScheduleOverlap,
+    lockClientForScheduleWrite,
+    lockEmployeesForScheduleWrite,
+} from "application/policies/employee-schedule-invariants.policy";
 import { getServiceRecordTokenExpiresAt } from "domain/constants/service-record-link-message";
 import { addBusinessDaysKr, isBusinessDayKr, nextBusinessDayKr } from "domain/utils/business-days";
 import { PrismaService } from "infrastructure/database/prisma.service";
@@ -350,6 +355,23 @@ export class ScheduleChangeService {
                     });
                 }
 
+                await lockClientForScheduleWrite(tx, branchId, schedule.clientId);
+                await lockEmployeesForScheduleWrite(tx, branchId, [
+                    schedule.primaryEmployeeId,
+                    schedule.secondaryEmployeeId,
+                ]);
+                if (schedule.startDate) {
+                    await assertNoActiveEmployeeScheduleOverlap(tx, {
+                        branchId,
+                        clientId: schedule.clientId,
+                        primaryEmployeeId: schedule.primaryEmployeeId,
+                        secondaryEmployeeId: schedule.secondaryEmployeeId,
+                        startDate: schedule.startDate,
+                        endDate: newEndDate,
+                        replaced: schedule.replaced,
+                        excludeScheduleId: schedule.id,
+                    });
+                }
                 await tx.employee_schedule.update({
                     where: { id: scheduleId },
                     data: { endDate: newEndDate },
@@ -501,6 +523,23 @@ export class ScheduleChangeService {
                 }
 
                 const newEndDate = toDbDate(target.newEndDate);
+                await lockClientForScheduleWrite(tx, request.branchId, request.clientId);
+                await lockEmployeesForScheduleWrite(tx, request.branchId, [
+                    schedule.primaryEmployeeId,
+                    schedule.secondaryEmployeeId,
+                ]);
+                if (schedule.startDate) {
+                    await assertNoActiveEmployeeScheduleOverlap(tx, {
+                        branchId: request.branchId,
+                        clientId: request.clientId,
+                        primaryEmployeeId: schedule.primaryEmployeeId,
+                        secondaryEmployeeId: schedule.secondaryEmployeeId,
+                        startDate: schedule.startDate,
+                        endDate: newEndDate,
+                        replaced: schedule.replaced,
+                        excludeScheduleId: schedule.id,
+                    });
+                }
                 await tx.employee_schedule.update({
                     where: { id: request.scheduleId },
                     data: { endDate: newEndDate },

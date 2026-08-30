@@ -1,5 +1,6 @@
 import { ClientDueDateSchedulerService } from "application/services/client-due-date-scheduler.service";
 import { MessageTriggerService } from "application/services/message-trigger.service";
+import { MessageAutomationIntentService } from "application/services/message-automation-intent.service";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 describe("ClientDueDateSchedulerService", () => {
@@ -211,6 +212,67 @@ describe("ClientDueDateSchedulerService", () => {
                 startDate: null,
             },
             data: { startDate: new Date("2026-06-19T00:00:00.000Z") },
+        });
+    });
+
+    it("persists and fulfills a retryable automation intent in the startDate transaction", async () => {
+        const txClient = {
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        };
+        const transactionalPrisma = {
+            client: {
+                findMany: jest.fn().mockResolvedValue([
+                    {
+                        id: 17,
+                        branchId: "11111111-1111-1111-1111-111111111111",
+                        dueDate: new Date("2026-06-19T00:00:00.000Z"),
+                    },
+                ]),
+            },
+            $transaction: jest.fn().mockImplementation(async (work: (tx: { client: typeof txClient }) => Promise<unknown>) =>
+                work({ client: txClient })),
+        };
+        const intentService = {
+            persistClientIntent: jest.fn().mockResolvedValue(undefined),
+            fulfillClientIntent: jest.fn().mockRejectedValue(new Error("trigger sync failed")),
+        };
+        const intentAwareService = new ClientDueDateSchedulerService(
+            transactionalPrisma as unknown as PrismaService,
+            undefined,
+            undefined,
+            intentService as unknown as MessageAutomationIntentService,
+        );
+
+        await expect(
+            intentAwareService.copyUpcomingDueDatesToStartDates(
+                new Date("2026-06-12T00:00:00.000Z"),
+            ),
+        ).resolves.toBe(1);
+
+        expect(transactionalPrisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(txClient.updateMany).toHaveBeenCalledWith({
+            where: {
+                id: 17,
+                dueDate: new Date("2026-06-19T00:00:00.000Z"),
+                startDate: null,
+            },
+            data: { startDate: new Date("2026-06-19T00:00:00.000Z") },
+        });
+        expect(intentService.persistClientIntent).toHaveBeenCalledWith(
+            { client: txClient },
+            {
+                branchId: "11111111-1111-1111-1111-111111111111",
+                clientId: 17,
+                includePast: false,
+                suppressGreeting: false,
+                intentAt: new Date("2026-06-19T00:00:00.000Z"),
+            },
+        );
+        expect(intentService.fulfillClientIntent).toHaveBeenCalledWith({
+            branchId: "11111111-1111-1111-1111-111111111111",
+            clientId: 17,
+            includePast: false,
+            suppressGreeting: false,
         });
     });
 });

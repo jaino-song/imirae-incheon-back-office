@@ -4,9 +4,11 @@ import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from "@nestjs/common/
 import request from "supertest";
 import { SystemSettingController } from "interface/controllers/system-setting.controller";
 import { SystemSettingService } from "application/services/system-setting.service";
+import { EformsignAutomationStatusService } from "application/services/eformsign-automation-status.service";
 import { MessageSenderApprovalService } from "application/services/message-sender-approval.service";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { OwnerGuard } from "infrastructure/auth/owner.guard";
+import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 import { TenantGuard } from "infrastructure/tenant";
 import { SystemSettingEntity } from "domain/entities/system-setting.entity";
 import {
@@ -60,6 +62,16 @@ describe("SystemSettingController (Integration)", () => {
                     provide: MessageSenderApprovalService,
                     useValue: mockMessageSenderApprovalService,
                 },
+                {
+                    provide: EformsignAutomationStatusService,
+                    useValue: {
+                        getStatus: jest.fn().mockReturnValue({
+                            webhookConfigured: true,
+                            sweepEnabled: true,
+                            sweepRunnable: true,
+                        }),
+                    },
+                },
             ],
         })
             .overrideGuard(JwtGuard)
@@ -97,6 +109,30 @@ describe("SystemSettingController (Integration)", () => {
         await app?.close();
     });
 
+    describe("GET /settings/client-registration-policy", () => {
+        it("should expose a GET route", () => {
+            const method = SystemSettingController.prototype.getClientRegistrationPolicy;
+
+            expect(Reflect.getMetadata(PATH_METADATA, method)).toBe("client-registration-policy");
+            expect(Reflect.getMetadata(METHOD_METADATA, method)).toBe(RequestMethod.GET);
+        });
+
+        it("should return the policy together with the automation trigger status", async () => {
+            systemSettingService.getClientAutoRegistrationEnabled = jest.fn().mockResolvedValue(true);
+            systemSettingService.getGreetingOnAutoRegistrationEnabled = jest.fn().mockResolvedValue(false);
+
+            const response = await controller.getClientRegistrationPolicy();
+
+            expect(response.clientAutoRegistration).toBe(true);
+            expect(response.greetingOnAutoRegistration).toBe(false);
+            expect(response.automation).toEqual({
+                webhookConfigured: true,
+                sweepEnabled: true,
+                sweepRunnable: true,
+            });
+        });
+    });
+
     describe("GET /settings/message-automation-policies", () => {
         it("should expose a GET route", () => {
             const method = SystemSettingController.prototype.getMessageAutomationPolicies;
@@ -119,6 +155,7 @@ describe("SystemSettingController (Integration)", () => {
 
             expect(Reflect.getMetadata(PATH_METADATA, method)).toBe("message-automation-policies/past-trigger");
             expect(Reflect.getMetadata(METHOD_METADATA, method)).toBe(RequestMethod.PUT);
+            expect(Reflect.getMetadata(GUARDS_METADATA, method) ?? []).toContain(OwnerOrAdminGuard);
         });
 
         it("should return policies with values computed from runtime constants", async () => {

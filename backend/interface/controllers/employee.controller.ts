@@ -9,6 +9,8 @@ import {
 } from "interface/dto/employee.dto";
 import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
+import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
+import { parseBooleanQuery } from "interface/parse-boolean";
 import { parseInteger } from "interface/parse-integer";
 
 @Controller("employees")
@@ -17,6 +19,7 @@ export class EmployeeController {
     constructor(private readonly employeeService: EmployeeService) {}
 
     @Post()
+    @UseGuards(OwnerOrAdminGuard)
     create(@CurrentTenant() tenant: { branchId?: string }, @Body() dto: CreateEmployeeDto) {
         return this.employeeService.create(tenant.branchId ?? "", dto);
     }
@@ -49,7 +52,7 @@ export class EmployeeController {
         @CurrentTenant() tenant: { branchId?: string },
         @Query("openToNextWork") openToNextWork?: string
     ) {
-        const flag = openToNextWork === undefined ? true : openToNextWork === "true";
+        const flag = parseBooleanQuery(openToNextWork, "openToNextWork", true);
         return this.employeeService.findByOpenStatus(tenant.branchId ?? "", flag);
     }
 
@@ -94,7 +97,23 @@ export class EmployeeController {
         );
     }
 
+    @Get(":id/work-history")
+    listWorkHistory(
+        @CurrentTenant() tenant: { branchId?: string },
+        @Param("id") id: string,
+        @Query("page") page?: string,
+        @Query("limit") limit?: string,
+    ) {
+        return this.employeeService.listWorkHistory(
+            tenant.branchId ?? "",
+            parseInteger(id, "id", { min: 1 }),
+            parseInteger(page, "page", { defaultValue: 1, min: 1 }),
+            parseInteger(limit, "limit", { defaultValue: 20, min: 1, max: 100 }),
+        );
+    }
+
     @Patch("open-status")
+    @UseGuards(OwnerOrAdminGuard)
     changeOpenStatus(
         @CurrentTenant() tenant: { branchId?: string },
         @Query("id") id: string,
@@ -108,6 +127,7 @@ export class EmployeeController {
     }
 
     @Patch()
+    @UseGuards(OwnerOrAdminGuard)
     update(
         @CurrentTenant() tenant: { branchId?: string },
         @Query("id") id: string,
@@ -117,6 +137,7 @@ export class EmployeeController {
     }
 
     @Delete()
+    @UseGuards(OwnerOrAdminGuard)
     delete(@CurrentTenant() tenant: { branchId?: string }, @Query("id") id: string) {
         return this.employeeService.delete(tenant.branchId ?? "", parseInteger(id, "id", { min: 1 }));
     }

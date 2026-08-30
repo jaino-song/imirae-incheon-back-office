@@ -1,5 +1,18 @@
 import { EformsignDocumentJobReconciliationService } from "application/services/eformsign-document-job-reconciliation.service";
+import { createEformsignWorkerPrincipal } from "application/services/eformsign-credential-boundary.service";
 import { EformsignDocumentJobEntity } from "domain/entities/eformsign-document-job.entity";
+
+const TEST_PRINCIPAL = createEformsignWorkerPrincipal("00000000-0000-0000-0000-000000000010");
+
+function createCredentialBoundary() {
+    return {
+        withCredentials: jest.fn(async (
+            _principal: unknown,
+            _capability: unknown,
+            operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+        ) => operation({ accessToken: "token", refreshToken: "refresh-token" })),
+    };
+}
 
 function job(overrides: Partial<EformsignDocumentJobEntity> = {}): EformsignDocumentJobEntity {
     return new EformsignDocumentJobEntity({
@@ -40,7 +53,7 @@ describe("EformsignDocumentJobReconciliationService", () => {
         const adoption = { execute: jest.fn().mockResolvedValue(undefined) };
         const service = new EformsignDocumentJobReconciliationService(
             repository as never,
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createCredentialBoundary() as never,
             {
                 execute: jest.fn().mockResolvedValue([{
                     id: "doc-1",
@@ -52,13 +65,14 @@ describe("EformsignDocumentJobReconciliationService", () => {
             adoption as never,
         );
 
-        await expect(service.reconcile(job())).resolves.toEqual({
+        await expect(service.reconcile(job(), TEST_PRINCIPAL)).resolves.toEqual({
             status: "completed",
             documentId: "doc-1",
         });
         expect(adoption.execute).toHaveBeenCalledWith(
             "00000000-0000-0000-0000-000000000010",
             { documentId: "doc-1", clientId: 7 },
+            TEST_PRINCIPAL,
         );
         expect(repository.markCompleted).toHaveBeenCalledWith(
             job().id,
@@ -74,7 +88,7 @@ describe("EformsignDocumentJobReconciliationService", () => {
         };
         const service = new EformsignDocumentJobReconciliationService(
             repository as never,
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createCredentialBoundary() as never,
             {
                 execute: jest.fn().mockResolvedValue([
                     { id: "doc-1", created_date: Date.now(), document_name: "고객 계약서" },
@@ -85,7 +99,7 @@ describe("EformsignDocumentJobReconciliationService", () => {
             { execute: jest.fn() } as never,
         );
 
-        await expect(service.reconcile(job())).resolves.toEqual({
+        await expect(service.reconcile(job(), TEST_PRINCIPAL)).resolves.toEqual({
             status: "requires_attention",
             reason: "AMBIGUOUS_PROVIDER_STATE",
             recordedAttempts: null,
@@ -104,13 +118,13 @@ describe("EformsignDocumentJobReconciliationService", () => {
         };
         const service = new EformsignDocumentJobReconciliationService(
             repository as never,
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createCredentialBoundary() as never,
             { execute: jest.fn().mockRejectedValue(new Error("provider unavailable")) } as never,
             { execute: jest.fn() } as never,
             { execute: jest.fn() } as never,
         );
 
-        await expect(service.reconcile(job())).resolves.toEqual({
+        await expect(service.reconcile(job(), TEST_PRINCIPAL)).resolves.toEqual({
             status: "requires_attention",
             reason: "PROVIDER_STATE_UNAVAILABLE",
             recordedAttempts: null,
@@ -135,7 +149,7 @@ describe("EformsignDocumentJobReconciliationService", () => {
         });
         const service = new EformsignDocumentJobReconciliationService(
             repository as never,
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createCredentialBoundary() as never,
             { execute: jest.fn() } as never,
             {
                 execute: jest.fn().mockResolvedValue({ current_status: { status_type: "003" } }),
@@ -144,12 +158,13 @@ describe("EformsignDocumentJobReconciliationService", () => {
             mirror as never,
         );
 
-        await expect(service.reconcile(finalizationJob)).resolves.toEqual({
+        await expect(service.reconcile(finalizationJob, TEST_PRINCIPAL)).resolves.toEqual({
             status: "completed",
             documentId: "doc-finalize",
         });
         expect(mirror.syncDocument).toHaveBeenCalledWith(
             "doc-finalize",
+            TEST_PRINCIPAL,
             expect.objectContaining({ strictCompletionReconciliation: true }),
         );
         expect(repository.markCompleted).toHaveBeenCalledWith(

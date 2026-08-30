@@ -10,6 +10,8 @@ import { ConfigService } from "@nestjs/config";
 import { Request } from "express";
 import * as crypto from "crypto";
 
+import { resolveEformsignWebhookAllowedCompanyIds } from "infrastructure/auth/eformsign-webhook-config";
+
 /**
  * Guard for validating eformsign webhook requests using Bearer token authentication.
  *
@@ -65,7 +67,7 @@ export class WebhookGuard implements CanActivate {
             throw new ForbiddenException("Unknown company id");
         }
 
-        const allowedCompanyIds = this.getAllowedCompanyIds();
+        const allowedCompanyIds = resolveEformsignWebhookAllowedCompanyIds(this.configService);
 
         if (allowedCompanyIds.length === 0) {
             this.logger.error("EFORMSIGN_WEBHOOK_ALLOWED_COMPANY_IDS or EFORMSIGN_COMPANY_ID not configured");
@@ -81,19 +83,6 @@ export class WebhookGuard implements CanActivate {
             );
             throw new ForbiddenException("Unknown company id");
         }
-    }
-
-    private getAllowedCompanyIds(): string[] {
-        const webhookAllowedCompanyIds = this.configService.get<string>("EFORMSIGN_WEBHOOK_ALLOWED_COMPANY_IDS");
-        if (typeof webhookAllowedCompanyIds === "string" && webhookAllowedCompanyIds.trim().length > 0) {
-            return webhookAllowedCompanyIds
-                .split(",")
-                .map((value) => value.trim())
-                .filter(Boolean);
-        }
-
-        const fallbackCompanyId = this.configService.get<string>("EFORMSIGN_COMPANY_ID")?.trim() ?? "";
-        return fallbackCompanyId ? [fallbackCompanyId] : [];
     }
 
     private secureCompare(a: string, b: string): boolean {

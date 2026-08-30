@@ -61,18 +61,45 @@ model chat_message {
 }
 
 model chat_session {
-  id           String          @id @default(dbgenerated("(gen_random_uuid())::text"))
-  userId       String          @map("user_id") @db.Uuid
-  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  expiresAt    DateTime        @map("expires_at") @db.Timestamptz(6)
-  updatedAt    DateTime        @default(now()) @map("updated_at") @db.Timestamptz(6)
-  chatFeedback chat_feedback[]
-  messages     chat_message[]
-  user         user            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                  String                            @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId              String                            @map("user_id") @db.Uuid
+  branchId            String?                           @map("branch_id") @db.Uuid
+  createdAt           DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt           DateTime                          @map("expires_at") @db.Timestamptz(6)
+  updatedAt           DateTime                          @default(now()) @map("updated_at") @db.Timestamptz(6)
+  chatFeedback        chat_feedback[]
+  messages            chat_message[]
+  confirmationIntents legacy_chat_confirmation_intent[]
+  user                user                              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch              branch?                           @relation(fields: [branchId], references: [id], onDelete: SetNull, onUpdate: NoAction)
 
   @@index([createdAt])
   @@index([expiresAt])
   @@index([userId])
+  @@index([userId, branchId, updatedAt], map: "idx_chat_session_owner_updated")
+  @@index([branchId], map: "idx_chat_session_branch")
+}
+
+/// One-time, actor/branch/session/action/payload-bound approval for legacy chat tools.
+/// The raw nonce is returned only once; only its SHA-256 digest is persisted.
+model legacy_chat_confirmation_intent {
+  id          String       @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId      String       @map("user_id") @db.Uuid
+  branchId    String       @map("branch_id") @db.Uuid
+  sessionId   String       @map("session_id")
+  toolName    String       @map("tool_name") @db.VarChar(80)
+  payload     Json         @db.JsonB
+  payloadHash String       @map("payload_hash") @db.Char(64)
+  nonceHash   String       @unique @map("nonce_hash") @db.Char(64)
+  expiresAt   DateTime     @map("expires_at") @db.Timestamptz(6)
+  consumedAt  DateTime?    @map("consumed_at") @db.Timestamptz(6)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  user        user         @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  branch      branch       @relation(fields: [branchId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  session     chat_session @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId, branchId, expiresAt], map: "idx_legacy_chat_confirmation_owner_expiry")
+  @@index([sessionId], map: "idx_legacy_chat_confirmation_session")
 }
 
 model agent_session {
@@ -117,40 +144,40 @@ model agent_message {
 }
 
 model agent_action {
-  id                   String        @id @default(dbgenerated("(gen_random_uuid())::text"))
-  sessionId            String        @map("session_id")
-  userId               String        @map("user_id") @db.Uuid
-  branchId             String        @map("branch_id") @db.Uuid
-  capability           String
-  capabilityVersion    String        @map("capability_version")
-  risk                 String        @db.VarChar(40)
-  status               String        @default("proposed") @db.VarChar(20)
-  proposal             Json
-  proposalRevision     String        @map("proposal_revision")
-  inputHash            String        @map("input_hash")
-  targetSnapshot       Json?         @map("target_snapshot")
-  targetVersion        String?       @map("target_version")
-  authorizationContext Json          @map("authorization_context")
-  approvedBy           String?       @map("approved_by") @db.Uuid
-  approvedAt           DateTime?     @map("approved_at") @db.Timestamptz(6)
-  rejectedBy           String?       @map("rejected_by") @db.Uuid
-  rejectedAt           DateTime?     @map("rejected_at") @db.Timestamptz(6)
-  expiresAt            DateTime      @map("expires_at") @db.Timestamptz(6)
-  idempotencyKey       String        @unique(map: "agent_action_idempotency_key_key") @map("idempotency_key")
-  requestDedupeKey     String        @unique(map: "agent_action_request_dedupe_key_key") @map("request_dedupe_key")
-  dedupeExpiresAt      DateTime      @map("dedupe_expires_at") @db.Timestamptz(6)
-  result               Json?
-  error                Json?
-  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  executedAt           DateTime?     @map("executed_at") @db.Timestamptz(6)
-  executionAttemptCount Int          @default(0) @map("execution_attempt_count")
-  resultPartPersistedAt DateTime?    @map("result_part_persisted_at") @db.Timestamptz(6)
-  effectReceipt         Json?        @map("effect_receipt")
-  effectRecordedAt      DateTime?    @map("effect_recorded_at") @db.Timestamptz(6)
-  session              agent_session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  user                 user          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  branch               branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  id                    String        @id @default(dbgenerated("(gen_random_uuid())::text"))
+  sessionId             String        @map("session_id")
+  userId                String        @map("user_id") @db.Uuid
+  branchId              String        @map("branch_id") @db.Uuid
+  capability            String
+  capabilityVersion     String        @map("capability_version")
+  risk                  String        @db.VarChar(40)
+  status                String        @default("proposed") @db.VarChar(20)
+  proposal              Json
+  proposalRevision      String        @map("proposal_revision")
+  inputHash             String        @map("input_hash")
+  targetSnapshot        Json?         @map("target_snapshot")
+  targetVersion         String?       @map("target_version")
+  authorizationContext  Json          @map("authorization_context")
+  approvedBy            String?       @map("approved_by") @db.Uuid
+  approvedAt            DateTime?     @map("approved_at") @db.Timestamptz(6)
+  rejectedBy            String?       @map("rejected_by") @db.Uuid
+  rejectedAt            DateTime?     @map("rejected_at") @db.Timestamptz(6)
+  expiresAt             DateTime      @map("expires_at") @db.Timestamptz(6)
+  idempotencyKey        String        @unique(map: "agent_action_idempotency_key_key") @map("idempotency_key")
+  requestDedupeKey      String        @unique(map: "agent_action_request_dedupe_key_key") @map("request_dedupe_key")
+  dedupeExpiresAt       DateTime      @map("dedupe_expires_at") @db.Timestamptz(6)
+  result                Json?
+  error                 Json?
+  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  executedAt            DateTime?     @map("executed_at") @db.Timestamptz(6)
+  executionAttemptCount Int           @default(0) @map("execution_attempt_count")
+  resultPartPersistedAt DateTime?     @map("result_part_persisted_at") @db.Timestamptz(6)
+  effectReceipt         Json?         @map("effect_receipt")
+  effectRecordedAt      DateTime?     @map("effect_recorded_at") @db.Timestamptz(6)
+  session               agent_session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user                  user          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch                branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@index([sessionId, createdAt], map: "idx_agent_action_session_created")
   @@index([branchId, userId, status], map: "idx_agent_action_owner_status")
@@ -213,6 +240,7 @@ model client {
   name                   String
   address                String?
   phone                  String?
+  phoneNormalized        String?                   @map("phone_normalized")
   suppressGreetingSms    Boolean                   @default(false) @map("suppress_greeting_sms")
   type                   String?
   duration               Int?                      @db.SmallInt
@@ -245,7 +273,7 @@ model client {
   messageTriggerJobs     message_trigger_job[]
   serviceRecordCase      service_record_case?
 
-  @@unique([branchId, phone], map: "client_branch_phone_key")
+  @@unique([branchId, phoneNormalized], map: "client_branch_phone_normalized_key")
   @@index([areaId], map: "idx_client_area")
   @@index([branchId], map: "idx_client_branch")
   @@index([createdAt], map: "idx_client_created_at")
@@ -369,32 +397,32 @@ model eformsign_doc {
 /// a unique index, so activeKey releases terminal jobs while still matching the
 /// Prisma unique definition. Value checks are authoritative in the SQL patch.
 model eformsign_document_job {
-  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  branchId           String    @map("branch_id") @db.Uuid
-  clientId           Int?      @map("client_id")
-  documentId         String?   @map("document_id")
-  jobType            String    @map("job_type") @db.VarChar(32)
-  source             String    @db.VarChar(20)
-  status             String    @default("queued") @db.VarChar(24)
-  requestKey         String    @map("request_key") @db.VarChar(255)
-  activeKey          String?   @map("active_key") @db.VarChar(255)
-  payload            Json?     @db.JsonB
-  payloadFingerprint String?   @map("payload_fingerprint") @db.Char(64)
-  progressStep       String?   @map("progress_step") @db.VarChar(80)
-  attempts           Int       @default(0)
-  nextAttemptAt      DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
-  heartbeatAt        DateTime? @map("heartbeat_at") @db.Timestamptz(6)
-  leaseToken         String?   @map("lease_token") @db.Uuid
+  id                            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId                      String    @map("branch_id") @db.Uuid
+  clientId                      Int?      @map("client_id")
+  documentId                    String?   @map("document_id")
+  jobType                       String    @map("job_type") @db.VarChar(32)
+  source                        String    @db.VarChar(20)
+  status                        String    @default("queued") @db.VarChar(24)
+  requestKey                    String    @map("request_key") @db.VarChar(255)
+  activeKey                     String?   @map("active_key") @db.VarChar(255)
+  payload                       Json?     @db.JsonB
+  payloadFingerprint            String?   @map("payload_fingerprint") @db.Char(64)
+  progressStep                  String?   @map("progress_step") @db.VarChar(80)
+  attempts                      Int       @default(0)
+  nextAttemptAt                 DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  heartbeatAt                   DateTime? @map("heartbeat_at") @db.Timestamptz(6)
+  leaseToken                    String?   @map("lease_token") @db.Uuid
   autoFinalizeOutcomeRecordedAt DateTime? @map("auto_finalize_outcome_recorded_at") @db.Timestamptz(6)
-  startedAt          DateTime? @map("started_at") @db.Timestamptz(6)
-  completedAt        DateTime? @map("completed_at") @db.Timestamptz(6)
-  lastErrorCode      String?   @map("last_error_code") @db.VarChar(80)
-  createdByUserId    String?   @map("created_by_user_id") @db.Uuid
-  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  branch             branch    @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  client             client?   @relation(fields: [clientId], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  createdByUser      user?     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  startedAt                     DateTime? @map("started_at") @db.Timestamptz(6)
+  completedAt                   DateTime? @map("completed_at") @db.Timestamptz(6)
+  lastErrorCode                 String?   @map("last_error_code") @db.VarChar(80)
+  createdByUserId               String?   @map("created_by_user_id") @db.Uuid
+  createdAt                     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  branch                        branch    @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  client                        client?   @relation(fields: [clientId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  createdByUser                 user?     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction)
 
   @@unique([requestKey], map: "eformsign_document_job_request_key_key")
   @@unique([activeKey], map: "eformsign_document_job_active_key_key")
@@ -402,6 +430,41 @@ model eformsign_document_job {
   @@index([branchId, status, updatedAt], map: "idx_eformsign_document_job_branch_status_updated")
   @@index([documentId], map: "idx_eformsign_document_job_document_id")
   @@index([clientId], map: "idx_eformsign_document_job_client_id")
+}
+
+/// Durable at-most-once boundary for every provider-changing eformsign action.
+/// A started or uncertain row is intentionally not replayable; only an explicit
+/// operator reconciliation to `not_delivered` permits another claim attempt.
+model eformsign_dispatch_intent {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId             String    @map("branch_id") @db.Uuid
+  clientId             Int?      @map("client_id")
+  localDocumentId      Int?      @map("local_document_id")
+  assignmentId         Int?      @map("assignment_id")
+  providerDocumentId   String?   @map("provider_document_id")
+  templateId           String?   @map("template_id")
+  action               String    @db.VarChar(32)
+  generation           String    @db.VarChar(128)
+  businessKey          String    @map("business_key") @db.Char(64)
+  fingerprint          String    @db.Char(64)
+  status               String    @default("prepared") @db.VarChar(32)
+  attemptCount         Int       @default(0) @map("attempt_count")
+  startedAt            DateTime? @map("started_at") @db.Timestamptz(6)
+  providerAcceptedAt   DateTime? @map("provider_accepted_at") @db.Timestamptz(6)
+  uncertainAt          DateTime? @map("uncertain_at") @db.Timestamptz(6)
+  uncertainReason      String?   @map("uncertain_reason")
+  providerReceipt      Json?     @map("provider_receipt") @db.JsonB
+  reconciledAt         DateTime? @map("reconciled_at") @db.Timestamptz(6)
+  reconciledOutcome    String?   @map("reconciled_outcome") @db.VarChar(24)
+  reconciledByUserId   String?   @map("reconciled_by_user_id") @db.Uuid
+  reconciliationReason String?   @map("reconciliation_reason")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  branch               branch    @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([businessKey], map: "eformsign_dispatch_intent_business_key")
+  @@index([branchId, status], map: "idx_eformsign_dispatch_intent_branch_status")
+  @@index([branchId, localDocumentId], map: "idx_eformsign_dispatch_intent_branch_document")
 }
 
 model eformsign_doc_file {
@@ -428,6 +491,7 @@ model employee {
   name                       String
   workArea                   String[]                    @map("work_area")
   phone                      String
+  phoneNormalized            String?                     @map("phone_normalized")
   grade                      String
   openToNextWork             Boolean                     @default(true) @map("open_to_next_work")
   companyRegisteredDate      DateTime?                   @map("company_registered_date") @db.Date
@@ -441,7 +505,7 @@ model employee {
   serviceRecordAssignments   service_record_assignment[]
   serviceRecordDays          service_record_day[]
 
-  @@unique([branchId, phone], map: "employee_branch_id_phone_key")
+  @@unique([branchId, phoneNormalized], map: "employee_branch_id_phone_normalized_key")
   @@index([branchId], map: "idx_employee_branch")
 }
 
@@ -513,58 +577,61 @@ model notification {
 }
 
 model branch {
-  id                           String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name                         String
-  slug                         String                          @unique
-  region                       String?
-  district                     String?
-  branchType                   String?                         @map("branch_type")
-  phone                        String?
-  address                      String?
-  email                        String?
-  businessHours                String?                         @map("business_hours")
-  description                  String?
-  isActive                     Boolean?                        @default(true) @map("is_active")
-  smsSenderApprovalStatus      String                          @default("not_requested") @map("sms_sender_approval_status") @db.VarChar(20)
-  smsSenderApprovalRequestedAt DateTime?                       @map("sms_sender_approval_requested_at") @db.Timestamptz(6)
-  smsSenderApprovalRequestedBy String?                         @map("sms_sender_approval_requested_by") @db.Uuid
-  smsSenderApprovalApprovedAt  DateTime?                       @map("sms_sender_approval_approved_at") @db.Timestamptz(6)
-  smsSenderApprovalApprovedBy  String?                         @map("sms_sender_approval_approved_by") @db.Uuid
-  createdAt                    DateTime?                       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                    DateTime?                       @default(now()) @map("updated_at") @db.Timestamptz(6)
-  ownerId                      String?                         @map("owner_id") @db.Uuid
-  areas                        area[]
-  clients                      client[]
-  documents                    document[]
-  documentCategories           document_category[]
-  eformsignDocs                eformsign_doc[]
-  employees                    employee[]
-  employeeSchedules            employee_schedule[]
-  messages                     message[]
-  messageTemplates             message_template[]
-  messageLogs                  message_log[]
-  messageTriggerRules          message_trigger_rule[]
-  messageTriggerJobs           message_trigger_job[]
-  notifications                notification[]
-  eformsignDocumentJobs        eformsign_document_job[]
-  consultationInquiries        consultation_inquiry[]
-  callIngestTokens             call_ingest_token[]
-  callRecords                  call_record[]
-  clientDrafts                 client_draft[]
-  serviceRecordTokens          service_record_token[]
-  serviceRecords               service_record[]
-  serviceRecordDays            service_record_day[]
-  serviceRecordCases           service_record_case[]
-  serviceRecordAssignments     service_record_assignment[]
-  serviceRecordSnapshotChunks  service_record_snapshot_chunk[]
-  scheduleChangeRequests       schedule_change_request[]
-  authSessions                 auth_session[]
-  agentSessions                agent_session[]
-  agentActions                 agent_action[]
-  agentTraces                  agent_trace[]
-  agentFeedback                agent_feedback[]
-  owner                        user?                           @relation(fields: [ownerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  userBranches                 user_branch[]
+  id                            String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                          String
+  slug                          String                            @unique
+  region                        String?
+  district                      String?
+  branchType                    String?                           @map("branch_type")
+  phone                         String?
+  address                       String?
+  email                         String?
+  businessHours                 String?                           @map("business_hours")
+  description                   String?
+  isActive                      Boolean?                          @default(true) @map("is_active")
+  smsSenderApprovalStatus       String                            @default("not_requested") @map("sms_sender_approval_status") @db.VarChar(20)
+  smsSenderApprovalRequestedAt  DateTime?                         @map("sms_sender_approval_requested_at") @db.Timestamptz(6)
+  smsSenderApprovalRequestedBy  String?                           @map("sms_sender_approval_requested_by") @db.Uuid
+  smsSenderApprovalApprovedAt   DateTime?                         @map("sms_sender_approval_approved_at") @db.Timestamptz(6)
+  smsSenderApprovalApprovedBy   String?                           @map("sms_sender_approval_approved_by") @db.Uuid
+  createdAt                     DateTime?                         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime?                         @default(now()) @map("updated_at") @db.Timestamptz(6)
+  ownerId                       String?                           @map("owner_id") @db.Uuid
+  areas                         area[]
+  clients                       client[]
+  documents                     document[]
+  documentCategories            document_category[]
+  eformsignDocs                 eformsign_doc[]
+  employees                     employee[]
+  employeeSchedules             employee_schedule[]
+  messages                      message[]
+  messageTemplates              message_template[]
+  messageLogs                   message_log[]
+  messageTriggerRules           message_trigger_rule[]
+  messageTriggerJobs            message_trigger_job[]
+  notifications                 notification[]
+  eformsignDocumentJobs         eformsign_document_job[]
+  eformsignDispatchIntents      eformsign_dispatch_intent[]
+  consultationInquiries         consultation_inquiry[]
+  callIngestTokens              call_ingest_token[]
+  callRecords                   call_record[]
+  clientDrafts                  client_draft[]
+  serviceRecordTokens           service_record_token[]
+  serviceRecords                service_record[]
+  serviceRecordDays             service_record_day[]
+  serviceRecordCases            service_record_case[]
+  serviceRecordAssignments      service_record_assignment[]
+  serviceRecordSnapshotChunks   service_record_snapshot_chunk[]
+  scheduleChangeRequests        schedule_change_request[]
+  authSessions                  auth_session[]
+  agentSessions                 agent_session[]
+  legacyChatConfirmationIntents legacy_chat_confirmation_intent[]
+  agentActions                  agent_action[]
+  agentTraces                   agent_trace[]
+  agentFeedback                 agent_feedback[]
+  owner                         user?                             @relation(fields: [ownerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userBranches                  user_branch[]
+  chatSessions                  chat_session[]
 
   @@index([isActive], map: "idx_branch_is_active")
   @@index([ownerId], map: "idx_branch_owner")
@@ -592,6 +659,32 @@ model system_setting {
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 }
 
+// Append-only authority mutation ledger. Identity fields are scalar snapshots
+// so deleting a user or branch never erases historical actor/target context.
+model admin_audit_event {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorUserId     String?  @map("actor_user_id") @db.Uuid
+  actorGlobalRole String?  @map("actor_global_role") @db.VarChar(40)
+  actorBranchRole String?  @map("actor_branch_role") @db.VarChar(40)
+  tenantId        String?  @map("tenant_id") @db.Uuid
+  branchId        String?  @map("branch_id") @db.Uuid
+  action          String   @db.VarChar(100)
+  targetType      String   @map("target_type") @db.VarChar(80)
+  targetId        String?  @map("target_id") @db.VarChar(255)
+  beforePayload   Json?    @map("before_payload")
+  afterPayload    Json?    @map("after_payload")
+  outcome         String   @db.VarChar(40)
+  reason          String?  @db.VarChar(500)
+  correlationId   String?  @map("correlation_id") @db.VarChar(255)
+  source          String?  @db.VarChar(80)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([actorUserId, createdAt], map: "idx_admin_audit_event_actor_created")
+  @@index([branchId, createdAt], map: "idx_admin_audit_event_branch_created")
+  @@index([targetType, targetId, createdAt], map: "idx_admin_audit_event_target_created")
+  @@index([action, createdAt], map: "idx_admin_audit_event_action_created")
+}
+
 model system_template {
   id              String                    @id @default(dbgenerated("(gen_random_uuid())::text"))
   templateKey     String                    @unique @map("template_key")
@@ -616,39 +709,40 @@ model system_template_version {
 }
 
 model user {
-  id                   String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email                String?             @unique @db.VarChar
-  name                 String?             @db.VarChar
-  phone                String?             @db.VarChar
-  birthDate            String?             @map("birth_date") @db.VarChar
-  profileImage         String?             @map("profile_image") @db.VarChar
-  role                 String?             @db.VarChar
-  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamp(6)
-  kakaoId              String?             @unique(map: "user_kakaoId_key") @map("kakao_id") @db.VarChar
-  passwordHash         String?             @map("password_hash") @db.VarChar
-  emailVerified        Boolean             @default(false) @map("email_verified")
-  emailVerifiedAt      DateTime?           @map("email_verified_at") @db.Timestamptz(6)
-  authProvider         String              @default("kakao") @map("auth_provider")
-  approvalStatus       String              @default("pending") @map("approval_status") @db.VarChar
-  approvedAt           DateTime?           @map("approved_at") @db.Timestamptz(6)
-  approvedBy           String?             @map("approved_by") @db.Uuid
-  requestedRole        String?             @map("requested_role") @db.VarChar
-  tokenVersion         Int                 @default(0) @map("token_version")
-  chatFeedback         chat_feedback[]
-  chatSessions         chat_session[]
-  agentSessions        agent_session[]
-  agentActions         agent_action[]
-  agentTraces          agent_trace[]
-  agentFeedback        agent_feedback[]
-  notifications        notification[]
-  ownedBranches        branch[]
-  pushSubscriptions    push_subscription[]
-  userBranches         user_branch[]
-  authTokens           auth_token[]
-  authSessions         auth_session[]
-  authEmailOutbox      auth_email_outbox[]
-  reviewedClientDrafts client_draft[]
-  eformsignDocumentJobs eformsign_document_job[]
+  id                            String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                         String?                           @unique @db.VarChar
+  name                          String?                           @db.VarChar
+  phone                         String?                           @db.VarChar
+  birthDate                     String?                           @map("birth_date") @db.VarChar
+  profileImage                  String?                           @map("profile_image") @db.VarChar
+  role                          String?                           @db.VarChar
+  createdAt                     DateTime                          @default(now()) @map("created_at") @db.Timestamp(6)
+  kakaoId                       String?                           @unique(map: "user_kakaoId_key") @map("kakao_id") @db.VarChar
+  passwordHash                  String?                           @map("password_hash") @db.VarChar
+  emailVerified                 Boolean                           @default(false) @map("email_verified")
+  emailVerifiedAt               DateTime?                         @map("email_verified_at") @db.Timestamptz(6)
+  authProvider                  String                            @default("kakao") @map("auth_provider")
+  approvalStatus                String                            @default("pending") @map("approval_status") @db.VarChar
+  approvedAt                    DateTime?                         @map("approved_at") @db.Timestamptz(6)
+  approvedBy                    String?                           @map("approved_by") @db.Uuid
+  requestedRole                 String?                           @map("requested_role") @db.VarChar
+  tokenVersion                  Int                               @default(0) @map("token_version")
+  chatFeedback                  chat_feedback[]
+  chatSessions                  chat_session[]
+  legacyChatConfirmationIntents legacy_chat_confirmation_intent[]
+  agentSessions                 agent_session[]
+  agentActions                  agent_action[]
+  agentTraces                   agent_trace[]
+  agentFeedback                 agent_feedback[]
+  notifications                 notification[]
+  ownedBranches                 branch[]
+  pushSubscriptions             push_subscription[]
+  userBranches                  user_branch[]
+  authTokens                    auth_token[]
+  authSessions                  auth_session[]
+  authEmailOutbox               auth_email_outbox[]
+  reviewedClientDrafts          client_draft[]
+  eformsignDocumentJobs         eformsign_document_job[]
 }
 
 model auth_rate_limit {
@@ -712,25 +806,33 @@ model auth_refresh_token {
 }
 
 model auth_email_outbox {
-  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId        String     @map("user_id") @db.Uuid
-  authTokenId   String     @map("auth_token_id") @db.Uuid
-  kind          String     @db.VarChar
-  recipient     String     @db.VarChar
-  name          String?    @db.VarChar
-  status        String     @default("pending") @db.VarChar
-  attempts      Int        @default(0)
-  nextAttemptAt DateTime   @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
-  claimedAt     DateTime?  @map("claimed_at") @db.Timestamptz(6)
-  sentAt        DateTime?  @map("sent_at") @db.Timestamptz(6)
-  errorCode     String?    @map("error_code") @db.VarChar
-  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  user          user       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  authToken     auth_token @relation(fields: [authTokenId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                     String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                 String     @map("user_id") @db.Uuid
+  authTokenId            String     @map("auth_token_id") @db.Uuid
+  kind                   String     @db.VarChar
+  recipient              String     @db.VarChar
+  name                   String?    @db.VarChar
+  status                 String     @default("prepared") @db.VarChar
+  attempts               Int        @default(0)
+  attemptVersion         Int        @default(0) @map("attempt_version")
+  providerIdempotencyKey String     @unique(map: "auth_email_outbox_provider_idempotency_key_key") @default(dbgenerated("(gen_random_uuid())::text")) @map("provider_idempotency_key") @db.VarChar(255)
+  providerMessageId      String?    @map("provider_message_id") @db.VarChar(255)
+  providerStartedAt      DateTime?  @map("provider_started_at") @db.Timestamptz(6)
+  providerAcceptedAt     DateTime?  @map("provider_accepted_at") @db.Timestamptz(6)
+  uncertainAt            DateTime?  @map("uncertain_at") @db.Timestamptz(6)
+  uncertainReason        String?    @map("uncertain_reason") @db.VarChar(1000)
+  nextAttemptAt          DateTime   @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  claimedAt              DateTime?  @map("claimed_at") @db.Timestamptz(6)
+  sentAt                 DateTime?  @map("sent_at") @db.Timestamptz(6)
+  errorCode              String?    @map("error_code") @db.VarChar
+  createdAt              DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user                   user       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  authToken              auth_token @relation(fields: [authTokenId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([authTokenId, kind], map: "auth_email_outbox_token_kind_key")
   @@index([status, nextAttemptAt], map: "idx_auth_email_outbox_delivery")
+  @@index([status, attemptVersion], map: "idx_auth_email_outbox_provider_boundary")
 }
 
 model consultation_inquiry {
@@ -846,6 +948,16 @@ model message_log {
   attempts       Int                  @default(0)
   lastAttemptAt  DateTime?            @map("last_attempt_at") @db.Timestamptz(6)
   nextRetryAt    DateTime?            @map("next_retry_at") @db.Timestamptz(6)
+  // Additive provider-acceptance boundary. Legacy rows remain explicitly
+  // marked as legacy and retain the existing message-log UI contract.
+  providerAcceptanceKey         String?              @unique @map("provider_acceptance_key")
+  providerAcceptanceFingerprint String?              @map("provider_acceptance_fingerprint")
+  providerAcceptanceState       String               @default("legacy") @map("provider_acceptance_state") @db.VarChar(32)
+  providerCallStartedAt         DateTime?            @map("provider_call_started_at") @db.Timestamptz(6)
+  providerAcceptedAt            DateTime?            @map("provider_accepted_at") @db.Timestamptz(6)
+  providerReconciledAt          DateTime?            @map("provider_reconciled_at") @db.Timestamptz(6)
+  providerReconciledBy          String?              @map("provider_reconciled_by") @db.VarChar(200)
+  providerReconciliationReason  String?              @map("provider_reconciliation_reason") @db.VarChar(1000)
   createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
   branch         branch?              @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -859,6 +971,7 @@ model message_log {
   @@index([recipientPhone], map: "idx_message_log_recipient_phone")
   @@index([createdAt], map: "idx_message_log_created_at")
   @@index([nextRetryAt], map: "idx_message_log_next_retry_at")
+  @@index([providerAcceptanceState, nextRetryAt], map: "idx_message_log_provider_acceptance_state_retry")
 }
 
 /// Database note: partial unique index `uniq_message_trigger_rule_default` on
@@ -894,6 +1007,7 @@ model message_trigger_job {
   scheduledFor       DateTime             @map("scheduled_for") @db.Timestamptz(6)
   attempts           Int                  @default(0)
   nextAttemptAt      DateTime?            @map("next_attempt_at") @db.Timestamptz(6)
+  claimToken         String?              @map("claim_token")
   sentAt             DateTime?            @map("sent_at") @db.Timestamptz(6)
   canceledAt         DateTime?            @map("canceled_at") @db.Timestamptz(6)
   cancelReason       String?              @map("cancel_reason")
@@ -947,6 +1061,8 @@ model service_record_token {
   expectedPhoneHash   String               @map("expected_phone_hash")
   verifiedAt          DateTime?            @map("verified_at") @db.Timestamptz(6)
   failedAttempts      Int                  @default(0) @map("failed_attempts")
+  challengeWindowStartedAt DateTime?            @map("challenge_window_started_at") @db.Timestamptz(6)
+  lockedAt                 DateTime?            @map("locked_at") @db.Timestamptz(6)
   expiresAt           DateTime             @map("expires_at") @db.Timestamptz(6)
   active              Boolean              @default(true)
   revokedAt           DateTime?            @map("revoked_at") @db.Timestamptz(6)
@@ -959,6 +1075,7 @@ model service_record_token {
   @@index([scheduleId], map: "idx_service_record_token_schedule")
   @@index([branchId], map: "idx_service_record_token_branch")
   @@index([serviceRecordCaseId], map: "idx_service_record_token_service_record_case_id")
+  @@index([active, lockedAt, expiresAt], map: "idx_service_record_token_challenge_state")
 }
 
 /// One-time service header per assignment (top of the 제공기록지).
@@ -1151,6 +1268,7 @@ model call_record {
   callerPhone          String?       @map("caller_phone")
   matchedClientId      Int?          @map("matched_client_id")
   processingStatus     String        @default("RECEIVED") @map("processing_status")
+  processingClaimedAt  DateTime?     @map("processing_claimed_at") @db.Timestamptz(6)
   extractionRetryCount Int           @default(0) @map("extraction_retry_count")
   failureReason        String?       @map("failure_reason")
   createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1161,6 +1279,7 @@ model call_record {
   @@index([branchId, createdAt], map: "idx_call_record_branch_created")
   @@index([branchId, category], map: "idx_call_record_branch_category")
   @@index([processingStatus], map: "idx_call_record_processing_status")
+  @@index([processingStatus, processingClaimedAt], map: "idx_call_record_processing_status_claimed_at")
 }
 
 model client_draft {

@@ -17,7 +17,10 @@ import {
     MessageTriggerRecipientType,
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
-import { SystemSettingService } from "./system-setting.service";
+import {
+    type PwaDigestDeliveryStatus,
+    SystemSettingService,
+} from "./system-setting.service";
 
 const DAYS_THRESHOLD = 7;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -80,21 +83,57 @@ export class PwaNotificationSchedulerService {
         this.logger.log("[PWA Scheduler] Starting daily summary notifications...");
 
         const runStartedAt = new Date(Date.now());
+        const deliveryDate = KST_DATE_FORMATTER.format(runStartedAt);
         const branches = await this.branchRepository.findAllActive();
 
         for (const org of branches) {
             this.logger.log(`[PWA Scheduler] Processing org: ${org.name} (${org.id})`);
+            const deliveryKey = `branch:${org.id}:daily:${deliveryDate}`;
+            let claimToken: string | null = null;
             try {
+                claimToken = await this.systemSettingService.claimPwaDigestDelivery(
+                    deliveryKey,
+                    runStartedAt,
+                );
+                if (!claimToken) {
+                    this.logger.log(
+                        `[PWA Scheduler] Skipping already-owned or completed digest for branch ${org.id}`,
+                    );
+                    continue;
+                }
+
                 const persistedWatermark = await this.systemSettingService
                     .getPwaUndeliveredDigestWatermark(org.id);
                 const undeliveredSince = persistedWatermark
                     ?? new Date(runStartedAt.getTime() - UNDELIVERED_MESSAGES_WINDOW_MS);
-                await this.sendBranchDigest(org.id, org.name, undeliveredSince, runStartedAt);
+                const completed = await this.sendBranchDigest(
+                    org.id,
+                    org.name,
+                    undeliveredSince,
+                    runStartedAt,
+                    deliveryKey,
+                );
+                await this.completePwaDigestDelivery(
+                    deliveryKey,
+                    claimToken,
+                    completed ? "sent" : "retryable",
+                );
+                claimToken = null;
             } catch (error) {
                 this.logger.error(
                     `[PWA Scheduler] Failed to process branch ${org.id}`,
                     error instanceof Error ? error.stack : String(error),
                 );
+                if (claimToken) {
+                    await this.completePwaDigestDelivery(deliveryKey, claimToken, "uncertain").catch(
+                        (completionError: unknown) => {
+                            this.logger.error(
+                                `[PWA Scheduler] Failed to persist uncertain delivery state for branch ${org.id}`,
+                                completionError instanceof Error ? completionError.stack : String(completionError),
+                            );
+                        },
+                    );
+                }
             }
         }
 
@@ -111,7 +150,8 @@ export class PwaNotificationSchedulerService {
         branchName: string,
         undeliveredSince: Date,
         runStartedAt: Date,
-    ): Promise<void> {
+        deliveryKey: string,
+    ): Promise<boolean> {
         const [upcoming, ending, incompleteContracts, contractsNotSent, undelivered] = await Promise.all([
             this.collect(branchId, "upcoming services", () =>
                 this.clientRepository.findStartingWithinDays(branchId, DAYS_THRESHOLD)),
@@ -214,7 +254,7 @@ export class PwaNotificationSchedulerService {
             if (undelivered.loaded) {
                 await this.systemSettingService.setPwaUndeliveredDigestWatermark(branchId, runStartedAt);
             }
-            return;
+            return true;
         }
 
         try {
@@ -223,6 +263,7 @@ export class PwaNotificationSchedulerService {
                 branchName,
                 sections,
                 NOTIFICATION_EMAIL_CONTEXT,
+                deliveryKey,
             );
             this.logger.log(
                 `[PWA Scheduler] Daily digest for branch ${branchId}: ${sections.length} sections, ${result.sent} sent, ${result.failed} failed`,
@@ -230,10 +271,29 @@ export class PwaNotificationSchedulerService {
             if (undelivered.loaded && result.sent > 0 && result.failed === 0) {
                 await this.systemSettingService.setPwaUndeliveredDigestWatermark(branchId, runStartedAt);
             }
+            return result.failed === 0;
         } catch (error) {
             this.logger.error(
                 `[PWA Scheduler] Failed to send daily digest for branch ${branchId}`,
                 error instanceof Error ? error.stack : String(error),
+            );
+            return false;
+        }
+    }
+
+    private async completePwaDigestDelivery(
+        deliveryKey: string,
+        claimToken: string,
+        status: PwaDigestDeliveryStatus,
+    ): Promise<void> {
+        const completed = await this.systemSettingService.completePwaDigestDelivery(
+            deliveryKey,
+            claimToken,
+            status,
+        );
+        if (!completed) {
+            this.logger.warn(
+                `[PWA Scheduler] Delivery claim for ${deliveryKey} was replaced before completion`,
             );
         }
     }

@@ -1,5 +1,6 @@
 import { IsBoolean, IsOptional, IsString, Matches } from "class-validator";
 import { RibbonConfig } from "domain/entities/system-setting.entity";
+import type { EformsignAutomationStatus } from "application/services/eformsign-automation-status.service";
 
 export class UpdateNotificationPreferencesDto {
     @IsBoolean()
@@ -58,17 +59,34 @@ export class UpdateClientRegistrationPolicyDto {
     greetingOnAutoRegistration?: boolean;
 }
 
+export class ClientRegistrationPolicyAutomationStatusDto {
+    webhookConfigured!: boolean;
+    sweepEnabled!: boolean;
+    sweepRunnable!: boolean;
+
+    static from(automation: EformsignAutomationStatus): ClientRegistrationPolicyAutomationStatusDto {
+        const dto = new ClientRegistrationPolicyAutomationStatusDto();
+        dto.webhookConfigured = automation.webhookConfigured;
+        dto.sweepEnabled = automation.sweepEnabled;
+        dto.sweepRunnable = automation.sweepRunnable;
+        return dto;
+    }
+}
+
 export class ClientRegistrationPolicyResponseDto {
     clientAutoRegistration!: boolean;
     greetingOnAutoRegistration!: boolean;
+    automation!: ClientRegistrationPolicyAutomationStatusDto;
 
     static from(
         clientAutoRegistration: boolean,
         greetingOnAutoRegistration: boolean,
+        automation: EformsignAutomationStatus,
     ): ClientRegistrationPolicyResponseDto {
         const dto = new ClientRegistrationPolicyResponseDto();
         dto.clientAutoRegistration = clientAutoRegistration;
         dto.greetingOnAutoRegistration = greetingOnAutoRegistration;
+        dto.automation = ClientRegistrationPolicyAutomationStatusDto.from(automation);
         return dto;
     }
 }

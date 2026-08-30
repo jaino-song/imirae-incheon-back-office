@@ -8,6 +8,7 @@ sealed class ApiError {
     data class Timeout(val cause: String = "요청 시간이 초과되었습니다") : ApiError()
     data class Serialization(val cause: String) : ApiError()
     data class Unknown(val cause: String) : ApiError()
+    data class Unsupported(val cause: String) : ApiError()
 
     fun userMessage(): String = when (this) {
         is Http -> {
@@ -28,6 +29,7 @@ sealed class ApiError {
         is Timeout -> "요청 시간이 초과되었습니다. 네트워크 상태를 확인해 주세요"
         is Serialization -> "서버 응답 처리 중 오류: $cause"
         is Unknown -> "오류가 발생했습니다: $cause"
+        is Unsupported -> cause
     }
 
     fun technicalMessage(): String = when (this) {
@@ -36,6 +38,7 @@ sealed class ApiError {
         is Timeout -> "Timeout: $cause"
         is Serialization -> "Serialization: $cause"
         is Unknown -> "Unknown: $cause"
+        is Unsupported -> "Unsupported: $cause"
     }
 }
 

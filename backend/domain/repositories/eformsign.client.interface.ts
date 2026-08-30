@@ -123,7 +123,8 @@ export interface CreateDocumentResponse {
  * (NOT for local DB persistence — use IEformsignDocRepository for that)
  */
 export interface IEformsignClientRepository {
-    getAccessToken(executionTime: number, memberEmail?: string): Promise<EformsignTokenResponse>;
+    /** Acquire a token for the configured server-side provider identity. */
+    getAccessToken(executionTime: number): Promise<EformsignTokenResponse>;
     refreshAccessToken(executionTime: number, refreshToken: string): Promise<EformsignTokenResponse>;
     getInProgressDocuments(
         accessToken: string,

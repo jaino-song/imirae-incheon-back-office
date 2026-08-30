@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
@@ -16,6 +16,8 @@ import { employeeAgentTargetVersion } from "domain/entities/employee-agent-targe
 import { EMPLOYEE_GRADES, normalizeEmployeeGrade } from "domain/constants/employee-grade.constants";
 import { normalizePhone } from "application/utils/normalize-phone";
 import { EMPLOYEE_REPOSITORY, IEmployeeRepository } from "domain/repositories/employee.repository.interface";
+import { MessageTriggerService } from "application/services/message-trigger.service";
+import { MessageAutomationIntentService } from "application/services/message-automation-intent.service";
 
 const EmployeeGradeSchema = z.preprocess(
     (value) => typeof value === "string" ? normalizeEmployeeGrade(value) : value,
@@ -39,7 +41,7 @@ const EmployeeBirthdaySchema = z.string()
     .refine(isCalendarValidYymmdd, "Birthday must be a calendar-valid YYMMDD date")
     .optional();
 
-const EMPLOYEE_BRANCH_PHONE_UNIQUE_CONSTRAINT = "employee_branch_id_phone_key";
+const EMPLOYEE_BRANCH_PHONE_UNIQUE_CONSTRAINT = "employee_branch_id_phone_normalized_key";
 
 function isEmployeeBranchPhoneUniqueViolation(error: unknown): boolean {
     if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
@@ -49,7 +51,10 @@ function isEmployeeBranchPhoneUniqueViolation(error: unknown): boolean {
     if (!Array.isArray(target) || target.length !== 2) return false;
 
     const fields = target.map(String);
-    return fields.includes("phone") && (fields.includes("branchId") || fields.includes("branch_id"));
+    const phoneField = fields.includes("phoneNormalized")
+        || fields.includes("phone_normalized")
+        || fields.includes("phone");
+    return phoneField && (fields.includes("branchId") || fields.includes("branch_id"));
 }
 
 function normalizeEmployeePhone(rawPhone: string): string {
@@ -127,6 +132,8 @@ function isActiveEmployee(employee: Awaited<ReturnType<FindEmployeeByIdUsecase["
 @Injectable()
 @AgentCapabilityProvider()
 export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityProviderContract {
+    private readonly logger = new Logger(EmployeeWriteAgentCapabilitiesProvider.name);
+
     constructor(
         private readonly createEmployee: CreateEmployeeUsecase,
         private readonly updateEmployee: UpdateEmployeeUsecase,
@@ -135,11 +142,13 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
         @Inject(EMPLOYEE_REPOSITORY)
         private readonly employeeRepository: IEmployeeRepository,
         private readonly prisma: PrismaService,
+        @Optional() private readonly triggerService?: MessageTriggerService,
+        @Optional() private readonly messageAutomationIntentService?: MessageAutomationIntentService,
     ) {}
 
     getCapabilities(): CapabilityDefinition[] {
         const common = {
-            domain: "employees", version: "1.0.0", requiredRoles: ["owner", "admin", "manager"],
+            domain: "employees", version: "1.0.0", requiredRoles: ["owner", "admin"],
             risk: "reversible-write" as const, sideEffect: true, renderer: "action-proposal" as const,
             approvalPolicy: "structured" as const, idempotencyPolicy: "action-id" as const,
         };
@@ -192,6 +201,12 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                             id,
                             normalizedPhone === undefined ? updates : { ...updates, phone: normalizedPhone },
                         );
+                        await this.refreshEmployeeAssignmentJobsAfterProfileChange(
+                            context.principal.branchId,
+                            employee.id,
+                            input.name,
+                            normalizedPhone,
+                        );
                         return { id: employee.id, name: employee.name, status: "updated" };
                     } catch (error) {
                         if (isEmployeeBranchPhoneUniqueViolation(error)) {
@@ -211,6 +226,12 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                             id,
                             normalizedPhone === undefined ? updates : { ...updates, phone: normalizedPhone },
                             expectedTargetVersion,
+                        );
+                        await this.refreshEmployeeAssignmentJobsAfterProfileChange(
+                            context.principal.branchId,
+                            employee.id,
+                            input.name,
+                            normalizedPhone,
                         );
                         return { id: employee.id, name: employee.name, status: "updated" };
                     } catch (error) {
@@ -264,6 +285,47 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                 },
             },
         ];
+    }
+
+    private async refreshEmployeeAssignmentJobsAfterProfileChange(
+        branchId: string,
+        employeeId: number,
+        updatedName: string | undefined,
+        updatedPhone: string | undefined,
+    ): Promise<void> {
+        if (!this.triggerService) return;
+
+        const profileSupplied = updatedName !== undefined || updatedPhone !== undefined;
+        if (!profileSupplied) return;
+
+        try {
+            const refreshed = this.triggerService
+                ? await this.triggerService.syncEmployeeAssignmentRulesForEmployee(branchId, employeeId)
+                : false;
+            if (refreshed !== false) return;
+        } catch (error) {
+            this.logger.error(
+                `Failed to sync employee assignment triggers for employee ${employeeId}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+        }
+        await this.enqueueEmployeeRefresh(branchId, employeeId);
+    }
+
+    private async enqueueEmployeeRefresh(branchId: string, employeeId: number): Promise<void> {
+        if (!this.messageAutomationIntentService) {
+            this.logger.error(`Employee assignment refresh retry unavailable for employee ${employeeId}`);
+            return;
+        }
+        try {
+            await this.messageAutomationIntentService.enqueueEmployeeProfileRefreshIntent({
+                branchId,
+                employeeId,
+            });
+        } catch (error) {
+            this.logger.error(
+                `Failed to persist employee assignment refresh retry for employee ${employeeId}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+        }
     }
 
     private async inspectEmployee(branchId: string, id: number) {

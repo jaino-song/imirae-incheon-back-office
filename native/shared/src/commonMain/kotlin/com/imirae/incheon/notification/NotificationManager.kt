@@ -4,7 +4,10 @@ import com.imirae.incheon.deeplink.DeepLinkRouter
 import com.imirae.incheon.deeplink.NavigationIntent
 import com.imirae.incheon.data.remote.NotificationService
 import com.imirae.incheon.network.ApiResult
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,47 +27,31 @@ data class NotificationPayload(
 data class NotificationState(
     val unreadCount: Int = 0,
     val isPermissionGranted: Boolean = false,
-    val deviceToken: String? = null
 )
 
 class NotificationManager(
     private val deepLinkRouter: DeepLinkRouter,
-    private val notificationService: NotificationService
+    private val notificationService: NotificationService,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
 ) {
     private val _state = MutableStateFlow(NotificationState())
     val state: StateFlow<NotificationState> = _state.asStateFlow()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     /**
      * Parse notification payload and return navigation intent.
      */
     fun routeNotification(payload: NotificationPayload): NavigationIntent {
-        val deepLink = payload.deepLink ?: payload.data["deepLink"] ?: payload.data["link"]
+        val deepLink = sequenceOf(
+            payload.deepLink,
+            payload.data["deepLink"],
+            payload.data["link"],
+        )
+            .map { it?.trim() }
+            .firstOrNull { !it.isNullOrEmpty() }
         return if (deepLink != null) {
             deepLinkRouter.route(deepLink)
         } else {
             NavigationIntent.Unknown
-        }
-    }
-
-    /**
-     * Register device token with backend.
-     */
-    fun registerToken(token: String, platform: String) {
-        _state.value = _state.value.copy(deviceToken = token)
-        scope.launch {
-            notificationService.registerDeviceToken(token, platform)
-        }
-    }
-
-    /**
-     * Unregister device token (logout / unsubscribe).
-     */
-    fun unregisterToken() {
-        val token = _state.value.deviceToken ?: return
-        scope.launch {
-            notificationService.unregisterDeviceToken(token)
-            _state.value = _state.value.copy(deviceToken = null)
         }
     }
 
@@ -85,7 +72,8 @@ class NotificationManager(
      */
     fun markAsRead(notificationId: String) {
         scope.launch {
-            notificationService.markAsRead(notificationId)
+            val id = notificationId.toIntOrNull() ?: return@launch
+            notificationService.markAsRead(id)
             refreshUnreadCount()
         }
     }

@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-export const COOKIE_NAMES = {
-    ACCESS_TOKEN: "eformsign_access_token",
-    REFRESH_TOKEN: "eformsign_refresh_token",
-} as const;
-
 export const NO_STORE_CACHE_CONTROL = "no-store, max-age=0";
 
 class InvalidJsonBodyError extends Error {
@@ -134,14 +129,6 @@ function validateBodyWithSchema<T>(
     return { data: result.data, response: null };
 }
 
-export function getAccessToken(request: NextRequest): string | null {
-    return request.cookies.get(COOKIE_NAMES.ACCESS_TOKEN)?.value || null;
-}
-
-export function getRefreshToken(request: NextRequest): string | null {
-    return request.cookies.get(COOKIE_NAMES.REFRESH_TOKEN)?.value || null;
-}
-
 export function getAuthToken(request: NextRequest): string | null {
     return request.cookies.get("auth_token")?.value || null;
 }
@@ -152,10 +139,9 @@ export function getAuthHeaders(token: string | null): Record<string, string> {
 
 function getProxyGetParams(
     request: NextRequest,
-    accessToken: string,
     backendPathHasQuery: boolean,
 ): Record<string, string> {
-    const params: Record<string, string> = { accessToken };
+    const params: Record<string, string> = {};
 
     // When the route handler pre-encoded its own query string into backendPath,
     // forwarding the incoming request's params again would duplicate keys —
@@ -167,7 +153,7 @@ function getProxyGetParams(
 
     const { searchParams } = new URL(request.url);
     for (const [key, value] of searchParams.entries()) {
-        if (key === "accessToken") {
+        if (isEformsignCredentialParam(key)) {
             continue;
         }
         params[key] = value;
@@ -200,9 +186,16 @@ function isEformsignCredentialParam(key: string): boolean {
         "apikey",
         "authorization",
         "externaltoken",
+        "memberemail",
         "oauthtoken",
         "refreshtoken",
     ]).has(key.toLowerCase().replace(/[^a-z0-9]/g, ""));
+}
+
+function stripProviderCredentialFields(body: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries(body).filter(([key]) => !isEformsignCredentialParam(key)),
+    );
 }
 
 export function backendJsonResponse(response: UpstreamResponseLike): NextResponse {
@@ -247,6 +240,32 @@ function safeErrorCode(value: unknown): string | undefined {
     return /^[A-Z][A-Z0-9_:-]{0,63}$/.test(value) ? value : undefined;
 }
 
+/**
+ * Keep operator-visible proxy diagnostics useful without copying provider
+ * credentials or caller identity into logs/responses. This is intentionally
+ * local to the shared route layer so every frontend/mobile proxy gets the same
+ * redaction even when an upstream adapter throws a plain Error.
+ */
+function sanitizeSensitiveText(value: unknown): string {
+    const text = typeof value === "string" ? value : String(value);
+    return text
+        .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
+        .replace(
+            /([?&](?:access[_-]?token|refresh[_-]?token|oauth[_-]?token|external[_-]?token|api[_-]?key|authorization|member[_-]?email|member[_-]?id)=)[^&\s]+/gi,
+            "$1[REDACTED]",
+        )
+        .replace(
+            /(["']?(?:access[_-]?token|refresh[_-]?token|oauth[_-]?token|external[_-]?token|api[_-]?key|authorization|member[_-]?(?:email|id)|client[_-]?secret|password|secret)["']?\s*[:=]\s*)["']?[^"'\s,;}&]+["']?/gi,
+            "$1[REDACTED]",
+        )
+        .replace(
+            /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
+            "[REDACTED_EMAIL]",
+        )
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 export function sanitizeUpstreamClientError(
     upstreamData: unknown,
     fallbackMessage: string,
@@ -275,9 +294,12 @@ export function logUpstreamError(
     upstreamBody?: string,
 ): void {
     const maxUpstreamBodyLength = 2_000;
-    const loggedUpstreamBody = upstreamBody !== undefined && upstreamBody.length > maxUpstreamBodyLength
-        ? `${upstreamBody.slice(0, maxUpstreamBodyLength)}…(truncated)`
-        : upstreamBody;
+    const sanitizedUpstreamBody = upstreamBody === undefined
+        ? undefined
+        : sanitizeSensitiveText(upstreamBody);
+    const loggedUpstreamBody = sanitizedUpstreamBody !== undefined && sanitizedUpstreamBody.length > maxUpstreamBodyLength
+        ? `${sanitizedUpstreamBody.slice(0, maxUpstreamBodyLength)}…(truncated)`
+        : sanitizedUpstreamBody;
     const data = getUpstreamErrorData(error);
     const upstreamCode = data && typeof data === "object"
         ? safeErrorCode((data as { code?: unknown }).code)
@@ -361,9 +383,9 @@ export function errorResponse(error: unknown, context: string): NextResponse {
 function createLegacyErrorResponse(error: unknown, context: string): NextResponse {
     const upstreamData = (error as UpstreamErrorLike).response?.data as UpstreamErrorPayload | undefined;
     const status = (error as UpstreamErrorLike).response?.status || 500;
-    const message = upstreamData?.error
+    const message = sanitizeSensitiveText(upstreamData?.error
         || upstreamData?.message
-        || (error instanceof Error ? error.message : `Failed to ${context}`);
+        || (error instanceof Error ? error.message : `Failed to ${context}`));
 
     console.error(`[${context}] Error:`, message);
     return NextResponse.json({ error: message }, { status });
@@ -374,31 +396,10 @@ export function createRouteUtils({
     secureCookies,
     serverAPIClient,
 }: RouteUtilsConfig) {
-    const cookieOptions = {
-        httpOnly: true,
-        secure: secureCookies,
-        sameSite: "lax" as const,
-        path: "/",
-    };
+    void secureCookies;
     const boundErrorResponse = errorResponseMode === "legacy-message"
         ? createLegacyErrorResponse
         : errorResponse;
-
-    function setAuthCookies(
-        response: NextResponse,
-        accessToken: string,
-        refreshToken: string,
-    ): NextResponse {
-        response.cookies.set(COOKIE_NAMES.ACCESS_TOKEN, accessToken, {
-            ...cookieOptions,
-            maxAge: 60 * 60,
-        });
-        response.cookies.set(COOKIE_NAMES.REFRESH_TOKEN, refreshToken, {
-            ...cookieOptions,
-            maxAge: 60 * 60 * 24 * 7,
-        });
-        return response;
-    }
 
     async function proxyGetRequest(
         request: NextRequest,
@@ -406,19 +407,14 @@ export function createRouteUtils({
         context: string,
     ): Promise<NextResponse> {
         const authToken = getAuthToken(request);
-        const accessToken = getAccessToken(request);
 
         if (!authToken) {
             return unauthorizedResponse("Authentication required. Please log in.");
         }
 
-        if (!accessToken) {
-            return unauthorizedResponse("eFormsign access token required. Please authenticate with eFormsign first.");
-        }
-
         try {
             const response = await serverAPIClient.get(backendPath, {
-                params: getProxyGetParams(request, accessToken, backendPath.includes("?")),
+                params: getProxyGetParams(request, backendPath.includes("?")),
                 headers: getAuthHeaders(authToken),
             });
 
@@ -476,14 +472,9 @@ export function createRouteUtils({
     ): Promise<NextResponse> {
         const { additionalBody, bodySchema } = options ?? {};
         const authToken = getAuthToken(request);
-        const accessToken = getAccessToken(request);
 
         if (!authToken) {
             return unauthorizedResponse("Authentication required. Please log in.");
-        }
-
-        if (!accessToken) {
-            return unauthorizedResponse("eFormsign access token required. Please authenticate with eFormsign first.");
         }
 
         try {
@@ -499,9 +490,8 @@ export function createRouteUtils({
             const response = await serverAPIClient.post(
                 backendPath,
                 {
-                    ...body,
+                    ...stripProviderCredentialFields(body),
                     ...additionalBody,
-                    accessToken,
                 },
                 {
                     headers: getAuthHeaders(authToken),
@@ -534,14 +524,9 @@ export function createRouteUtils({
     ): Promise<NextResponse> {
         const { additionalBody, bodySchema } = options ?? {};
         const authToken = getAuthToken(request);
-        const accessToken = getAccessToken(request);
 
         if (!authToken) {
             return unauthorizedResponse("Authentication required. Please log in.");
-        }
-
-        if (!accessToken) {
-            return unauthorizedResponse("eFormsign access token required. Please authenticate with eFormsign first.");
         }
 
         try {
@@ -556,9 +541,9 @@ export function createRouteUtils({
 
             const { searchParams } = new URL(request.url);
 
-            const params: Record<string, string> = { accessToken };
+            const params: Record<string, string> = {};
             for (const [key, value] of searchParams.entries()) {
-                if (key !== "accessToken") {
+                if (!isEformsignCredentialParam(key)) {
                     params[key] = value;
                 }
             }
@@ -566,7 +551,7 @@ export function createRouteUtils({
             const response = await serverAPIClient.delete(backendPath, {
                 params,
                 data: {
-                    ...body,
+                    ...stripProviderCredentialFields(body),
                     ...additionalBody,
                 },
                 headers: getAuthHeaders(authToken),
@@ -596,6 +581,5 @@ export function createRouteUtils({
         proxyGetRequest,
         proxyLocalGetRequest,
         proxyPostRequest,
-        setAuthCookies,
     };
 }

@@ -6,6 +6,7 @@
 import {
     SERVICE_STATUS,
     computeServiceStatus,
+    isAutomaticServiceStatusTransitionAllowed,
     shouldUpdateStatus,
     isManualStatus,
 } from "domain/value-objects/service-status.vo";
@@ -198,6 +199,24 @@ describe("shouldUpdateStatus", () => {
         expect(shouldUpdateStatus("waiting", SERVICE_STATUS.WAITING)).toBe(false);
         expect(shouldUpdateStatus("active", SERVICE_STATUS.ACTIVE)).toBe(false);
         expect(shouldUpdateStatus("completed", SERVICE_STATUS.COMPLETED)).toBe(false);
+    });
+});
+
+describe("isAutomaticServiceStatusTransitionAllowed", () => {
+    it("allows an observed non-terminal status to move to a date-derived status", () => {
+        expect(isAutomaticServiceStatusTransitionAllowed("waiting", SERVICE_STATUS.ACTIVE)).toBe(true);
+        expect(isAutomaticServiceStatusTransitionAllowed(null, SERVICE_STATUS.PRE_BOOKING)).toBe(true);
+    });
+
+    it.each(["pre_booking", "terminated", "replacement_requested"])(
+        "blocks date-derived movement from manual %s",
+        (currentStatus) => {
+            expect(isAutomaticServiceStatusTransitionAllowed(currentStatus, SERVICE_STATUS.ACTIVE)).toBe(false);
+        },
+    );
+
+    it("blocks a manual target even when the observed status is automatic", () => {
+        expect(isAutomaticServiceStatusTransitionAllowed("waiting", SERVICE_STATUS.TERMINATED)).toBe(false);
     });
 });
 

@@ -11,10 +11,10 @@ export function ClientRegistrationPolicySettings() {
       <div className="section-header">고객 자동 등록</div>
       <div className="list-item">
         <div className="trigger-info">
-          <div className="trigger-title">전자문서 생성 시 고객 자동 등록</div>
+          <div className="trigger-title">eformsign 계약서 도착 시 고객 자동 등록</div>
         </div>
         <Switch
-          aria-label="전자문서 생성 시 고객 자동 등록"
+          aria-label="eformsign 계약서 도착 시 고객 자동 등록"
           checked={policy?.clientAutoRegistration === true}
           disabled={!policy || updatePolicy.isPending}
           onCheckedChange={(checked) => updatePolicy.mutate({ clientAutoRegistration: checked })}

@@ -9,7 +9,6 @@ import { api } from "@/lib/api/client";
  */
 const HEADLESS_DISPATCH_CLIENT_TIMEOUT_MS = 180_000;
 const MAX_PROVIDER_FINALIZE_STEPS = 3;
-import { safeStorageSetItem } from "@/lib/safe-storage";
 import type { RegisterRequest } from "@babyjamjam/shared";
 import { ContractDataDto } from '@/backend/application/dto/contract.dto';
 import {
@@ -89,11 +88,6 @@ export interface FinalizeEformsignDocumentJobRequest {
     requestKey: string;
     documentId: string;
     prefillEndDate?: string;
-}
-
-export interface ServiceRecordTemplateIdResponse {
-    templateId: string | null;
-    templateIds?: string[];
 }
 
 export interface LocalEformsignDocRecord {
@@ -213,9 +207,9 @@ export const eformsignApi = {
         const { data } = await api.post('/generate-signature', { executionTime });
         return data;
     },
-    // Authenticates and stores token in httpOnly cookie (returns { success: true })
-    authenticate: async (executionTime: number, memberEmail?: string): Promise<{ success: boolean }> => {
-        const { data } = await api.post('/access-token', { executionTime, memberEmail });
+    /** @deprecated Provider authentication is server-custodied; this path is a 410 tombstone. */
+    authenticate: async (executionTime: number): Promise<{ success: boolean }> => {
+        const { data } = await api.post('/access-token', { executionTime });
         return data;
     },
     getAuthStatus: async (): Promise<EformsignAuthStatusResponse> => {
@@ -257,16 +251,10 @@ export const eformsignApi = {
         const { data } = await api.post('/generate-document', { contractData, clientId });
         return data;
     },
-    generateStaffDocument: async (
-        documentId: string,
-        accessToken?: string,
-        refreshToken?: string,
-        prefillEndDate?: string,
-    ) => {
+    /** @deprecated Browser provider primitives are tombstoned; use finalizeHeadless. */
+    generateStaffDocument: async (documentId: string, prefillEndDate?: string) => {
         const { data } = await api.post('/generate-staff-document', {
             documentId,
-            accessToken,
-            refreshToken,
             prefillEndDate,
         });
         return data;
@@ -305,19 +293,20 @@ export const eformsignApi = {
     // Documents APIs - token is read from httpOnly cookie on server
     // Note: eformsign routes use /eformsign prefix to avoid conflict with file storage /documents
     // Unified endpoint - fetches all documents in single request (more efficient)
-    getAllDocuments: async (params?: { limit?: number; skip?: number; type?: string | null; templateId?: string; templateMatch?: "include" | "exclude"; search?: string; excludeDeleted?: boolean }): Promise<EformsignDocumentsResponse> => {
+    // section: backend resolves the template filter server-side; overrides templateId/templateMatch.
+    getAllDocuments: async (params?: { limit?: number; skip?: number; type?: string | null; section?: "maternity" | "service-records"; templateId?: string; templateMatch?: "include" | "exclude"; search?: string; excludeDeleted?: boolean }): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get('/eformsign/documents', { params });
         return data;
     },
-    getInProgressDocuments: async (params?: { limit?: number; skip?: number; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
+    getInProgressDocuments: async (params?: { limit?: number; skip?: number; section?: "maternity" | "service-records"; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get<EformsignApiListResponse>('/eformsign/documents/in-progress', { params });
         return normalizeDocumentListResponse(data, params);
     },
-    getCompletedDocuments: async (params?: { limit?: number; skip?: number; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
+    getCompletedDocuments: async (params?: { limit?: number; skip?: number; section?: "maternity" | "service-records"; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get<EformsignApiListResponse>('/eformsign/documents/completed', { params });
         return normalizeDocumentListResponse(data, params);
     },
-    getExpiredDocuments: async (params?: { limit?: number; skip?: number; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
+    getExpiredDocuments: async (params?: { limit?: number; skip?: number; section?: "maternity" | "service-records"; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get<EformsignApiListResponse>('/eformsign/documents/expired', { params });
         return normalizeDocumentListResponse(data, params);
     },
@@ -405,10 +394,6 @@ export const eformsignApi = {
         const { data } = await api.get('/eformsign-docs/client-names');
         return data;
     },
-    getServiceRecordTemplateId: async (): Promise<ServiceRecordTemplateIdResponse> => {
-        const { data } = await api.get('/eformsign-docs/feedback-template-id');
-        return data;
-    },
     getDocumentsByClientId: async (clientId: number): Promise<LocalEformsignDocRecord[]> => {
         const { data } = await api.get('/eformsign-docs/client', {
             params: { clientId },
@@ -423,23 +408,10 @@ export const eformsignApi = {
 }
 
 export async function withEformsignReauth<T>(fn: () => Promise<T>): Promise<T> {
-    try {
-        return await fn();
-    } catch (error) {
-        if (!axios.isAxiosError(error)) throw error;
-
-        const status = error.response?.status;
-        if (status !== 401 && status !== 403) throw error;
-
-        try {
-            const executionTime = Date.now();
-            await eformsignApi.authenticate(executionTime);
-            safeStorageSetItem("session", "eformsign_auth_time", executionTime.toString());
-            return await fn();
-        } catch {
-            throw error;
-        }
-    }
+    // Provider credentials are not browser state.  Application-session
+    // recovery belongs to the authenticated API client; retrying a retired
+    // provider-token route here would only reintroduce the legacy boundary.
+    return fn();
 }
 
 export type MessageSenderApprovalStatus = "not_requested" | "pending" | "approved";
@@ -472,9 +444,20 @@ export interface MessageAutomationPastTriggerConfig {
     ruleOrder: string[];
 }
 
+export interface ClientRegistrationPolicyAutomationStatus {
+    /** 웹훅 수신이 가능한 상태인지 (시크릿 + 테넌트 허용목록 존재). */
+    webhookConfigured: boolean;
+    /** 6시간 주기 미러 동기화가 활성화되어 있는지. */
+    sweepEnabled: boolean;
+    /** 주기 동기화가 실제로 시작될 수 있는지 (락 또는 단일 인스턴스 승인). */
+    sweepRunnable: boolean;
+}
+
 export interface ClientRegistrationPolicy {
     clientAutoRegistration: boolean;
     greetingOnAutoRegistration: boolean;
+    /** 구버전 백엔드 응답에는 없을 수 있다. */
+    automation?: ClientRegistrationPolicyAutomationStatus;
 }
 
 export type ClientRegistrationPolicyPatch = Partial<ClientRegistrationPolicy>;

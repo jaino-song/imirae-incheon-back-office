@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Optional } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
@@ -13,13 +13,17 @@ import { AgentActionCertainFailureError } from "application/agent/action-coordin
 import { readAgentActionEffect, recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
 import { normalizeClientPricing } from "domain/services/client-pricing";
 import {
+    assertClientDurationMatchesDates,
     assertAllowedClientArea,
     assertAllowedServiceStatus,
     assertPhoneAvailable,
+    assertClientPhoneInput,
+    deriveClientDuration,
     mergeAndValidateClientServicePeriod,
     parseClientDate,
 } from "./client-write-validation";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
+import { KOREAN_WON_INPUT_PATTERN } from "domain/value-objects/money.vo";
 import { SERVICE_STATUS_VALUES, ServiceStatusType } from "domain/value-objects/service-status.vo";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
@@ -27,6 +31,8 @@ import {
     isVoucherServiceLabel,
     ResolveVoucherServiceSelectionUsecase,
 } from "application/usecases/voucher-price-info/resolve-voucher-service-selection.usecase";
+import { MessageTriggerService } from "application/services/message-trigger.service";
+import { MessageAutomationIntentService } from "application/services/message-automation-intent.service";
 
 const DateOnlyInput = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
     const parsed = new Date(`${value}T00:00:00Z`);
@@ -37,6 +43,10 @@ const DateInputValue = z.union([
     z.string().datetime({ offset: true }),
 ]);
 const DateInput = DateInputValue.nullable().optional();
+const KoreanWonInput = z.string().trim().regex(
+    KOREAN_WON_INPUT_PATTERN,
+    "Amount must be a whole Korean-won value with no trailing text or decimals",
+);
 
 function isCalendarValidYymmdd(value: string): boolean {
     if (!/^\d{6}$/.test(value)) return false;
@@ -62,9 +72,9 @@ const ClientWriteFields = z.object({
     phone: z.string().trim().max(40).nullable().optional(),
     type: z.string().trim().max(40).nullable().optional(),
     duration: z.number().int().nonnegative().nullable().optional(),
-    fullPrice: z.string().max(40).nullable().optional(),
-    grant: z.string().max(80).nullable().optional(),
-    actualPrice: z.string().max(40).nullable().optional(),
+    fullPrice: KoreanWonInput.max(40).nullable().optional(),
+    grant: KoreanWonInput.max(80).nullable().optional(),
+    actualPrice: KoreanWonInput.max(40).nullable().optional(),
     startDate: DateInput,
     endDate: DateInput,
     careCenter: z.boolean().nullable().optional(),
@@ -105,7 +115,7 @@ const CLIENT_UPDATE_FORM_FIELDS: AgentFormField[] = [
     { name: "id", label: "고객 ID", type: "number", required: true },
     ...CLIENT_FORM_FIELDS.map((field) => ({ ...field, required: false })),
 ];
-const CLIENT_BRANCH_PHONE_UNIQUE_CONSTRAINT = "client_branch_phone_key";
+const CLIENT_BRANCH_PHONE_UNIQUE_CONSTRAINT = "client_branch_phone_normalized_key";
 
 function isClientBranchPhoneUniqueViolation(error: unknown): boolean {
     if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
@@ -115,11 +125,25 @@ function isClientBranchPhoneUniqueViolation(error: unknown): boolean {
     if (!Array.isArray(target) || target.length !== 2) return false;
 
     const fields = target.map(String);
-    return fields.includes("phone") && (fields.includes("branchId") || fields.includes("branch_id"));
+    const phoneField = fields.includes("phoneNormalized")
+        || fields.includes("phone_normalized")
+        || fields.includes("phone");
+    return phoneField && (fields.includes("branchId") || fields.includes("branch_id"));
 }
 
 function clientPhoneConflictError(): AgentActionCertainFailureError {
     return new AgentActionCertainFailureError("A client with this phone already exists in this branch");
+}
+
+function assertAgentClientPhone(phone: string | null | undefined): void {
+    try {
+        assertClientPhoneInput(phone);
+    } catch (error) {
+        if (error instanceof BadRequestException) {
+            throw new AgentActionCertainFailureError(error.message);
+        }
+        throw error;
+    }
 }
 
 function sameClientValue(actual: unknown, expected: unknown): boolean {
@@ -213,15 +237,31 @@ async function validateClientWrite(
         endDate?: Date | null;
         duration?: number | null;
     },
-): Promise<void> {
+): Promise<number | null> {
     try {
         assertAllowedServiceStatus(updates.serviceStatus);
         await assertAllowedClientArea(prisma, branchId, updates.areaId);
         await assertPhoneAvailable(repository, branchId, updates.phone, existing?.id);
-        mergeAndValidateClientServicePeriod(existing, {
+        const mergedServicePeriod = mergeAndValidateClientServicePeriod(existing, {
             startDate: updates.startDate,
             endDate: updates.endDate,
         });
+        const derivedDuration = deriveClientDuration(
+            mergedServicePeriod.startDate,
+            mergedServicePeriod.endDate,
+        );
+        assertClientDurationMatchesDates(updates.duration, derivedDuration);
+        const hasDateUpdate = existing !== null
+            && (updates.startDate !== undefined || updates.endDate !== undefined);
+        if (hasDateUpdate && derivedDuration !== null && updates.duration === null) {
+            throw new BadRequestException(
+                `duration must equal the Korean business-day count (${derivedDuration}) for the submitted service period`,
+            );
+        }
+        if (hasDateUpdate && derivedDuration === null && updates.duration !== undefined && updates.duration !== null) {
+            throw new BadRequestException("duration requires a complete service period");
+        }
+        return derivedDuration;
     } catch (error) {
         if (error instanceof BadRequestException || error instanceof ConflictException) {
             throw new AgentActionCertainFailureError(validationErrorMessage(error));
@@ -233,6 +273,8 @@ async function validateClientWrite(
 @Injectable()
 @AgentCapabilityProvider()
 export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProviderContract {
+    private readonly logger = new Logger(ClientWriteAgentCapabilitiesProvider.name);
+
     constructor(
         private readonly createClient: CreateClientUsecase,
         private readonly updateClient: UpdateClientUsecase,
@@ -242,6 +284,8 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
         private readonly prisma: PrismaService,
         private readonly serviceRecordLifecycleService: ServiceRecordLifecycleService,
         @Optional() private readonly voucherServiceSelection?: ResolveVoucherServiceSelectionUsecase,
+        @Optional() private readonly triggerService?: MessageTriggerService,
+        @Optional() private readonly messageAutomationIntentService?: MessageAutomationIntentService,
     ) {}
 
     getCapabilities(): CapabilityDefinition[] {
@@ -267,6 +311,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 outputSchema: ClientWriteOutputSchema,
                 formFields: CLIENT_FORM_FIELDS,
                 canonicalizeInput: (_context, input: CreateClientInput) => {
+                    assertAgentClientPhone(input.phone);
                     if (isVoucherServiceLabel(input.type)) {
                         if (input.voucherClient === false) {
                             return Promise.reject(new AgentActionCertainFailureError("voucherClient=false conflicts with a voucher type; remove the contradiction or provide a non-voucher type"));
@@ -304,15 +349,17 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 },
                 execute: async (context, rawInput) => {
                     const input = CreateClientSchema.parse(rawInput);
+                    assertAgentClientPhone(input.phone);
                     const dates = {
                         startDate: parseClientDate(input.startDate) ?? null,
                         endDate: parseClientDate(input.endDate) ?? null,
                     };
-                    await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, null, {
+                    const derivedDuration = await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, null, {
                         ...dates,
                         areaId: input.areaId,
                         phone: input.phone,
                         serviceStatus: input.serviceStatus,
+                        duration: input.duration,
                     });
                     const normalizedPricing = normalizeClientPricing({
                         voucherClient: input.voucherClient ?? false,
@@ -328,7 +375,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                                 address: input.address ?? null,
                                 phone: input.phone,
                                 type: normalizedPricing.type,
-                                duration: input.duration ?? null,
+                                duration: derivedDuration ?? input.duration ?? null,
                                 fullPrice: normalizedPricing.fullPrice,
                                 grant: normalizedPricing.grant,
                                 actualPrice: normalizedPricing.actualPrice,
@@ -367,6 +414,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 outputSchema: ClientWriteOutputSchema,
                 formFields: CLIENT_UPDATE_FORM_FIELDS,
                 canonicalizeInput: async (context, input: UpdateClientInput) => {
+                    assertAgentClientPhone(input.phone);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);
                     if (!existing) throw new AgentActionCertainFailureError("Client no longer exists");
                     const normalizedPricing = normalizeMergedClientPricing(existing, input);
@@ -380,6 +428,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 },
                 inspect: async (context, rawInput) => {
                     const input = UpdateClientSchema.parse(rawInput);
+                    assertAgentClientPhone(input.phone);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);
                     if (!existing) throw new AgentActionCertainFailureError("Client no longer exists");
                     const updates = input;
@@ -389,7 +438,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         endDate: parseClientDate(updates.endDate),
                     };
                     const normalizedPricing = normalizeMergedClientPricing(existing, updates);
-                    await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, {
+                    const derivedDuration = await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, {
                         ...parsedUpdates,
                         ...normalizedPricing,
                     });
@@ -397,7 +446,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         clientId: existing.id,
                         startDate: parsedUpdates.startDate,
                         endDate: parsedUpdates.endDate,
-                        duration: parsedUpdates.duration,
+                        duration: derivedDuration ?? parsedUpdates.duration,
                     });
                     return {
                         targetVersion: clientAgentTargetVersion(existing),
@@ -407,6 +456,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 },
                 revalidate: async (context, rawInput, expectedTargetVersion) => {
                     const input = UpdateClientSchema.parse(rawInput);
+                    assertAgentClientPhone(input.phone);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);
                     const currentVersion = clientAgentTargetVersion(existing);
                     return {
@@ -417,6 +467,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 },
                 execute: async (context, rawInput) => {
                     const input = UpdateClientSchema.parse(rawInput);
+                    assertAgentClientPhone(input.phone);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);
                     if (!existing) throw new AgentActionCertainFailureError("Client no longer exists");
                     const { id, targetVersion, ...updates } = input;
@@ -429,18 +480,25 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         dueDate: parseClientDate(updates.dueDate),
                         birthDate: parseClientDate(updates.birthDate),
                     };
-                    await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, parsedUpdates);
+                    const derivedDuration = await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, parsedUpdates);
+                    const duration = derivedDuration ?? parsedUpdates.duration;
                     await validateClientServicePeriod(this.serviceRecordLifecycleService, {
                         clientId: existing.id,
                         startDate: parsedUpdates.startDate,
                         endDate: parsedUpdates.endDate,
-                        duration: parsedUpdates.duration,
+                        duration,
                     });
                     try {
                         const client = await this.updateClient.execute(context.principal.branchId, id, {
                             ...parsedUpdates,
+                            ...(duration === undefined ? {} : { duration }),
                         });
                         await this.serviceRecordLifecycleService.ensureForClient(client.id);
+                        await this.refreshEmployeeAssignmentJobsAfterProfileChange(
+                            context.principal.branchId,
+                            client.id,
+                            input.name !== undefined,
+                        );
                         return { id: client.id, name: client.name, status: "updated" };
                     } catch (error) {
                         if (isClientBranchPhoneUniqueViolation(error)) throw clientPhoneConflictError();
@@ -449,6 +507,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 },
                 executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
                     const input = UpdateClientSchema.parse(rawInput);
+                    assertAgentClientPhone(input.phone);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);
                     if (!existing) throw new AgentActionCertainFailureError("Client no longer exists");
                     const { id, targetVersion, ...updates } = input;
@@ -461,19 +520,23 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         dueDate: parseClientDate(updates.dueDate),
                         birthDate: parseClientDate(updates.birthDate),
                     };
-                    await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, parsedUpdates);
+                    const derivedDuration = await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, parsedUpdates);
+                    const duration = derivedDuration ?? parsedUpdates.duration;
                     try {
-                        return await this.prisma.$transaction(async (transaction) => {
+                        const result = await this.prisma.$transaction(async (transaction) => {
                             await validateClientServicePeriod(this.serviceRecordLifecycleService, {
                                 clientId: existing.id,
                                 startDate: parsedUpdates.startDate,
                                 endDate: parsedUpdates.endDate,
-                                duration: parsedUpdates.duration,
+                                duration,
                             }, transaction);
                             const client = await this.updateClient.executeApprovedTarget(
                                 context.principal.branchId,
                                 id,
-                                parsedUpdates,
+                                {
+                                    ...parsedUpdates,
+                                    ...(duration === undefined ? {} : { duration }),
+                                },
                                 expectedTargetVersion,
                                 transaction,
                             );
@@ -482,6 +545,12 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                             await recordAgentActionEffect(transaction, context, "clients.update", "client", client.id, result);
                             return result;
                         });
+                        await this.refreshEmployeeAssignmentJobsAfterProfileChange(
+                            context.principal.branchId,
+                            existing.id,
+                            input.name !== undefined,
+                        );
+                        return result;
                     } catch (error) {
                         if (error instanceof ClientTargetVersionMismatchError) {
                             throw new AgentActionCertainFailureError(error.message);
@@ -492,6 +561,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 },
                 reconcile: async (context, rawInput) => {
                     const input = UpdateClientSchema.parse(rawInput);
+                    assertAgentClientPhone(input.phone);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);
                     if (!existing) return { status: "failed", reason: "Client no longer exists" };
                     const { id, targetVersion, ...updates } = input;
@@ -508,5 +578,71 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 },
             },
         ];
+    }
+
+    private async refreshEmployeeAssignmentJobsAfterProfileChange(
+        branchId: string,
+        clientId: number,
+        nameSupplied: boolean,
+    ): Promise<void> {
+        if (!this.triggerService || !nameSupplied) return;
+
+        try {
+            const refreshed = await this.triggerService.syncEmployeeAssignmentRulesForClient(branchId, clientId);
+            if (refreshed === false) {
+                await this.persistEmployeeAssignmentRefreshIntents(branchId, clientId);
+            }
+        } catch (error) {
+            this.logger.error(
+                `Failed to sync employee assignment triggers for client ${clientId}: ${error}`,
+            );
+            await this.persistEmployeeAssignmentRefreshIntents(branchId, clientId);
+        }
+    }
+
+    /**
+     * Keep client-name assignment refreshes durable when the immediate rebuild
+     * cannot complete. The intent writer owns branch/schedule deduplication;
+     * this helper only selects active schedules in the caller's branch and
+     * persists their existing schedule intents in one transaction.
+     */
+    private async persistEmployeeAssignmentRefreshIntents(
+        branchId: string,
+        clientId: number,
+    ): Promise<void> {
+        if (!this.messageAutomationIntentService) {
+            this.logger.error(`Client assignment refresh retry service is unavailable for client ${clientId}`);
+            return;
+        }
+
+        try {
+            const activeSchedules = await this.prisma.employee_schedule.findMany({
+                where: { branchId, clientId, replaced: false },
+                select: { id: true },
+                orderBy: { id: "asc" },
+            });
+            const scheduleIds = [...new Set(activeSchedules.map(({ id }) => id))]
+                .sort((left, right) => left - right);
+            if (scheduleIds.length === 0) return;
+
+            const intentAt = new Date();
+            await this.prisma.$transaction(async (transaction) => {
+                for (const scheduleId of scheduleIds) {
+                    await this.messageAutomationIntentService?.persistScheduleIntent(transaction, {
+                        branchId,
+                        clientId,
+                        scheduleId,
+                        includePast: true,
+                        intentAt,
+                        replaceExisting: true,
+                    });
+                }
+            });
+        } catch (error) {
+            this.logger.error(
+                `Failed to persist employee assignment refresh retries for client ${clientId}: ` +
+                `${error instanceof Error ? error.message : String(error)}`,
+            );
+        }
     }
 }

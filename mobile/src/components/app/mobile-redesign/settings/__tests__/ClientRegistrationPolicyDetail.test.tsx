@@ -54,7 +54,7 @@ describe("ClientRegistrationPolicyDetail", () => {
     renderDetail();
 
     const autoRegistration = await screen.findByRole("switch", {
-      name: "전자문서 생성 시 고객 자동 등록",
+      name: "eformsign 계약서 도착 시 고객 자동 등록",
     });
     const greeting = screen.getByRole("switch", {
       name: "자동 등록 시 인사 문자 발송",
@@ -68,7 +68,7 @@ describe("ClientRegistrationPolicyDetail", () => {
     });
     expect(
       screen.getByText(
-        "계약서 전자문서를 만들면 산모를 고객 목록에 자동으로 등록합니다.",
+        "eformsign 계약서가 도착하거나 완결되면 산모를 고객 목록에 자동으로 등록합니다.",
       ),
     ).toBeInTheDocument();
     expect(
@@ -80,7 +80,7 @@ describe("ClientRegistrationPolicyDetail", () => {
     renderDetail();
 
     const autoRegistration = await screen.findByRole("switch", {
-      name: "전자문서 생성 시 고객 자동 등록",
+      name: "eformsign 계약서 도착 시 고객 자동 등록",
     });
     await waitFor(() => expect(autoRegistration).not.toBeDisabled());
     fireEvent.click(autoRegistration);

@@ -3,6 +3,7 @@ import { METHOD_METADATA, PATH_METADATA } from "@nestjs/common/constants";
 import { Test, TestingModule } from "@nestjs/testing";
 import { ScheduleChangeService } from "application/services/schedule-change.service";
 import { ServiceRecordEntryService } from "application/services/service-record-entry.service";
+import { RateLimitGuard } from "infrastructure/auth/rate-limit.guard";
 import { ServiceRecordGuard } from "infrastructure/auth/service-record.guard";
 import { ServiceRecordEntryController } from "interface/controllers/service-record-entry.controller";
 
@@ -68,6 +69,8 @@ describe("ServiceRecordEntryController schedule-change endpoints (Integration)",
         })
             .overrideGuard(ServiceRecordGuard)
             .useValue(mockServiceRecordGuard)
+            .overrideGuard(RateLimitGuard)
+            .useValue({ canActivate: () => true })
             .compile();
 
         controller = moduleFixture.get(ServiceRecordEntryController);

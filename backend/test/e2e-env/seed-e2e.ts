@@ -1,5 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 
+import { normalizePhone } from "../../domain/utils/normalize-phone";
+
 const prisma = new PrismaClient();
 
 const BRANCH_ID = "33dbe950-1574-4951-b7b4-92d97ab29512";
@@ -266,6 +268,7 @@ async function main(): Promise<void> {
             name: "홍테스트",
             address: "인천 남동구 테스트로 123",
             phone: "01012345678",
+            phoneNormalized: normalizePhone("01012345678"),
             birthday: "900101",
             type: "A가1형",
             duration: 10,
@@ -284,6 +287,7 @@ async function main(): Promise<void> {
             name: "홍테스트",
             address: "인천 남동구 테스트로 123",
             phone: "01012345678",
+            phoneNormalized: normalizePhone("01012345678"),
             birthday: "900101",
             type: "A가1형",
             duration: 10,
@@ -305,6 +309,7 @@ async function main(): Promise<void> {
             name: "테스트직원",
             workArea: ["남동구"],
             phone: "01000000000",
+            phoneNormalized: normalizePhone("01000000000"),
             grade: "A",
             openToNextWork: true,
             companyRegisteredDate: new Date("2026-01-01T00:00:00.000Z"),
@@ -315,6 +320,7 @@ async function main(): Promise<void> {
             name: "테스트직원",
             workArea: ["남동구"],
             phone: "01000000000",
+            phoneNormalized: normalizePhone("01000000000"),
             grade: "A",
             openToNextWork: true,
             companyRegisteredDate: new Date("2026-01-01T00:00:00.000Z"),
@@ -328,6 +334,7 @@ async function main(): Promise<void> {
             name: "보조직원",
             workArea: ["남동구"],
             phone: "01000000001",
+            phoneNormalized: normalizePhone("01000000001"),
             grade: "A",
             openToNextWork: true,
             companyRegisteredDate: new Date("2026-01-02T00:00:00.000Z"),
@@ -338,6 +345,7 @@ async function main(): Promise<void> {
             name: "보조직원",
             workArea: ["남동구"],
             phone: "01000000001",
+            phoneNormalized: normalizePhone("01000000001"),
             grade: "A",
             openToNextWork: true,
             companyRegisteredDate: new Date("2026-01-02T00:00:00.000Z"),

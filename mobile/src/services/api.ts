@@ -20,7 +20,6 @@ import type {
     MessageSenderApprovalStatus,
 } from "@babyjamjam/shared/types/message";
 import type { RegisterRequest } from "@babyjamjam/shared";
-import { safeStorageSetItem } from "@/lib/safe-storage";
 import { isAxiosError } from "axios";
 
 export interface ContractDataDto {
@@ -147,14 +146,20 @@ export type EformsignStatusCategoryParam =
     | "expired"
     | "unknown";
 
-export type EformsignTemplateMatchParam = "include" | "exclude";
+/**
+ * Contracts-page section names the backend document list accepts as `section`.
+ * When present, the backend resolves the template filter itself (maternity =
+ * whitelist of the branch's registered 계약서 templates; service-records = the
+ * configured 제공기록지 tiers), so clients never send templateId/templateMatch.
+ */
+export type EformsignContractsSectionParam = "maternity" | "service-records";
 export type EformsignDisplayStatusParam = "signed" | "review";
 
 export interface GetAllDocumentsParams {
     limit?: number;
     skip?: number;
-    templateId?: string;
-    templateMatch?: EformsignTemplateMatchParam;
+    /** Server-resolved section filter; overrides templateId/templateMatch on the backend. */
+    section?: EformsignContractsSectionParam;
     /** Server-side status bucket filter, applied before the limit/skip slice. */
     statusCategory?: EformsignStatusCategoryParam;
     /** Provider-review display split, applied before the limit/skip slice. */
@@ -194,8 +199,7 @@ function buildDocumentListParams(
     const query: Record<string, string | number> = {};
     if (params.limit !== undefined) query.limit = params.limit;
     if (params.skip !== undefined) query.skip = params.skip;
-    if (params.templateId) query.templateId = params.templateId;
-    if (params.templateMatch) query.templateMatch = params.templateMatch;
+    if (params.section) query.section = params.section;
     if (params.statusCategory) query.statusCategory = params.statusCategory;
     if (params.displayStatus) query.displayStatus = params.displayStatus;
 
@@ -291,18 +295,17 @@ export const eformsignApi = {
         const { data } = await api.post('/generate-signature', { executionTime });
         return data;
     },
-    // Authenticates and stores token in httpOnly cookie (returns { success: true }).
+    /** @deprecated Provider authentication is server-custodied; this path is a 410 tombstone. */
     // After repeated upstream 5xx responses, background callers back off and then stop
     // retrying until a user-driven flow forces a fresh attempt.
     authenticate: async (
         executionTime: number,
-        memberEmail?: string,
         options?: EformsignAuthRequestOptions,
     ): Promise<{ success: boolean }> => {
         assertAutomaticEformsignAuthAllowed(options?.force === true);
 
         try {
-            const { data } = await api.post('/access-token', { executionTime, memberEmail });
+            const { data } = await api.post('/access-token', { executionTime });
             resetEformsignAuthFailureState();
             return data;
         } catch (error) {
@@ -325,6 +328,7 @@ export const eformsignApi = {
         const { data } = await api.post(`/eformsign/documents/${documentId}/re-request`, params);
         return data;
     },
+    /** @deprecated Browser provider primitives are tombstoned; use dispatchHeadless. */
     generateDocument: async (contractData: ContractDataDto, clientId: number) => {
         const { data } = await api.post('/generate-document', { contractData, clientId });
         return data;
@@ -359,17 +363,10 @@ export const eformsignApi = {
         const { data } = await api.post('/eformsign-docs/adopt', { documentId, clientId });
         return data;
     },
-    // Staff completion (mode:"02") — builds iframe options for the staff finalize step.
-    generateStaffDocument: async (
-        documentId: string,
-        accessToken?: string,
-        refreshToken?: string,
-        prefillEndDate?: string,
-    ) => {
+    /** @deprecated Browser provider primitives are tombstoned; use finalizeHeadless. */
+    generateStaffDocument: async (documentId: string, prefillEndDate?: string) => {
         const { data } = await api.post('/generate-staff-document', {
             documentId,
-            accessToken,
-            refreshToken,
             prefillEndDate,
         });
         return data;
@@ -429,7 +426,7 @@ export const eformsignApi = {
     // Raw per-document status signals with the same pre-slice filters as the list.
     // Used to fold filter-pill counts client-side without fetching full documents.
     getStatusCounts: async (
-        params?: Pick<GetAllDocumentsParams, "templateId" | "templateMatch" | "search" | "excludeDeleted">,
+        params?: Pick<GetAllDocumentsParams, "section" | "search" | "excludeDeleted">,
     ): Promise<EformsignStatusCountsResponse> => {
         const { data } = await api.get('/eformsign/documents/status-counts', {
             params: buildDocumentListParams(params),
@@ -480,35 +477,11 @@ export const eformsignApi = {
     },
 }
 
-/**
- * Wraps an eformsign API call with automatic re-authentication on 401/403.
- * 
- * Flow:
- * 1. Execute the API call
- * 2. If it fails with 401/403 (after axios interceptor's token refresh also failed),
- *    attempt a full re-authentication from scratch
- * 3. Retry the original call once with the fresh token
- * 4. If re-auth or retry fails, throw the original error
- */
 export async function withEformsignReauth<T>(fn: () => Promise<T>): Promise<T> {
-    try {
-        return await fn();
-    } catch (error) {
-        if (!isAxiosError(error)) throw error;
-
-        const status = error.response?.status;
-        if (status === 401 || status === 403) {
-            try {
-                const executionTime = Date.now();
-                await eformsignApi.authenticate(executionTime);
-                safeStorageSetItem("session", "eformsign_auth_time", executionTime.toString());
-                return await fn();
-            } catch {
-                throw error;
-            }
-        }
-        throw error;
-    }
+    // Provider credentials are not browser state. Application-session recovery
+    // belongs to the authenticated API client; retrying a retired provider
+    // token route here would reintroduce the legacy boundary.
+    return fn();
 }
 
 export type {
@@ -526,6 +499,11 @@ export interface ClientRegistrationPolicy {
 }
 
 export type ClientRegistrationPolicyPatch = Partial<ClientRegistrationPolicy>;
+
+export interface NotificationPreferencesResponse {
+    emailNotificationsEnabled: boolean;
+    updatedAt?: string;
+}
 
 export const settingsApi = {
     getClientRegistrationPolicy: async (): Promise<ClientRegistrationPolicy> => {
@@ -554,6 +532,18 @@ export const settingsApi = {
     },
     requestMessageSenderApproval: async (): Promise<MessageSenderApprovalResponse> => {
         const { data } = await api.post("/settings/message-sender-approval", {});
+        return data;
+    },
+    getNotificationPreferences: async (): Promise<NotificationPreferencesResponse> => {
+        const { data } = await api.get("/settings/notification-preferences");
+        return data;
+    },
+    updateNotificationPreferences: async (
+        emailNotificationsEnabled: boolean,
+    ): Promise<NotificationPreferencesResponse> => {
+        const { data } = await api.put("/settings/notification-preferences", {
+            emailNotificationsEnabled,
+        });
         return data;
     },
 }

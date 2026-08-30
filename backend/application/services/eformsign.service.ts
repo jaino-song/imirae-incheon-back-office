@@ -15,7 +15,6 @@ import {
     buildEformsignStubListResponse,
     buildEformsignStubPdf,
     buildEformsignStubReRequestResponse,
-    buildEformsignStubTokenResponse,
 } from "infrastructure/vendor-stubs/e2e-vendor-stubs";
 import { ContractDataDto } from "../dto/contract.dto";
 import { EFORMSIGN_END_DATE_FIELD_IDS } from "../usecases/eformsign-doc/eformsign-end-date-field-ids";
@@ -25,13 +24,8 @@ import {
     extractEformsignVendorCode,
 } from "infrastructure/api/eformsign-api.error";
 import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
-
-export interface EformsignTokenResponse {
-    oauth_token: {
-        access_token: string;
-        refresh_token: string;
-    };
-}
+import { normalizeKoreanWon } from "domain/value-objects/money.vo";
+import { assertRequiredPhone, InvalidPhoneError } from "domain/utils/normalize-phone";
 
 export interface EformsignDocumentWorkflowState {
     statusCode?: string;
@@ -47,6 +41,22 @@ export const EFORMSIGN_STATUS_READ_TIMEOUT_MS = 2_000;
 // Deletion is non-idempotent, so one bounded attempt is safer than retries.
 // Keep the same total request-and-body budget used by the API client.
 export const EFORMSIGN_DELETE_TIMEOUT_MS = 30_000;
+
+function normalizeEformsignAmount(value: string): string {
+    if (value.trim() === "") return "";
+    return normalizeKoreanWon(value) ?? "";
+}
+
+function assertEformPhone(phone: string | null | undefined, field: string): void {
+    try {
+        assertRequiredPhone(phone);
+    } catch (error) {
+        if (error instanceof InvalidPhoneError) {
+            throw new BadRequestException(`${field} must be a valid Korean phone number`);
+        }
+        throw error;
+    }
+}
 
 export function getDocumentCreatedTimestamp(document: { created_date?: unknown; createdDate?: unknown }): number {
     const value = document.created_date ?? document.createdDate;
@@ -156,78 +166,16 @@ export class EformsignService {
         return signature.toString("hex");
     }
 
-    async getAccessToken(executionTime: number, memberEmail?: string): Promise<EformsignTokenResponse> {
-        if (this.vendorStubsEnabled) {
-            return buildEformsignStubTokenResponse();
-        }
-
-        this.assertConfigured();
-        const signature = this.generateSignature(executionTime);
-        const email = memberEmail || this.USER_EMAIL;
-
-        // API key must be Base64 encoded according to eformsign docs
-        const encodedApiKey = Buffer.from(this.EFORMSIGN_API_KEY).toString("base64");
-
-        const response = await fetch(`${this.EFORMSIGN_API_URL}/v2.0/api_auth/access_token`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "eformsign_signature": signature,
-                "Authorization": `Bearer ${encodedApiKey}`,
-            },
-            body: JSON.stringify({
-                execution_time: executionTime,
-                member_id: email,
-            }),
-        });
-
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new EformsignApiError(
-                `Failed to get access token: ${response.status} - ${errorData}`,
-                response.status,
-                extractEformsignVendorCode(errorData),
-            );
-        }
-
-        return await response.json();
-    }
-
-    async refreshAccessToken(executionTime: number, refreshToken: string): Promise<EformsignTokenResponse> {
-        if (this.vendorStubsEnabled) {
-            return buildEformsignStubTokenResponse();
-        }
-
-        this.assertConfigured();
-        const signature = this.generateSignature(executionTime);
-
-        const response = await fetch(`${this.EFORMSIGN_API_URL}/v2.0/api_auth/refresh_token`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "eformsign_signature": signature,
-                "api_key": this.EFORMSIGN_API_KEY,
-            },
-            body: JSON.stringify({
-                execution_time: executionTime,
-                refresh_token: refreshToken,
-            }),
-        });
-
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new EformsignApiError(
-                `Failed to refresh token: ${response.status} - ${errorData}`,
-                response.status,
-                extractEformsignVendorCode(errorData),
-            );
-        }
-
-        return await response.json();
-    }
-
     generateDocumentOptions(contractData: ContractDataDto, accessToken: string, refreshToken: string, templateId?: string) {
+        assertEformPhone(contractData.customerContact, "customerContact");
+        assertEformPhone(contractData.caretaker1Contact, "caretaker1Contact");
+        if (contractData.issuerPhone?.trim()) {
+            assertEformPhone(contractData.issuerPhone, "issuerPhone");
+        }
         this.assertConfigured();
+        const fullPrice = normalizeEformsignAmount(contractData.fullPrice);
+        const grant = normalizeEformsignAmount(contractData.grant);
+        const actualPrice = normalizeEformsignAmount(contractData.actualPrice);
         return {
             company: {
                 id: this.EFORMSIGN_COMPANY_ID,
@@ -267,13 +215,13 @@ export class EformsignService {
                     { id: "계약 종료 년도", value: contractData.endYear },
                     { id: "계약 종료 월", value: contractData.endMonth },
                     { id: "계약 종료 일", value: contractData.endDay },
-                    { id: "서비스 비용", value: contractData.fullPrice },
-                    { id: "정부지원금", value: contractData.grant },
-                    { id: "본인부담금", value: contractData.actualPrice },
+                    { id: "서비스 비용", value: fullPrice },
+                    { id: "정부지원금", value: grant },
+                    { id: "본인부담금", value: actualPrice },
                     { id: "서비스 기간", value: contractData.days },
                     { id: "제공인력 1 성명", value: contractData.caretaker1Name },
                     { id: "제공인력 1 연락처", value: contractData.caretaker1Contact },
-                    { id: "서비스 가격", value: contractData.fullPrice },
+                    { id: "서비스 가격", value: fullPrice },
                     { id: "본인부담금 수령 년도", value: contractData.paymentYear },
                     { id: "본인부담금 수령 월", value: contractData.paymentMonth },
                     { id: "본인부담금 수령 일", value: contractData.paymentDay },
@@ -770,6 +718,9 @@ export class EformsignService {
             phoneNumber?: string;
         }
     ): Promise<any> {
+        if (recipientPhone) {
+            assertEformPhone(recipientPhone.phoneNumber, "recipientPhone.phoneNumber");
+        }
         if (this.vendorStubsEnabled) {
             const result = buildEformsignStubReRequestResponse(documentId);
             await this.bumpDocumentSnapshotVersions([documentId]);

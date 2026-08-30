@@ -66,16 +66,12 @@ describe("getNextContractsPageParam", () => {
 });
 
 describe("infiniteContractsQueryKeys", () => {
-  it("separates included and excluded template result sets", () => {
-    const included = infiniteContractsQueryKeys.documents(null, {
-      templateId: "service-record-template",
-      templateMatch: "include",
-    });
-    const excluded = infiniteContractsQueryKeys.documents(null, {
-      templateId: "service-record-template",
-      templateMatch: "exclude",
-    });
+  it("separates section result sets", () => {
+    const maternity = infiniteContractsQueryKeys.documents(null, "maternity");
+    const serviceRecords = infiniteContractsQueryKeys.documents(null, "service-records");
+    const noSection = infiniteContractsQueryKeys.documents(null, undefined);
 
-    expect(included).not.toEqual(excluded);
+    expect(maternity).not.toEqual(serviceRecords);
+    expect(maternity).not.toEqual(noSection);
   });
 });

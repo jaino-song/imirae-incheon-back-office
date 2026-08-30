@@ -470,7 +470,7 @@ describe("SmsTriggerDeliveryService", () => {
         expect(logRepository.save).not.toHaveBeenCalled();
     });
 
-    it("sms post-provider transient DB error does not defer after sendSms is invoked", async () => {
+    it("does not call the provider when the pre-provider attempt cannot be persisted", async () => {
         const prismaError = createTransientPrismaError();
         const aligoService = {
             sendSms: jest.fn().mockResolvedValue({
@@ -506,8 +506,85 @@ describe("SmsTriggerDeliveryService", () => {
 
         expect(error).toBe(prismaError);
         expect(error).not.toBeInstanceOf(TriggerJobDeferredError);
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+        expect(logRepository.save).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the started fence when the provider accepts but result persistence fails", async () => {
+        const aligoService = {
+            sendSms: jest.fn().mockResolvedValue({
+                request: {
+                    senderPhone: "01099998888",
+                    receiver: "01012345678",
+                    msgType: "LMS",
+                    testModeYn: "N",
+                },
+                response: {
+                    result_code: 1,
+                    message: "success",
+                    msg_id: 321,
+                    success_cnt: 1,
+                    error_cnt: 0,
+                    msg_type: "LMS",
+                },
+            }),
+        };
+        const systemTemplateService = {
+            getByKey: jest.fn().mockResolvedValue({
+                content: "{{name}} 산모님 서비스 안내",
+            }),
+        };
+        let attempt: MessageLogEntity | undefined;
+        const logRepository = {
+            save: jest.fn().mockImplementation(async (log: MessageLogEntity) => {
+                attempt = log;
+                return log;
+            }),
+            update: jest.fn().mockRejectedValue(new Error("database unavailable")),
+        };
+        const service = new SmsTriggerDeliveryService(
+            aligoService as unknown as AligoService,
+            systemTemplateService as unknown as SystemTemplateService,
+            logRepository as unknown as IMessageLogRepository,
+        );
+
+        await expect(service.sendJob(createServiceInfoJob())).rejects.toThrow("database unavailable");
+
         expect(aligoService.sendSms).toHaveBeenCalledTimes(1);
-        expect(logRepository.save).toHaveBeenCalledTimes(2);
+        expect(logRepository.update).toHaveBeenCalledTimes(2);
+        expect(attempt?.providerAcceptanceState).toBe("accepted");
+    });
+
+    it("keeps an uncertain fence when provider failure and uncertainty persistence both fail", async () => {
+        const providerError = new Error("provider connection reset");
+        const aligoService = {
+            sendSms: jest.fn().mockRejectedValue(providerError),
+        };
+        const systemTemplateService = {
+            getByKey: jest.fn().mockResolvedValue({
+                content: "{{name}} 산모님 서비스 안내",
+            }),
+        };
+        let attempt: MessageLogEntity | undefined;
+        const logRepository = {
+            save: jest.fn().mockImplementation(async (log: MessageLogEntity) => {
+                attempt = log;
+                return log;
+            }),
+            update: jest.fn().mockRejectedValue(new Error("database unavailable")),
+        };
+        const service = new SmsTriggerDeliveryService(
+            aligoService as unknown as AligoService,
+            systemTemplateService as unknown as SystemTemplateService,
+            logRepository as unknown as IMessageLogRepository,
+        );
+
+        await expect(service.sendJob(createServiceInfoJob())).rejects.toBe(providerError);
+
+        expect(aligoService.sendSms).toHaveBeenCalledTimes(1);
+        expect(logRepository.update).toHaveBeenCalledTimes(1);
+        expect(attempt?.providerAcceptanceState).toBe("uncertain");
+        expect(attempt?.variables["retrySafety"]).toBeUndefined();
     });
 });
 

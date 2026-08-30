@@ -25,6 +25,10 @@ export interface EformsignContractClientCandidate {
     careCenter: boolean | null;
     voucherClient: boolean;
     breastPump: boolean;
+    primaryProviderName: string | null;
+    primaryProviderPhone: string | null;
+    secondaryProviderName: string | null;
+    secondaryProviderPhone: string | null;
 }
 
 export interface EformsignContractClientPrefillCandidate
@@ -594,6 +598,10 @@ export function extractEformsignContractClientCandidate(
         careCenter: candidate.careCenter,
         voucherClient: candidate.voucherClient,
         breastPump: candidate.breastPump,
+        primaryProviderName: candidate.primaryProviderName,
+        primaryProviderPhone: candidate.primaryProviderPhone,
+        secondaryProviderName: candidate.secondaryProviderName,
+        secondaryProviderPhone: candidate.secondaryProviderPhone,
     };
 }
 

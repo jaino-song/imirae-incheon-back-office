@@ -32,8 +32,7 @@ describe("useEformsignAuth", () => {
   it("allows local document reads with only the app session", async () => {
     mockGetAuthStatus.mockResolvedValue({
       hasAppAuthToken: true,
-      hasAccessToken: false,
-      hasRefreshToken: false,
+      providerSession: "server-only",
     });
 
     const { result } = renderHook(() =>

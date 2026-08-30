@@ -1,5 +1,8 @@
 import { ClientEntity } from "domain/entities/client.entity";
+import { ServiceStatusType } from "domain/value-objects/service-status.vo";
 import type { Prisma } from "@prisma/client";
+
+export type AutomaticServiceStatusUpdateResult = "updated" | "stale";
 
 export interface PaginatedResult<T> {
     data: T[];
@@ -49,6 +52,17 @@ export interface IClientRepository {
         transaction?: Prisma.TransactionClient,
     ): Promise<ClientWithInitialSchedule>;
     update(branchid: string, client: ClientEntity): Promise<ClientEntity>;
+    /**
+     * Apply a date-derived status only when the branch-owned row still has the
+     * status observed by the caller. A stale result is benign and must not be
+     * retried with the stale value.
+     */
+    updateServiceStatusIfCurrent(
+        branchid: string,
+        id: number,
+        expectedServiceStatus: string | null,
+        newServiceStatus: ServiceStatusType,
+    ): Promise<AutomaticServiceStatusUpdateResult>;
     /**
      * Compare the approval target while holding the row lock, then apply the
      * update before releasing that lock. A null result means the target version

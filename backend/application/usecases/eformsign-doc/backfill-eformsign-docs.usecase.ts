@@ -20,6 +20,11 @@ import {
 } from "infrastructure/api/eformsign-api.error";
 
 import { MirrorUnassignedEformsignDocUsecase } from "./mirror-unassigned-eformsign-doc.usecase";
+import {
+    EformsignCredentialBoundary,
+    type EformsignProviderCredentials,
+    type EformsignProviderPrincipal,
+} from "application/services/eformsign-credential-boundary.service";
 
 const BACKFILL_PAGE_SIZE = 100;
 // Slack for very small lists, where doubling the page count barely adds anything.
@@ -123,6 +128,7 @@ export class BackfillEformsignDocsUsecase {
     constructor(
         @Inject(EFORMSIGN_CLIENT_REPOSITORY)
         private readonly eformsignClient: IEformsignClientRepository,
+        private readonly credentialBoundary: EformsignCredentialBoundary,
         @Inject(EFORMSIGN_DOC_REPOSITORY)
         private readonly eformsignDocRepository: IEformsignDocRepository,
         private readonly mirrorEformsignDocUsecase: MirrorUnassignedEformsignDocUsecase,
@@ -134,6 +140,7 @@ export class BackfillEformsignDocsUsecase {
 
     async execute(
         options: BackfillEformsignDocsOptions = {},
+        principal: EformsignProviderPrincipal,
     ): Promise<EformsignDocsBackfillSummary> {
         const summary: EformsignDocsBackfillSummary = {
             fetched: 0,
@@ -154,16 +161,26 @@ export class BackfillEformsignDocsUsecase {
             summary: cloneSummary(summary),
         });
 
-        try {
-            this.assertCanContinue(options, summary);
-            const tokenResponse = await this.eformsignClient.getAccessToken(Date.now());
-            let accessToken = tokenResponse.oauth_token.access_token;
-            const refreshAccessToken = async (): Promise<string> => {
-                const reissuedTokenResponse =
-                    await this.eformsignClient.getAccessToken(Date.now());
-                accessToken = reissuedTokenResponse.oauth_token.access_token;
-                return accessToken;
-            };
+        return this.credentialBoundary.withCredentials(
+            principal,
+            "document.backfill",
+            async (initialCredentials) => {
+                let credentials: EformsignProviderCredentials = initialCredentials;
+                let accessToken = credentials.accessToken;
+                const refreshAccessToken = async (): Promise<string> => this.credentialBoundary
+                    .withRefreshedCredentials(
+                        principal,
+                        "document.backfill",
+                        credentials,
+                        (refreshed) => {
+                            credentials = refreshed;
+                            accessToken = refreshed.accessToken;
+                            return accessToken;
+                        },
+                    );
+
+                try {
+                    this.assertCanContinue(options, summary);
 
             const scans: Array<{
                 documentType: EformsignBackfillDocumentType;
@@ -286,25 +303,27 @@ export class BackfillEformsignDocsUsecase {
                 summary,
             );
 
-            options.onProgress?.({
-                phase: "completed",
-                summary: cloneSummary(summary),
-            });
-            return cloneSummary(summary);
-        } catch (error) {
-            const backfillError = error instanceof BackfillEformsignDocsError
-                ? error
-                : new BackfillEformsignDocsError(
-                    "Eformsign document backfill failed",
-                    summary,
-                    error,
-                );
-            options.onProgress?.({
-                phase: "failed",
-                summary: { ...backfillError.summary },
-            });
-            throw backfillError;
-        }
+                    options.onProgress?.({
+                        phase: "completed",
+                        summary: cloneSummary(summary),
+                    });
+                    return cloneSummary(summary);
+                } catch (error) {
+                    const backfillError = error instanceof BackfillEformsignDocsError
+                        ? error
+                        : new BackfillEformsignDocsError(
+                            "Eformsign document backfill failed",
+                            summary,
+                            error,
+                        );
+                    options.onProgress?.({
+                        phase: "failed",
+                        summary: { ...backfillError.summary },
+                    });
+                    throw backfillError;
+                }
+            },
+        );
     }
 
     /**

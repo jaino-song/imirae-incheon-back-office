@@ -24,12 +24,8 @@ export const createMessageSchema: FunctionDeclaration = {
                 type: "string",
                 description: "Message content/body",
             },
-            confirmed: {
-                type: "boolean",
-                description: "Set to true to confirm and execute the creation. Set to false to request confirmation first.",
-            },
         },
-        required: ["title", "text", "confirmed"],
+        required: ["title", "text"],
     },
 };
 
@@ -51,12 +47,8 @@ export const updateMessageSchema: FunctionDeclaration = {
                 type: "string",
                 description: "New message content/body",
             },
-            confirmed: {
-                type: "boolean",
-                description: "Set to true to confirm and execute the update. Set to false to request confirmation first.",
-            },
         },
-        required: ["messageId", "title", "text", "confirmed"],
+        required: ["messageId", "title", "text"],
     },
 };
 
@@ -70,12 +62,8 @@ export const deleteMessageSchema: FunctionDeclaration = {
                 type: "number",
                 description: "The unique ID of the message to delete",
             },
-            confirmed: {
-                type: "boolean",
-                description: "Set to true to confirm and execute the deletion. Set to false to request confirmation first.",
-            },
         },
-        required: ["messageId", "confirmed"],
+        required: ["messageId"],
     },
 };
 

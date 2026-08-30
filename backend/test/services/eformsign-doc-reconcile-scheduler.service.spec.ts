@@ -12,6 +12,10 @@ const REQUIRED_EFORMSIGN_CONFIG = new Set([
     "EFORMSIGN_COMPANY_ID",
     "EFORMSIGN_TEMPLATE_ID",
 ]);
+const reconciliationPrincipal = {
+    branchId: "__system__:reconciliation",
+    source: "worker" as const,
+};
 
 function createConfigService(
     enabled: string | undefined,
@@ -112,6 +116,7 @@ describe("EformsignDocReconcileSchedulerService", () => {
             expect(lockService.runExclusive).toHaveBeenCalledTimes(1);
             expect(backfill.execute).toHaveBeenCalledWith(
                 expect.objectContaining({ shouldContinue: expect.any(Function) }),
+                reconciliationPrincipal,
             );
         });
 
@@ -156,6 +161,7 @@ describe("EformsignDocReconcileSchedulerService", () => {
             expect(backfill.execute).toHaveBeenCalledTimes(2);
             expect(backfill.execute).toHaveBeenCalledWith(
                 expect.objectContaining({ shouldContinue: expect.any(Function) }),
+                reconciliationPrincipal,
             );
             expect(warn.mock.calls.filter(([message]) =>
                 message.includes("EFORMSIGN_RECONCILE_ALLOW_UNLOCKED")))

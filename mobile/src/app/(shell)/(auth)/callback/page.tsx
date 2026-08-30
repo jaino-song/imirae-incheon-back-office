@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
 import { exchangeToken } from "./actions";
 import { getSafeCallbackError } from "@/lib/auth/auth-errors";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
 
 /** Canonical data-component base for the /callback route. */
 const CALLBACK_BASE = "mobile_auth_callback";
@@ -35,6 +36,7 @@ export default function AuthCallbackPage() {
             }
 
             try {
+                await resetAuthorityState();
                 console.log("[Auth Callback] Using server action for token exchange");
 
                 // Use server action - bypasses Safari's client-side restrictions

@@ -137,8 +137,8 @@ describe("DELETE /api/clients/[id]", () => {
                 status: 409,
                 data: {
                     error: "Conflict",
-                    code: "CLIENT_DELETE_CONFLICT",
-                    message: "연결된 데이터로 인해 고객을 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+                    code: "CLIENT_RETENTION_BLOCKED",
+                    message: "연결된 운영 또는 이력 데이터가 있어 고객을 삭제할 수 없습니다.",
                 },
             },
         });
@@ -149,8 +149,8 @@ describe("DELETE /api/clients/[id]", () => {
 
         expect(response.status).toBe(409);
         await expect(response.json()).resolves.toEqual({
-            error: "연결된 데이터로 인해 고객을 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요.",
-            code: "CLIENT_DELETE_CONFLICT",
+            error: "연결된 운영 또는 이력 데이터가 있어 고객을 삭제할 수 없습니다.",
+            code: "CLIENT_RETENTION_BLOCKED",
         });
     });
 
@@ -172,7 +172,7 @@ describe("DELETE /api/clients/[id]", () => {
         expect(response.status).toBe(409);
         await expect(response.json()).resolves.toEqual({
             error: "연결된 정보 때문에 고객을 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요.",
-            code: "CLIENT_DELETE_CONFLICT",
+            code: "CLIENT_RETENTION_BLOCKED",
         });
     });
 });

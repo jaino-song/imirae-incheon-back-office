@@ -7,8 +7,6 @@ import {
     ListEformsignDocsUsecase,
     ListOtherBranchDocumentIdsUsecase,
     ListEformsignDocDisplayFieldsUsecase,
-    GetEformsignAccessTokenUsecase,
-    RefreshEformsignAccessTokenUsecase,
     FetchAllEformsignDocsFromApiUsecase,
     FetchEformsignDocFromApiUsecase,
     UpdateEformsignDocStatusUsecase,
@@ -35,6 +33,7 @@ import { SbClientRepository } from "infrastructure/database/repositories/sb.clie
 import { createEformsignClientRepository } from "infrastructure/vendor-stubs/e2e-vendor-stubs";
 import { EformsignDocService } from "application/services/eformsign-doc.service";
 import { EformsignService } from "application/services/eformsign.service";
+import { EformsignCredentialBoundary } from "application/services/eformsign-credential-boundary.service";
 import { EformsignDocsEventBus } from "application/services/eformsign-docs-event-bus.service";
 import { EformsignHeadlessProgressService } from "application/services/eformsign-headless-progress.service";
 import { EformsignHeadlessService } from "infrastructure/automation/eformsign-headless.service";
@@ -71,6 +70,9 @@ import { EFORMSIGN_DOCUMENT_JOB_REPOSITORY } from "domain/repositories/eformsign
 import { EMPLOYEE_REPOSITORY } from "domain/repositories/employee.repository.interface";
 import { SbEformsignDocumentJobRepository } from "infrastructure/database/repositories/sb.eformsign-document-job.repository";
 import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.employee.repository";
+import { EFORMSIGN_DISPATCH_INTENT_REPOSITORY } from "domain/repositories/eformsign-dispatch-intent.repository.interface";
+import { SbEformsignDispatchIntentRepository } from "infrastructure/database/repositories/sb.eformsign-dispatch-intent.repository";
+import { EformsignDispatchBoundaryService } from "application/services/eformsign-dispatch-boundary.service";
 
 @Module({
     imports: [
@@ -98,8 +100,6 @@ import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.em
         FindClientByIdUsecase,
         SyncClientEndDateUsecase,
         // Use cases - External API
-        GetEformsignAccessTokenUsecase,
-        RefreshEformsignAccessTokenUsecase,
         FetchAllEformsignDocsFromApiUsecase,
         FetchEformsignDocFromApiUsecase,
         // Use cases - Contract creation
@@ -118,6 +118,7 @@ import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.em
         // Services
         EformsignDocService,
         EformsignService,
+        EformsignCredentialBoundary,
         EformsignHeadlessService,
         EformsignDocsEventBus,
         EformsignHeadlessProgressService,
@@ -135,6 +136,7 @@ import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.em
         EformsignDocumentJobService,
         EformsignDocumentJobWorkerService,
         EformsignDocumentJobReconciliationService,
+        EformsignDispatchBoundaryService,
         // Repository bindings
         {
             provide: EFORMSIGN_DOC_REPOSITORY,
@@ -162,6 +164,10 @@ import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.em
             useClass: SbEformsignDocumentJobRepository,
         },
         {
+            provide: EFORMSIGN_DISPATCH_INTENT_REPOSITORY,
+            useClass: SbEformsignDispatchIntentRepository,
+        },
+        {
             provide: EFORMSIGN_BACKFILL_REDIS_CLIENT,
             inject: [ConfigService],
             useFactory: createEformsignBackfillRedisClient,
@@ -169,6 +175,7 @@ import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.em
     ],
     exports: [
         EformsignDocService,
+        EformsignCredentialBoundary,
         SyncClientEndDateUsecase,
         EformsignDocsEventBus,
         EformsignHeadlessProgressService,
@@ -185,6 +192,7 @@ import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.em
         LinkMirroredEformsignDocByPhoneUsecase,
         GetContractClientCandidateUsecase,
         EformsignDocumentJobService,
+        EformsignDispatchBoundaryService,
     ],
 })
 export class EformsignDocModule {}

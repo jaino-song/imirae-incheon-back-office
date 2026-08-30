@@ -30,8 +30,8 @@ interface EmployeeDetailModalProps {
 
 const EMPLOYEE_DETAIL_MODAL_BASE = "mobile_employees_table_detail-modal";
 
-const formatDate = (dateStr: string | null | undefined): string => {
-    return formatDateForDisplay(dateStr);
+const formatDate = (dateStr: string | null | undefined, fallback: string): string => {
+    return formatDateForDisplay(dateStr, fallback);
 };
 
 const formatPhoneNumber = (phone: string | null | undefined): string => {
@@ -145,7 +145,13 @@ export function EmployeeDetailModal({
                         <h4 className="text-sm font-medium text-primary mb-2">
                             {t(locale, "employees.form.section-registration")}
                         </h4>
-                        <InfoRow label={t(locale, "employees.form.registered-date")} value={formatDate(employee.registeredDate)} />
+                        <InfoRow
+                            label={t(locale, "employees.form.registered-date")}
+                            value={formatDate(
+                                employee.registeredDate,
+                                t(locale, "employees.form.registered-date-unknown"),
+                            )}
+                        />
                     </div>
                 </div>
 

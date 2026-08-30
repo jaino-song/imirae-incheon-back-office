@@ -30,6 +30,30 @@ BEGIN
         SELECT 1
         FROM information_schema.columns
         WHERE table_schema = 'public'
+          AND table_name = 'client'
+          AND column_name = 'phone_normalized'
+          AND data_type = 'text'
+          AND is_nullable = 'YES'
+    ) THEN
+        RAISE EXCEPTION 'client.phone_normalized is missing or has the wrong definition';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'employee'
+          AND column_name = 'phone_normalized'
+          AND data_type = 'text'
+          AND is_nullable = 'YES'
+    ) THEN
+        RAISE EXCEPTION 'employee.phone_normalized is missing or has the wrong definition';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
           AND table_name = 'employee_schedule'
           AND column_name = 'secondary_employee_id'
           AND is_nullable = 'YES'
@@ -102,21 +126,45 @@ BEGIN
         FROM pg_indexes
         WHERE schemaname = 'public'
           AND tablename = 'employee'
-          AND indexname = 'employee_branch_id_phone_key'
+          AND indexname = 'employee_branch_id_phone_normalized_key'
           AND indexdef LIKE 'CREATE UNIQUE INDEX%'
-          AND replace(indexdef, '"', '') LIKE '%(branch_id, phone)%'
+          AND replace(indexdef, '"', '') LIKE '%(branch_id, phone_normalized)%'
     ) THEN
-        RAISE EXCEPTION 'employee branch/phone unique index is missing or malformed';
+        RAISE EXCEPTION 'employee branch/phone_normalized unique index is missing or malformed';
     END IF;
 
     IF EXISTS (
         SELECT 1
         FROM "public"."employee"
         WHERE "branch_id" IS NOT NULL
-        GROUP BY "branch_id", "phone"
+          AND "phone_normalized" IS NOT NULL
+        GROUP BY "branch_id", "phone_normalized"
         HAVING COUNT(*) > 1
     ) THEN
-        RAISE EXCEPTION 'employee has duplicate (branch_id, phone) groups';
+        RAISE EXCEPTION 'employee has duplicate (branch_id, phone_normalized) groups';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename = 'client'
+          AND indexname = 'client_branch_phone_normalized_key'
+          AND indexdef LIKE 'CREATE UNIQUE INDEX%'
+          AND replace(indexdef, '"', '') LIKE '%(branch_id, phone_normalized)%'
+    ) THEN
+        RAISE EXCEPTION 'client branch/phone_normalized unique index is missing or malformed';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM "public"."client"
+        WHERE "branch_id" IS NOT NULL
+          AND "phone_normalized" IS NOT NULL
+        GROUP BY "branch_id", "phone_normalized"
+        HAVING COUNT(*) > 1
+    ) THEN
+        RAISE EXCEPTION 'client has duplicate (branch_id, phone_normalized) groups';
     END IF;
 
     IF to_regclass('public.employee_id_seq') IS NULL THEN

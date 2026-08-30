@@ -5,7 +5,10 @@ import { AreaTemplateService } from "application/services/area-template.service"
 import { AdoptEformsignDocUsecase } from "application/usecases/eformsign-doc/adopt-eformsign-doc.usecase";
 import { FetchAllEformsignDocsFromApiUsecase } from "application/usecases/eformsign-doc/fetch-all-eformsign-docs-from-api.usecase";
 import { FetchEformsignDocFromApiUsecase } from "application/usecases/eformsign-doc/fetch-eformsign-doc-from-api.usecase";
-import { GetEformsignAccessTokenUsecase } from "application/usecases/eformsign-doc/get-eformsign-access-token.usecase";
+import {
+    EformsignCredentialBoundary,
+    type EformsignProviderPrincipal,
+} from "application/services/eformsign-credential-boundary.service";
 import {
     EFORMSIGN_COMPLETED_STATUS_CODES,
     TERMINAL_STATUS_CODES,
@@ -42,7 +45,7 @@ export class EformsignDocumentJobReconciliationService {
     constructor(
         @Inject(EFORMSIGN_DOCUMENT_JOB_REPOSITORY)
         private readonly repository: IEformsignDocumentJobRepository,
-        private readonly getAccessTokenUsecase: GetEformsignAccessTokenUsecase,
+        private readonly credentialBoundary: EformsignCredentialBoundary,
         private readonly fetchAllDocumentsUsecase: FetchAllEformsignDocsFromApiUsecase,
         private readonly fetchDocumentUsecase: FetchEformsignDocFromApiUsecase,
         private readonly adoptEformsignDocUsecase: AdoptEformsignDocUsecase,
@@ -52,13 +55,19 @@ export class EformsignDocumentJobReconciliationService {
 
     async reconcile(
         job: EformsignDocumentJobEntity,
+        principal: EformsignProviderPrincipal,
     ): Promise<EformsignDocumentJobReconciliationResult> {
         try {
-            const token = await this.getAccessTokenUsecase.execute(Date.now());
-            if (job.jobType === "create_document") {
-                return await this.reconcileCreation(job, token.oauth_token.access_token);
-            }
-            return await this.reconcileFinalization(job, token.oauth_token.access_token);
+            const capability = job.jobType === "create_document"
+                ? "contract.adopt"
+                : "contract.finalize";
+            return await this.credentialBoundary.withCredentials(
+                principal,
+                capability,
+                async ({ accessToken }) => job.jobType === "create_document"
+                    ? this.reconcileCreation(job, accessToken, principal)
+                    : this.reconcileFinalization(job, accessToken, principal),
+            );
         } catch {
             this.logger.warn(`Eformsign job ${job.id} reconciliation could not read provider state`);
             return this.requiresAttention(job, "PROVIDER_STATE_UNAVAILABLE");
@@ -68,6 +77,7 @@ export class EformsignDocumentJobReconciliationService {
     private async reconcileCreation(
         job: EformsignDocumentJobEntity,
         accessToken: string,
+        principal: EformsignProviderPrincipal,
     ): Promise<EformsignDocumentJobReconciliationResult> {
         const startedAt = (job.startedAt ?? job.createdAt).getTime();
         const now = Date.now();
@@ -130,7 +140,7 @@ export class EformsignDocumentJobReconciliationService {
             await this.adoptEformsignDocUsecase.execute(job.branchId, {
                 documentId,
                 clientId: job.clientId,
-            });
+            }, principal);
         } catch {
             this.logger.warn(`Eformsign job ${job.id} provider document adoption failed`);
             return this.requiresAttention(job, "ADOPTION_FAILED");
@@ -144,6 +154,7 @@ export class EformsignDocumentJobReconciliationService {
     private async reconcileFinalization(
         job: EformsignDocumentJobEntity,
         accessToken: string,
+        principal: EformsignProviderPrincipal,
     ): Promise<EformsignDocumentJobReconciliationResult> {
         const documentId = job.documentId ?? readString(job.payload?.["documentId"]);
         if (!documentId) {
@@ -163,7 +174,7 @@ export class EformsignDocumentJobReconciliationService {
 
         if (this.documentMirrorService) {
             try {
-                await this.documentMirrorService.syncDocument(documentId, {
+                await this.documentMirrorService.syncDocument(documentId, principal, {
                     force: true,
                     suppressOutboundAutomation: true,
                     strictCompletionReconciliation: true,

@@ -21,6 +21,7 @@ import { VoucherPriceInfoModule } from "./voucher-price-info.module";
 import { BankAccountInfoModule } from "./bank-account-info.module";
 import { EmployeeScheduleModule } from "./employee-schedule.module";
 import { GEMINI_GATEWAY } from "./ai-chat.tokens";
+import { LegacyChatConfirmationService } from "application/ai-chat/legacy-chat-confirmation.service";
 
 // Re-export for backwards compatibility
 export { GEMINI_GATEWAY } from "./ai-chat.tokens";
@@ -50,6 +51,7 @@ export { GEMINI_GATEWAY } from "./ai-chat.tokens";
         GeminiChatGateway,
         VercelGeminiGateway,
         ToolExecutorService,
+        LegacyChatConfirmationService,
         AIChatService,
         GetChatHistoryUsecase,
         CleanupChatSessionsUsecase,

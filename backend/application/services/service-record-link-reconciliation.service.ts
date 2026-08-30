@@ -116,7 +116,7 @@ export class ServiceRecordLinkReconciliationService {
                                 none: {
                                     ruleId: SERVICE_RECORD_LINK_RULE_ID,
                                     OR: [
-                                        { status: { in: ["pending", "processing", "sent"] } },
+                                        { status: { in: ["pending", "processing", "dispatching", "sent"] } },
                                         {
                                             status: "failed",
                                             OR: [

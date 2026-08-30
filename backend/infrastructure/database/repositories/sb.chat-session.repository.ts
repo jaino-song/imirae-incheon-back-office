@@ -9,9 +9,15 @@ import { randomUUID } from "crypto";
 export class SbChatSessionRepository implements IChatSessionRepository {
     constructor(private prismaService: PrismaService) {}
 
-    async findById(id: string): Promise<ChatSessionEntity | null> {
-        const session = await this.prismaService.chat_session.findUnique({
-            where: { id },
+    async findById(id: string, userId?: string, branchId?: string): Promise<ChatSessionEntity | null> {
+        // A session created before branch binding has a NULL branch_id. Never
+        // return it through a caller that omitted the tenant tuple.
+        if (!userId || !branchId) {
+            return null;
+        }
+
+        const session = await this.prismaService.chat_session.findFirst({
+            where: { id, userId, branchId },
             include: { messages: { orderBy: { timestamp: 'asc' } } },
         });
         if (!session) return null;
@@ -20,20 +26,29 @@ export class SbChatSessionRepository implements IChatSessionRepository {
         return entity.isExpired() ? null : entity;
     }
 
-    async findByUserId(userId: string): Promise<ChatSessionEntity | null> {
+    async findByUserId(userId: string, branchId?: string): Promise<ChatSessionEntity | null> {
+        if (!branchId) {
+            return null;
+        }
+
         const session = await this.prismaService.chat_session.findFirst({
-            where: { userId: userId },
+            where: { userId, branchId },
             orderBy: { createdAt: 'desc' },
             include: { messages: { orderBy: { timestamp: 'asc' } } },
         });
         return session ? ChatSessionMapper.toDomain(session) : null;
     }
 
-    async findActiveByUserId(userId: string): Promise<ChatSessionEntity | null> {
+    async findActiveByUserId(userId: string, branchId?: string): Promise<ChatSessionEntity | null> {
+        if (!branchId) {
+            return null;
+        }
+
         const now = new Date();
         const session = await this.prismaService.chat_session.findFirst({
             where: {
-                userId: userId,
+                userId,
+                branchId,
                 expiresAt: { gt: now },
             },
             orderBy: { createdAt: 'desc' },
@@ -43,6 +58,10 @@ export class SbChatSessionRepository implements IChatSessionRepository {
     }
 
     async create(session: ChatSessionEntity): Promise<ChatSessionEntity> {
+        if (!session.branchId) {
+            throw new Error("Branch-bound chat sessions are required");
+        }
+
         const created = await this.prismaService.chat_session.create({
             data: {
                 // Some DB environments miss default UUID generators on chat tables.
@@ -55,7 +74,13 @@ export class SbChatSessionRepository implements IChatSessionRepository {
         return ChatSessionMapper.toDomain(created);
     }
 
-    async update(session: ChatSessionEntity): Promise<ChatSessionEntity> {
+    async update(session: ChatSessionEntity, userId?: string, branchId?: string): Promise<ChatSessionEntity> {
+        const ownerUserId = userId ?? session.userId;
+        const ownerBranchId = branchId ?? session.branchId ?? undefined;
+        if (!ownerUserId || !ownerBranchId) {
+            throw new Error("Branch-bound chat sessions are required");
+        }
+
         // Get existing messages count
         const existing = await this.prismaService.chat_message.count({
             where: { sessionId: session.id },
@@ -65,6 +90,14 @@ export class SbChatSessionRepository implements IChatSessionRepository {
         const newMessages = session.messages.slice(existing);
         
         if (newMessages.length > 0) {
+            const ownedSession = await this.prismaService.chat_session.findFirst({
+                where: { id: session.id, userId: ownerUserId, branchId: ownerBranchId },
+                select: { id: true },
+            });
+            if (!ownedSession) {
+                throw new Error("Chat session not found");
+            }
+
             await this.prismaService.chat_message.createMany({
                 data: newMessages.map(m => ({
                     id: randomUUID(),
@@ -72,20 +105,35 @@ export class SbChatSessionRepository implements IChatSessionRepository {
                 })),
             });
         }
-        
+
         // Update session expiry
-        const updated = await this.prismaService.chat_session.update({
-            where: { id: session.id },
+        const updateResult = await this.prismaService.chat_session.updateMany({
+            where: { id: session.id, userId: ownerUserId, branchId: ownerBranchId },
             data: { expiresAt: session.expiresAt },
+        });
+        if (updateResult.count !== 1) {
+            throw new Error("Chat session not found");
+        }
+
+        const updated = await this.prismaService.chat_session.findFirst({
+            where: { id: session.id, userId: ownerUserId, branchId: ownerBranchId },
             include: { messages: { orderBy: { timestamp: 'asc' } } },
         });
+
+        if (!updated) {
+            throw new Error("Chat session not found");
+        }
         
         return ChatSessionMapper.toDomain(updated);
     }
 
-    async delete(id: string): Promise<void> {
-        await this.prismaService.chat_session.delete({
-            where: { id },
+    async delete(id: string, userId?: string, branchId?: string): Promise<void> {
+        if (!userId || !branchId) {
+            throw new Error("Branch-bound chat sessions are required");
+        }
+
+        await this.prismaService.chat_session.deleteMany({
+            where: { id, userId, branchId },
         });
     }
 

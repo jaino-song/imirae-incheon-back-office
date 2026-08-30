@@ -1,4 +1,5 @@
-import { Injectable, Logger, Optional } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import {
     EformsignDocumentWorkflowState,
     EformsignService,
@@ -7,7 +8,19 @@ import { EformsignHeadlessService } from "infrastructure/automation/eformsign-he
 import { EformsignHeadlessProgressService } from "application/services/eformsign-headless-progress.service";
 import type { EformsignHeadlessProgressStep } from "application/services/eformsign-headless-progress.service";
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
-import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
+import { EformsignDispatchBoundaryService } from "application/services/eformsign-dispatch-boundary.service";
+import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
+import {
+    EFORMSIGN_DOC_REPOSITORY,
+    IEformsignDocRepository,
+} from "domain/repositories/eformsign-doc.repository.interface";
+import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
+import type { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
+import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
+import {
+    EformsignCredentialBoundary,
+    type EformsignProviderPrincipal,
+} from "application/services/eformsign-credential-boundary.service";
 import {
     EFORMSIGN_COMPLETED_STATUS_CODES,
     TERMINAL_STATUS_CODES,
@@ -21,6 +34,8 @@ import {
 
 export interface FinalizeHeadlessParams {
     documentId: string;
+    /** Authenticated tenant branch. Direct unit callers may omit this for compatibility. */
+    branchId?: string;
     prefillEndDate?: string;
     progressId?: string;
     onProgress?: (step: EformsignHeadlessProgressStep) => void | Promise<void>;
@@ -43,12 +58,13 @@ export interface FinalizeHeadlessFailure {
     reason: string;
     /**
      * "iframe" reopens the editor so a human can finish the step. It is only
-     * safe once we know the step is genuinely unfinished — "manual_check" is
-     * for the runs where the vendor could not be asked.
+     * safe when no send was attempted and the step is genuinely unfinished;
+     * "manual_check" covers attempted sends and missing authoritative status.
      */
     fallbackHint: "iframe" | "manual_check";
     durationMs: number;
     failedStep?: EformsignHeadlessProgressStep;
+    dispatchIntentId?: string;
 }
 
 export type FinalizeHeadlessResult =
@@ -86,7 +102,8 @@ function workflowStateAdvanced(
 /**
  * Backend-driven mode:"02" finalize flow. Mirrors the staff-completion iframe
  * modal: builds the same SDK option payload, then runs the gate sequence
- * (top-level 전송 → popup 전송) headlessly. Falls back to iframe on errors.
+ * (top-level 전송 → popup 전송) headlessly. Falls back to iframe only when no
+ * send was attempted; once a send may have happened, errors require a manual check.
  */
 @Injectable()
 export class FinalizeDocumentHeadlessUsecase {
@@ -96,21 +113,29 @@ export class FinalizeDocumentHeadlessUsecase {
     constructor(
         private readonly eformsignService: EformsignService,
         private readonly headlessService: EformsignHeadlessService,
-        private readonly getAccessTokenUsecase: GetEformsignAccessTokenUsecase,
+        private readonly credentialBoundary: EformsignCredentialBoundary,
         private readonly progressService: EformsignHeadlessProgressService,
         @Optional() private readonly operationLock?: EformsignOperationLockService,
         @Optional() private readonly documentMirrorService?: EformsignDocumentMirrorService,
+        @Optional()
+        @Inject(EFORMSIGN_DOC_REPOSITORY)
+        private readonly eformsignDocRepository?: IEformsignDocRepository,
+        @Optional() private readonly assignmentGuard?: ContractClientAssignmentGuardService,
+        @Optional() private readonly dispatchBoundary?: EformsignDispatchBoundaryService,
     ) {}
 
-    async execute(params: FinalizeHeadlessParams): Promise<FinalizeHeadlessResult> {
+    async execute(
+        params: FinalizeHeadlessParams,
+        principal: EformsignProviderPrincipal,
+    ): Promise<FinalizeHeadlessResult> {
         if (!this.operationLock) {
-            return this.executeUnlocked(params);
+            return this.executeUnlocked(params, principal);
         }
         const start = Date.now();
         try {
             return await this.operationLock.runExclusive(
                 `finalize:${params.documentId}`,
-                (lease) => this.executeUnlocked(params, lease),
+                (lease) => this.executeUnlocked(params, principal, lease),
             );
         } catch (error) {
             if (error instanceof EformsignOperationAlreadyRunningError) {
@@ -122,7 +147,7 @@ export class FinalizeDocumentHeadlessUsecase {
                 };
             }
             if (error instanceof EformsignOperationLockUnavailableError) {
-                this.logger.error(error.message);
+                this.logger.error(sanitizeEformsignErrorMessage(error));
                 return {
                     ok: false,
                     reason: "operation_lock_unavailable",
@@ -136,14 +161,69 @@ export class FinalizeDocumentHeadlessUsecase {
 
     private async executeUnlocked(
         params: FinalizeHeadlessParams,
+        principal: EformsignProviderPrincipal,
         lease?: EformsignOperationLease,
     ): Promise<FinalizeHeadlessResult> {
         const start = Date.now();
         let latestProgressStep: EformsignHeadlessProgressStep | undefined;
+        let dispatchIntent: Awaited<ReturnType<EformsignDispatchBoundaryService["claim"]>>["intent"] | undefined;
+        let sendWasAttempted = false;
         try {
-            const tokenResponse = await this.getAccessTokenUsecase.execute(Date.now());
-            const accessToken = tokenResponse.oauth_token.access_token;
-            const refreshToken = tokenResponse.oauth_token.refresh_token;
+            const target = await this.assertOwnedTarget(params);
+            if (!target.ok) {
+                return {
+                    ok: false,
+                    reason: "authorization_denied",
+                    fallbackHint: "manual_check",
+                    durationMs: Date.now() - start,
+                };
+            }
+
+            if (this.dispatchBoundary && target.document) {
+                const generation = target.document.updatedDate.toISOString();
+                const fingerprint = createHash("sha256")
+                    .update(JSON.stringify({
+                        documentId: params.documentId,
+                        prefillEndDate: params.prefillEndDate ?? null,
+                        templateId: target.document.templateId,
+                        generation,
+                    }))
+                    .digest("hex");
+                const claim = await this.dispatchBoundary.claim({
+                    branchId: params.branchId!,
+                    clientId: target.document.clientId,
+                    localDocumentId: target.document.id ?? null,
+                    assignmentId: target.document.employeeScheduleId,
+                    providerDocumentId: params.documentId,
+                    templateId: target.document.templateId,
+                    action: "finalize",
+                    generation,
+                    fingerprint,
+                });
+                if (claim.disposition === "already_accepted") {
+                    return {
+                        ok: false,
+                        reason: "dispatch_already_accepted",
+                        fallbackHint: "manual_check",
+                        dispatchIntentId: claim.intent.id,
+                        durationMs: Date.now() - start,
+                    };
+                }
+                if (claim.disposition === "uncertain") {
+                    return {
+                        ok: false,
+                        reason: "dispatch_uncertain_manual_reconciliation_required",
+                        fallbackHint: "manual_check",
+                        dispatchIntentId: claim.intent.id,
+                        durationMs: Date.now() - start,
+                    };
+                }
+                dispatchIntent = claim.intent;
+            }
+            return await this.credentialBoundary.withCredentials(
+                principal,
+                "contract.finalize",
+                async ({ accessToken, refreshToken }) => {
 
             // A contract can contain consecutive provider-owned steps
             // (제공기관 확인 -> 제공기관 검토). Each HTTP request handles one
@@ -160,10 +240,17 @@ export class FinalizeDocumentHeadlessUsecase {
             )) as Record<string, unknown>;
 
             if (lease && !lease.isHeld()) {
+                if (dispatchIntent) {
+                    await this.dispatchBoundary?.releaseBeforeSend(
+                        dispatchIntent,
+                        "operation_lock_lost",
+                    ).catch(() => undefined);
+                }
                 return {
                     ok: false,
                     reason: "operation_lock_lost",
                     fallbackHint: "manual_check",
+                    dispatchIntentId: dispatchIntent?.id,
                     durationMs: Date.now() - start,
                 };
             }
@@ -173,6 +260,12 @@ export class FinalizeDocumentHeadlessUsecase {
                 documentId: params.documentId,
                 onProgress: async (step) => {
                     latestProgressStep = step;
+                    if (step === "creating" || step === "sent") {
+                        // Set this before awaiting the SDK callback chain so a
+                        // thrown error after the click cannot fall back to the
+                        // iframe and submit a duplicate document.
+                        sendWasAttempted = true;
+                    }
                     await params.onProgress?.(step);
                     // The SDK's sent callback confirms this step's submission,
                     // not whole-document completion. Hold it until the vendor
@@ -182,14 +275,17 @@ export class FinalizeDocumentHeadlessUsecase {
                     }
                 },
             });
-            const sendWasAttempted =
-                latestProgressStep === "creating" || latestProgressStep === "sent";
+            const resultReason = result.ok ? undefined : sanitizeEformsignErrorMessage(result.reason);
             if (!result.ok && !sendWasAttempted) {
-                this.progressService.emit(params.progressId, "failed", result.reason, latestProgressStep);
+                if (dispatchIntent) {
+                    await this.dispatchBoundary?.releaseBeforeSend(dispatchIntent, resultReason!).catch(() => undefined);
+                }
+                this.progressService.emit(params.progressId, "failed", resultReason, latestProgressStep);
                 return {
                     ok: false,
-                    reason: result.reason,
+                    reason: resultReason!,
                     fallbackHint: "iframe",
+                    dispatchIntentId: dispatchIntent?.id,
                     durationMs: result.durationMs,
                     failedStep: latestProgressStep,
                 };
@@ -203,7 +299,16 @@ export class FinalizeDocumentHeadlessUsecase {
                 || !result.ok
                 || result.gateOutcome === "success-latched";
             if (!mustConfirmWithVendor) {
-                return this.buildSuccessfulResult(params.documentId, result.durationMs);
+                if (dispatchIntent) {
+                    await this.dispatchBoundary?.markAccepted(
+                        dispatchIntent,
+                        params.documentId,
+                        { outcome: "sdk_send_confirmed" },
+                    ).catch((error) => {
+                        this.logger.error(`Failed to persist eformsign finalize outcome: ${error}`);
+                    });
+                }
+                return this.buildSuccessfulResult(params.documentId, result.durationMs, principal);
             }
 
             const settled = await this.waitForVendorOutcome(
@@ -214,16 +319,30 @@ export class FinalizeDocumentHeadlessUsecase {
             if (settled === "completed") {
                 if (!result.ok) {
                     this.logger.log(
-                        `Headless finalize for ${params.documentId} reported "${result.reason}" but eformsign completed the document.`,
+                        `Headless finalize for ${params.documentId} reported "${resultReason}" but eformsign completed the document.`,
                     );
                 }
                 this.progressService.emit(params.progressId, "sent");
-                return this.buildSuccessfulResult(params.documentId, result.durationMs);
+                if (dispatchIntent) {
+                    await this.dispatchBoundary?.markAccepted(dispatchIntent, params.documentId, {
+                        outcome: "completed",
+                    }).catch((error) => {
+                        this.logger.error(`Failed to persist eformsign finalize outcome: ${error}`);
+                    });
+                }
+                return this.buildSuccessfulResult(params.documentId, result.durationMs, principal);
             }
             if (settled === "advanced") {
                 this.logger.log(
                     `Headless finalize advanced ${params.documentId} to the next provider step.`,
                 );
+                if (dispatchIntent) {
+                    await this.dispatchBoundary?.markAccepted(dispatchIntent, params.documentId, {
+                        outcome: "advanced",
+                    }).catch((error) => {
+                        this.logger.error(`Failed to persist eformsign finalize outcome: ${error}`);
+                    });
+                }
                 return { ok: true, completed: false, durationMs: result.durationMs };
             }
 
@@ -231,35 +350,113 @@ export class FinalizeDocumentHeadlessUsecase {
                 ? "eformsign_terminal_failure"
                 : result.ok
                     ? "eformsign reported success without submitting the document"
-                    : result.reason;
+                    : resultReason!;
             this.logger.warn(
                 `Headless finalize for ${params.documentId}: ${reason} (vendor status: ${settled}).`,
             );
             this.progressService.emit(params.progressId, "failed", reason, latestProgressStep);
+            if (dispatchIntent && sendWasAttempted) {
+                await this.dispatchBoundary?.markUncertain(dispatchIntent, reason, params.documentId).catch((error) => {
+                    this.logger.error(`Failed to persist uncertain eformsign finalize outcome: ${error}`);
+                });
+            } else if (dispatchIntent) {
+                await this.dispatchBoundary?.releaseBeforeSend(dispatchIntent, reason).catch(() => undefined);
+            }
             return {
                 ok: false,
                 reason,
-                fallbackHint: settled === "pending" ? "iframe" : "manual_check",
+                fallbackHint: sendWasAttempted
+                    ? "manual_check"
+                    : settled === "pending"
+                        ? "iframe"
+                        : "manual_check",
+                dispatchIntentId: dispatchIntent?.id,
                 durationMs: result.durationMs,
                 failedStep: latestProgressStep,
             };
+                },
+            );
         } catch (error) {
-            const reason = error instanceof Error ? error.message : "unknown headless finalize error";
+            const reason = sanitizeEformsignErrorMessage(error || "unknown headless finalize error");
+            if (dispatchIntent) {
+                if (sendWasAttempted) {
+                    await this.dispatchBoundary?.markUncertain(dispatchIntent, reason, params.documentId).catch((persistError) => {
+                        this.logger.error(`Failed to persist uncertain eformsign finalize outcome: ${sanitizeEformsignErrorMessage(persistError)}`);
+                    });
+                } else {
+                    await this.dispatchBoundary?.releaseBeforeSend(dispatchIntent, reason).catch(() => undefined);
+                }
+            }
             this.logger.error(`FinalizeDocumentHeadlessUsecase failed: ${reason}`);
             this.progressService.emit(params.progressId, "failed", reason, latestProgressStep);
             return {
                 ok: false,
                 reason,
-                fallbackHint: "iframe",
+                fallbackHint: sendWasAttempted ? "manual_check" : "iframe",
+                dispatchIntentId: dispatchIntent?.id,
                 durationMs: Date.now() - start,
                 failedStep: latestProgressStep,
             };
         }
     }
 
+    /**
+     * The provider document id is not an ownership proof. The only acceptable
+     * target is a live local row selected through the authenticated branch.
+     */
+    private async assertOwnedTarget(
+        params: FinalizeHeadlessParams,
+    ): Promise<{ ok: true; document?: EformsignDocEntity } | { ok: false }> {
+        // Existing direct usecase tests and narrowly scoped callers predate the
+        // tenant boundary. HTTP and worker paths always provide branchId.
+        if (!params.branchId && !this.eformsignDocRepository) return { ok: true, document: undefined as never };
+        if (!params.branchId || !this.eformsignDocRepository || !this.assignmentGuard) return { ok: false };
+
+        let document: EformsignDocEntity | null;
+        try {
+            document = await this.eformsignDocRepository.findByDocumentId(
+                params.branchId,
+                params.documentId,
+            );
+        } catch {
+            // A repository outage is not evidence of ownership. Keep the
+            // provider boundary closed and expose the same safe denial as a
+            // missing or cross-branch row.
+            return { ok: false };
+        }
+        if (!document
+            || !document.id
+            || !document.documentKind
+            || ![
+                EFORMSIGN_DOCUMENT_KIND.CONTRACT,
+                EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
+            ].includes(document.documentKind)
+            || TERMINAL_STATUS_CODES.has(document.statusType)
+            || document.expired
+            || document.clientId === null) {
+            return { ok: false };
+        }
+
+        try {
+            const assignment = await this.assignmentGuard.assertAssignedClient(
+                params.branchId,
+                document.clientId,
+            );
+            if (document.employeeScheduleId !== null
+                && assignment.scheduleId !== document.employeeScheduleId) {
+                return { ok: false };
+            }
+        } catch {
+            return { ok: false };
+        }
+
+        return { ok: true, document };
+    }
+
     private buildSuccessfulResult(
         documentId: string,
         durationMs: number,
+        principal: EformsignProviderPrincipal,
     ): FinalizeHeadlessSuccess {
         // Finalization and our document mirror are separate systems. Trigger an
         // exact-document refresh as soon as eformsign confirms completion so
@@ -267,17 +464,17 @@ export class FinalizeDocumentHeadlessUsecase {
         // without waiting for a broad periodic reconciliation. A mirror delay
         // must not turn a confirmed vendor completion back into a UI failure.
         if (this.documentMirrorService) {
-            this.queueMirrorSync(documentId);
+            this.queueMirrorSync(documentId, principal);
         }
 
         return { ok: true, completed: true, durationMs };
     }
 
-    private queueMirrorSync(documentId: string): void {
+    private queueMirrorSync(documentId: string, principal: EformsignProviderPrincipal): void {
         const previous = this.mirrorSyncs.get(documentId) ?? Promise.resolve();
         const queued = previous
             .catch(() => undefined)
-            .then(() => this.syncMirrorWithRetry(documentId));
+            .then(() => this.syncMirrorWithRetry(documentId, principal));
         this.mirrorSyncs.set(documentId, queued);
         void queued.finally(() => {
             if (this.mirrorSyncs.get(documentId) === queued) {
@@ -286,7 +483,10 @@ export class FinalizeDocumentHeadlessUsecase {
         });
     }
 
-    private async syncMirrorWithRetry(documentId: string): Promise<void> {
+    private async syncMirrorWithRetry(
+        documentId: string,
+        principal: EformsignProviderPrincipal,
+    ): Promise<void> {
         if (!this.documentMirrorService) return;
         let lastError: unknown;
         for (const delayMs of POST_FINALIZE_MIRROR_RETRY_DELAYS_MS) {
@@ -294,7 +494,7 @@ export class FinalizeDocumentHeadlessUsecase {
                 await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
             }
             try {
-                await this.documentMirrorService.syncDocument(documentId, {
+                await this.documentMirrorService.syncDocument(documentId, principal, {
                     force: true,
                     suppressOutboundAutomation: true,
                     // A ready PDF is not enough: contract end-date projection and
@@ -308,7 +508,7 @@ export class FinalizeDocumentHeadlessUsecase {
                 lastError = error;
             }
         }
-        const reason = lastError instanceof Error ? lastError.message : String(lastError);
+        const reason = sanitizeEformsignErrorMessage(lastError);
         this.logger.warn(`Post-finalize mirror sync failed for ${documentId}: ${reason}`);
     }
 
@@ -351,7 +551,7 @@ export class FinalizeDocumentHeadlessUsecase {
             if (EFORMSIGN_COMPLETED_STATUS_CODES.has(statusCode)) return "completed";
             return TERMINAL_STATUS_CODES.has(statusCode) ? "failed" : "pending";
         } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
+            const reason = sanitizeEformsignErrorMessage(error);
             this.logger.warn(`Could not read eformsign status for ${documentId}: ${reason}`);
             return "unknown";
         }
@@ -397,7 +597,7 @@ export class FinalizeDocumentHeadlessUsecase {
                 ? state
                 : null;
         } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
+            const reason = sanitizeEformsignErrorMessage(error);
             this.logger.warn(`Could not capture starting eformsign workflow for ${documentId}: ${reason}`);
             return null;
         }

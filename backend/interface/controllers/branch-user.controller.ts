@@ -18,6 +18,7 @@ import {
     type VerifiedTenantPrincipal,
 } from "infrastructure/tenant";
 import { UpdateBranchUserDto } from "interface/dto/user.dto";
+import { runWithAdminAuditActor } from "application/services/admin-audit-context";
 
 @Controller("branches/:branchId/users")
 @UseGuards(JwtGuard, TenantGuard, OwnerOrAdminGuard)
@@ -46,11 +47,15 @@ export class BranchUserController {
         @Body() dto: UpdateBranchUserDto,
     ) {
         this.assertSelectedBranch(branchId, tenant);
-        return this.userService.update(userId, {
+        return runWithAdminAuditActor({
+            userId: tenant.userId,
+            globalRole: tenant.globalRole,
+            branchRole: tenant.branchRole,
+        }, () => this.userService.update(userId, {
             branchRole: dto.branchRole,
             callerRole: tenant.globalRole,
             branchId,
-        });
+        }));
     }
 
     @Delete(":userId")
@@ -64,7 +69,11 @@ export class BranchUserController {
         if (!target || (target.role === "owner" && tenant.globalRole !== "owner")) {
             throw new NotFoundException("User not found");
         }
-        await this.userService.delete(userId, branchId);
+        await runWithAdminAuditActor({
+            userId: tenant.userId,
+            globalRole: tenant.globalRole,
+            branchRole: tenant.branchRole,
+        }, () => this.userService.delete(userId, branchId));
         return { success: true };
     }
 

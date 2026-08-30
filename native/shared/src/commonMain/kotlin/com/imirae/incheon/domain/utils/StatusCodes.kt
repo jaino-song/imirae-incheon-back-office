@@ -14,6 +14,9 @@ object StatusCodes {
         "completed" -> "완료"
         "expired" -> "만료됨"
         "on_leave" -> "휴직"
+        "available" -> "가능"
+        "working" -> "근무 중"
+        "unavailable" -> "불가"
         else -> status
     }
 

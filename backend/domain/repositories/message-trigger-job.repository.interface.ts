@@ -11,8 +11,12 @@ export interface IMessageTriggerJobRepository {
     update(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity>;
     findById(id: string): Promise<MessageTriggerJobEntity | null>;
     claimPending(id: string): Promise<boolean>;
-    /** Claim only while the branch-scoped rule is not fenced as stale. */
-    claimPendingWithRuleFence(id: string, branchId: string | null): Promise<boolean>;
+    /**
+     * Claim only while the branch-scoped rule is not fenced as stale. The
+     * returned token is unique to this processing attempt and must be supplied
+     * to every terminal update/fence before a provider call.
+     */
+    claimPendingWithRuleFence(id: string, branchId: string | null): Promise<string | null>;
     findDuePending(limit?: number): Promise<MessageTriggerJobEntity[]>;
     findStaleProcessing(cutoff: Date, limit?: number): Promise<MessageTriggerJobEntity[]>;
     findUpcomingPendingByBranch(
@@ -67,13 +71,23 @@ export interface IMessageTriggerJobRepository {
     cancelPendingByRuleId(ruleId: string, reason: string): Promise<number>;
     cancelPendingOlderThan(ruleId: string, cutoff: Date, reason: string): Promise<number>;
     /**
-     * Cancel a single job on the user's behalf. Only a `pending` job scoped
-     * to the given branch is canceled — a `processing` job is left alone
-     * since it may already be in flight at the SMS provider. The canceled
-     * row is marked so the re-sync upsert below never resurrects it. Returns
-     * whether the cancel matched a row.
+     * Cancel a single job on the user's behalf. Pending and processing jobs
+     * scoped to the given branch are canceled atomically; processing claims
+     * are invalidated by clearing their claim token before the pre-provider
+     * fence can proceed. The canceled row is marked so the re-sync upsert
+     * below never resurrects it. Returns whether the cancel matched a row.
      */
     cancelPendingByUser(id: string, branchId: string, reason: string): Promise<boolean>;
+    /**
+     * Promote only the exact automatic service-record scheduling marker owned
+     * by this claim version. A null result means the claim was replaced or
+     * otherwise lost and must fail closed without reading/reviving another row.
+     */
+    promoteAutomaticSchedulingClaim(
+        markerId: string,
+        expectedClaimVersion: string,
+        job: MessageTriggerJobEntity,
+    ): Promise<MessageTriggerJobEntity | null>;
     /**
      * Cancel mutable pending jobs only while the branch-scoped rule is at the
      * inspected generation and stale state. Null means the producer lost the

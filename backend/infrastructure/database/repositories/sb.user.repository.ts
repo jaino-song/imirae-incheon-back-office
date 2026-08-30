@@ -20,8 +20,8 @@ export class SbUserRepository implements IUserRepository {
             where: {
                 id,
                 OR: [
-                    { userBranches: { some: { branchId } } },
-                    { ownedBranches: { some: { id: branchId } } },
+                    { userBranches: { some: { branchId, branch: { isActive: true } } } },
+                    { ownedBranches: { some: { id: branchId, isActive: true } } },
                 ],
             },
         });
@@ -159,8 +159,8 @@ export class SbUserRepository implements IUserRepository {
         const users = await this.prismaService.user.findMany({
             where: {
                 OR: [
-                    { ownedBranches: { some: { id: branchId } } },
-                    { userBranches: { some: { branchId } } },
+                    { ownedBranches: { some: { id: branchId, isActive: true } } },
+                    { userBranches: { some: { branchId, branch: { isActive: true } } } },
                 ],
             },
         });

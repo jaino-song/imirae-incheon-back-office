@@ -17,9 +17,29 @@ export interface IPushSubscriptionRepository {
     create(subscription: PushSubscriptionEntity): Promise<PushSubscriptionEntity>;
 
     /**
+     * Atomically create or rebind an endpoint to the authenticated user.
+     * The endpoint is globally unique, so ownership changes must be one
+     * database operation instead of a find-then-create race.
+     */
+    upsert(subscription: PushSubscriptionEntity): Promise<PushSubscriptionEntity>;
+
+    /**
      * Delete subscription by endpoint (when user unsubscribes)
      */
     deleteByEndpoint(endpoint: string): Promise<void>;
+
+    /**
+     * Delete an endpoint only when it belongs to the authenticated user.
+     */
+    deleteByEndpointForUser(endpoint: string, userId: string): Promise<void>;
+
+    /**
+     * Delete a failed delivery only when the endpoint still has the exact
+     * owner and encryption-key snapshot used for that send.
+     */
+    deleteByEndpointIfMatches(
+        subscription: Pick<PushSubscriptionEntity, "id" | "userId" | "endpoint" | "p256dhKey" | "authKey">,
+    ): Promise<void>;
 
     /**
      * Delete all subscriptions for a user

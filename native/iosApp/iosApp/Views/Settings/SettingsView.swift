@@ -90,7 +90,7 @@ struct SettingsView: View {
             .accessibilityIdentifier("settings-notifications")
 
             VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
-                Text("언어")
+                Text("언어 (현재 백엔드 미지원)")
                     .font(.appLabel)
                     .foregroundColor(.appForeground)
 
@@ -99,11 +99,12 @@ struct SettingsView: View {
                     Text("English").tag("en")
                 }
                 .pickerStyle(.segmented)
+                .disabled(true)
                 .accessibilityIdentifier("settings-language")
             }
 
             VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
-                Text("테마")
+                Text("테마 (현재 백엔드 미지원)")
                     .font(.appLabel)
                     .foregroundColor(.appForeground)
 
@@ -113,6 +114,7 @@ struct SettingsView: View {
                     Text("다크").tag("dark")
                 }
                 .pickerStyle(.segmented)
+                .disabled(true)
                 .accessibilityIdentifier("settings-theme")
             }
 
@@ -211,7 +213,7 @@ private struct SettingsRow: View {
 @MainActor
 final class SettingsViewModelWrapper: ObservableObject {
     private let viewModel: SettingsViewModel
-    private var observeTask: Task<Void, Never>?
+    private var stateCollector: IOSStateFlowCollector?
 
     @Published var isLoading: Bool = true
     @Published var settings: UserSettings?
@@ -226,22 +228,26 @@ final class SettingsViewModelWrapper: ObservableObject {
     }
 
     deinit {
-        observeTask?.cancel()
+        stateCollector?.stop()
     }
 
     private func observeUiState() {
-        observeTask = Task {
-            for await state in viewModel.uiState {
-                if Task.isCancelled {
-                    break
-                }
-
+        let collector = IOSStateFlowCollector { [weak self] value in
+            guard let state = value as? SettingsUiState else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
                 self.isLoading = state.isLoading
                 self.settings = state.settings
                 self.voucherPrices = state.voucherPrices
                 self.isSaving = state.isSaving
                 self.saveSuccess = state.saveSuccess
                 self.errorMessage = state.error
+            }
+        }
+        stateCollector = collector
+        viewModel.uiState.collect(collector: collector) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.stateCollector?.stop()
             }
         }
     }

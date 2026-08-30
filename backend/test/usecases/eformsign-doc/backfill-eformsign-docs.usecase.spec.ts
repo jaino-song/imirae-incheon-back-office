@@ -8,6 +8,21 @@ import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.clie
 import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
 import { normalizeEformsignDocumentResponse } from "infrastructure/api/eformsign-response.normalizer";
 
+const TEST_PRINCIPAL = { branchId: "__system__:backfill-test", source: "worker" as const };
+const createBoundary = () => ({
+    withCredentials: jest.fn((
+        _principal: unknown,
+        _capability: unknown,
+        operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+    ) => operation({ accessToken: "shared-access-token", refreshToken: "shared-refresh-token" })),
+    withRefreshedCredentials: jest.fn((
+        _principal: unknown,
+        _capability: unknown,
+        _credentials: unknown,
+        operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+    ) => operation({ accessToken: "shared-access-token-refreshed", refreshToken: "shared-refresh-token" })),
+});
+
 const createRemoteDocument = (
     id: string,
     statusType = "060",
@@ -58,12 +73,13 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             { findByDocumentIdUnscoped: jest.fn() } as never,
             { mirrorRemoteDocument: jest.fn() } as never,
             mirrorService as never,
         );
 
-        await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({ failed: 0 }));
         expect(mirrorService.purgeDocuments).toHaveBeenCalledWith(["missing-doc"]);
         expect(mirrorService.markDocumentsDeleted).not.toHaveBeenCalled();
     });
@@ -86,12 +102,13 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             { findByDocumentIdUnscoped: jest.fn() } as never,
             { mirrorRemoteDocument: jest.fn() } as never,
             mirrorService as never,
         );
 
-        await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({ failed: 0 }));
         expect(mirrorService.markDocumentsDeleted).toHaveBeenCalledWith(["missing-doc"]);
         expect(mirrorService.purgeDocuments).not.toHaveBeenCalled();
     });
@@ -116,12 +133,13 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             { findByDocumentIdUnscoped: jest.fn() } as never,
             { mirrorRemoteDocument: jest.fn() } as never,
             mirrorService as never,
         );
 
-        await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({ failed: 0 }));
         expect(mirrorService.markDocumentsDeleted).toHaveBeenCalledWith(["deleted-doc"]);
     });
 
@@ -145,12 +163,13 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             { findByDocumentIdUnscoped: jest.fn() } as never,
             { mirrorRemoteDocument: jest.fn() } as never,
             mirrorService as never,
         );
 
-        await expect(usecase.execute()).rejects.toThrow(
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).rejects.toThrow(
             /failed to verify locally active eformsign document uncertain-doc/i,
         );
         expect(mirrorService.markDocumentsDeleted).not.toHaveBeenCalled();
@@ -188,13 +207,14 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             { findByDocumentIdUnscoped: jest.fn().mockResolvedValue({ id: 1 }) } as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "pending-doc" }) } as never,
             mirrorService as never,
             eformsignService as never,
         );
 
-        await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({ failed: 0 }));
         expect(client.getDocument).toHaveBeenCalledWith(accessToken, "pending-doc");
         expect(mirrorService.requestPermanentPurge).toHaveBeenCalledWith(["pending-doc"]);
         // The retry cancels rather than deletes: the delete endpoint keeps the vendor's
@@ -243,13 +263,14 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             { findByDocumentIdUnscoped: jest.fn().mockResolvedValue({ id: 1 }) } as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "pending-doc" }) } as never,
             mirrorService as never,
             eformsignService as never,
         );
 
-        await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({ failed: 0 }));
         // eformsign never cancels a finished document, so retrying forever would make every
         // sweep from here on reattempt a call that cannot succeed.
         expect(mirrorService.purgeDocuments).toHaveBeenCalledWith(["pending-doc"]);
@@ -290,13 +311,14 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             { findByDocumentIdUnscoped: jest.fn().mockResolvedValue({ id: 1 }) } as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "pending-doc" }) } as never,
             mirrorService as never,
             eformsignService as never,
         );
 
-        await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({ failed: 0 }));
         expect(mirrorService.requestPermanentPurge).toHaveBeenCalledWith(["pending-doc"]);
         expect(mirrorService.clearPermanentPurgeRequest).not.toHaveBeenCalled();
         expect(mirrorService.purgeDocuments).not.toHaveBeenCalled();
@@ -336,13 +358,14 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             { findByDocumentIdUnscoped: jest.fn().mockResolvedValue({ id: 1 }) } as never,
             { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "pending-doc" }) } as never,
             mirrorService as never,
             eformsignService as never,
         );
 
-        await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).resolves.toEqual(expect.objectContaining({ failed: 0 }));
         expect(mirrorService.clearPermanentPurgeRequest).toHaveBeenCalledWith([
             { documentId: "pending-doc", generation: retryGeneration },
         ]);
@@ -367,12 +390,13 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             { findByDocumentIdUnscoped: jest.fn() } as never,
             { mirrorRemoteDocument: jest.fn() } as never,
             mirrorService as never,
         );
 
-        await expect(usecase.execute()).rejects.toThrow(
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).rejects.toThrow(
             /failed to verify locally active eformsign document uncertain-doc/i,
         );
         expect(mirrorService.markDocumentsDeleted).not.toHaveBeenCalled();
@@ -392,12 +416,13 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             { findByDocumentIdUnscoped: jest.fn() } as never,
             { mirrorRemoteDocument: jest.fn() } as never,
             mirrorService as never,
         );
 
-        await expect(usecase.execute()).rejects.toThrow(/failed for types=01/i);
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).rejects.toThrow(/failed for types=01/i);
         expect(mirrorService.findActiveDocumentIds).not.toHaveBeenCalled();
         expect(mirrorService.findPermanentPurgeRequestedDocumentIds).not.toHaveBeenCalled();
     });
@@ -433,15 +458,22 @@ describe("BackfillEformsignDocsUsecase", () => {
             mirrorRemoteDocument: jest.fn((document: EformsignApiDocumentResponse) =>
                 Promise.resolve({ documentId: document.id })),
         };
+        const credentialBoundary = createBoundary();
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            credentialBoundary as never,
             repository as never,
             mirror as never,
         );
 
-        const summary = await usecase.execute();
+        const summary = await usecase.execute({}, TEST_PRINCIPAL);
 
-        expect(client.getAccessToken).toHaveBeenCalledTimes(1);
+        expect(credentialBoundary.withCredentials).toHaveBeenCalledTimes(1);
+        expect(credentialBoundary.withCredentials).toHaveBeenCalledWith(
+            TEST_PRINCIPAL,
+            "document.backfill",
+            expect.any(Function),
+        );
         expect(client.getInProgressDocumentsPage).toHaveBeenCalledTimes(26);
         expect(client.getInProgressDocumentsPage).toHaveBeenLastCalledWith(
             accessToken,
@@ -504,11 +536,12 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror as never,
         );
 
-        const summary = await usecase.execute();
+        const summary = await usecase.execute({}, TEST_PRINCIPAL);
 
         expect(client.getRejectedDocumentsPage).toHaveBeenCalledWith(
             accessToken,
@@ -559,11 +592,12 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror as never,
         );
 
-        const result = usecase.execute();
+        const result = usecase.execute({}, TEST_PRINCIPAL);
 
         await expect(result).rejects.toMatchObject({
             summary: {
@@ -626,12 +660,13 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror as never,
             documentMirrorService as never,
         );
 
-        const summary = await usecase.execute();
+        const summary = await usecase.execute({}, TEST_PRINCIPAL);
 
         expect(summary).toEqual(expect.objectContaining({
             fetched: 2,
@@ -685,13 +720,14 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror as never,
         );
 
         // The second document must still be written — one bad row may not abort the
         // sweep — but a mirror missing a document is not a completed backfill.
-        await expect(usecase.execute()).rejects.toMatchObject({
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).rejects.toMatchObject({
             summary: expect.objectContaining({
                 fetched: 2,
                 created: 1,
@@ -740,12 +776,13 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             { findByDocumentIdUnscoped: jest.fn().mockResolvedValue(null) } as never,
             mirror as never,
             documentMirrorService as never,
         );
 
-        await expect(usecase.execute()).rejects.toMatchObject({
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).rejects.toMatchObject({
             summary: expect.objectContaining({
                 fetched: 1,
                 created: 0,
@@ -797,13 +834,14 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror as never,
         );
 
         await expect(usecase.execute({
             shouldContinue: () => writes < 2,
-        })).rejects.toThrow(/lost its execution lease/);
+        }, TEST_PRINCIPAL)).rejects.toThrow(/lost its execution lease/);
         expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(2);
     });
 
@@ -834,11 +872,12 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror as never,
         );
 
-        await expect(usecase.execute()).rejects.toBeInstanceOf(BackfillEformsignDocsError);
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).rejects.toBeInstanceOf(BackfillEformsignDocsError);
 
         expect(client.getInProgressDocumentsPage).toHaveBeenCalledTimes(2);
         expect(client.getCompletedDocumentsPage).toHaveBeenCalledTimes(2);
@@ -888,11 +927,12 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror as never,
         );
 
-        await expect(usecase.execute()).rejects.toMatchObject({
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).rejects.toMatchObject({
             summary: {
                 byDocumentType: {
                     "01": expect.objectContaining({
@@ -946,11 +986,12 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror as never,
         );
 
-        await expect(usecase.execute()).rejects.toMatchObject({
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).rejects.toMatchObject({
             summary: {
                 byDocumentType: {
                     "01": expect.objectContaining({
@@ -1008,11 +1049,12 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror as never,
         );
 
-        await expect(usecase.execute()).rejects.toMatchObject({
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).rejects.toMatchObject({
             summary: {
                 fetched: 200,
                 created: 199,
@@ -1102,11 +1144,12 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror as never,
         );
 
-        await expect(usecase.execute()).rejects.toMatchObject({
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).rejects.toMatchObject({
             summary: {
                 byDocumentType: {
                     "01": expect.objectContaining({
@@ -1153,11 +1196,12 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror as never,
         );
 
-        await expect(usecase.execute()).rejects.toMatchObject({
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).rejects.toMatchObject({
             summary: {
                 byDocumentType: {
                     "01": expect.objectContaining({ status: "failed" }),
@@ -1172,7 +1216,7 @@ describe("BackfillEformsignDocsUsecase", () => {
     });
 
     it("reissues an access token after 401 and resumes the same page", async () => {
-        const refreshedAccessToken = "refreshed-access-token";
+        const refreshedAccessToken = "shared-access-token-refreshed";
         const documents = [
             createRemoteDocument("page-1"),
             createRemoteDocument("page-2"),
@@ -1219,13 +1263,15 @@ describe("BackfillEformsignDocsUsecase", () => {
             mirrorRemoteDocument: jest.fn((document: EformsignApiDocumentResponse) =>
                 Promise.resolve({ documentId: document.id })),
         };
+        const credentialBoundary = createBoundary();
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            credentialBoundary as never,
             repository as never,
             mirror as never,
         );
 
-        await expect(usecase.execute()).resolves.toMatchObject({
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).resolves.toMatchObject({
             fetched: 2,
             created: 2,
         });
@@ -1237,15 +1283,15 @@ describe("BackfillEformsignDocsUsecase", () => {
             [refreshedAccessToken, 100, 0],
             [refreshedAccessToken, 100, 1],
         ]);
-        expect(client.getAccessToken).toHaveBeenCalledTimes(2);
-        expect(client.getAccessToken).toHaveBeenNthCalledWith(2, expect.any(Number));
+        expect(credentialBoundary.withCredentials).toHaveBeenCalledTimes(1);
+        expect(credentialBoundary.withRefreshedCredentials).toHaveBeenCalledTimes(1);
         expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(2);
         expect(client.getCompletedDocumentsPage).toHaveBeenCalledTimes(2);
         expect(client.getRejectedDocumentsPage).toHaveBeenCalledTimes(2);
     });
 
     it("reissues an access token after 401 during the coverage confirmation pass", async () => {
-        const refreshedAccessToken = "refreshed-confirmation-token";
+        const refreshedAccessToken = "shared-access-token-refreshed";
         const documents = [
             createRemoteDocument("confirmation-page-1"),
             createRemoteDocument("confirmation-page-2"),
@@ -1295,13 +1341,15 @@ describe("BackfillEformsignDocsUsecase", () => {
                     Promise.resolve({ documentId: document.id }),
             ),
         };
+        const credentialBoundary = createBoundary();
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            credentialBoundary as never,
             repository as never,
             mirror as never,
         );
 
-        await expect(usecase.execute()).resolves.toMatchObject({
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).resolves.toMatchObject({
             fetched: 2,
             created: 2,
             failed: 0,
@@ -1314,12 +1362,13 @@ describe("BackfillEformsignDocsUsecase", () => {
             [refreshedAccessToken, 100, 0],
             [refreshedAccessToken, 100, 1],
         ]);
-        expect(client.getAccessToken).toHaveBeenCalledTimes(2);
+        expect(credentialBoundary.withCredentials).toHaveBeenCalledTimes(1);
+        expect(credentialBoundary.withRefreshedCredentials).toHaveBeenCalledTimes(1);
         expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(2);
     });
 
     it("reissues an access token after a per-document detail or PDF sync returns 401", async () => {
-        const refreshedAccessToken = "refreshed-document-token";
+        const refreshedAccessToken = "shared-access-token-refreshed";
         const document = createRemoteDocument("detail-auth-retry");
         const client = {
             getAccessToken: jest.fn()
@@ -1358,8 +1407,10 @@ describe("BackfillEformsignDocsUsecase", () => {
                     documentId: document.id,
                 }),
         };
+        const credentialBoundary = createBoundary();
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            credentialBoundary as never,
             repository as never,
             mirror as never,
             documentMirrorService as never,
@@ -1367,7 +1418,7 @@ describe("BackfillEformsignDocsUsecase", () => {
 
         await expect(usecase.execute({
             suppressOutboundAutomation: true,
-        })).resolves.toMatchObject({
+        }, TEST_PRINCIPAL)).resolves.toMatchObject({
             fetched: 1,
             created: 1,
             failed: 0,
@@ -1391,7 +1442,8 @@ describe("BackfillEformsignDocsUsecase", () => {
                 },
             ],
         ]);
-        expect(client.getAccessToken).toHaveBeenCalledTimes(2);
+        expect(credentialBoundary.withCredentials).toHaveBeenCalledTimes(1);
+        expect(credentialBoundary.withRefreshedCredentials).toHaveBeenCalledTimes(1);
     });
 
     it("stops after one token reissue when the retried page is still unauthorized", async () => {
@@ -1420,18 +1472,21 @@ describe("BackfillEformsignDocsUsecase", () => {
         const mirror = {
             mirrorRemoteDocument: jest.fn(),
         };
+        const credentialBoundary = createBoundary();
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            credentialBoundary as never,
             repository as never,
             mirror as never,
         );
 
-        await expect(usecase.execute()).rejects.toBeInstanceOf(
+        await expect(usecase.execute({}, TEST_PRINCIPAL)).rejects.toBeInstanceOf(
             BackfillEformsignDocsError,
         );
 
         expect(client.getInProgressDocumentsPage).toHaveBeenCalledTimes(2);
-        expect(client.getAccessToken).toHaveBeenCalledTimes(2);
+        expect(credentialBoundary.withCredentials).toHaveBeenCalledTimes(1);
+        expect(credentialBoundary.withRefreshedCredentials).toHaveBeenCalledTimes(1);
         expect(mirror.mirrorRemoteDocument).not.toHaveBeenCalled();
     });
 
@@ -1470,11 +1525,12 @@ describe("BackfillEformsignDocsUsecase", () => {
         );
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror,
         );
 
-        await usecase.execute();
+        await usecase.execute({}, TEST_PRINCIPAL);
 
         // The list carries no _expired, but an 080 document is expired by definition, so
         // the row must not be created claiming otherwise — and having derived it, the
@@ -1520,11 +1576,12 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror as never,
         );
 
-        const summary = await usecase.execute();
+        const summary = await usecase.execute({}, TEST_PRINCIPAL);
 
         expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(1);
         // Both scans still have to page it: each inbox's coverage check compares against
@@ -1573,11 +1630,12 @@ describe("BackfillEformsignDocsUsecase", () => {
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror as never,
         );
 
-        const summary = await usecase.execute();
+        const summary = await usecase.execute({}, TEST_PRINCIPAL);
 
         expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(2);
         expect(mirror.mirrorRemoteDocument).toHaveBeenLastCalledWith(
@@ -1623,11 +1681,12 @@ describe("BackfillEformsignDocsUsecase", () => {
         );
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
+            createBoundary() as never,
             repository as never,
             mirror,
         );
 
-        await usecase.execute();
+        await usecase.execute({}, TEST_PRINCIPAL);
 
         expect(repository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
             expect.anything(),

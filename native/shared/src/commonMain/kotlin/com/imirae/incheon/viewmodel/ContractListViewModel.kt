@@ -1,97 +1,166 @@
 package com.imirae.incheon.viewmodel
 
 import com.imirae.incheon.data.remote.DocumentService
-import com.imirae.incheon.domain.models.Contract
-import com.imirae.incheon.domain.models.CreateContractRequest
-import com.imirae.incheon.domain.utils.KoreanSearch
+import com.imirae.incheon.data.remote.UpdateDocumentRequest
+import com.imirae.incheon.domain.models.FileItem
+import com.imirae.incheon.network.ApiError
 import com.imirae.incheon.network.ApiResult
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
+/**
+ * The backend stores contract documents in its branch-scoped document
+ * resource. There is no `/contracts` endpoint, so this route renders the
+ * canonical document records instead of inventing a parallel contract API.
+ */
 data class ContractListUiState(
     val isLoading: Boolean = true,
-    val contracts: List<Contract> = emptyList(),
-    val filteredContracts: List<Contract> = emptyList(),
-    val searchQuery: String = "",
-    val statusFilter: String? = null,
-    val currentPage: Int = 1,
-    val totalPages: Int = 1,
-    val totalCount: Int = 0,
+    val documents: List<FileItem> = emptyList(),
+    val selectedDocument: FileItem? = null,
+    val isDetailLoading: Boolean = false,
+    val detailError: String? = null,
     val error: String? = null,
+    val isDeleting: Boolean = false,
+    val deletingId: String? = null,
+    val deleteSuccess: Boolean = false,
+    val isUpdating: Boolean = false,
+    val updateSuccess: Boolean = false,
     val isCreating: Boolean = false,
-    val createSuccess: Boolean = false
+    val createSuccess: Boolean = false,
 )
+
+private const val CREATE_UNSUPPORTED_MESSAGE = "계약 문서 업로드는 아직 지원되지 않습니다."
+private const val INVALID_DOCUMENT_ID_MESSAGE = "계약 문서 식별자가 올바르지 않습니다."
 
 class ContractListViewModel(private val documentService: DocumentService) {
     private val _uiState = MutableStateFlow(ContractListUiState())
     val uiState: StateFlow<ContractListUiState> = _uiState.asStateFlow()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val pageSize = 20
 
-    fun loadContracts(page: Int = 1) {
+    fun loadContracts() {
         scope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            when (val result = documentService.getContracts(page = page, limit = pageSize)) {
-                is ApiResult.Success -> {
-                    val contracts = result.data.data
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        contracts = contracts,
-                        filteredContracts = applyFilters(contracts, _uiState.value.searchQuery, _uiState.value.statusFilter),
-                        currentPage = page,
-                        totalPages = (result.data.total + pageSize - 1) / pageSize,
-                        totalCount = result.data.total
-                    )
-                }
-                is ApiResult.Error -> _uiState.value = _uiState.value.copy(isLoading = false, error = result.error.userMessage())
+            _uiState.value = _uiState.value.copy(
+                isLoading = true,
+                error = null,
+                selectedDocument = null,
+                isDetailLoading = false,
+                detailError = null,
+                deleteSuccess = false,
+                updateSuccess = false,
+                createSuccess = false,
+            )
+            when (val result = documentService.getDocuments()) {
+                is ApiResult.Success -> _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    documents = result.data,
+                )
+                is ApiResult.Error -> _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = result.error.userMessage(),
+                )
             }
         }
     }
 
-    fun search(query: String) {
-        _uiState.value = _uiState.value.copy(
-            searchQuery = query,
-            filteredContracts = applyFilters(_uiState.value.contracts, query, _uiState.value.statusFilter)
-        )
-    }
+    fun refresh() = loadContracts()
 
-    fun filterByStatus(status: String?) {
-        _uiState.value = _uiState.value.copy(
-            statusFilter = status,
-            filteredContracts = applyFilters(_uiState.value.contracts, _uiState.value.searchQuery, status)
-        )
-    }
-
-    fun nextPage() { if (_uiState.value.currentPage < _uiState.value.totalPages) loadContracts(_uiState.value.currentPage + 1) }
-    fun previousPage() { if (_uiState.value.currentPage > 1) loadContracts(_uiState.value.currentPage - 1) }
-    fun refresh() = loadContracts(_uiState.value.currentPage)
-
-    fun createContract(request: CreateContractRequest) {
+    fun loadContract(id: String) {
+        if (id.isBlank()) {
+            _uiState.value = _uiState.value.copy(
+                isDetailLoading = false,
+                detailError = INVALID_DOCUMENT_ID_MESSAGE,
+                selectedDocument = null,
+            )
+            return
+        }
         scope.launch {
-            _uiState.value = _uiState.value.copy(isCreating = true, createSuccess = false)
-            when (val result = documentService.createContract(request)) {
-                is ApiResult.Success -> {
-                    _uiState.value = _uiState.value.copy(isCreating = false, createSuccess = true)
-                    loadContracts(1)
-                }
-                is ApiResult.Error -> _uiState.value = _uiState.value.copy(isCreating = false, error = result.error.userMessage())
+            _uiState.value = _uiState.value.copy(isDetailLoading = true, detailError = null)
+            when (val result = documentService.getDocument(id)) {
+                is ApiResult.Success -> _uiState.value = _uiState.value.copy(
+                    isDetailLoading = false,
+                    selectedDocument = result.data,
+                )
+                is ApiResult.Error -> _uiState.value = _uiState.value.copy(
+                    isDetailLoading = false,
+                    detailError = result.error.userMessage(),
+                )
             }
         }
     }
 
-    private fun applyFilters(contracts: List<Contract>, query: String, status: String?): List<Contract> {
-        var filtered = contracts
-        if (query.isNotBlank()) {
-            filtered = filtered.filter { contract ->
-                contract.clientName?.let { KoreanSearch.matchesChosung(query, it) } == true ||
-                contract.employeeName?.let { KoreanSearch.matchesChosung(query, it) } == true
+    fun deleteContract(id: String) {
+        if (id.isBlank()) {
+            _uiState.value = _uiState.value.copy(error = INVALID_DOCUMENT_ID_MESSAGE)
+            return
+        }
+        scope.launch {
+            _uiState.value = _uiState.value.copy(
+                isDeleting = true,
+                deletingId = id,
+                deleteSuccess = false,
+                error = null,
+            )
+            when (val result = documentService.deleteDocument(id)) {
+                is ApiResult.Success -> _uiState.value = _uiState.value.copy(
+                    isDeleting = false,
+                    deletingId = null,
+                    documents = _uiState.value.documents.filterNot { it.id == id },
+                    selectedDocument = _uiState.value.selectedDocument?.takeUnless { it.id == id },
+                    deleteSuccess = true,
+                )
+                is ApiResult.Error -> _uiState.value = _uiState.value.copy(
+                    isDeleting = false,
+                    deletingId = null,
+                    error = result.error.userMessage(),
+                )
             }
         }
-        if (status != null) {
-            filtered = filtered.filter { it.status == status }
+    }
+
+    fun updateContract(id: String, request: UpdateDocumentRequest) {
+        if (id.isBlank()) {
+            _uiState.value = _uiState.value.copy(error = INVALID_DOCUMENT_ID_MESSAGE)
+            return
         }
-        return filtered
+        scope.launch {
+            _uiState.value = _uiState.value.copy(
+                isUpdating = true,
+                updateSuccess = false,
+                error = null,
+            )
+            when (val result = documentService.updateDocument(id, request)) {
+                is ApiResult.Success -> _uiState.value = _uiState.value.copy(
+                    isUpdating = false,
+                    selectedDocument = result.data,
+                    documents = _uiState.value.documents.map { document ->
+                        if (document.id == id) result.data else document
+                    },
+                    updateSuccess = true,
+                )
+                is ApiResult.Error -> _uiState.value = _uiState.value.copy(
+                    isUpdating = false,
+                    error = result.error.userMessage(),
+                )
+            }
+        }
+    }
+
+    /**
+     * A document upload needs multipart data and a native picker flow that is
+     * not declared by this route. Keep the capability explicit and typed
+     * rather than issuing a request to the nonexistent `/contracts` family.
+     */
+    fun createContract(): ApiResult<Nothing> {
+        _uiState.value = _uiState.value.copy(
+            isCreating = false,
+            createSuccess = false,
+            error = CREATE_UNSUPPORTED_MESSAGE,
+        )
+        return ApiResult.Error(ApiError.Unsupported(CREATE_UNSUPPORTED_MESSAGE))
     }
 }

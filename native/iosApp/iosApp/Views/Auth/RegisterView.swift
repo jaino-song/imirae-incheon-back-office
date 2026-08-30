@@ -1,4 +1,5 @@
 import SwiftUI
+import shared
 
 struct RegisterView: View {
     @StateObject private var viewModel = AuthViewModelWrapper()
@@ -7,13 +8,16 @@ struct RegisterView: View {
     @State private var password = ""
     @State private var confirmPassword = ""
     @State private var phone = ""
+    @State private var birthDate = ""
     @State private var nameError: String?
     @State private var emailError: String?
     @State private var passwordError: String?
     @State private var confirmPasswordError: String?
     @State private var phoneError: String?
+    @State private var birthDateError: String?
     @State private var passwordVisible = false
     @State private var isSuccess = false
+    @State private var isSubmitting = false
 
     var onNavigateToLogin: () -> Void = {}
 
@@ -21,6 +25,7 @@ struct RegisterView: View {
     private var hasUpperCase: Bool { password.rangeOfCharacter(from: .uppercaseLetters) != nil }
     private var hasLowerCase: Bool { password.rangeOfCharacter(from: .lowercaseLetters) != nil }
     private var hasDigit: Bool { password.rangeOfCharacter(from: .decimalDigits) != nil }
+    private var hasSpecial: Bool { password.rangeOfCharacter(from: CharacterSet.alphanumerics.inverted) != nil }
 
     var body: some View {
         if isSuccess {
@@ -98,6 +103,7 @@ struct RegisterView: View {
                         PasswordReqRow(text: "대문자 포함", met: hasUpperCase)
                         PasswordReqRow(text: "소문자 포함", met: hasLowerCase)
                         PasswordReqRow(text: "숫자 포함", met: hasDigit)
+                        PasswordReqRow(text: "특수문자 포함", met: hasSpecial)
                     }
                     .padding(.leading, 4)
                 }
@@ -116,8 +122,11 @@ struct RegisterView: View {
                     }
                 }
 
-                // Phone
-                AuthTextField(label: "전화번호 (선택)", text: $phone, error: $phoneError, icon: "phone", keyboardType: .phonePad, placeholder: "010-XXXX-XXXX", identifier: "auth-register-phone-field")
+                // Phone (required by the backend RegisterDto)
+                AuthTextField(label: "전화번호", text: $phone, error: $phoneError, icon: "phone", keyboardType: .phonePad, placeholder: "010-XXXX-XXXX", identifier: "auth-register-phone-field")
+
+                // Birth date (required by the backend RegisterDto)
+                AuthTextField(label: "생년월일", text: $birthDate, error: $birthDateError, icon: "calendar", keyboardType: .numberPad, placeholder: "YYYY-MM-DD", identifier: "auth-register-birth-date-field")
 
                 // Submit
                 Button(action: validateAndSubmit) {
@@ -149,10 +158,22 @@ struct RegisterView: View {
         .shadow(color: .black.opacity(0.05), radius: 8, y: 4)
         .padding(16)
         .frame(maxWidth: 400)
+        .onChange(of: viewModel.authState) { _, newState in
+            guard isSubmitting else {
+                return
+            }
+
+            if newState is AuthState.Unauthenticated {
+                isSubmitting = false
+                isSuccess = true
+            } else if newState is AuthState.Error {
+                isSubmitting = false
+            }
+        }
     }
 
     private func validateAndSubmit() {
-        nameError = nil; emailError = nil; passwordError = nil; confirmPasswordError = nil; phoneError = nil
+        nameError = nil; emailError = nil; passwordError = nil; confirmPasswordError = nil; phoneError = nil; birthDateError = nil
         if name.trimmingCharacters(in: .whitespaces).isEmpty { nameError = "이름을 입력해 주세요"; return }
         if name.count < 2 { nameError = "이름은 2자 이상이어야 합니다"; return }
         if email.trimmingCharacters(in: .whitespaces).isEmpty { emailError = "이메일을 입력해 주세요"; return }
@@ -161,15 +182,24 @@ struct RegisterView: View {
         if !hasUpperCase { passwordError = "대문자를 포함해야 합니다"; return }
         if !hasLowerCase { passwordError = "소문자를 포함해야 합니다"; return }
         if !hasDigit { passwordError = "숫자를 포함해야 합니다"; return }
+        if !hasSpecial { passwordError = "특수문자를 포함해야 합니다"; return }
         if password != confirmPassword { confirmPasswordError = "비밀번호가 일치하지 않습니다"; return }
-        if !phone.isEmpty {
-            let phoneRegex = try? NSRegularExpression(pattern: "^010-\\d{4}-\\d{4}$")
-            if phoneRegex?.firstMatch(in: phone, range: NSRange(phone.startIndex..., in: phone)) == nil {
-                phoneError = "전화번호 형식: 010-XXXX-XXXX"; return
-            }
+        let phoneRegex = try? NSRegularExpression(pattern: "^01[016789]-?\\d{3,4}-?\\d{4}$")
+        if phone.isEmpty {
+            phoneError = "전화번호를 입력해 주세요"; return
         }
-        viewModel.register(name: name, email: email, password: password, phone: phone.isEmpty ? nil : phone)
-        isSuccess = true
+        if phoneRegex?.firstMatch(in: phone, range: NSRange(phone.startIndex..., in: phone)) == nil {
+            phoneError = "유효한 전화번호를 입력해 주세요"; return
+        }
+        let birthDateRegex = try? NSRegularExpression(pattern: "^\\d{4}-\\d{2}-\\d{2}$")
+        if birthDate.isEmpty {
+            birthDateError = "생년월일을 입력해 주세요"; return
+        }
+        if birthDateRegex?.firstMatch(in: birthDate, range: NSRange(birthDate.startIndex..., in: birthDate)) == nil {
+            birthDateError = "생년월일 형식: YYYY-MM-DD"; return
+        }
+        isSubmitting = true
+        viewModel.register(name: name, email: email, password: password, phone: phone, birthDate: birthDate)
     }
 }
 

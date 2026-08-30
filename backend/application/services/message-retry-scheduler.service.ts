@@ -49,7 +49,9 @@ export class MessageRetrySchedulerService {
 
             for (const log of pendingLogs) {
                 try {
-                    if (log.variables["retrySafety"] === "uncertain") {
+                    if (log.variables["retrySafety"] === "uncertain"
+                        || log.providerAcceptanceState === "started"
+                        || log.providerAcceptanceState === "uncertain") {
                         log.markRetrySuperseded(UNCERTAIN_RETRY_SUPERSEDED_REASON);
                         await this.logRepository.update(log);
                         this.logger.warn(

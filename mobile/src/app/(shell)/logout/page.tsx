@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Spinner } from "@/components/ui/spinner";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
+import { getCurrentPushEndpoint } from "@/lib/notifications/push-endpoint";
 import { logout } from "./actions";
 
 export default function LogoutPage() {
@@ -9,7 +11,9 @@ export default function LogoutPage() {
 
     useEffect(() => {
         const performLogout = async () => {
-            const result = await logout();
+            const pushEndpoint = await getCurrentPushEndpoint();
+            await resetAuthorityState();
+            const result = await logout(pushEndpoint);
 
             if (result.success) {
                 // Hard navigation: destroys the React Query cache and Next.js

@@ -1,7 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { PrismaService } from "infrastructure/database/prisma.service";
-import { CallProcessingService } from "application/services/call-processing.service";
+import {
+    CALL_PROCESSING_CLAIM_LEASE_MS,
+    CallProcessingService,
+} from "application/services/call-processing.service";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
 import {
     isTransientPrismaConnectivityError,
@@ -11,6 +14,7 @@ import {
 const MAX_ATTEMPTS = 3;
 const STUCK_RECEIVED_MS = 10 * 60 * 1000;
 const STUCK_CONFIRMING_MS = 10 * 60 * 1000;
+const EXPIRED_PROCESSING_FAILURE_REASON = "processing claim lease expired after retry limit";
 const MAX_RUN_MS = 10 * 60 * 1000;
 const DB_COOLDOWN_MS = 5 * 60 * 1000;
 
@@ -37,6 +41,9 @@ export class CallExtractionRetrySchedulerService {
         if (!runToken) return;
 
         try {
+            const now = Date.now();
+            const processingClaimExpiry = new Date(now - CALL_PROCESSING_CLAIM_LEASE_MS);
+            const stuckReceivedThreshold = new Date(now - STUCK_RECEIVED_MS);
             const candidates = await this.prismaService.call_record.findMany({
                 where: {
                     OR: [
@@ -44,11 +51,23 @@ export class CallExtractionRetrySchedulerService {
                         // crash recovery: RECEIVED rows whose fire-and-forget kickoff died
                         {
                             processingStatus: "RECEIVED",
-                            createdAt: { lt: new Date(Date.now() - STUCK_RECEIVED_MS) },
+                            createdAt: { lt: stuckReceivedThreshold },
+                        },
+                        // A PROCESSING row is recoverable only after its explicit lease
+                        // expires.  The timestamp is nullable for pre-migration rows;
+                        // those remain untouched until an operator verifies ownership.
+                        {
+                            processingStatus: "PROCESSING",
+                            processingClaimedAt: { lt: processingClaimExpiry },
                         },
                     ],
                 },
-                select: { id: true, extractionRetryCount: true, processingStatus: true },
+                select: {
+                    id: true,
+                    extractionRetryCount: true,
+                    processingStatus: true,
+                    processingClaimedAt: true,
+                },
                 orderBy: { createdAt: "asc" },
                 take: 8,
             });
@@ -63,10 +82,58 @@ export class CallExtractionRetrySchedulerService {
                         // their attempt count would burn retries they never actually consumed.
                         if (candidate.processingStatus === "FAILED") {
                             // retryCount counts scheduler pickups, not completed extraction attempts; stuck-RECEIVED recovery (no count filter) guarantees records are never permanently lost
-                            await this.prismaService.call_record.update({
-                                where: { id: candidate.id },
-                                data: { extractionRetryCount: { increment: 1 }, processingStatus: "RECEIVED" },
+                            const reset = await this.prismaService.call_record.updateMany({
+                                where: {
+                                    id: candidate.id,
+                                    processingStatus: "FAILED",
+                                    extractionRetryCount: candidate.extractionRetryCount,
+                                },
+                                data: {
+                                    extractionRetryCount: { increment: 1 },
+                                    processingStatus: "RECEIVED",
+                                    processingClaimedAt: null,
+                                },
                             });
+                            // The candidate list is a snapshot.  If another worker already
+                            // claimed or retried this row, do not hand it to the processor
+                            // from stale state and risk stealing its generation.
+                            if (reset.count !== 1) continue;
+                        } else if (candidate.processingStatus === "PROCESSING") {
+                            // The query excludes NULL timestamps, but retain a guard here
+                            // so a malformed/pre-migration row can never be reset by a
+                            // broad scheduler update.
+                            if (
+                                !candidate.processingClaimedAt
+                                || candidate.processingClaimedAt >= processingClaimExpiry
+                            ) {
+                                continue;
+                            }
+
+                            const reclaimed = await this.prismaService.call_record.updateMany({
+                                where: {
+                                    id: candidate.id,
+                                    processingStatus: "PROCESSING",
+                                    processingClaimedAt: candidate.processingClaimedAt,
+                                    extractionRetryCount: candidate.extractionRetryCount,
+                                },
+                                data: candidate.extractionRetryCount < MAX_ATTEMPTS
+                                    ? {
+                                        extractionRetryCount: { increment: 1 },
+                                        processingStatus: "RECEIVED",
+                                        processingClaimedAt: null,
+                                    }
+                                    : {
+                                        processingStatus: "FAILED",
+                                        processingClaimedAt: null,
+                                        failureReason: EXPIRED_PROCESSING_FAILURE_REASON,
+                                    },
+                            });
+
+                            // The candidate list is a snapshot.  If the live owner
+                            // completed or another scheduler reclaimed it first, do not
+                            // invoke processing from stale state.
+                            if (reclaimed.count !== 1) continue;
+                            if (candidate.extractionRetryCount >= MAX_ATTEMPTS) continue;
                         }
                         await this.processingService.processCallRecord(candidate.id);
                     } catch (error) {

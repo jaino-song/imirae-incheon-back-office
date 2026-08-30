@@ -25,6 +25,11 @@ export class ChatSessionEntity {
         public messages: ChatMessage[],
         public readonly createdAt: Date,
         public expiresAt: Date,
+        /**
+         * Nullable only for legacy rows created before branch binding existed.
+         * Such rows are intentionally not addressable through owner-scoped repositories.
+         */
+        public readonly branchId: string | null = null,
     ) {}
 
     /**
@@ -112,7 +117,7 @@ export class ChatSessionEntity {
     /**
      * Create a new chat session
      */
-    static create(userId: string): ChatSessionEntity {
+    static create(userId: string, branchId?: string): ChatSessionEntity {
         const now = new Date();
         const expiresAt = new Date(now.getTime() + ChatSessionEntity.SESSION_DURATION_MS);
         
@@ -122,6 +127,7 @@ export class ChatSessionEntity {
             [],
             now,
             expiresAt,
+            branchId ?? null,
         );
     }
 
@@ -134,6 +140,7 @@ export class ChatSessionEntity {
         messages: ChatMessage[],
         createdAt: Date,
         expiresAt: Date,
+        branchId?: string | null,
     ): ChatSessionEntity {
         return new ChatSessionEntity(
             id,
@@ -141,6 +148,7 @@ export class ChatSessionEntity {
             messages,
             createdAt,
             expiresAt,
+            branchId ?? null,
         );
     }
 }

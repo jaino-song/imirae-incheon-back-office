@@ -77,6 +77,7 @@ describe("DeleteClientUsecase", () => {
         const clientId = 5;
 
         let clientModel: { findFirst: jest.Mock; deleteMany: jest.Mock };
+        let transactionQueryRaw: jest.Mock;
         let serviceRecordCaseModel: { findUnique: jest.Mock; delete: jest.Mock };
         let serviceRecordDayModel: { count: jest.Mock };
         let prisma: PrismaService;
@@ -109,6 +110,9 @@ describe("DeleteClientUsecase", () => {
             clearSchemaCapabilityCache();
 
             clientModel = { findFirst: jest.fn(), deleteMany: jest.fn() };
+            transactionQueryRaw = jest.fn()
+                .mockResolvedValueOnce([{ id: clientId }])
+                .mockResolvedValue([{ count: 0 }]);
             serviceRecordCaseModel = { findUnique: jest.fn(), delete: jest.fn() };
             serviceRecordDayModel = { count: jest.fn() };
             prisma = {
@@ -116,6 +120,8 @@ describe("DeleteClientUsecase", () => {
                 service_record_case: serviceRecordCaseModel,
                 service_record_day: serviceRecordDayModel,
                 $queryRawUnsafe: jest.fn().mockResolvedValue([{ exists: true }]),
+                $transaction: jest.fn(async (callback: (transaction: unknown) => Promise<unknown>) =>
+                    callback({ client: clientModel, $queryRaw: transactionQueryRaw })),
             } as unknown as PrismaService;
 
             repository = new SbClientRepository(prisma);
@@ -159,8 +165,8 @@ describe("DeleteClientUsecase", () => {
 
             expect(error).toBeInstanceOf(ConflictException);
             expect((error as ConflictException).getResponse()).toEqual({
-                code: "CLIENT_DELETE_CONFLICT",
-                message: "연결된 데이터로 인해 고객을 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+                code: "CLIENT_RETENTION_BLOCKED",
+                message: "연결된 운영 또는 이력 데이터가 있어 고객을 삭제할 수 없습니다.",
             });
         });
 

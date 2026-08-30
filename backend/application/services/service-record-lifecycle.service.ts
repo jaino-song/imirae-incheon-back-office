@@ -165,6 +165,22 @@ export class ServiceRecordLifecycleService {
             endDate: client.endDate,
             fallback: client.duration,
         });
+        // The client header and lifecycle case must agree on the same
+        // canonical business-day count. Schedule-change and webhook callers
+        // may update the header before invoking this method; repair a stale
+        // duration on that same transaction connection when available.
+        if (
+            client.startDate
+            && client.endDate
+            && sessionCount !== null
+            && client.duration !== sessionCount
+            && typeof db.client.updateMany === "function"
+        ) {
+            await db.client.updateMany({
+                where: { id: clientId },
+                data: { duration: sessionCount },
+            });
+        }
         const status = existing && IMMUTABLE_FINALIZATION_STATUSES.has(existing.status)
             ? existing.status
             : this.deriveBaseStatus({
@@ -496,6 +512,34 @@ export class ServiceRecordLifecycleService {
             endDate: params.endDate,
         }, tx);
 
+        // Contract completion changes the authoritative service period. Read
+        // the current start date inside the same transaction and persist the
+        // derived Korean business-day duration together with the end date so
+        // no caller can leave the client header and lifecycle case divergent.
+        // A few legacy unit-test transaction doubles do not expose findUnique;
+        // those retain the historical end-date-only update shape.
+        let duration: number | null | undefined;
+        if (typeof tx.client.findUnique === "function") {
+            const currentClient = await tx.client.findUnique({
+                where: { id: params.clientId },
+                select: { startDate: true },
+            });
+            if (currentClient) {
+                if (!currentClient.startDate) {
+                    duration = null;
+                } else {
+                    const derived = countBusinessDaysKr(
+                        isoDate(currentClient.startDate)!,
+                        isoDate(params.endDate)!,
+                    );
+                    if (derived === null) {
+                        throw new ConflictException("서비스 기간을 계산할 수 없습니다.");
+                    }
+                    duration = derived;
+                }
+            }
+        }
+
         const updated = await tx.client.updateMany({
             where: {
                 id: params.clientId,
@@ -504,7 +548,10 @@ export class ServiceRecordLifecycleService {
                     { branchId: null },
                 ],
             },
-            data: { endDate: params.endDate },
+            data: {
+                endDate: params.endDate,
+                ...(duration === undefined ? {} : { duration }),
+            },
         });
         if (updated.count !== 1) {
             throw new NotFoundException("Client not found for branch");

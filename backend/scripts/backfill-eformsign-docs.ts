@@ -33,6 +33,7 @@ import { EformsignBackfillLockService } from "infrastructure/locking/eformsign-b
 import { TenantModule } from "infrastructure/tenant/tenant.module";
 import { EformsignDocModule } from "module/eformsign-doc.module";
 import { EformsignMirrorReadinessService } from "application/services/eformsign-mirror-readiness.service";
+import { createEformsignGlobalWorkerPrincipal } from "application/services/eformsign-credential-boundary.service";
 
 const ENV_FILE_PATHS = [
     resolve(process.cwd(), ".env.local"),
@@ -109,7 +110,7 @@ async function runWithoutDistributedLock(
     return backfill.execute({
         onProgress: logProgress,
         suppressOutboundAutomation: true,
-    });
+    }, createEformsignGlobalWorkerPrincipal("backfill"));
 }
 
 async function main(): Promise<void> {
@@ -140,7 +141,7 @@ async function main(): Promise<void> {
                     onProgress: logProgress,
                     shouldContinue: lease.isHeld,
                     suppressOutboundAutomation: true,
-                }))
+                }, createEformsignGlobalWorkerPrincipal("backfill")))
             : await runWithoutDistributedLock(configService, backfill);
         const readiness = await app
             .get(EformsignMirrorReadinessService)

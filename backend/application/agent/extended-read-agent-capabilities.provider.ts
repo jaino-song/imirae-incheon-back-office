@@ -17,6 +17,7 @@ import { DocumentService } from "application/services/document.service";
 import { AgentIntelligenceService } from "./agent-intelligence.service";
 import { SystemAdminService } from "application/services/system-admin.service";
 import { readAgentActionEffect, recordAgentActionEffect } from "./agent-action-effect-receipt";
+import { runWithAdminAuditActor } from "application/services/admin-audit-context";
 
 const QuerySchema = z.object({ query: z.string().trim().max(100).optional(), limit: z.number().int().positive().max(50).optional() });
 const IdSchema = z.object({ id: z.union([z.string().min(1), z.number().int().positive()]) });
@@ -82,6 +83,18 @@ function confirmationClientId(result: unknown, fallback: string): string | numbe
     }
     return fallback;
 }
+
+function runAsAuthenticatedAgent<T>(context: AgentContext, callback: () => T): T {
+    if (!context.principal.userId) {
+        throw new Error("Authenticated agent principal is required for admin/settings mutations");
+    }
+    return runWithAdminAuditActor({
+        userId: context.principal.userId,
+        globalRole: context.principal.globalRole,
+        branchRole: context.principal.branchRole,
+    }, callback);
+}
+
 const DraftUpdateSchema = z.object({
     id: z.string().min(1),
     proposals: z.preprocess(parseJsonInput, z.array(ProposalInputSchema).optional()),
@@ -273,8 +286,14 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                         throw new AgentActionCertainFailureError("Target changed after approval; review a new proposal");
                     }
                     if (name.endsWith("markRead")) {
+                        const existingRecord = existing && typeof existing === "object" && !Array.isArray(existing)
+                            ? existing as Record<string, unknown>
+                            : null;
+                        if (existingRecord?.["readAt"] !== null && existingRecord?.["readAt"] !== undefined) {
+                            return { status: "updated", id: input.id };
+                        }
                         const updated = await transactionModel.updateMany({
-                            where: { branchId: context.principal.branchId, id: input.id },
+                            where: { branchId: context.principal.branchId, id: input.id, readAt: null },
                             data: { readAt: new Date() },
                         });
                         if (updated.count !== 1) throw new AgentActionCertainFailureError("Target is no longer available");
@@ -635,26 +654,26 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                 if (existing) {
                     throw new AgentActionCertainFailureError("Branch slug is already in use");
                 }
-                const branch = await this.systemAdmin.createBranch({
+                const branch = await runAsAuthenticatedAgent(context, () => this.systemAdmin.createBranch({
                     ...input,
                     ownerId: context.principal.userId,
                     isActive: true,
                 }, async (transaction, branchId) => {
                     await recordAgentActionEffect(transaction, context, "admin.createBranch", "branch", branchId, { status: "created", id: branchId });
-                });
+                }));
                 const result = { status: "created", id: branch.id };
                 return result;
             },
             executeApprovedTarget: async (context, rawInput) => {
                 const input = BranchInputSchema.parse(rawInput);
                 try {
-                    const branch = await this.systemAdmin.createBranch({
+                    const branch = await runAsAuthenticatedAgent(context, () => this.systemAdmin.createBranch({
                         ...input,
                         ownerId: context.principal.userId,
                         isActive: true,
                     }, async (transaction, branchId) => {
                         await recordAgentActionEffect(transaction, context, "admin.createBranch", "branch", branchId, { status: "created", id: branchId });
-                    });
+                    }));
                     return { status: "created", id: branch.id };
                 } catch (error) {
                     if (error instanceof AgentActionCertainFailureError) throw error;
@@ -709,15 +728,15 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                     summary: "공개 웹사이트의 리본 표시 설정을 변경합니다.",
                 };
             },
-            execute: async (_context, rawInput) => {
+            execute: async (context, rawInput) => {
                 const input = RibbonSettingsSchema.parse(rawInput);
-                await this.systemSettings.setRibbonConfig(input);
+                await runAsAuthenticatedAgent(context, () => this.systemSettings.setRibbonConfig(input));
                 return { status: "updated", id: "ribbon_config" };
             },
-            executeApprovedTarget: async (_context, rawInput, expectedTargetVersion) => {
+            executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
                 const input = RibbonSettingsSchema.parse(rawInput);
                 try {
-                    await this.systemSettings.setRibbonConfigIfVersion(expectedTargetVersion, input);
+                    await runAsAuthenticatedAgent(context, () => this.systemSettings.setRibbonConfigIfVersion(expectedTargetVersion, input));
                 } catch (error) {
                     if (error instanceof ConflictException) {
                         throw new AgentActionCertainFailureError(error.message);

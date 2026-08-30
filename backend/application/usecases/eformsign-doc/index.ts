@@ -21,9 +21,8 @@ export * from "./list-review-stage-contracts.usecase";
 export * from "./sync-client-end-date.usecase";
 // NOTE: UpdateClientContractStatusUsecase deprecated - service status is now computed from dates
 
-// External API use cases
-export * from "./get-eformsign-access-token.usecase";
-export * from "./refresh-eformsign-access-token.usecase";
+// External API use cases (credential acquisition is intentionally kept inside
+// EformsignCredentialBoundary and is not exported as a caller-facing usecase)
 export * from "./fetch-all-eformsign-docs-from-api.usecase";
 export * from "./fetch-eformsign-doc-from-api.usecase";
 
