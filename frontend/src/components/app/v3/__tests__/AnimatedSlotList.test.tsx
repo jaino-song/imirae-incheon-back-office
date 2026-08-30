@@ -15,9 +15,15 @@ describe("AnimatedSlotList", () => {
       />,
     );
 
-    expect(
-      container.querySelectorAll('[data-component="desktop_test_animated-slot-list_item"]'),
-    ).toHaveLength(3);
+    const skeletonSlots = container.querySelectorAll(
+      '[data-component="desktop_test_animated-slot-list_item"]',
+    );
+    expect(skeletonSlots).toHaveLength(3);
+    // Loading slots carry the same card chrome as rendered rows so a mid-load
+    // mix of skeletons and real cards reads as one list.
+    skeletonSlots.forEach((slot) => {
+      expect(slot).toHaveClass("bg-white", "rounded-[18px]");
+    });
   });
 
   it("announces the selected interactive item and renders a keyboard focus style", () => {

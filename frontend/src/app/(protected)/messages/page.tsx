@@ -905,12 +905,14 @@ function MessageHistorySection() {
         onSearchChange={setSearchValue}
         searchPlaceholder="고객명, 연락처, 템플릿, 내용 검색…"
         headerActions={
-          <span
-            data-component="desktop_messages_sections_history-list-count"
-            className="inline-flex items-center gap-1.5 rounded-full bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary"
-          >
-            {totalVisibleCount}건
-          </span>
+          isLoading || isLoadingUpcoming ? undefined : (
+            <span
+              data-component="desktop_messages_sections_history-list-count"
+              className="inline-flex items-center gap-1.5 rounded-full bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary"
+            >
+              {totalVisibleCount}건
+            </span>
+          )
         }
         emptyState={isOverallEmpty ? (
           <ListEmptyState message={getMergedRecordEmptyStateMessage(recordStatusFilter, deferredSearchValue.trim().length > 0)} />
@@ -1007,12 +1009,14 @@ function MessageHistorySection() {
                   className="flex items-center gap-2 px-1 pb-2 pt-1 text-[0.72rem] font-semibold text-v3-text-muted"
                 >
                   <span>{MESSAGE_RECORD_ZONE_LABELS.upcoming}</span>
-                  <span
-                    data-component="desktop_messages_sections_split-layout_list-panel-3_zone-upcoming_count"
-                    className="inline-flex items-center rounded-full bg-v3-primary-light px-2 py-0.5 text-[0.66rem] font-semibold text-v3-primary"
-                  >
-                    {filteredUpcomingJobs.length}
-                  </span>
+                  {isLoadingUpcoming ? null : (
+                    <span
+                      data-component="desktop_messages_sections_split-layout_list-panel-3_zone-upcoming_count"
+                      className="inline-flex items-center rounded-full bg-v3-primary-light px-2 py-0.5 text-[0.66rem] font-semibold text-v3-primary"
+                    >
+                      {filteredUpcomingJobs.length}
+                    </span>
+                  )}
                 </div>
                 <AnimatedSlotList<UpcomingMessageTriggerJob>
                   items={filteredUpcomingJobs}
@@ -1076,12 +1080,14 @@ function MessageHistorySection() {
                   className="flex items-center gap-2 px-1 pb-2 pt-1 text-[0.72rem] font-semibold text-v3-text-muted"
                 >
                   <span>{MESSAGE_RECORD_ZONE_LABELS.past}</span>
-                  <span
-                    data-component="desktop_messages_sections_split-layout_list-panel-3_zone-past_count"
-                    className="inline-flex items-center rounded-full bg-v3-dim-white px-2 py-0.5 text-[0.66rem] font-semibold text-v3-text-muted"
-                  >
-                    {filteredHistoryRecords.length}
-                  </span>
+                  {isLoading ? null : (
+                    <span
+                      data-component="desktop_messages_sections_split-layout_list-panel-3_zone-past_count"
+                      className="inline-flex items-center rounded-full bg-v3-dim-white px-2 py-0.5 text-[0.66rem] font-semibold text-v3-text-muted"
+                    >
+                      {filteredHistoryRecords.length}
+                    </span>
+                  )}
                 </div>
                 <AnimatedSlotList<MessageHistoryRecord>
                   items={filteredHistoryRecords}
