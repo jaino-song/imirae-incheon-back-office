@@ -11,4 +11,3 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/opt/babyjamjam-fallback-server/state
-
