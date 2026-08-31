@@ -302,6 +302,18 @@ function assertFallbackStatus(status) {
   }
 }
 
+function assertExpectedRelease(config) {
+  if (
+    !isObject(config)
+    || typeof config.expectedImageTag !== 'string'
+    || !/^[0-9a-f]{40}$/u.test(config.expectedImageTag)
+    || typeof config.expectedImageDigest !== 'string'
+    || !/^sha256:[0-9a-f]{64}$/u.test(config.expectedImageDigest)
+  ) {
+    fail(OPERATOR_REASONS.CONFIG_NOT_ARMABLE);
+  }
+}
+
 function assertPrimaryRecord(record, config) {
   if (!isObject(record) || record.value !== config.primaryIpv4) fail(OPERATOR_REASONS.DNS_NOT_PRIMARY);
 }
@@ -428,13 +440,13 @@ export function createOperator(options = {}) {
     return client.readCurrentRecord();
   }
 
-  async function readHealthyFallbackStatus() {
+  async function readHealthyFallbackStatus(config) {
     let status;
     try {
       status = await fallbackStatusReader({
         runner: options.fallbackStatusRunner,
-        expectedImageTag: options.expectedImageTag,
-        expectedImageDigest: options.expectedImageDigest,
+        expectedImageTag: config.expectedImageTag,
+        expectedImageDigest: config.expectedImageDigest,
       });
     } catch {
       fail(OPERATOR_REASONS.FALLBACK_STATUS_INVALID);
@@ -465,9 +477,10 @@ export function createOperator(options = {}) {
     if (config.enabled !== true || config.liveSentryPayloadContractVerified !== true) {
       fail(OPERATOR_REASONS.CONFIG_NOT_ARMABLE);
     }
+    assertExpectedRelease(config);
     const state = await ensureState();
     assertStateForArm(state);
-    await readHealthyFallbackStatus();
+    await readHealthyFallbackStatus(config);
     let record;
     try {
       record = await readDns(config);

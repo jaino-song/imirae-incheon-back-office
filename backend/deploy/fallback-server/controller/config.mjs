@@ -21,6 +21,8 @@ const TEAM_ID_PATTERN = /^team_[A-Za-z0-9_-]+$/u;
 const RECORD_ID_PATTERN = /^rec_[A-Za-z0-9_-]+$/u;
 const NUMERIC_ID_PATTERN = /^\d+$/u;
 const IPV4_PATTERN = /^(?:0|[1-9]\d{0,2})(?:\.(?:0|[1-9]\d{0,2})){3}$/u;
+const IMAGE_TAG_PATTERN = /^[0-9a-f]{40}$/u;
+const IMAGE_DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
 const CONFIG_KEYS = new Set([
   'FAILOVER_CONTROLLER_ENABLED',
@@ -38,6 +40,8 @@ const CONFIG_KEYS = new Set([
   'FAILOVER_VERCEL_DNS_RECORD_ID',
   'FAILOVER_PRIMARY_IPV4',
   'FAILOVER_FALLBACK_IPV4',
+  'FAILOVER_EXPECTED_IMAGE_TAG',
+  'FAILOVER_EXPECTED_IMAGE_DIGEST',
 ]);
 
 export const CONFIG_ERROR_CODES = Object.freeze({
@@ -186,6 +190,12 @@ function normalizeEnabledConfig(env, enabled, payloadContractVerified) {
   const primaryIpv4 = assertPublicIpv4(requireString(env, 'FAILOVER_PRIMARY_IPV4'));
   const fallbackIpv4 = assertPublicIpv4(requireString(env, 'FAILOVER_FALLBACK_IPV4'));
   if (primaryIpv4 === fallbackIpv4) fail(CONFIG_ERROR_CODES.DNS_CONFIG_REQUIRED);
+  const expectedImageTag = requireString(env, 'FAILOVER_EXPECTED_IMAGE_TAG', {
+    pattern: IMAGE_TAG_PATTERN,
+  });
+  const expectedImageDigest = requireString(env, 'FAILOVER_EXPECTED_IMAGE_DIGEST', {
+    pattern: IMAGE_DIGEST_PATTERN,
+  });
 
   if (!payloadContractVerified) fail(CONFIG_ERROR_CODES.PAYLOAD_CONTRACT_REQUIRED);
 
@@ -229,6 +239,8 @@ function normalizeEnabledConfig(env, enabled, payloadContractVerified) {
     vercelDnsRecordId,
     primaryIpv4,
     fallbackIpv4,
+    expectedImageTag,
+    expectedImageDigest,
   };
 }
 
@@ -268,6 +280,12 @@ function validateOptionalDisabledValues(env) {
   const fallbackIpv4 = own(env, 'FAILOVER_FALLBACK_IPV4') && env.FAILOVER_FALLBACK_IPV4 !== ''
     ? assertPublicIpv4(requireString(env, 'FAILOVER_FALLBACK_IPV4'))
     : undefined;
+  if (own(env, 'FAILOVER_EXPECTED_IMAGE_TAG') && env.FAILOVER_EXPECTED_IMAGE_TAG !== '') {
+    requireString(env, 'FAILOVER_EXPECTED_IMAGE_TAG', { pattern: IMAGE_TAG_PATTERN });
+  }
+  if (own(env, 'FAILOVER_EXPECTED_IMAGE_DIGEST') && env.FAILOVER_EXPECTED_IMAGE_DIGEST !== '') {
+    requireString(env, 'FAILOVER_EXPECTED_IMAGE_DIGEST', { pattern: IMAGE_DIGEST_PATTERN });
+  }
   if (primaryIpv4 && fallbackIpv4 && primaryIpv4 === fallbackIpv4) {
     fail(CONFIG_ERROR_CODES.DNS_CONFIG_REQUIRED);
   }

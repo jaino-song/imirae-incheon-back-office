@@ -29,6 +29,8 @@ const VALID_ENV = Object.freeze({
   FAILOVER_VERCEL_DNS_RECORD_ID: 'rec_test',
   FAILOVER_PRIMARY_IPV4: '8.8.8.8',
   FAILOVER_FALLBACK_IPV4: '1.1.1.1',
+  FAILOVER_EXPECTED_IMAGE_TAG: 'a'.repeat(40),
+  FAILOVER_EXPECTED_IMAGE_DIGEST: `sha256:${'b'.repeat(64)}`,
 });
 
 function payload(overrides = {}) {

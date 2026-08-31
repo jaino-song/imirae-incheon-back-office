@@ -62,6 +62,8 @@ function enabledConfig() {
     vercelApiToken: 'token',
     vercelTeamId: 'team_test',
     vercelDnsRecordId: 'rec_test',
+    expectedImageTag: 'a'.repeat(40),
+    expectedImageDigest: `sha256:${'b'.repeat(64)}`,
   };
 }
 
@@ -69,7 +71,13 @@ async function makeOperator({ currentState = state(), envText = 'FAILOVER_CONTRO
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'babyjamjam-controller-operator-'));
   const envPath = path.join(root, 'controller.env');
   await fs.writeFile(envPath, envText, { mode: 0o600 });
-  const calls = { updates: [], fallbackStatus: 0, dns: 0 };
+  const calls = {
+    updates: [],
+    fallbackStatus: 0,
+    expectedImageTag: undefined,
+    expectedImageDigest: undefined,
+    dns: 0,
+  };
   let stored = clone(currentState);
   const store = {
     async read() { return clone(stored); },
@@ -91,8 +99,10 @@ async function makeOperator({ currentState = state(), envText = 'FAILOVER_CONTRO
     bundleValidator: async () => {},
     stateStore: store,
     parseConfig: () => config,
-    fallbackStatusReader: async () => {
+    fallbackStatusReader: async ({ expectedImageTag, expectedImageDigest }) => {
       calls.fallbackStatus += 1;
+      calls.expectedImageTag = expectedImageTag;
+      calls.expectedImageDigest = expectedImageDigest;
       return clone(fallbackStatus);
     },
     readCurrentDns: async () => {
@@ -159,9 +169,43 @@ test('arm requires enabled/live configuration, healthy fallback status, primary 
     assert.equal(lines.includes('fallback_passive_gates=healthy'), true);
     assert.equal(lines.includes('dns_target=PRIMARY'), true);
     assert.equal(fixture.calls.fallbackStatus, 1);
+    assert.equal(fixture.calls.expectedImageTag, 'a'.repeat(40));
+    assert.equal(fixture.calls.expectedImageDigest, `sha256:${'b'.repeat(64)}`);
     assert.equal(fixture.calls.dns, 1);
     assert.deepEqual(fixture.calls.updates[0].patch, { armed: true });
     assert.equal(fixture.calls.updates[0].expectedPhase, 'AWS_ACTIVE');
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('arm refuses missing or malformed expected production release identity', async () => {
+  for (const config of [
+    { ...enabledConfig(), expectedImageTag: undefined },
+    { ...enabledConfig(), expectedImageDigest: undefined },
+    { ...enabledConfig(), expectedImageTag: 'not-a-commit' },
+    { ...enabledConfig(), expectedImageDigest: 'sha256:not-a-digest' },
+  ]) {
+    const fixture = await makeOperator({ config });
+    try {
+      await expectReason(fixture.operator.arm(), OPERATOR_REASONS.CONFIG_NOT_ARMABLE);
+      assert.equal(fixture.calls.fallbackStatus, 0);
+      assert.equal(fixture.calls.dns, 0);
+    } finally {
+      await fixture.cleanup();
+    }
+  }
+});
+
+test('arm refuses a fallback status whose release identity is not healthy', async () => {
+  const fixture = await makeOperator({
+    config: enabledConfig(),
+    fallbackStatus: healthyFallbackStatus({ releaseHealthy: false }),
+  });
+  try {
+    await expectReason(fixture.operator.arm(), OPERATOR_REASONS.FALLBACK_STATUS_INVALID);
+    assert.equal(fixture.calls.fallbackStatus, 1);
+    assert.equal(fixture.calls.dns, 0);
   } finally {
     await fixture.cleanup();
   }

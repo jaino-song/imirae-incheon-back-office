@@ -41,6 +41,8 @@ const VALID_ENV = Object.freeze({
     FAILOVER_VERCEL_DNS_RECORD_ID: 'rec_test',
     FAILOVER_PRIMARY_IPV4: PRIMARY_IP,
     FAILOVER_FALLBACK_IPV4: FALLBACK_IP,
+    FAILOVER_EXPECTED_IMAGE_TAG: 'a'.repeat(40),
+    FAILOVER_EXPECTED_IMAGE_DIGEST: `sha256:${'b'.repeat(64)}`,
 });
 
 function eventPayload(eventId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', issueId = '424242') {
@@ -235,6 +237,7 @@ function makeControllerOptions(state, overrides = {}) {
     let dnsValue = PRIMARY_IP;
     let patchCalls = 0;
     const dnsRequests = [];
+    const releaseExpectations = {};
     const vercelFetch = async (input, init) => {
         const url = new URL(input);
         dnsRequests.push({ url, init });
@@ -261,7 +264,11 @@ function makeControllerOptions(state, overrides = {}) {
         clock: () => NOW,
         vercelFetch,
         verifyHealth: health.verifyHealth,
-        readFallbackStatus: async () => healthyFallbackStatus(),
+        readFallbackStatus: async ({ expectedImageTag, expectedImageDigest }) => {
+            releaseExpectations.expectedImageTag = expectedImageTag;
+            releaseExpectations.expectedImageDigest = expectedImageDigest;
+            return healthyFallbackStatus();
+        },
         sleep: async () => {},
         autoResume: overrides.autoResume ?? true,
         ...overrides,
@@ -271,6 +278,7 @@ function makeControllerOptions(state, overrides = {}) {
         options,
         healthCalls: health.calls,
         dnsRequests,
+        releaseExpectations,
         get patchCalls() {
             return patchCalls;
         },
@@ -296,6 +304,8 @@ test('composes signed webhook -> durable state -> 3/3 probes -> one DNS PATCH ->
         assert.equal(finalState.currentDnsRole, DNS_ROLES.FALLBACK);
         assert.equal(fixture.healthCalls.primary, 3);
         assert.equal(fixture.healthCalls.fallback, 3);
+        assert.equal(fixture.releaseExpectations.expectedImageTag, VALID_ENV.FAILOVER_EXPECTED_IMAGE_TAG);
+        assert.equal(fixture.releaseExpectations.expectedImageDigest, VALID_ENV.FAILOVER_EXPECTED_IMAGE_DIGEST);
         assert.equal(fixture.patchCalls, 1);
         assert.equal(fixture.dnsRequests.filter(({ init }) => init.method === 'PATCH').length, 1);
     } finally {
