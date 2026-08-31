@@ -25,22 +25,27 @@ Uptime Monitor (source)
 Sentry is therefore a signed wake-up signal. It must not be treated as proof
 that AWS is down or as a route command. A separate metric-alert webhook is a
 different contract and must not be silently substituted for the Uptime path.
+The controller reserves a durable `DNS_COMMITTING` phase before the one-way
+PATCH; startup reconciles live DNS and never promotes from state alone.
 
 ## Local implementation status
 
 The dependency-free controller implementation now provides the receiver,
 configuration parser, and loopback server at:
 
-- `controller/config.mjs`
-- `controller/security.mjs`
-- `controller/receiver.mjs`
-- `controller/server.mjs`
+- `backend/deploy/fallback-server/controller/config.mjs`
+- `backend/deploy/fallback-server/controller/security.mjs`
+- `backend/deploy/fallback-server/controller/receiver.mjs`
+- `backend/deploy/fallback-server/controller/server.mjs`
 
 The listener is fixed to `127.0.0.1:3102` and `POST /sentry/uptime-alert`.
-Construction and startup leave state disarmed; the worker callback must
-durably accept or recognize a duplicate before the receiver returns `202`.
-No controller systemd unit, TLS ingress, Sentry integration, or DNS mutation
-has been installed or activated on the Fallback Server.
+Construction and a fresh state start disarmed; startup never arms state. A
+restart resumes only a persisted `VERIFYING` incident or reconciles
+`DNS_COMMITTING` against live DNS. The worker callback must durably accept or
+recognize a duplicate before the receiver returns `202`.
+The repository ships the controller installer, systemd unit source, bundle
+sources, and CLI, but none has been installed or activated on the Fallback
+Server. TLS ingress, Sentry integration, and DNS mutation are also not live.
 
 For installation, arm/disarm, cutover, failback, and evidence gates, see
 [CONTROLLER_OPERATIONS.md](./CONTROLLER_OPERATIONS.md).
@@ -50,9 +55,12 @@ The controller runtime uses only failover-scoped variables, including
 `FAILOVER_LIVE_SENTRY_PAYLOAD_CONTRACT_VERIFIED`,
 `FAILOVER_SENTRY_CLIENT_SECRET`, `FAILOVER_SENTRY_INSTALLATION_ID`,
 `FAILOVER_SENTRY_ORGANIZATION_ID`, `FAILOVER_SENTRY_PROJECT_ID`,
-`FAILOVER_SENTRY_ALERT_ID`, and the fixed Vercel/health allowlists. The live
-payload-verification flag must remain false until the sanitized delivery
-fixture and Alert/Workflow binding are captured at action time.
+`FAILOVER_SENTRY_ALERT_ID`, `FAILOVER_EXPECTED_IMAGE_TAG`,
+`FAILOVER_EXPECTED_IMAGE_DIGEST`, and the fixed Vercel/health allowlists. The
+expected image identity stays in the root-owned controller environment, never
+in incident state or logs. The live payload-verification flag must remain false
+until the sanitized delivery fixture and Alert/Workflow binding are captured
+at action time.
 
 ## Confirmed provider contract
 
@@ -196,7 +204,9 @@ No live Sentry project or alert configuration could be read in this worktree:
   monitor ID, Alert/Workflow ID, Internal Integration UUID, or webhook delivery
   has been captured. Controller values belong only in the failover-scoped
   `controller.env` described in
-  [CONTROLLER_OPERATIONS.md](./CONTROLLER_OPERATIONS.md).
+  [CONTROLLER_OPERATIONS.md](./CONTROLLER_OPERATIONS.md). The approved
+  Production DB reference digest belongs in the separate root-owned
+  `/opt/babyjamjam-fallback-server/approved-production-db-ref.sha256` file.
 
 Because an official documentation example is not a delivery from this project,
 no `fixtures/sentry-uptime-alert.json` was added. Creating one from guessed
@@ -225,6 +235,7 @@ Before setting `FAILOVER_CONTROLLER_ENABLED=true`, also clear the Fallback
 host blockers in [NETWORK_PREFLIGHT.md](./NETWORK_PREFLIGHT.md): authoritative
 inbound routing/TLS (the observed private/CGNAT path is not sufficient), fixed
 outbound egress, Node.js 20+, and an installed controller service. Then prove a
-non-production Vercel DNS write/read-back with the exact record allowlist. A
-synthetic unit payload, local loopback health response, or passing CI test is
-not activation evidence.
+non-production Vercel DNS write/read-back with the exact record allowlist, and
+provision the approved DB hash file plus expected production image tag/digest
+in `controller.env`. A synthetic unit payload, local loopback health response,
+or passing CI test is not activation evidence.

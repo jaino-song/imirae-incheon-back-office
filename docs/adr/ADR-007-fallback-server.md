@@ -27,9 +27,14 @@ API-only standby behind the stable `api.babyjamjam.com` hostname.
 The Fallback Server:
 
 1. runs the exact production backend image selected by commit SHA and digest;
+   the controller receives the expected tag/digest only from its root-owned
+   `FAILOVER_EXPECTED_IMAGE_TAG` and `FAILOVER_EXPECTED_IMAGE_DIGEST`
+   environment values, never from incident state or webhook data;
 2. binds the API only to host loopback for a separately managed tunnel or proxy;
 3. uses the Production DB with production-compatible auth, storage, eformsign,
-   and webhook configuration;
+   and webhook configuration only after the approved project-reference digest
+   is read from the separate root-owned file
+   `/opt/babyjamjam-fallback-server/approved-production-db-ref.sha256`;
 4. hard-disables schedulers, auto-finalizers, eformsign reconciliation without
    a distributed lock, document-job intake, and document-job workers;
 5. blanks Aligo credentials until Covenant fixed egress is registered and
@@ -37,17 +42,19 @@ The Fallback Server:
 6. never applies database migrations;
 7. reports local container health, restart count, database readiness, release
    identity, and passive-gate state without claiming public routing;
-8. leaves DNS/load-balancer cutover and Aligo outbound-IP authorization as
-   separately approved external operations.
+8. leaves DNS cutover (including the controller's one-way, action-time-gated
+   Vercel mutation), load-balancer cutover, and Aligo outbound-IP authorization
+   as separately approved operations.
 
 This role name is logical; the physical Covenant server remains the host. The
 deployment implementation is tracked under `backend/deploy/fallback-server/`.
 
-The Fallback API/operator and controller source are implemented and tested in
-the repository. The Covenant host has not received the controller service,
-Production DB environment, ingress/TLS configuration, or DNS/Vercel
-credentials. Automatic failover therefore remains disarmed pending the
-network, Sentry payload, Node.js 20+, Vercel rehearsal, and arm/disarm gates in
+The Fallback API/operator and controller installer, systemd unit source, CLI,
+and runtime are implemented and tested in the repository. The Covenant host
+has not received the controller service, Production DB environment, approved
+hash file, ingress/TLS configuration, or DNS/Vercel credentials. Automatic
+failover therefore remains disarmed pending the network, Sentry payload,
+Node.js 20+, Vercel rehearsal, and arm/disarm gates in
 [CONTROLLER_OPERATIONS.md](../../backend/deploy/fallback-server/CONTROLLER_OPERATIONS.md).
 
 ## Alternatives considered
@@ -77,11 +84,13 @@ network, Sentry payload, Node.js 20+, Vercel rehearsal, and arm/disarm gates in
 ### Negative
 
 - The Fallback Server initially restores synchronous API behavior only.
-- DNS or load-balancer cutover remains a separate operational action.
+- DNS or load-balancer cutover remains separately approved and action-time
+  gated; the controller's DNS path never changes unrelated records.
 - Aligo requires a fixed Covenant outbound IPv4 before SMS can be considered
   safe.
 - Production-compatible secrets must be provisioned and rotated on a second
-  host.
+  host; the approved Production DB reference digest must remain a separate
+  root-owned mode-0400 file, not a mutable environment value.
 
 ## Risks
 

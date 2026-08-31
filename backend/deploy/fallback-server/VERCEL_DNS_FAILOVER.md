@@ -6,12 +6,17 @@ Scope: the team-owned `babyjamjam.com` Vercel DNS zone and the single
 `api.babyjamjam.com` record used by the Fallback Server controller.
 
 This document records the read-only provider checks and the narrow API contract
-implemented by `controller/vercel-dns-client.mjs`. It does not create, update,
+implemented by `backend/deploy/fallback-server/controller/vercel-dns-client.mjs`.
+It does not create, update,
 delete, or rehearse a DNS record, and it does not retain a Vercel token, team
 ID, record ID, or origin IP address.
 
 The end-to-end install, arm/disarm, cutover, and manual failback procedure is
 in [CONTROLLER_OPERATIONS.md](./CONTROLLER_OPERATIONS.md).
+
+The repository ships the controller installer, bundle sources, systemd unit
+source, and CLI, but none is installed or activated on the Covenant host. A
+passing local client test does not authorize a production DNS mutation.
 
 ## Live provider state (read-only)
 
@@ -168,8 +173,12 @@ the following client-side precondition under its exclusive incident lock:
 1. Read the list and find exactly one record whose ID, name, type, and TTL
    equal the preflight contract.
 2. Require the current value to equal the allowlisted AWS origin value.
-3. Send the one `PATCH` above, preserving the record ID, name, type, and TTL.
-4. Read the list again and require the same record ID/name/type with the
+3. Atomically reserve durable controller phase `DNS_COMMITTING` only after the
+   current state still has the same pending fingerprint/generation lineage and
+   `armed=true`. A disarm before this reservation prevents the PATCH; a disarm
+   during `DNS_COMMITTING` is refused until the provider record is reconciled.
+4. Send the one `PATCH` above, preserving the record ID, name, type, and TTL.
+5. Read the list again and require the same record ID/name/type with the
    allowlisted Fallback value and unchanged TTL.
 
 Any mismatch, record drift, or ambiguous timeout is `BLOCKED`; it is not a
@@ -245,9 +254,11 @@ resolver has refreshed.
 
 The controller may issue exactly one restricted update from the allowlisted AWS
 IPv4 to the allowlisted Fallback IPv4 after the Sentry event, health, DB,
-release, passive-gate, and current-DNS checks pass. It then performs a fresh
-list read and persists `FALLBACK_ACTIVE` only after read-after-write confirms
-the same record identity and TTL.
+release, passive-gate, and current-DNS checks pass. It first reserves durable
+phase `DNS_COMMITTING`, then performs the PATCH and a fresh list read, and
+persists `FALLBACK_ACTIVE` only after read-after-write confirms the same record
+identity and TTL. On restart, `DNS_COMMITTING` is reconciled against the live
+record; the controller never promotes from state alone.
 
 There is no automatic Fallback → AWS update. An operator must disarm the
 controller, verify AWS readiness and eFormsign/document reconciliation, read
@@ -322,17 +333,19 @@ The repository already fixes the surrounding ownership boundaries:
 - The Covenant/Fallback API binds to loopback and requires a separately
   approved tunnel or proxy for inbound traffic; the operator explicitly does
   not change DNS, Vercel, or Cloudflare
-  ([`backend/deploy/fallback-server/README.md:10-22`](./README.md),
+  ([`backend/deploy/fallback-server/README.md#safety-boundary`](./README.md#safety-boundary),
   [`backend/deploy/fallback-server/operator.sh:60-62`](./operator.sh)).
-- Incident cutover is currently an external DNS/load-balancer operation and
+- The controller's Vercel path is implemented but not installed or activated;
+  until its action-time rehearsal is approved, incident cutover remains an
+  external DNS/load-balancer operation and
   must follow readiness, eFormsign reconciliation, and public smoke checks
-  ([`backend/deploy/fallback-server/README.md:60-71`](./README.md)).
-- The accepted failover ADR narrows the future client to one `api`/`A` record,
-  two allowlisted origin values, pre/post reads, and no indefinite retry
-  ([`docs/adr/ADR-008-sentry-host-failover-controller.md:107-124`](../../../docs/adr/ADR-008-sentry-host-failover-controller.md)).
+  ([`backend/deploy/fallback-server/README.md#runtime-status-and-incident-flow`](./README.md#runtime-status-and-incident-flow)).
+- The accepted failover ADR narrows this client to one `api`/`A` record, two
+  allowlisted origin values, pre/post reads, and no indefinite retry
+  ([`docs/adr/ADR-008-sentry-host-failover-controller.md#restricted-vercel-dns-mutation`](../../../docs/adr/ADR-008-sentry-host-failover-controller.md#restricted-vercel-dns-mutation)).
 - The Fallback Server remains API-only with schedulers, document jobs,
   reconciliation, and Aligo disabled while traffic ownership is unchanged
-  ([`docs/adr/ADR-008-sentry-host-failover-controller.md:140-147`](../../../docs/adr/ADR-008-sentry-host-failover-controller.md)).
+  ([`docs/adr/ADR-008-sentry-host-failover-controller.md#independent-verification-policy`](../../../docs/adr/ADR-008-sentry-host-failover-controller.md#independent-verification-policy)).
 - Lightsail maps the existing production hostname to its production edge and
   keeps port 3001 private; this controller changes neither the edge Compose
   contract nor the frontend deployment
