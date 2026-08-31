@@ -103,8 +103,12 @@ model stages, both behind the existing port-pattern with e2e stubs:
    scroll-to-utterance behavior are untouched. Stored as `call_record.transcript`.
    The raw payload persists in `call_record.transcript_raw` (audit; never shown by default).
    When `diarized: false`, refine still corrects terminology; speaker attribution is omitted
-   rather than guessed, utterances carry a neutral speaker label, and the review sheet must
-   tolerate role-less transcripts (small UI allowance, part of this track).
+   rather than guessed. Role-less utterances carry the neutral speaker label `화자` — a shared
+   contract: the constant is exported from `mobile/src/lib/call-inbox/types.ts` and the backend
+   refine stage emits the same literal. The mobile review sheet must NOT branch on that literal:
+   it treats ANY speaker outside the known role set (아이미래로, 상담원, 고객, 산모, 남편) —
+   including a missing or empty speaker — as unattributed (small UI allowance, part of this
+   track).
 2. **Extract (existing, extended).** Absorbs the summary n8n used to produce: classification
    (신규상담/고객변경/기타) + field proposals with evidence/confidence (unchanged) **+ the
    structured summary** (`inquiry_type`, `customer_info`, `key_content`, `result_action`)
