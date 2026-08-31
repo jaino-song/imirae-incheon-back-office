@@ -25,11 +25,11 @@ interface TranscriptTurn {
   text: string;
 }
 
-interface CallSummary {            // n8n Gemini coarse summary (nullable as a whole)
+interface CallSummary {            // produced server-side by the extract stage (nullable as a whole)
   inquiry_type: string;
-  customer_info?: string;
+  customer_info: string;
   key_content: string;
-  result_action?: string;
+  result_action: string;
 }
 
 type ProposalField =

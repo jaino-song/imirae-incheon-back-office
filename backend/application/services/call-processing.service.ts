@@ -1,6 +1,8 @@
 import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { resolveCallExtractionModel } from "infrastructure/api/gemini-call-extraction.adapter";
 import {
     CALL_EXTRACTION_PORT,
     CallExtractionPort,
@@ -49,6 +51,7 @@ export class CallProcessingService {
         private readonly extractionPort: CallExtractionPort,
         @Inject(CALL_REFINEMENT_PORT)
         private readonly refinementPort: CallRefinementPort,
+        private readonly configService: ConfigService,
     ) {}
 
     async processCallRecord(callRecordId: string): Promise<CallProcessingResult> {
@@ -202,6 +205,7 @@ export class CallProcessingService {
                         processingStatus: "EXTRACTED",
                         processingClaimedAt: null,
                         failureReason: null,
+                        summary: extraction.summary as unknown as Prisma.InputJsonValue,
                     },
                 });
 
@@ -222,7 +226,7 @@ export class CallProcessingService {
                             proposals: proposals as unknown as Prisma.InputJsonValue,
                             requestSummary: extraction.requestSummary,
                             extractionMeta: {
-                                model: "gemini-2.5-flash",
+                                model: resolveCallExtractionModel(this.configService),
                                 promptVersion: CALL_EXTRACTION_PROMPT_VERSION,
                             } as unknown as Prisma.InputJsonValue,
                         },
