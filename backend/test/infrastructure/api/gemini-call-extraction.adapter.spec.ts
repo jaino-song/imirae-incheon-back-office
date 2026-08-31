@@ -17,6 +17,12 @@ describe("GeminiCallExtractionAdapter", () => {
         proposals: [
             { field: "dueDate", value: "2026-07-15", evidence: "7월 15일이 예정일이에요", confidence: "high" },
         ],
+        summary: {
+            inquiry_type: "신규상담",
+            customer_info: "김서연",
+            key_content: "산후도우미 신규 문의",
+            result_action: "견적 안내",
+        },
     };
 
     afterEach(() => {
@@ -55,6 +61,28 @@ describe("GeminiCallExtractionAdapter", () => {
         const emptyConfig = { get: jest.fn(() => undefined) };
         const adapter = new GeminiCallExtractionAdapter(emptyConfig as never);
         await expect(adapter.extract(input)).rejects.toThrow(/GEMINI_API_KEY/);
+    });
+
+    it("uses GEMINI_EXTRACTION_MODEL to override the request URL's model when configured", async () => {
+        const overrideConfig = {
+            get: jest.fn((key: string) => {
+                if (key === "GEMINI_API_KEY") return "test-key";
+                if (key === "GEMINI_EXTRACTION_MODEL") return "gemini-x-test";
+                return undefined;
+            }),
+        };
+        const fetchMock = jest.spyOn(global, "fetch" as never).mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                candidates: [{ content: { parts: [{ text: JSON.stringify(geminiResult) }] } }],
+            }),
+        } as never);
+
+        const adapter = new GeminiCallExtractionAdapter(overrideConfig as never);
+        await adapter.extract(input);
+
+        const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+        expect(url).toContain("gemini-x-test:generateContent");
     });
 
     it("throws a descriptive error on unparseable model output", async () => {

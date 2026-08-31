@@ -1,6 +1,14 @@
 import { CallProcessingService } from "application/services/call-processing.service";
 import { CALL_EXTRACTION_PROMPT_VERSION } from "application/services/call-extraction.prompt";
 import { CallExtractionResult } from "domain/ports/call-extraction.port";
+import { DEFAULT_CALL_EXTRACTION_MODEL } from "infrastructure/api/gemini-call-extraction.adapter";
+
+const STUB_SUMMARY = {
+    inquiry_type: "신규상담",
+    customer_info: "확인되지 않음",
+    key_content: "요약 테스트",
+    result_action: "확인되지 않음",
+};
 
 describe("CallProcessingService", () => {
     const prisma = {
@@ -31,6 +39,7 @@ describe("CallProcessingService", () => {
             callerPhoneCandidates: [],
             requestSummary: "요약",
             proposals: [],
+            summary: STUB_SUMMARY,
             ...partial,
         };
     }
@@ -42,7 +51,12 @@ describe("CallProcessingService", () => {
         prisma.call_record.updateMany.mockResolvedValue({ count: 1 });
         prisma.client_draft.createMany.mockResolvedValue({ count: 1 });
         prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<void>) => fn(prisma));
-        service = new CallProcessingService(prisma as never, extractionPort as never, refinementPort as never);
+        service = new CallProcessingService(
+            prisma as never,
+            extractionPort as never,
+            refinementPort as never,
+            { get: jest.fn() } as never,
+        );
     });
 
     it("OTHER: updates record, creates no draft (parking-call fixture)", async () => {
@@ -56,7 +70,7 @@ describe("CallProcessingService", () => {
         expect(prisma.client_draft.createMany).not.toHaveBeenCalled();
         expect(prisma.call_record.updateMany).toHaveBeenCalledWith(expect.objectContaining({
             where: expect.objectContaining({ id: "rec-1" }),
-            data: expect.objectContaining({ category: "OTHER", processingStatus: "EXTRACTED" }),
+            data: expect.objectContaining({ category: "OTHER", processingStatus: "EXTRACTED", summary: STUB_SUMMARY }),
         }));
     });
 
@@ -85,9 +99,12 @@ describe("CallProcessingService", () => {
             { field: "duration", value: 10, evidence: "10일이요", confidence: "high" },
             { field: "careCenter", value: false, evidence: "조리원은 안 가요", confidence: "high" },
         ]);
-        expect(draftData.extractionMeta).toEqual(expect.objectContaining({ promptVersion: CALL_EXTRACTION_PROMPT_VERSION }));
+        expect(draftData.extractionMeta).toEqual(expect.objectContaining({
+            promptVersion: CALL_EXTRACTION_PROMPT_VERSION,
+            model: DEFAULT_CALL_EXTRACTION_MODEL,
+        }));
         expect(prisma.call_record.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-            data: expect.objectContaining({ callerPhone: "01048217763", callerName: "김서연" }),
+            data: expect.objectContaining({ callerPhone: "01048217763", callerName: "김서연", summary: STUB_SUMMARY }),
         }));
     });
 

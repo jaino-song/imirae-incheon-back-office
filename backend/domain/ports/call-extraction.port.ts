@@ -31,6 +31,13 @@ export interface CallExtractionResult {
     /** one-line Korean summary of what the caller asked for */
     requestSummary: string;
     proposals: ExtractionProposal[];
+    /** structured Korean call summary persisted to call_record.summary (spec §4.3); all four keys required. */
+    summary: {
+        inquiry_type: string;
+        customer_info: string;
+        key_content: string;
+        result_action: string;
+    };
 }
 
 export interface CallExtractionPort {
