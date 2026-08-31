@@ -121,8 +121,12 @@ assert_contains "$OPERATOR" 'systemd-run' \
     "operator must schedule the temporary-active expiry stop through systemd"
 assert_contains "$OPERATOR" 'temporary-active' \
     "operator must expose the explicit temporary-active deployment mode"
-assert_contains "$OPERATOR" 'wc -l <"\$BUNDLE_MANIFEST"\)" -eq 4' \
-    "bundle manifest must include both passive and temporary-active Compose artifacts"
+assert_contains "$INSTALLER" 'babyjamjam-fallback-temporary-active-guard\.service' \
+    "installer must stage the reboot-safe active guard service"
+assert_contains "$INSTALLER" 'babyjamjam-fallback-temporary-active-guard\.timer' \
+    "installer must stage the reboot-safe active guard timer"
+assert_contains "$OPERATOR" 'wc -l <"\$BUNDLE_MANIFEST"\)" -eq 6' \
+    "bundle manifest must include active guard artifacts"
 assert_contains "$OPERATOR" 'public_routing=not_managed' \
     "operator status must keep DNS outside its authority"
 assert_contains "$OPERATOR" 'exec 9>"\$LOCK_FILE"' \

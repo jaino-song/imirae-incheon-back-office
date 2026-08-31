@@ -173,12 +173,17 @@ aligo_egress_ipv4_sha256=<approved egress hash>
 expires_at_unix=<operator supplied expiry>
 ```
 
-The operator validates the artifact ownership, exact release and DB-reference
+Root possession of the protected approval file is the authority boundary; the
+file is not evidence of a separate identity. The operator validates ownership, exact release and DB-reference
 identity, future expiry, and two independent current egress observations without
 printing an address. It schedules a persistent root systemd expiry stop before
 starting. If scheduling or any runtime check fails, it does not remain active.
 Only the five explicitly named scheduler/document-job gates become `true`; the
-reconciliation-unlocked and message-trigger-worker gates remain `false`. Aligo
+reconciliation-unlocked and unused message-trigger-worker gates remain `false`.
+`SCHEDULERS_ENABLED=true` still enables the message-trigger scheduler: duplicate
+delivery is bounded by the existing DB lease/claim/provider-acceptance paths,
+and the approval artifact must record the primary-scheduler incident condition.
+Aligo
 values are never interpolated by Compose: Docker reads them only from the
 root-owned `backend.env` at active container runtime.
 
@@ -189,6 +194,11 @@ redeploys, because it is build-time client configuration. Roll back both
 deployments together, then turn Funnel off and run the Fallback operator `stop`.
 Sentry/controller automation, DNS changes, and any cloud-control-plane action
 remain outside this runbook and require their own approval.
+
+The backend environment is root-owned, but Docker daemon/root users can inspect
+container environment metadata. This mode does not claim Docker `env_file` is a
+secret-store boundary: it never logs or prints values, and a file-based
+application secret mechanism requires separate application/env-contract approval.
 
 ## Related contracts
 

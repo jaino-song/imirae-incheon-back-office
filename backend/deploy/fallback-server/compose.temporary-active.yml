@@ -29,7 +29,9 @@ services:
     ports:
       - "127.0.0.1:3101:3001"
     init: true
-    restart: unless-stopped
+    # A boot must not restart active work before the installed expiry guard
+    # has revalidated the protected approval state.
+    restart: "no"
     cpus: 2.0
     mem_limit: 3g
     security_opt:

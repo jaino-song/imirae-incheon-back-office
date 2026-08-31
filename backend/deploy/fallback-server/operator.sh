@@ -17,6 +17,9 @@ readonly ENV_FILE="$STATE_ROOT/backend.env"
 readonly APPROVED_DB_REF_HASH_FILE="$STATE_ROOT/approved-production-db-ref.sha256"
 readonly TEMPORARY_ACTIVE_APPROVAL_FILE="$STATE_ROOT/temporary-active-approval"
 readonly TEMPORARY_STOP_UNIT="babyjamjam-fallback-temporary-active-stop"
+readonly TEMPORARY_GUARD_TIMER="babyjamjam-fallback-temporary-active-guard.timer"
+readonly RUNTIME_MODE_FILE="$STATE_DIRECTORY/runtime-mode"
+readonly ACTIVE_EXPIRY_FILE="$STATE_DIRECTORY/temporary-active-expiry"
 readonly LOCK_FILE="$STATE_DIRECTORY/operator.lock"
 readonly IMAGE_REPOSITORY="ghcr.io/jaino-song/babyjamjam-admin-backend"
 readonly LOCAL_IMAGE_REPOSITORY="babyjamjam-backend"
@@ -107,6 +110,8 @@ validate_bundle() {
     local compose_digest
     local identity_digest
     local active_compose_digest
+    local guard_service_digest
+    local guard_timer_digest
     local operator_digest
 
     [[ "$0" == "$INSTALLED_OPERATOR" ]] \
@@ -134,6 +139,8 @@ validate_bundle() {
     compose_digest="$(sha256_file "$COMPOSE_FILE")"
     active_compose_digest="$(sha256_file "$ACTIVE_COMPOSE_FILE")"
     identity_digest="$(sha256_file "$DB_IDENTITY_HELPER")"
+    guard_service_digest="$(sha256_file /etc/systemd/system/babyjamjam-fallback-temporary-active-guard.service)"
+    guard_timer_digest="$(sha256_file /etc/systemd/system/babyjamjam-fallback-temporary-active-guard.timer)"
     /usr/bin/grep -Fqx "operator.sh=$operator_digest" "$BUNDLE_MANIFEST" \
         || die "The installed Fallback Server operator does not match its manifest."
     /usr/bin/grep -Fqx "compose.yml=$compose_digest" "$BUNDLE_MANIFEST" \
@@ -142,7 +149,11 @@ validate_bundle() {
         || die "The temporary-active Compose artifact does not match its manifest."
     /usr/bin/grep -Fqx "production-db-identity.sh=$identity_digest" "$BUNDLE_MANIFEST" \
         || die "The Production DB identity helper does not match its manifest."
-    [[ "$(/usr/bin/wc -l <"$BUNDLE_MANIFEST")" -eq 4 ]] \
+    /usr/bin/grep -Fqx "systemd/babyjamjam-fallback-temporary-active-guard.service=$guard_service_digest" "$BUNDLE_MANIFEST" \
+        || die "The temporary-active expiry guard service does not match its manifest."
+    /usr/bin/grep -Fqx "systemd/babyjamjam-fallback-temporary-active-guard.timer=$guard_timer_digest" "$BUNDLE_MANIFEST" \
+        || die "The temporary-active expiry guard timer does not match its manifest."
+    [[ "$(/usr/bin/wc -l <"$BUNDLE_MANIFEST")" -eq 6 ]] \
         || die "The Fallback Server bundle manifest is incomplete."
 }
 
@@ -300,6 +311,26 @@ clear_temporary_expiry_timer() {
     /usr/bin/systemctl reset-failed "$TEMPORARY_STOP_UNIT.timer" "$TEMPORARY_STOP_UNIT.service" >/dev/null 2>&1 || true
 }
 
+clear_temporary_active_state() {
+    /usr/bin/rm -f "$RUNTIME_MODE_FILE" "$ACTIVE_EXPIRY_FILE"
+    /usr/bin/systemctl disable "$TEMPORARY_GUARD_TIMER" >/dev/null 2>&1 || true
+    /usr/bin/systemctl stop "$TEMPORARY_GUARD_TIMER" >/dev/null 2>&1 || true
+}
+
+guard_expiry() {
+    local expiry now tag
+    [[ -f "$RUNTIME_MODE_FILE" && "$(<"$RUNTIME_MODE_FILE")" == "temporary-active" ]] || return 0
+    expiry="$(read_state temporary-active-expiry || true)"
+    [[ "$expiry" =~ ^[0-9]{10,}$ ]] || { clear_temporary_active_state; return 0; }
+    now="$(/usr/bin/date +%s)"
+    (( now < expiry )) && return 0
+    tag="$(read_state current-image-tag || true)"
+    [[ "$tag" =~ $SHA_PATTERN ]] && compose "$tag" stop api >/dev/null 2>&1 || true
+    # Do not stop this service from itself; disable prevents a future tick.
+    /usr/bin/systemctl disable "$TEMPORARY_GUARD_TIMER" >/dev/null 2>&1 || true
+    /usr/bin/rm -f "$RUNTIME_MODE_FILE" "$ACTIVE_EXPIRY_FILE"
+}
+
 schedule_temporary_expiry_stop() {
     local expiry="$1"
     clear_temporary_expiry_timer
@@ -431,13 +462,18 @@ temporary_activate_release() {
         || die "The approved immutable temporary-active image is not already present locally."
     expiry="$(approval_value expires_at_unix)"
     schedule_temporary_expiry_stop "$expiry"
+    write_state runtime-mode temporary-active
+    write_state temporary-active-expiry "$expiry"
+    /usr/bin/systemctl enable --now "$TEMPORARY_GUARD_TIMER" >/dev/null \
+        || { clear_temporary_active_state; die "The temporary-active reboot-safe expiry guard could not be enabled."; }
     if ! active_compose "$commit_sha" up -d --no-build; then
-        clear_temporary_expiry_timer
+        compose "$commit_sha" stop api >/dev/null 2>&1 || true
+        clear_temporary_active_state
         die "The temporary-active Fallback Server startup failed."
     fi
     if ! wait_until_ready "$commit_sha" || ! verify_temporary_active_runtime "$commit_sha"; then
         compose "$commit_sha" stop api >/dev/null 2>&1 || true
-        clear_temporary_expiry_timer
+        clear_temporary_active_state
         die "The temporary-active Fallback Server runtime verification failed."
     fi
     printf '%s\n' \
@@ -575,6 +611,7 @@ stop_release() {
     current_tag="$(read_state current-image-tag)" || die "No current Fallback Server release is recorded."
     compose "$current_tag" stop api >/dev/null
     clear_temporary_expiry_timer
+    clear_temporary_active_state
     printf '%s\n' \
         "environment=fallback-server" \
         "runtime=stopped" \
@@ -602,6 +639,10 @@ main() {
         temporary-active)
             [[ "$#" -eq 3 ]] || { usage; exit 1; }
             temporary_activate_release "$2" "$3"
+            ;;
+        guard-expiry)
+            [[ "$#" -eq 1 ]] || { usage; exit 1; }
+            guard_expiry
             ;;
         rollback)
             [[ "$#" -eq 1 ]] || { usage; exit 1; }

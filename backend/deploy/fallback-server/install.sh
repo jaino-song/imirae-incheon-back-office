@@ -14,6 +14,8 @@ readonly IDENTITY_HELPER_ARTIFACT="$ARTIFACT_ROOT/production-db-identity.sh"
 readonly ACTIVE_COMPOSE_SOURCE="$SCRIPT_ROOT/compose.temporary-active.yml"
 readonly ACTIVE_COMPOSE_ARTIFACT="$ARTIFACT_ROOT/compose.temporary-active.yml"
 readonly APPROVED_DB_REF_HASH_FILE="$STATE_ROOT/approved-production-db-ref.sha256"
+readonly GUARD_SERVICE_SOURCE="$SCRIPT_ROOT/systemd/babyjamjam-fallback-temporary-active-guard.service"
+readonly GUARD_TIMER_SOURCE="$SCRIPT_ROOT/systemd/babyjamjam-fallback-temporary-active-guard.timer"
 
 die() {
     echo "$*" >&2
@@ -58,6 +60,8 @@ validate_existing_approval() {
     || die "The Fallback Server Production DB identity helper source is missing or invalid."
 [[ -f "$ACTIVE_COMPOSE_SOURCE" && ! -L "$ACTIVE_COMPOSE_SOURCE" ]] \
     || die "The temporary-active Fallback Server Compose source is missing or invalid."
+[[ -f "$GUARD_SERVICE_SOURCE" && ! -L "$GUARD_SERVICE_SOURCE" && -f "$GUARD_TIMER_SOURCE" && ! -L "$GUARD_TIMER_SOURCE" ]] \
+    || die "The temporary-active expiry guard source is missing or invalid."
 for protected_path in "$ARTIFACT_ROOT" "$INSTALLED_OPERATOR" "$STATE_ROOT" "$IDENTITY_HELPER_ARTIFACT" "$ACTIVE_COMPOSE_ARTIFACT" "$APPROVED_DB_REF_HASH_FILE"; do
     [[ ! -L "$protected_path" ]] || die "A Fallback Server installation path is a symbolic link."
 done
@@ -70,6 +74,9 @@ install -o root -g root -m 750 "$SCRIPT_ROOT/operator.sh" "$INSTALLED_OPERATOR"
 install -o root -g root -m 640 "$SCRIPT_ROOT/compose.yml" "$ARTIFACT_ROOT/compose.yml"
 install -o root -g root -m 640 "$ACTIVE_COMPOSE_SOURCE" "$ACTIVE_COMPOSE_ARTIFACT"
 install -o root -g root -m 750 "$IDENTITY_HELPER_SOURCE" "$IDENTITY_HELPER_ARTIFACT"
+install -o root -g root -m 640 "$GUARD_SERVICE_SOURCE" /etc/systemd/system/babyjamjam-fallback-temporary-active-guard.service
+install -o root -g root -m 640 "$GUARD_TIMER_SOURCE" /etc/systemd/system/babyjamjam-fallback-temporary-active-guard.timer
+/usr/bin/systemctl daemon-reload
 
 manifest="$(mktemp "$ARTIFACT_ROOT/.bundle.manifest.XXXXXX")"
 printf '%s\n' \
@@ -77,6 +84,8 @@ printf '%s\n' \
     "compose.yml=$(sha256_file "$ARTIFACT_ROOT/compose.yml")" \
     "compose.temporary-active.yml=$(sha256_file "$ACTIVE_COMPOSE_ARTIFACT")" \
     "production-db-identity.sh=$(sha256_file "$IDENTITY_HELPER_ARTIFACT")" \
+    "systemd/babyjamjam-fallback-temporary-active-guard.service=$(sha256_file /etc/systemd/system/babyjamjam-fallback-temporary-active-guard.service)" \
+    "systemd/babyjamjam-fallback-temporary-active-guard.timer=$(sha256_file /etc/systemd/system/babyjamjam-fallback-temporary-active-guard.timer)" \
     >"$manifest"
 chown root:root "$manifest"
 chmod 640 "$manifest"
