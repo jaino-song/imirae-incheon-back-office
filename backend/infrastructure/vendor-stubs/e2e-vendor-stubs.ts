@@ -757,6 +757,12 @@ export class StubCallExtractionAdapter implements CallExtractionPort {
                 { field: "name", value: "김서연", evidence: "stub", confidence: "high" },
                 { field: "dueDate", value: "2026-07-15", evidence: "stub", confidence: "high" },
             ],
+            summary: {
+                inquiry_type: "신규상담",
+                customer_info: "김서연 / 010-4821-7763",
+                key_content: "산모가 산후도우미 서비스 문의 (E2E stub)",
+                result_action: "상담 예약 안내",
+            },
         };
     }
 }
