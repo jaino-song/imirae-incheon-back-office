@@ -1,4 +1,4 @@
-# ADR-007: Covenant API-only production standby
+# ADR-007: Fallback Server API-only production standby
 
 ## Status
 
@@ -13,21 +13,23 @@ duplicate schedulers, message sends, eformsign retries, and reconciliation.
 
 The existing Lightsail deployment already separates immutable application
 images, private API ports, Valkey, public edge routing, database readiness, and
-singleton scheduler ownership. The Covenant server has sufficient container
-capacity but is a separate non-AWS host and must not inherit AWS Systems Manager
-or Lightsail operator assumptions.
+singleton scheduler ownership. The physical Covenant server has sufficient
+container capacity but is a separate non-AWS host and must not inherit AWS
+Systems Manager or Lightsail operator assumptions. In this ADR, `Covenant
+server` names that physical host; `Fallback Server` is the logical production
+role assigned to it.
 
 ## Decision
 
-Maintain the Covenant server as a warm, API-only standby behind the stable
-`api.babyjamjam.com` hostname.
+Maintain the Fallback Server on the physical Covenant server as a warm,
+API-only standby behind the stable `api.babyjamjam.com` hostname.
 
-The standby:
+The Fallback Server:
 
 1. runs the exact production backend image selected by commit SHA and digest;
 2. binds the API only to host loopback for a separately managed tunnel or proxy;
-3. uses production-compatible database, auth, storage, eformsign, and webhook
-   configuration;
+3. uses the Production DB with production-compatible auth, storage, eformsign,
+   and webhook configuration;
 4. hard-disables schedulers, auto-finalizers, eformsign reconciliation without
    a distributed lock, document-job intake, and document-job workers;
 5. blanks Aligo credentials until Covenant fixed egress is registered and
@@ -37,6 +39,9 @@ The standby:
    identity, and passive-gate state without claiming public routing;
 8. leaves DNS/load-balancer cutover and Aligo outbound-IP authorization as
    separately approved external operations.
+
+This role rename is documentation-only. Deployment paths and service names
+under `backend/deploy/covenant/` remain unchanged until the Phase 2 rename.
 
 ## Alternatives considered
 
@@ -56,14 +61,14 @@ The standby:
 ### Positive
 
 - Vercel keeps one stable API hostname.
-- The fallback is prebuilt and can be health-checked before an outage.
+- The Fallback Server is prebuilt and can be health-checked before an outage.
 - Autonomous duplicate side effects remain fenced off.
 - The same immutable production image and DB-backed readiness contract are
   retained across hosts.
 
 ### Negative
 
-- The standby initially restores synchronous API behavior only.
+- The Fallback Server initially restores synchronous API behavior only.
 - DNS or load-balancer cutover remains a separate operational action.
 - Aligo requires a fixed Covenant outbound IPv4 before SMS can be considered
   safe.
