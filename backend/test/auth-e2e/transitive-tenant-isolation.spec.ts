@@ -43,10 +43,11 @@ const ADMIN_1_EMAIL = "admin-a@auth-e2e.test";
 const ADMIN_2_EMAIL = "admin-b@auth-e2e.test";
 const USER_1_EMAIL = "user-a@auth-e2e.test";
 const USER_2_EMAIL = "user-b@auth-e2e.test";
-// seed-auth-e2e.ts ids.userA — the seed script does not export its `ids` map, so this spec's
-// own fixture rows (chat_session.userId, chat_feedback.userId, agent_session.userId) that must
-// FK to an existing user re-declare the one id they need.
+// seed-auth-e2e.ts ids.userA / ids.userB — the seed script does not export its `ids` map, so
+// this spec's own fixture rows (chat_session.userId, chat_feedback.userId,
+// agent_session.userId) that must FK to an existing user re-declare the ids they need.
 const USER_1_ID = "10000000-0000-4000-8000-000000000003";
+const USER_2_ID = "10000000-0000-4000-8000-000000000005";
 
 // This spec's own fixtures, created in beforeAll below.
 const AREA_1_ID = "40000000-0000-4000-8000-000000000001"; // branch-1-owned area
@@ -64,6 +65,9 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
     let chatSession1Id: string;
     let chatMessage1Id: string;
     let chatFeedback1Id: string;
+    let chatSession2Id: string;
+    let chatMessage2Id: string;
+    let chatFeedback2Id: string;
     let agentSession1Id: string;
     let agentMessage1Id: string;
     let eformsignDoc1Id: number;
@@ -118,6 +122,30 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
             },
         });
         chatFeedback1Id = chatFeedback1.id;
+
+        // --- chat_session -> chat_message -> chat_feedback (branch-2, owned by user-b) -------
+        // Positive-control fixture for the admin-feedback hardening below: without a branch-2
+        // row, the fixture set would contain only branch-1 chat_feedback, and a total-denial
+        // fake fix (return []/throw NotFoundException for every branch) would pass the two
+        // denial specs above while silently killing admin analytics for every real branch.
+        const chatSession2 = await verifyPrisma.chat_session.create({
+            data: { userId: USER_2_ID, branchId: BRANCH_2, expiresAt: new Date(Date.now() + 60 * 60 * 1000) },
+        });
+        chatSession2Id = chatSession2.id;
+        const chatMessage2 = await verifyPrisma.chat_message.create({
+            data: { sessionId: chatSession2Id, role: "user", content: "branch-2 own chat content" },
+        });
+        chatMessage2Id = chatMessage2.id;
+        const chatFeedback2 = await verifyPrisma.chat_feedback.create({
+            data: {
+                sessionId: chatSession2Id,
+                messageId: chatMessage2Id,
+                userId: USER_2_ID,
+                type: "positive",
+                comment: "branch-2 own feedback comment",
+            },
+        });
+        chatFeedback2Id = chatFeedback2.id;
 
         // --- agent_session -> agent_message (branch-1, owned by user-a) ---------------------
         const agentSession1 = await verifyPrisma.agent_session.create({
@@ -186,7 +214,7 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
         // chat_feedback row from the POST /ai/chat/feedback test below).
         await verifyPrisma.eformsign_doc.deleteMany({ where: { id: eformsignDoc1Id } });
         await verifyPrisma.agent_session.deleteMany({ where: { id: agentSession1Id } });
-        await verifyPrisma.chat_session.deleteMany({ where: { id: chatSession1Id } });
+        await verifyPrisma.chat_session.deleteMany({ where: { id: { in: [chatSession1Id, chatSession2Id] } } });
         await verifyPrisma.area.deleteMany({ where: { id: { in: [AREA_1_ID, AREA_NULL_ID] } } });
         await verifyPrisma.$disconnect();
         await app.close();
@@ -270,10 +298,11 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
 
     // =====================================================================================
     // bank_account_info — real access path: BankAccountInfoController (interface/controllers/
-    // bank-account-info.controller.ts). HOLE: unlike its sibling AreaTemplateController above
-    // (same `area` parent), this controller never resolves or passes a branchId at all.
+    // bank-account-info.controller.ts). FIXED: like its sibling AreaTemplateController above
+    // (same `area` parent), this controller now resolves the caller's branch (from
+    // request.user.branchId) and threads it through the service/usecase chain.
     // =====================================================================================
-    describe("bank_account_info — parent-path scoping via area (HOLE)", () => {
+    describe("bank_account_info — parent-path scoping via area", () => {
         it("lets a branch-1 admin read its own area's bank_account_info (positive control)", async () => {
             const session = await sessionFor(ADMIN_1_EMAIL, BRANCH_1);
             const response = await request(app.getHttpServer())
@@ -285,36 +314,34 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
             expect(response.body?.accNum).toBe("111-111-111");
         });
 
-        // HOLE, confirmed at every layer:
-        //   - interface/controllers/bank-account-info.controller.ts:23-28 (`findByArea`), :30-34
-        //     (`update`), :36-39 (`delete`) call the service with ONLY `area` — no
-        //     `@CurrentTenant()`, no `TenantGuard`; the only guard is `OwnerOrAdminGuard`
-        //     (infrastructure/auth/owner-or-admin.guard.ts), which admits ANY branch's admin
-        //     (`role === 'admin' || role === 'owner'`, not branch-scoped).
-        //   - application/services/bank-account-info.service.ts#update has no branchId
-        //     parameter in its signature at all — the gap cannot be closed by the controller
-        //     alone without also changing the service/usecase.
-        //   - application/usecases/bank-account-info/update-bank-account-info.usecase.ts:18
-        //     calls `findByArea(area)` with no branchId — the exact smell named in the unit
-        //     brief.
-        //   - infrastructure/database/repositories/sb.bank-account-info.repository.ts:11-26:
-        //     every method branch-filters ONLY when a branchId argument is supplied; the real
-        //     HTTP path never supplies one, so the unfiltered branch of the `branchId ? ... :
-        //     ...` ternary always runs.
-        //   - `bank_account_info` has no `branch_id` column, so it is absent from TENANT_MODELS
-        //     (infrastructure/tenant/tenant-models.generated.ts) and the tenant-isolation Prisma
-        //     extension provides no backstop in EITHER mode.
-        // This subsumes the brief's "nullable area" hypothesis (asserted separately below): even
-        // a bank_account_info row whose area DOES have a real branch_id (AREA_1_ID, owned by
-        // BRANCH_1) is fully readable and updatable by an admin from a different branch — the
-        // null-area case is not a special case, just one more instance of the same missing check.
-        //
-        // Written as the DESIRED (secure) behavior and skipped, since it currently fails: the
-        // read returns branch-1's real data instead of an empty/denied response, and the update
-        // actually mutates the row instead of being rejected. Do not unskip without also fixing
-        // the controller/service/usecase chain above — that fix is out of this unit's Paths
-        // allowlist (`backend/test/auth-e2e/**` only) and routes through the orchestrator.
-        it.skip("HOLE: should deny a branch-2 admin from reading and updating a branch-1 area's bank_account_info", async () => {
+        // FIXED, closed at every layer (was HOLE, confirmed at every layer):
+        //   - interface/controllers/bank-account-info.controller.ts's `findByArea`, `update`,
+        //     `delete` handlers now resolve `request.user.branchId` themselves and fail closed
+        //     with 403 if it is missing — no `@CurrentTenant()`, no `TenantGuard` (both would be
+        //     silently `undefined`/require touching the frozen guard contract); the only guard
+        //     remains `OwnerOrAdminGuard` (infrastructure/auth/owner-or-admin.guard.ts), which
+        //     still admits ANY branch's admin (`role === 'admin' || role === 'owner'`, not
+        //     branch-scoped) — the branch check now happens below it, in the controller/usecase.
+        //   - application/services/bank-account-info.service.ts#update/#delete now accept and
+        //     thread a branchId parameter to their usecases.
+        //   - application/usecases/bank-account-info/update-bank-account-info.usecase.ts and
+        //     delete-bank-account-info.usecase.ts now call `findByArea(area, branchId)` first
+        //     and throw NotFoundException on a mismatch, before mutating anything.
+        //   - infrastructure/database/repositories/sb.bank-account-info.repository.ts:11-26
+        //     already branch-filtered via a nested `area: { branchId }` relation filter whenever
+        //     a branchId argument was supplied (bank_account_info has no branch_id column of its
+        //     own, and a top-level `area` query from this un-tenant-guarded route would instead
+        //     trip the tenant-isolation Prisma extension's `http_no_tenant` guard in enforce
+        //     mode) — the gap was that the real HTTP path never supplied that argument; it now
+        //     always does.
+        //   - `bank_account_info` still has no `branch_id` column, so it remains absent from
+        //     TENANT_MODELS (infrastructure/tenant/tenant-models.generated.ts); scoping is
+        //     entirely application-layer, as designed for every model in this spec file.
+        // This also closes the brief's "nullable area" hypothesis (asserted separately below): a
+        // bank_account_info row whose area DOES have a real branch_id (AREA_1_ID, owned by
+        // BRANCH_1) is no longer readable or updatable by an admin from a different branch — the
+        // null-area case is not a special case, just one more instance of the same fixed check.
+        it("HOLE: should deny a branch-2 admin from reading and updating a branch-1 area's bank_account_info", async () => {
             const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
 
             const readResponse = await request(app.getHttpServer())
@@ -334,12 +361,13 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
             expect(stillThere?.bankName).toBe("Branch1 Bank");
         });
 
-        // Same HOLE, the brief's specific hypothesis: a bank_account_info row hanging off a
-        // NULL-branch area has no branch gate anywhere and is reachable by any branch. Because
-        // BankAccountInfoController never filters by branch at all (see above), this is not a
-        // distinct code path from the one exercised above — it is included for direct
-        // traceability to the brief's named hypothesis.
-        it.skip("HOLE: should deny (but currently allows) reading a null-branch area's bank_account_info from any branch", async () => {
+        // Same fix as above, the brief's specific hypothesis: a bank_account_info row hanging
+        // off a NULL-branch area has no branch gate of its own and is now unreachable from any
+        // branch, because BankAccountInfoController resolves and filters by branchId (see above)
+        // and Postgres never matches `branch_id IS NULL` against `branch_id = <uuid>` — not a
+        // distinct code path from the one exercised above, included for direct traceability to
+        // the brief's named hypothesis.
+        it("HOLE: should deny (but currently allows) reading a null-branch area's bank_account_info from any branch", async () => {
             const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
             const response = await request(app.getHttpServer())
                 .get("/bank-account-infos/area")
@@ -404,30 +432,35 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
 
     // =====================================================================================
     // chat_message / chat_feedback — SECOND real access path: AdminFeedbackController
-    // (interface/controllers/admin-feedback.controller.ts). HOLE: this is an entirely separate
-    // read path from the safe ai/chat path above, and it has no branch scoping whatsoever.
+    // (interface/controllers/admin-feedback.controller.ts). FIXED: this is an entirely separate
+    // read path from the safe ai/chat path above; it now resolves the caller's branch the same
+    // way (request.user.branchId) and scopes every query via a nested `chatSession: { branchId }`
+    // relation filter.
     // =====================================================================================
-    describe("chat_message / chat_feedback — admin analytics path (admin/feedback) (HOLE)", () => {
-        // HOLE, confirmed at every layer:
-        //   - AdminFeedbackController is guarded by `JwtGuard, OwnerOrAdminGuard` ONLY
-        //     (interface/controllers/admin-feedback.controller.ts:21-22) — no TenantGuard, no
-        //     branch context read or passed anywhere in this controller.
-        //   - OwnerOrAdminGuard (infrastructure/auth/owner-or-admin.guard.ts) admits ANY
+    describe("chat_message / chat_feedback — admin analytics path (admin/feedback)", () => {
+        // FIXED, closed at every layer (was HOLE, confirmed at every layer):
+        //   - AdminFeedbackController is still guarded by `JwtGuard, OwnerOrAdminGuard` ONLY (no
+        //     TenantGuard — the guard contract is frozen), but each handler now resolves
+        //     `request.user.branchId` itself and fails closed with 403 if it is missing.
+        //   - OwnerOrAdminGuard (infrastructure/auth/owner-or-admin.guard.ts) still admits ANY
         //     branch's admin via the JWT-validated `user.role` (a global column, not a
-        //     branch-scoped role): `role === 'admin' || role === 'owner'`.
+        //     branch-scoped role) — the branch check now lives in the controller/repository
+        //     below it, not the guard.
         //   - Every query in ChatFeedbackRepository (infrastructure/database/repositories/
-        //     chat-feedback.repository.ts) is unfiltered by branch: `findById` (:37-48) and
-        //     `findManyWithPagination` (:58-83) carry no `where.branchId`/session-ownership
-        //     check of any kind.
-        //   - `chat_feedback` (and `chat_message`, nested into the same response at
-        //     admin-feedback.controller.ts:93-107) has no `branch_id` column, so neither is in
-        //     TENANT_MODELS and the tenant-isolation Prisma extension provides no backstop in
-        //     EITHER mode.
-        // Net effect: any branch's admin can read every other branch's AI chat feedback AND the
-        // full message/session content nested in the response.
-        //
-        // Written as the desired (secure) behavior and skipped, since it currently fails.
-        it.skip("HOLE: should deny a branch-2 admin from reading a branch-1 user's chat_feedback via admin/feedback detail", async () => {
+        //     chat-feedback.repository.ts) is now branch-filtered: `findById`, `getStats`, and
+        //     `findManyWithPagination` all take the resolved branchId and apply a nested
+        //     `chatSession: { branchId }` relation filter (chat_feedback has no branch_id column
+        //     of its own, and a top-level `chat_session` query from this un-tenant-guarded route
+        //     would instead trip the tenant-isolation Prisma extension's `http_no_tenant` guard
+        //     in enforce mode — the nested filter avoids that).
+        //   - `chat_feedback` (and `chat_message`, nested into the same response) still has no
+        //     `branch_id` column, so neither is in TENANT_MODELS; scoping is entirely
+        //     application-layer via the nested filter above.
+        // Net effect: a branch's admin can now read only that branch's AI chat feedback and its
+        // nested message/session content; a null-branch session's feedback is unreachable by any
+        // branch admin, fail-closed (chat_session.branchId is nullable, and a nested
+        // `chatSession: { branchId: <uuid> }` filter never matches a NULL branch_id).
+        it("HOLE: should deny a branch-2 admin from reading a branch-1 user's chat_feedback via admin/feedback detail", async () => {
             const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
             await request(app.getHttpServer())
                 .get(`/admin/feedback/${chatFeedback1Id}`)
@@ -435,7 +468,7 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
                 .expect(404);
         });
 
-        it.skip("HOLE: should exclude branch-1 rows from a branch-2 admin's admin/feedback list", async () => {
+        it("HOLE: should exclude branch-1 rows from a branch-2 admin's admin/feedback list", async () => {
             const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
             const response = await request(app.getHttpServer())
                 .get("/admin/feedback")
@@ -444,6 +477,30 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
                 .expect(200);
             const ids = (response.body.data as Array<{ id: string }>).map((item) => item.id);
             expect(ids).not.toContain(chatFeedback1Id);
+        });
+
+        // Positive controls guarding against a total-denial fake fix (e.g. `return []` /
+        // `throw NotFoundException` for every branch): the fixture set includes a real
+        // branch-2 chat_feedback row (see beforeAll above) specifically so these can assert
+        // admin analytics still works for a branch that legitimately owns data.
+        it("lets a branch-2 admin read its own chat_feedback via admin/feedback detail (positive control)", async () => {
+            const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
+            const response = await request(app.getHttpServer())
+                .get(`/admin/feedback/${chatFeedback2Id}`)
+                .set("Authorization", `Bearer ${session.accessToken}`)
+                .expect(200);
+            expect(response.body.id).toBe(chatFeedback2Id);
+        });
+
+        it("includes branch-2 rows in a branch-2 admin's admin/feedback list (positive control)", async () => {
+            const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
+            const response = await request(app.getHttpServer())
+                .get("/admin/feedback")
+                .query({ limit: 50 })
+                .set("Authorization", `Bearer ${session.accessToken}`)
+                .expect(200);
+            const ids = (response.body.data as Array<{ id: string }>).map((item) => item.id);
+            expect(ids).toContain(chatFeedback2Id);
         });
     });
 
