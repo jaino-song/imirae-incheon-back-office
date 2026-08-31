@@ -9,6 +9,16 @@ export interface TranscriptTurn {
     text: string;
 }
 
+/**
+ * Shared contract with the backend refine stage (design spec §4.3): the label a
+ * role-less utterance carries when diarization was unavailable (>30min recordings)
+ * and speaker attribution was omitted rather than guessed. This is for DISPLAY
+ * only — never branch on it directly. A speaker outside the known role sets
+ * (including this literal, an unexpected string, or a missing/empty speaker) is
+ * unattributed by virtue of being the complement of those sets.
+ */
+export const NEUTRAL_SPEAKER = "화자";
+
 export interface Proposal {
     field: string;
     value: string | number | boolean | null;
