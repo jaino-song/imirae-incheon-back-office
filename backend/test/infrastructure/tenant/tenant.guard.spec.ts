@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { TenantGuard } from '../../../infrastructure/tenant/tenant.guard';
 import { TenantContext } from '../../../infrastructure/tenant/tenant.context';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { tenantContextStore } from '../../../infrastructure/tenant/tenant-context.store';
 
 describe('TenantGuard', () => {
     let guard: TenantGuard;
@@ -120,6 +121,39 @@ describe('TenantGuard', () => {
                 // #when & #then
                 await expect(guard.canActivate(mockContext as any))
                     .rejects.toThrow(ForbiddenException);
+            });
+        });
+
+        describe('given an active ambient tenant store', () => {
+            it('should write the resolved branchId through to the ALS store', async () => {
+                // #given
+                const user = {
+                    userId: 'user-123',
+                    branchId: 'org-123',
+                    role: 'user',
+                };
+                const request = { user };
+                const mockContext = {
+                    switchToHttp: () => ({
+                        getRequest: () => request,
+                    }),
+                };
+                mockPrismaService.user_branch.findFirst.mockResolvedValue({
+                    role: 'admin',
+                    branch: { isActive: true },
+                });
+
+                // #when
+                const observedBranchId = await tenantContextStore.run(
+                    { origin: 'http' },
+                    async () => {
+                        await guard.canActivate(mockContext as any);
+                        return tenantContextStore.get()?.branchId;
+                    },
+                );
+
+                // #then
+                expect(observedBranchId).toBe(user.branchId);
             });
         });
     });

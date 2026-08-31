@@ -1,5 +1,6 @@
 import tseslint from "typescript-eslint";
 import { prismaServiceImportAllowlist } from "./eslint.tenant-freeze.allowlist.mjs";
+import { systemScopeImportAllowlist } from "./eslint.system-scope.allowlist.mjs";
 
 export default tseslint.config(
     {
@@ -51,6 +52,32 @@ export default tseslint.config(
                             group: ["**/infrastructure/database/prisma.service"],
                             message:
                                 "application/ code must not import PrismaService directly. Use a domain repository instead. If this file genuinely needs grandfathering, add it to eslint.tenant-freeze.allowlist.mjs via explicit review.",
+                        },
+                    ],
+                },
+            ],
+        },
+    },
+    {
+        files: [
+            "application/**/*.ts",
+            "interface/**/*.ts",
+            "module/**/*.ts",
+            "infrastructure/**/*.ts",
+        ],
+        ignores: [...systemScopeImportAllowlist],
+        rules: {
+            "no-restricted-imports": [
+                "error",
+                {
+                    patterns: [
+                        {
+                            group: [
+                                "**/infrastructure/tenant/run-system-scope",
+                                "**/run-system-scope",
+                            ],
+                            message:
+                                "runSystemScope bypasses tenant isolation and is audited/restricted. If this call site genuinely needs a system-scope bypass, add it to eslint.system-scope.allowlist.mjs via explicit review.",
                         },
                     ],
                 },
