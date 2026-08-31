@@ -1,5 +1,11 @@
 // Generates infrastructure/tenant/tenant-models.generated.ts — a drift-checked list of every
-// Prisma model that carries a branch_id column (branch-scoped, i.e. a tenant model).
+// Prisma model that carries a branch_id column ("branch-keyed" models).
+//
+// Branch-keyed is narrower than branch-scoped: models that belong to a branch only
+// transitively through a parent FK (e.g. eformsign_doc_file, chat_message, chat_feedback,
+// agent_message, doc_template, bank_account_info) have no branch_id column, are NOT in this
+// list, and are therefore invisible to the tenant-isolation backstop — see the "Bounded
+// guarantee" section of backend/README.md.
 //
 // Parser route: this project has no resolvable `@prisma/internals` dependency (verified via
 // `require.resolve('@prisma/internals')`, which throws MODULE_NOT_FOUND; it is not listed in

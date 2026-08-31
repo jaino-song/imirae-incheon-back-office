@@ -390,26 +390,32 @@ Controlled by the `TENANT_ISOLATION_MODE` env var, resolved by `resolveTenantIso
 | Mode | Behavior |
 |------|----------|
 | `off` | No checks and no logging — the extension passes every query straight through. |
-| `observe` (default) | Violations are logged (`tenant_isolation_violation` structured log + Sentry) and counted, but the query still executes/returns normally. |
+| `observe` (default) | Violations are logged (`tenant_isolation_violation` structured log on every occurrence; Sentry deduplicated to one event per `(kind, model, action)` per 5 minutes) and counted, but the query still executes/returns normally. |
 | `enforce` | Same reporting, plus enforcement: a violation caught before execution (missing branch context, or an unpinned/mismatched write) throws `TenantIsolationViolationError` instead of running the query; a violation caught only after execution (an out-of-branch row in a read result) still runs, but the result is discarded and the error is thrown instead of being returned. |
 
 ### Bounded guarantee
 
-For Prisma model queries against the 34 tenant models, the extension checks: arg-checked writes (`create`/`update`/`delete`/`upsert`-family operations, checked before execution) and result-checked reads (checked after execution, capped at the first 100 rows per query).
+For Prisma model queries against the 34 tenant models, the extension checks:
+
+- Arg-checked writes (`create`/`update`/`delete`/`upsert`-family operations, checked before execution). `data.branchId` and the relation spelling `data.branch` (`connect` / `connectOrCreate` / `create` / `disconnect`) are both inspected; `where` pins are value-checked, including `{ in: [...] }` and compound-unique shapes like `branchId_phoneNormalized`.
+- Result-checked reads (checked after execution). `select`/`omit` projections cannot hide the check — the extension transparently injects `branchId` into the projection and strips it from the returned rows. One level of nested rows pulled via `include`/nested `select` is also scanned. The scan is capped at a total budget of 100 items (rows + their scanned children) per query.
+- Aggregates (`count` / `aggregate` / `groupBy`): the `where` clause must be pinned to the current branch's value, not merely mention `branchId`.
 
 Outside that guarantee — these rely on guard-layer scoping, repository-level branch pinning, and `observe`-mode logging instead:
 
 - Raw SQL (`$queryRaw` / `$queryRawUnsafe` / `$executeRaw` / `$executeRawUnsafe`) — never blocked, only logged when the active store is HTTP-origin.
-- Read result rows beyond the first 100 per query.
-- Nested relation writes (e.g. `client.update({ data: { messages: { create: {...} } } })`) — only top-level args are inspected.
+- Read results beyond the 100-item scan budget per query.
+- Nested relation rows deeper than one level, and tenant-model rows pulled via `include` from a query whose **root** model is not a tenant model (the extension keys on the root model of each operation).
+- Nested relation writes targeting other models (e.g. `client.update({ data: { messages: { create: {...} } } })`) — only the top-level `data`/`where` args are inspected.
+- Models that are branch-scoped only **transitively** through a parent and carry no `branch_id` column of their own (currently: `eformsign_doc_file`, `chat_message`, `chat_feedback`, `agent_message`, `doc_template`, `bank_account_info`). `TENANT_MODELS` is generated from the presence of a `branch_id` column ("branch-keyed" models), so these six are invisible to the backstop and depend entirely on their parent-scoped access paths.
 
 ### `runSystemScope`
 
 `infrastructure/tenant/run-system-scope.ts` wraps legitimate cross-branch request paths — code that deliberately needs to act outside a single branch's scope. Every call:
 
 - Sets `{ origin: "system", systemScope: true }` on the ambient store, bypassing tenant isolation for the callback's duration.
-- Is audit-logged with a structured `tenant_system_scope_used` event that records the call site.
-- Is import-restricted by ESLint: `no-restricted-imports` in `eslint.config.mjs` only permits importing it from files listed in `eslint.system-scope.allowlist.mjs`. New call sites require explicit review.
+- Is audit-logged with a structured `tenant_system_scope_used` event that records the call site. The log is emitted by `TenantContextStore.run` itself, so entering system scope through the raw store API (without the wrapper) is audited too.
+- Is import-restricted by ESLint across **all** backend TypeScript files: `no-restricted-imports` in `eslint.config.mjs` only permits importing it from files listed in `eslint.system-scope.allowlist.mjs`. New call sites require explicit review. Current production caller: `infrastructure/tenant/tenant.guard.ts`, which runs its own `user_branch` membership lookup under system scope (it executes before the request's `branchId` is established). A fixture-based spec (`test/eslint/tenant-freeze.lint.spec.ts`) exercises both this rule and the `PrismaService` freeze against the real flat config, so a config reshuffle cannot silently disable either gate.
 
 ### Rollout: observe → enforce
 
