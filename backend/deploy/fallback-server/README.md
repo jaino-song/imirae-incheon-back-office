@@ -157,6 +157,13 @@ mode/expiry/linkage state under the root-only state directory. The controller's
 no-timer statement applies only to its automatic polling behavior; the separate
 temporary-active expiry guard is deliberately periodic and fail-closed.
 
+Active artifacts are `/usr/local/libexec/babyjamjam-fallback-server/compose.temporary-active.yml`,
+`/etc/systemd/system/babyjamjam-fallback-temporary-active-guard.service`, and
+`/etc/systemd/system/babyjamjam-fallback-temporary-active-guard.timer`. Protected
+state records mode, expiry, nonce/incident/evidence linkage, and the separate
+scheduler-evidence artifact; container discovery uses fixed Compose labels when
+tag state is unavailable.
+
 ## Temporary Funnel active mode (manual, expiry-bound)
 
 `deploy` remains the ordinary passive deployment path: it fixes every scheduler,

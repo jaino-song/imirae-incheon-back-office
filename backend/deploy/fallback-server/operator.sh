@@ -234,6 +234,24 @@ runtime_env_for() {
     /usr/bin/docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$1" 2>/dev/null
 }
 
+discover_running_api_container() {
+    local matches count
+    matches="$(/usr/bin/docker ps -q --filter "label=com.docker.compose.project=$PROJECT_NAME" --filter 'label=com.docker.compose.service=api')" || return 1
+    count="$(printf '%s\n' "$matches" | /usr/bin/awk 'NF {c++} END{print c+0}')"
+    [[ "$count" == 0 ]] && return 0
+    [[ "$count" == 1 ]] || return 1
+    [[ "$matches" =~ ^[0-9a-f]{12,64}$ ]] || return 1
+    printf '%s\n' "$matches"
+}
+
+stop_discovered_api_container() {
+    local container_id
+    container_id="$(discover_running_api_container)" || return 1
+    [[ -z "$container_id" ]] && return 0
+    /usr/bin/docker stop "$container_id" >/dev/null 2>&1 || return 1
+    [[ -z "$(discover_running_api_container)" ]]
+}
+
 refuse_active_or_unknown_runtime() {
     local mode tag container_id gates key
     mode="$(read_state runtime-mode || true)"
@@ -417,9 +435,12 @@ guard_expiry() {
     [[ "$expiry" =~ ^[0-9]{10,}$ ]] || expiry=0
     now="$(/usr/bin/date +%s)"
     (( now < expiry )) && return 0
-    [[ "$tag" =~ $SHA_PATTERN ]] || return 1
-    compose "$tag" stop api >/dev/null 2>&1 || return 1
-    if container_id_for "$tag" >/dev/null 2>&1; then return 1; fi
+    if [[ "$tag" =~ $SHA_PATTERN ]]; then
+        compose "$tag" stop api >/dev/null 2>&1 || return 1
+        if container_id_for "$tag" >/dev/null 2>&1; then return 1; fi
+    else
+        stop_discovered_api_container || return 1
+    fi
     # Do not stop this service from itself; disable prevents a future tick.
     clear_temporary_expiry_timer
     clear_temporary_active_state
