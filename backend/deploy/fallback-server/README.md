@@ -71,6 +71,7 @@ See the complete operator procedure in
 ├── controller.env
 └── state/
     ├── failover-controller-state.json
+    ├── failover-controller-state.json.lock
     └── operator.lock
 ```
 
@@ -81,9 +82,14 @@ mode `0750`; read-only source and manifest artifacts are root-owned mode `0640`.
 ships the installer, controller bundle sources, systemd unit source, and CLI,
 but does not install or activate them automatically. The installer generates
 the protected bundle manifest on the host. Installation remains a separately
-approved host operation. The controller's durable lock is
-`/opt/babyjamjam-fallback-server/state/operator.lock`; do not create an
-alternate lock location.
+approved host operation. The Fallback Server operator's kernel-flock target is
+`/opt/babyjamjam-fallback-server/state/operator.lock`; it is released when the
+operator process closes its descriptor and must not be deleted manually. The
+controller state store uses the lock derived from its state file,
+`/opt/babyjamjam-fallback-server/state/failover-controller-state.json.lock`.
+Stale controller lock recovery is automatic and quarantines only an
+identity-checked stale lock; do not remove controller lock files by hand or
+create an alternate lock location.
 
 ## Production DB identity gate
 
