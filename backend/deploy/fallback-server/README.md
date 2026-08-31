@@ -70,7 +70,8 @@ See the complete operator procedure in
 ├── backend.env
 ├── controller.env
 └── state/
-    └── failover-controller-state.json
+    ├── failover-controller-state.json
+    └── operator.lock
 ```
 
 Directories are root-owned mode `0700`; executable artifacts are root-owned
@@ -80,7 +81,9 @@ mode `0750`; read-only source and manifest artifacts are root-owned mode `0640`.
 ships the installer, controller bundle sources, systemd unit source, and CLI,
 but does not install or activate them automatically. The installer generates
 the protected bundle manifest on the host. Installation remains a separately
-approved host operation.
+approved host operation. The controller's durable lock is
+`/opt/babyjamjam-fallback-server/state/operator.lock`; do not create an
+alternate lock location.
 
 ## Production DB identity gate
 
@@ -94,7 +97,8 @@ success marker:
 
 ```bash
 sudo /usr/local/libexec/babyjamjam-fallback-server/production-db-identity.sh \
-  /opt/babyjamjam-fallback-server/backend.env
+  /opt/babyjamjam-fallback-server/backend.env \
+  /opt/babyjamjam-fallback-server/approved-production-db-ref.sha256
 ```
 
 Expected output is exactly `production_db_identity=ok`. Any other result blocks
