@@ -14,7 +14,7 @@ readonly STATE_ROOT="/opt/babyjamjam-fallback-server"
 readonly STATE_DIRECTORY="$STATE_ROOT/state"
 readonly ENV_FILE="$STATE_ROOT/backend.env"
 readonly APPROVED_DB_REF_HASH_FILE="$STATE_ROOT/approved-production-db-ref.sha256"
-readonly LOCK_FILE="/run/lock/babyjamjam-fallback-server.lock"
+readonly LOCK_FILE="$STATE_DIRECTORY/operator.lock"
 readonly IMAGE_REPOSITORY="ghcr.io/jaino-song/babyjamjam-admin-backend"
 readonly LOCAL_IMAGE_REPOSITORY="babyjamjam-backend"
 readonly PROJECT_NAME="babyjamjam-fallback-server"
@@ -144,6 +144,39 @@ validate_env_file() {
             END { exit found == 1 ? 0 : 1 }
         ' "$ENV_FILE" || die "The Fallback Server environment file is missing a required value."
     done
+}
+
+validate_state_boundary() {
+    local metadata
+
+    [[ -d "$STATE_ROOT" && ! -L "$STATE_ROOT" ]] \
+        || die "The Fallback Server state root is missing or unsafe."
+    metadata="$(/usr/bin/stat -c '%U:%G:%a' "$STATE_ROOT" 2>/dev/null)" \
+        || die "The Fallback Server state root metadata is unavailable."
+    [[ "$metadata" == "root:root:700" ]] \
+        || die "The Fallback Server state root must be root:root mode 700."
+
+    if [[ ! -e "$STATE_DIRECTORY" && ! -L "$STATE_DIRECTORY" ]]; then
+        /usr/bin/install -d -o root -g root -m 700 "$STATE_DIRECTORY"
+    fi
+    [[ -d "$STATE_DIRECTORY" && ! -L "$STATE_DIRECTORY" ]] \
+        || die "The Fallback Server state directory is missing or unsafe."
+    metadata="$(/usr/bin/stat -c '%U:%G:%a' "$STATE_DIRECTORY" 2>/dev/null)" \
+        || die "The Fallback Server state directory metadata is unavailable."
+    [[ "$metadata" == "root:root:700" ]] \
+        || die "The Fallback Server state directory must be root:root mode 700."
+
+    [[ ! -L "$LOCK_FILE" ]] \
+        || die "The Fallback Server operator lock path is a symbolic link."
+    if [[ ! -e "$LOCK_FILE" ]]; then
+        /usr/bin/install -o root -g root -m 600 /dev/null "$LOCK_FILE"
+    fi
+    [[ -f "$LOCK_FILE" && ! -L "$LOCK_FILE" ]] \
+        || die "The Fallback Server operator lock path is missing or unsafe."
+    metadata="$(/usr/bin/stat -c '%U:%G:%a' "$LOCK_FILE" 2>/dev/null)" \
+        || die "The Fallback Server operator lock metadata is unavailable."
+    [[ "$metadata" == "root:root:600" ]] \
+        || die "The Fallback Server operator lock must be root:root mode 600."
 }
 
 validate_production_db_identity() {
@@ -394,7 +427,7 @@ main() {
 
     require_root
     validate_bundle
-    /usr/bin/install -d -o root -g root -m 700 "$STATE_DIRECTORY"
+    validate_state_boundary
     exec 9>"$LOCK_FILE"
     /usr/bin/flock -w 5 9 || die "Another Fallback Server operation is active."
 

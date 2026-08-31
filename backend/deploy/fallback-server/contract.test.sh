@@ -93,6 +93,18 @@ assert_contains "$OPERATOR" 'public_routing=not_managed' \
     "operator status must keep DNS outside its authority"
 assert_contains "$OPERATOR" 'exec 9>"\$LOCK_FILE"' \
     "operator must open its lock descriptor before acquiring the lock"
+assert_contains "$OPERATOR" 'readonly LOCK_FILE="\$STATE_DIRECTORY/operator\.lock"' \
+    "operator lock must stay inside the writable state boundary"
+assert_contains "$OPERATOR" 'validate_state_boundary' \
+    "operator must validate its state and lock parent before locking"
+assert_not_contains "$OPERATOR" '/run/lock/babyjamjam-fallback-server\.lock' \
+    "operator must not use a system-wide lock outside the controller sandbox"
+assert_contains "$OPERATOR" 'readonly LOCK_FILE="\$STATE_DIRECTORY/operator\.lock"' \
+    "operator lock must stay inside the writable state boundary"
+assert_contains "$OPERATOR" 'validate_state_boundary' \
+    "operator must validate its state and lock parent before locking"
+assert_not_contains "$OPERATOR" '/run/lock/babyjamjam-fallback-server\.lock' \
+    "operator must not use a system-wide lock outside the controller sandbox"
 assert_not_contains "$OPERATOR" '(aws[[:space:]]|ssh[[:space:]]|cloudflared|vercel)' \
     "operator must not mutate external routing or cloud control planes"
 assert_not_contains "$OPERATOR" 'prisma.*migrate|migrate.*deploy' \
