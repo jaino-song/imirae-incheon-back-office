@@ -32,6 +32,10 @@ export class TemplateVariableDto {
     dataSource?: string;
 
     @IsOptional()
+    @IsString()
+    fallback?: string;
+
+    @IsOptional()
     @IsNumber()
     min?: number;
 
