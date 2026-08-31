@@ -1,3 +1,5 @@
+import { Logger } from "@nestjs/common";
+
 import { SbMessageLogRepository } from "infrastructure/database/repositories/sb.message-log.repository";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { MessageLogEntity } from "domain/entities/message-log.entity";
@@ -5,6 +7,7 @@ import { MessageLogEntity } from "domain/entities/message-log.entity";
 describe("SbMessageLogRepository", () => {
     const createMockPrismaMessageLog = () => ({
         create: jest.fn(),
+        update: jest.fn(),
         findUnique: jest.fn(),
         findFirst: jest.fn(),
         findMany: jest.fn(),
@@ -28,9 +31,9 @@ describe("SbMessageLogRepository", () => {
         jest.clearAllMocks();
     });
 
-    describe("findSentTriggerJobIds", () => {
+    describe("findSentTriggerJobIdsSystemScope", () => {
         it("should return an empty set without querying when jobIds is empty", async () => {
-            const result = await repository.findSentTriggerJobIds([]);
+            const result = await repository.findSentTriggerJobIdsSystemScope([]);
 
             expect(result).toEqual(new Set());
             expect(messageLogModel.findMany).not.toHaveBeenCalled();
@@ -43,7 +46,7 @@ describe("SbMessageLogRepository", () => {
                 { triggerJobId: "job-3" },
             ]);
 
-            const result = await repository.findSentTriggerJobIds(["job-1", "job-2", "job-3"]);
+            const result = await repository.findSentTriggerJobIdsSystemScope(["job-1", "job-2", "job-3"]);
 
             expect(messageLogModel.findMany).toHaveBeenCalledWith({
                 where: {
@@ -53,6 +56,76 @@ describe("SbMessageLogRepository", () => {
                 select: { triggerJobId: true },
             });
             expect(result).toEqual(new Set(["job-1", "job-3"]));
+        });
+    });
+
+    describe("update", () => {
+        const buildRow = (branchId: string | null) => ({
+            id: 55,
+            branchId,
+            provider: "aligo_sms",
+            templateKey: "manual_sms",
+            triggerJobId: null,
+            receiver: "01012345678",
+            clientId: null,
+            recipientName: null,
+            recipientPhone: "01012345678",
+            messageBody: "message",
+            variables: {},
+            status: "sent",
+            aligoMid: "aligo-mid",
+            errorMessage: null,
+            attempts: 1,
+            lastAttemptAt: new Date("2026-08-29T00:00:00.000Z"),
+            nextRetryAt: null,
+            createdAt: new Date("2026-08-28T00:00:00.000Z"),
+            updatedAt: new Date("2026-08-29T00:00:00.000Z"),
+        });
+        const buildEntity = (branchId: string | null) => MessageLogEntity.reconstitute(
+            55,
+            branchId,
+            "aligo_sms",
+            "manual_sms",
+            null,
+            "01012345678",
+            null,
+            "message",
+            {},
+            "sent",
+            "aligo-mid",
+            null,
+            1,
+            new Date("2026-08-29T00:00:00.000Z"),
+            null,
+            new Date("2026-08-28T00:00:00.000Z"),
+            new Date("2026-08-29T00:00:00.000Z"),
+        );
+
+        it("pins the where clause to the entity's branch when one is set", async () => {
+            const log = buildEntity("branch-1");
+            messageLogModel.update.mockResolvedValue(buildRow("branch-1"));
+
+            await repository.update(log);
+
+            expect(messageLogModel.update).toHaveBeenCalledWith(
+                expect.objectContaining({ where: { id: 55, branchId: "branch-1" } }),
+            );
+        });
+
+        it("falls back to an id-only where and warns when the entity has no branch", async () => {
+            const warnSpy = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+            const log = buildEntity(null);
+            messageLogModel.update.mockResolvedValue(buildRow(null));
+
+            await repository.update(log);
+
+            expect(messageLogModel.update).toHaveBeenCalledWith(
+                expect.objectContaining({ where: { id: 55 } }),
+            );
+            expect(warnSpy).toHaveBeenCalledWith(
+                expect.stringContaining("message_log_null_branch_write"),
+            );
+            warnSpy.mockRestore();
         });
     });
 
