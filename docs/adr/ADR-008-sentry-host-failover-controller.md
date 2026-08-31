@@ -17,11 +17,11 @@ add a deployment delay and configuration drift. The Fallback Server runs on the
 physical Covenant server and is prepared to use the Production DB, but remains
 API-only while AWS owns production traffic.
 
-This decision extends [ADR-007](ADR-007-covenant-api-only-standby.md), which
+This decision extends [ADR-007](ADR-007-fallback-server.md), which
 defines the Fallback Server's passive runtime and physical-host boundary.
 
 The provider-source and payload boundary in the Phase 1
-[Sentry host-failover webhook contract](../../backend/deploy/covenant/SENTRY_HOST_FAILOVER.md)
+[Sentry host-failover webhook contract](../../backend/deploy/fallback-server/SENTRY_HOST_FAILOVER.md)
 is authoritative for this ADR.
 
 Sentry Uptime can detect an externally visible readiness failure, create an
