@@ -10,7 +10,6 @@ import {
   KEEP_ALIVE_TIMEOUT_MS,
   MAX_CONNECTIONS,
   REQUEST_TIMEOUT_MS,
-  parseControllerConfig,
 } from '../config.mjs';
 import {
   createControllerServer,
