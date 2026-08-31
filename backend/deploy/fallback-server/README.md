@@ -1,9 +1,10 @@
-# Covenant backend standby
+# Fallback Server backend
 
-The Covenant server is an API-only warm standby for BabyJamJam production. It
-runs the same immutable backend image as Lightsail but does not own public
-routing, schedulers, auto-finalizers, eFormsign job intake, or document workers
-while AWS is healthy.
+The Covenant server is the physical host for the BabyJamJam **Fallback
+Server**, an API-only warm standby for production. It runs the same immutable
+backend image as Lightsail but does not own public routing, schedulers,
+auto-finalizers, eFormsign job intake, or document workers while AWS is
+healthy.
 
 ## Safety boundary
 
@@ -24,11 +25,11 @@ while AWS is healthy.
 ## Host layout
 
 ```text
-/usr/local/sbin/babyjamjam-covenant-standby
-/usr/local/libexec/babyjamjam-covenant-standby/
+/usr/local/sbin/babyjamjam-fallback-server
+/usr/local/libexec/babyjamjam-fallback-server/
 ├── bundle.manifest
 └── compose.yml
-/opt/babyjamjam-covenant/
+/opt/babyjamjam-fallback-server/
 ├── backend.env
 └── state/
     ├── current-image-digest
@@ -46,10 +47,10 @@ Installation and deployment are live host changes and require separate
 approval. From a reviewed checkout on the Covenant server:
 
 ```bash
-sudo backend/deploy/covenant/install.sh
+sudo backend/deploy/fallback-server/install.sh
 sudo install -o root -g root -m 0600 /approved/path/backend.env \
-  /opt/babyjamjam-covenant/backend.env
-sudo /usr/local/sbin/babyjamjam-covenant-standby deploy \
+  /opt/babyjamjam-fallback-server/backend.env
+sudo /usr/local/sbin/babyjamjam-fallback-server deploy \
   <40-character-main-commit-sha> <sha256-image-digest>
 ```
 
@@ -60,27 +61,27 @@ job gates as `false`.
 ## Incident cutover
 
 1. Confirm the AWS production origin is unavailable or fenced.
-2. Run `babyjamjam-covenant-standby status`; require healthy container, zero
+2. Run `babyjamjam-fallback-server status`; require healthy container, zero
    restarts, database readiness, and every passive gate disabled.
 3. Reconcile ambiguous eformsign submissions before retrying a document.
-4. Cut `api.babyjamjam.com` to the preconfigured Covenant origin through the
+4. Cut `api.babyjamjam.com` to the preconfigured Fallback Server origin through the
    separately approved DNS or load-balancer control plane.
-5. Keep the standby API-only. Enabling schedulers or document workers requires
-   a separate ownership design and is outside this operator.
+5. Keep the Fallback Server API-only. Enabling schedulers or document workers
+   requires a separate ownership design and is outside this operator.
 6. Verify the public readiness route, authenticated login, and one authorized
    document-confirmation smoke test.
 
 ## Recovery and rollback
 
-Switch public traffic away before stopping or rolling back the standby.
+Switch public traffic away before stopping or rolling back the Fallback Server.
 
 ```bash
-sudo /usr/local/sbin/babyjamjam-covenant-standby rollback
-sudo /usr/local/sbin/babyjamjam-covenant-standby stop
+sudo /usr/local/sbin/babyjamjam-fallback-server rollback
+sudo /usr/local/sbin/babyjamjam-fallback-server stop
 ```
 
 Returning to AWS requires AWS readiness proof, public health, current release
-identity, and eformsign/job reconciliation. Because the Covenant runtime never
+identity, and eformsign/job reconciliation. Because the Fallback runtime never
 owns schedulers, no scheduler transfer is needed for this API-only profile.
 
 ## Static outbound IP

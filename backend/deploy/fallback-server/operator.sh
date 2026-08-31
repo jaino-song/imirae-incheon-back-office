@@ -5,17 +5,17 @@ set -euo pipefail
 readonly SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export PATH="$SAFE_PATH"
 
-readonly ARTIFACT_ROOT="/usr/local/libexec/babyjamjam-covenant-standby"
+readonly ARTIFACT_ROOT="/usr/local/libexec/babyjamjam-fallback-server"
 readonly COMPOSE_FILE="$ARTIFACT_ROOT/compose.yml"
 readonly BUNDLE_MANIFEST="$ARTIFACT_ROOT/bundle.manifest"
-readonly INSTALLED_OPERATOR="/usr/local/sbin/babyjamjam-covenant-standby"
-readonly STATE_ROOT="/opt/babyjamjam-covenant"
+readonly INSTALLED_OPERATOR="/usr/local/sbin/babyjamjam-fallback-server"
+readonly STATE_ROOT="/opt/babyjamjam-fallback-server"
 readonly STATE_DIRECTORY="$STATE_ROOT/state"
 readonly ENV_FILE="$STATE_ROOT/backend.env"
-readonly LOCK_FILE="/run/lock/babyjamjam-covenant-standby.lock"
+readonly LOCK_FILE="/run/lock/babyjamjam-fallback-server.lock"
 readonly IMAGE_REPOSITORY="ghcr.io/jaino-song/babyjamjam-admin-backend"
 readonly LOCAL_IMAGE_REPOSITORY="babyjamjam-backend"
-readonly PROJECT_NAME="babyjamjam-covenant-standby"
+readonly PROJECT_NAME="babyjamjam-fallback-server"
 readonly LOOPBACK_READY_URL="http://127.0.0.1:3101/health/ready"
 readonly COMPOSE_ENV_FILE="/dev/null"
 readonly SHA_PATTERN='^[0-9a-f]{40}$'
@@ -52,12 +52,12 @@ readonly PASSIVE_ENV_KEYS=(
 usage() {
     cat >&2 <<'EOF'
 Usage:
-  babyjamjam-covenant-standby status
-  babyjamjam-covenant-standby deploy <40-character-commit-sha> <sha256-image-digest>
-  babyjamjam-covenant-standby rollback
-  babyjamjam-covenant-standby stop
+  babyjamjam-fallback-server status
+  babyjamjam-fallback-server deploy <40-character-commit-sha> <sha256-image-digest>
+  babyjamjam-fallback-server rollback
+  babyjamjam-fallback-server stop
 
-This operator manages only the loopback-bound, passive Covenant standby. It
+This operator manages only the loopback-bound, passive Fallback Server. It
 does not change DNS, Cloudflare, Vercel, AWS, Aligo, migrations, or scheduler
 ownership.
 EOF
@@ -69,7 +69,7 @@ die() {
 }
 
 require_root() {
-    [[ "$EUID" -eq 0 ]] || die "The Covenant standby operator must run as root."
+    [[ "$EUID" -eq 0 ]] || die "The Fallback Server operator must run as root."
 }
 
 sha256_file() {
@@ -84,7 +84,7 @@ sha256_file() {
         die "A SHA-256 utility is required."
     fi
     output="${output%% *}"
-    [[ "$output" =~ ^[0-9a-f]{64}$ ]] || die "Unable to hash a protected standby artifact."
+    [[ "$output" =~ ^[0-9a-f]{64}$ ]] || die "Unable to hash a protected Fallback Server artifact."
     printf '%s\n' "$output"
 }
 
@@ -93,37 +93,37 @@ validate_bundle() {
     local operator_digest
 
     [[ "$0" == "$INSTALLED_OPERATOR" ]] \
-        || die "Invoke the installed Covenant standby operator."
+        || die "Invoke the installed Fallback Server operator."
     [[ -d "$ARTIFACT_ROOT" && ! -L "$ARTIFACT_ROOT" ]] \
-        || die "The protected Covenant standby artifact directory is missing or invalid."
+        || die "The protected Fallback Server artifact directory is missing or invalid."
     [[ "$(/usr/bin/stat -c '%U:%G:%a' "$ARTIFACT_ROOT")" == "root:root:700" ]] \
-        || die "The protected Covenant standby artifact directory has unsafe ownership or mode."
+        || die "The protected Fallback Server artifact directory has unsafe ownership or mode."
     [[ -f "$COMPOSE_FILE" && ! -L "$COMPOSE_FILE" \
         && "$(/usr/bin/stat -c '%U:%G:%a' "$COMPOSE_FILE")" == "root:root:640" ]] \
-        || die "The protected Covenant Compose artifact is missing or unsafe."
+        || die "The protected Fallback Server Compose artifact is missing or unsafe."
     [[ -f "$BUNDLE_MANIFEST" && ! -L "$BUNDLE_MANIFEST" \
         && "$(/usr/bin/stat -c '%U:%G:%a' "$BUNDLE_MANIFEST")" == "root:root:640" ]] \
-        || die "The Covenant standby bundle manifest is missing or unsafe."
+        || die "The Fallback Server bundle manifest is missing or unsafe."
     [[ "$(/usr/bin/stat -c '%U:%G:%a' "$INSTALLED_OPERATOR")" == "root:root:750" ]] \
-        || die "The installed Covenant standby operator is missing or unsafe."
+        || die "The installed Fallback Server operator is missing or unsafe."
 
     operator_digest="$(sha256_file "$INSTALLED_OPERATOR")"
     compose_digest="$(sha256_file "$COMPOSE_FILE")"
     /usr/bin/grep -Fqx "operator.sh=$operator_digest" "$BUNDLE_MANIFEST" \
-        || die "The installed Covenant standby operator does not match its manifest."
+        || die "The installed Fallback Server operator does not match its manifest."
     /usr/bin/grep -Fqx "compose.yml=$compose_digest" "$BUNDLE_MANIFEST" \
-        || die "The Covenant Compose artifact does not match its manifest."
+        || die "The Fallback Server Compose artifact does not match its manifest."
     [[ "$(/usr/bin/wc -l <"$BUNDLE_MANIFEST")" -eq 2 ]] \
-        || die "The Covenant standby bundle manifest is incomplete."
+        || die "The Fallback Server bundle manifest is incomplete."
 }
 
 validate_env_file() {
     local key
 
     [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] \
-        || die "The Covenant standby environment file is missing or invalid."
+        || die "The Fallback Server environment file is missing or invalid."
     [[ "$(/usr/bin/stat -c '%U:%G:%a' "$ENV_FILE")" == "root:root:600" ]] \
-        || die "The Covenant standby environment file must be root:root mode 600."
+        || die "The Fallback Server environment file must be root:root mode 600."
 
     for key in "${REQUIRED_ENV_KEYS[@]}"; do
         /usr/bin/awk -F= -v wanted="$key" '
@@ -133,7 +133,7 @@ validate_env_file() {
                 if (value != "" && value != "\"\"" && value != "\047\047") found += 1
             }
             END { exit found == 1 ? 0 : 1 }
-        ' "$ENV_FILE" || die "The Covenant standby environment file is missing a required value."
+        ' "$ENV_FILE" || die "The Fallback Server environment file is missing a required value."
     done
 }
 
@@ -229,12 +229,12 @@ verify_passive_runtime() {
     local value
 
     container_id="$(container_id_for "$commit_sha")" \
-        || die "The Covenant standby API container is not running."
+        || die "The Fallback Server API container is not running."
     for key in "${PASSIVE_ENV_KEYS[@]}"; do
         value="$(/usr/bin/docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container_id" \
             | /usr/bin/awk -F= -v wanted="$key" '$1 == wanted { count += 1; value = tolower($2) } END { if (count == 1) print value; else exit 1 }')" \
-            || die "A passive Covenant runtime gate is missing or duplicated."
-        [[ "$value" == "false" ]] || die "A passive Covenant runtime gate is not disabled."
+            || die "A passive Fallback runtime gate is missing or duplicated."
+        [[ "$value" == "false" ]] || die "A passive Fallback runtime gate is not disabled."
     done
 }
 
@@ -258,9 +258,9 @@ deploy_release() {
     current_digest="$(read_state current-image-digest || true)"
     if [[ -n "$current_tag" || -n "$current_digest" ]]; then
         [[ "$current_tag" =~ $SHA_PATTERN && "$current_digest" =~ $DIGEST_PATTERN ]] \
-            || die "The recorded Covenant standby rollback state is incomplete."
+            || die "The recorded Fallback Server rollback state is incomplete."
         /usr/bin/docker image inspect "$LOCAL_IMAGE_REPOSITORY:$current_tag" >/dev/null 2>&1 \
-            || die "The recorded Covenant standby rollback image is unavailable."
+            || die "The recorded Fallback Server rollback image is unavailable."
     fi
     pull_release_image "$commit_sha" "$image_digest"
 
@@ -268,11 +268,11 @@ deploy_release() {
         if [[ "$current_tag" =~ $SHA_PATTERN && "$current_digest" =~ $DIGEST_PATTERN \
             && -n "$(/usr/bin/docker image inspect "$LOCAL_IMAGE_REPOSITORY:$current_tag" --format '{{.Id}}' 2>/dev/null || true)" ]]; then
             activate_release "$current_tag" \
-                || die "The standby deployment failed and automatic rollback also failed."
+                || die "The Fallback Server deployment failed and automatic rollback also failed."
         else
             compose "$commit_sha" stop api >/dev/null 2>&1 || true
         fi
-        die "The standby deployment failed readiness or passive-runtime verification."
+        die "The Fallback Server deployment failed readiness or passive-runtime verification."
     fi
 
     if [[ "$current_tag" =~ $SHA_PATTERN && "$current_digest" =~ $DIGEST_PATTERN ]]; then
@@ -295,34 +295,34 @@ status_release() {
     local restart_count
     local running_image_id
 
-    commit_sha="$(read_state current-image-tag)" || die "No healthy Covenant standby release is recorded."
-    image_digest="$(read_state current-image-digest)" || die "No Covenant standby image digest is recorded."
+    commit_sha="$(read_state current-image-tag)" || die "No healthy Fallback Server release is recorded."
+    image_digest="$(read_state current-image-digest)" || die "No Fallback Server image digest is recorded."
     validate_release "$commit_sha" "$image_digest"
-    container_id="$(container_id_for "$commit_sha")" || die "The Covenant standby API container is not running."
+    container_id="$(container_id_for "$commit_sha")" || die "The Fallback Server API container is not running."
     local_image_id="$(/usr/bin/docker image inspect --format '{{.Id}}' "$LOCAL_IMAGE_REPOSITORY:$commit_sha")" \
-        || die "The recorded Covenant standby image is missing."
+        || die "The recorded Fallback Server image is missing."
     immutable_image_id="$(/usr/bin/docker image inspect --format '{{.Id}}' "$IMAGE_REPOSITORY@$image_digest")" \
-        || die "The recorded immutable Covenant standby image is missing."
+        || die "The recorded immutable Fallback Server image is missing."
     [[ "$local_image_id" == "$immutable_image_id" ]] \
-        || die "The recorded Covenant standby tag does not match its immutable digest."
+        || die "The recorded Fallback Server tag does not match its immutable digest."
     running_image_id="$(/usr/bin/docker inspect --format '{{.Image}}' "$container_id")"
     [[ "$running_image_id" == "$local_image_id" ]] \
-        || die "The running Covenant standby container does not match the recorded release."
+        || die "The running Fallback Server container does not match the recorded release."
     image_revision="$(/usr/bin/docker image inspect \
         --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
         "$LOCAL_IMAGE_REPOSITORY:$commit_sha")"
     [[ "$image_revision" == "$commit_sha" ]] \
-        || die "The recorded Covenant standby image revision is invalid."
+        || die "The recorded Fallback Server image revision is invalid."
     container_health="$(/usr/bin/docker inspect --format '{{.State.Health.Status}}' "$container_id")"
     restart_count="$(/usr/bin/docker inspect --format '{{.RestartCount}}' "$container_id")"
-    [[ "$container_health" == "healthy" ]] || die "The Covenant standby API container is not healthy."
-    [[ "$restart_count" == "0" ]] || die "The Covenant standby API container has restarted."
+    [[ "$container_health" == "healthy" ]] || die "The Fallback Server API container is not healthy."
+    [[ "$restart_count" == "0" ]] || die "The Fallback Server API container has restarted."
     /usr/bin/curl --fail --silent --show-error --connect-timeout 2 --max-time 5 \
-        "$LOOPBACK_READY_URL" >/dev/null || die "The Covenant standby readiness endpoint failed."
+        "$LOOPBACK_READY_URL" >/dev/null || die "The Fallback Server readiness endpoint failed."
     verify_passive_runtime "$commit_sha"
 
     printf '%s\n' \
-        "environment=covenant-standby" \
+        "environment=fallback-server" \
         "current_tag=$commit_sha" \
         "current_digest=$image_digest" \
         "container_health=$container_health" \
@@ -340,14 +340,14 @@ rollback_release() {
     local previous_digest
     local previous_tag
 
-    current_tag="$(read_state current-image-tag)" || die "No current standby release is recorded."
-    current_digest="$(read_state current-image-digest)" || die "No current standby digest is recorded."
-    previous_tag="$(read_state previous-image-tag)" || die "No previous standby release is recorded."
-    previous_digest="$(read_state previous-image-digest)" || die "No previous standby digest is recorded."
+    current_tag="$(read_state current-image-tag)" || die "No current Fallback Server release is recorded."
+    current_digest="$(read_state current-image-digest)" || die "No current Fallback Server digest is recorded."
+    previous_tag="$(read_state previous-image-tag)" || die "No previous Fallback Server release is recorded."
+    previous_digest="$(read_state previous-image-digest)" || die "No previous Fallback Server digest is recorded."
     validate_release "$previous_tag" "$previous_digest"
     /usr/bin/docker image inspect "$LOCAL_IMAGE_REPOSITORY:$previous_tag" >/dev/null 2>&1 \
-        || die "The previous standby image is not present locally."
-    activate_release "$previous_tag" || die "The Covenant standby rollback failed."
+        || die "The previous Fallback Server image is not present locally."
+    activate_release "$previous_tag" || die "The Fallback Server rollback failed."
     write_state current-image-tag "$previous_tag"
     write_state current-image-digest "$previous_digest"
     write_state previous-image-tag "$current_tag"
@@ -358,10 +358,10 @@ rollback_release() {
 stop_release() {
     local current_tag
 
-    current_tag="$(read_state current-image-tag)" || die "No current standby release is recorded."
+    current_tag="$(read_state current-image-tag)" || die "No current Fallback Server release is recorded."
     compose "$current_tag" stop api >/dev/null
     printf '%s\n' \
-        "environment=covenant-standby" \
+        "environment=fallback-server" \
         "runtime=stopped" \
         "public_routing=not_managed"
 }
@@ -373,7 +373,7 @@ main() {
     validate_bundle
     /usr/bin/install -d -o root -g root -m 700 "$STATE_DIRECTORY"
     exec 9>"$LOCK_FILE"
-    /usr/bin/flock -w 5 9 || die "Another Covenant standby operation is active."
+    /usr/bin/flock -w 5 9 || die "Another Fallback Server operation is active."
 
     case "$action" in
         status)
