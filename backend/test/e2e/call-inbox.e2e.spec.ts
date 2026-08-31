@@ -66,7 +66,29 @@ const webhookPayload = {
     sttModel: "gemini-3.5-transcribe",
     diarized: true,
     vocabularyVersion: "v1",
-    transcriptRaw: [{ speaker: "1", text: "산후도우미 문의요" }],
+    // Two raw speakers so the post-processing assertion (case 4b) can prove
+    // the refine stub maps BOTH sides of the diarized:true vocabulary
+    // ("1"→"아이미래로", "2"→"고객"), not just one.
+    transcriptRaw: [
+        { speaker: "1", text: "산후도우미 문의요" },
+        { speaker: "2", text: "네 알겠습니다" },
+    ],
+};
+
+// Second, independent record for the diarized:false case (test 12). Its own
+// FILE_ID/callRecordId so it never shares state with the primary flow above.
+const FILE_ID_2 = `e2e-call-diarized-false-${Date.now()}`;
+const FILE_NAME_2 = "통화 녹음 미상_익명.m4a";
+const webhookPayload2 = {
+    driveFileId: FILE_ID_2,
+    fileName: FILE_NAME_2,
+    sttModel: "gemini-3.5-transcribe",
+    diarized: false,
+    vocabularyVersion: "v1",
+    transcriptRaw: [
+        { speaker: "0", text: "산후도우미 문의드립니다" },
+        { speaker: "0", text: "네 안내드릴게요" },
+    ],
 };
 
 interface DraftListItem {
@@ -89,6 +111,8 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
     let callRecordId: string;
     let draftId: string;
     let createdClientId: number | undefined;
+    // Second, independent record for the diarized:false case (test 12).
+    let callRecordId2: string;
     // Second token, issued and revoked in case 9 to exercise the
     // revoked-token path without touching the shared `ingestToken`.
     let revokedIngestToken: string;
@@ -143,6 +167,10 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
                 .deleteMany({ where: { callRecord: { driveFileId: FILE_ID } } })
                 .catch(() => undefined);
             await prisma.call_record.deleteMany({ where: { driveFileId: FILE_ID } }).catch(() => undefined);
+            await prisma.client_draft
+                .deleteMany({ where: { callRecord: { driveFileId: FILE_ID_2 } } })
+                .catch(() => undefined);
+            await prisma.call_record.deleteMany({ where: { driveFileId: FILE_ID_2 } }).catch(() => undefined);
             if (createdClientId !== undefined) {
                 await prisma.client.deleteMany({ where: { id: createdClientId } }).catch(() => undefined);
             }
@@ -190,7 +218,13 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
         const record = await prisma.call_record.findUnique({ where: { id: callRecordId } });
 
         expect(record).not.toBeNull();
-        expect(record?.transcript).toEqual(webhookPayload.transcriptRaw);
+        // NOT asserting record.transcript here: call-ingestion.service.ts:71
+        // fires processCallRecord fire-and-forget right after the 202, and the
+        // refine stage overwrites `transcript` asynchronously — an equality
+        // check against the raw payload here would be racy. transcriptRaw and
+        // sttMeta are the stable columns refine never mutates; `transcript`
+        // is asserted for its POST-refine content in test 4b below instead.
+        expect(record?.transcript).toBeDefined();
         expect(record?.transcriptRaw).toEqual(webhookPayload.transcriptRaw);
         expect(record?.sttMeta).toEqual({
             sttModel: webhookPayload.sttModel,
@@ -233,6 +267,19 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
         expect(found.callerPhone).toBe("01048217763");
 
         draftId = found.id;
+    });
+
+    it("4b. call_record.transcript holds the stub-refined, role-mapped transcript; transcript_raw is unchanged", async () => {
+        // By test 4, processing has reached EXTRACTED (the draft was found), so
+        // the refine write has landed and this read is not racy.
+        const record = await prisma.call_record.findUnique({ where: { id: callRecordId } });
+
+        expect(record?.processingStatus).toBe("EXTRACTED");
+        expect(record?.transcript).toEqual([
+            { speaker: "아이미래로", text: "산후도우미 문의요" },
+            { speaker: "고객", text: "네 알겠습니다" },
+        ]);
+        expect(record?.transcriptRaw).toEqual(webhookPayload.transcriptRaw);
     });
 
     it("5. staff confirms the draft → creates a client (suppressGreetingSms)", async () => {
@@ -328,5 +375,38 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
             .get("/webhooks/call-transcripts/vocabulary")
             .set("Authorization", `Bearer ${revokedIngestToken}`);
         expect(res.status).toBe(401);
+    });
+
+    it("12. diarized:false webhook → every refined turn carries the neutral 화자 speaker", async () => {
+        const ingestRes = await request(app.getHttpServer())
+            .post("/webhooks/call-transcripts")
+            .set("Authorization", `Bearer ${ingestToken}`)
+            .send(webhookPayload2);
+
+        expect(ingestRes.status).toBe(202);
+        expect(ingestRes.body.accepted).toBe(true);
+        expect(ingestRes.body.duplicate).toBe(false);
+        callRecordId2 = ingestRes.body.callRecordId;
+
+        // Poll for EXTRACTED rather than a bare read after the 202 — a bare
+        // read here would be racy for exactly the reason fixed in test 4b.
+        const deadline = Date.now() + 10_000;
+        let record: { processingStatus: string; transcriptRaw: unknown; transcript: unknown } | null = null;
+        while (Date.now() < deadline) {
+            record = await prisma.call_record.findUnique({ where: { id: callRecordId2 } });
+            if (record?.processingStatus === "EXTRACTED") break;
+            await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+
+        expect(record?.processingStatus).toBe("EXTRACTED");
+        expect(record?.transcriptRaw).toEqual(webhookPayload2.transcriptRaw);
+        const refinedTranscript = record?.transcript as { speaker: string; text: string }[];
+        expect(refinedTranscript).toEqual([
+            { speaker: "화자", text: "산후도우미 문의드립니다" },
+            { speaker: "화자", text: "네 안내드릴게요" },
+        ]);
+        for (const turn of refinedTranscript) {
+            expect(turn.speaker).toBe("화자");
+        }
     });
 });

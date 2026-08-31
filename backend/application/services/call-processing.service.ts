@@ -12,6 +12,11 @@ import {
     CALL_EXTRACTION_PROMPT_VERSION,
     PROPOSAL_FIELDS,
 } from "application/services/call-extraction.prompt";
+import {
+    CALL_REFINEMENT_PORT,
+    CallRefinementPort,
+    CallRefinementResult,
+} from "domain/ports/call-refinement.port";
 import { assertValidPhone, extractPhoneCandidates, normalizePhone } from "application/utils/normalize-phone";
 
 const BOOLEAN_FIELDS = new Set(["careCenter", "voucherClient", "breastPump"]);
@@ -42,6 +47,8 @@ export class CallProcessingService {
         private readonly prismaService: PrismaService,
         @Inject(CALL_EXTRACTION_PORT)
         private readonly extractionPort: CallExtractionPort,
+        @Inject(CALL_REFINEMENT_PORT)
+        private readonly refinementPort: CallRefinementPort,
     ) {}
 
     async processCallRecord(callRecordId: string): Promise<CallProcessingResult> {
@@ -82,10 +89,63 @@ export class CallProcessingService {
             return this.observeCurrentState(callRecordId);
         }
 
+        // Refine v2 records (transcriptRaw present) before extraction; v1/legacy
+        // records (no transcriptRaw) skip refine and extraction reads
+        // record.transcript directly, as before this stage existed. Always
+        // refine from transcriptRaw — never from the (possibly already
+        // refined) record.transcript — so a retried record re-refines
+        // cleanly instead of compounding corrections across attempts.
+        // transcriptRaw and sttMeta are never mutated by this stage.
+        let transcriptForExtraction = record.transcript as unknown as TranscriptTurn[];
+        if (record.transcriptRaw) {
+            const rawSegments = record.transcriptRaw as unknown as TranscriptTurn[];
+            const sttMeta = record.sttMeta as unknown as { diarized?: unknown } | null;
+            const diarized = sttMeta?.diarized === true;
+
+            let refinement: CallRefinementResult;
+            try {
+                refinement = await this.refinementPort.refine({
+                    segments: rawSegments,
+                    diarized,
+                    fileName: record.fileName,
+                });
+            } catch (error) {
+                this.logger.error(`Refinement failed for ${callRecordId}: ${error}`);
+                return this.markClaimFailed(
+                    callRecordId,
+                    claimGeneration,
+                    claimAt,
+                    `refine: ${String(error).slice(0, 950)}`,
+                );
+            }
+
+            // Same fence as the finalize write below: id + processingStatus +
+            // extractionRetryCount (generation) + processingClaimedAt. A miss
+            // means the retry cron reclaimed this record while refine was in
+            // flight — stop here and report the current state; never extract
+            // on a claim we no longer own.
+            const persisted = await this.prismaService.call_record.updateMany({
+                where: {
+                    id: callRecordId,
+                    processingStatus: "PROCESSING",
+                    extractionRetryCount: claimGeneration,
+                    processingClaimedAt: claimAt,
+                },
+                data: {
+                    transcript: refinement.transcript as unknown as Prisma.InputJsonValue,
+                },
+            });
+            if (persisted.count !== 1) {
+                return this.observeCurrentState(callRecordId);
+            }
+
+            transcriptForExtraction = refinement.transcript;
+        }
+
         let extraction: CallExtractionResult;
         try {
             extraction = await this.extractionPort.extract({
-                transcript: record.transcript as unknown as TranscriptTurn[],
+                transcript: transcriptForExtraction,
                 summary: record.summary as Record<string, unknown> | null,
                 fileName: record.fileName,
             });

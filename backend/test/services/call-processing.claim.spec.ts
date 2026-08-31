@@ -107,7 +107,11 @@ describe("CallProcessingService processing claim", () => {
             processingClaimedAt: new Date("2026-08-27T12:00:00.000Z"),
         });
         const extractionPort = { extract: jest.fn() };
-        const service = new CallProcessingService(prisma as never, extractionPort as never);
+        const service = new CallProcessingService(
+            prisma as never,
+            extractionPort as never,
+            { refine: jest.fn() } as never,
+        );
 
         await expect(service.processCallRecord("rec-1")).resolves.toBe("in_progress");
 
@@ -123,7 +127,11 @@ describe("CallProcessingService processing claim", () => {
         extractionPort.extract.mockReturnValue(new Promise<CallExtractionResult>((resolve) => {
             resolveExtraction = resolve;
         }));
-        const service = new CallProcessingService(prisma as never, extractionPort as never);
+        const service = new CallProcessingService(
+            prisma as never,
+            extractionPort as never,
+            { refine: jest.fn() } as never,
+        );
 
         const winner = service.processCallRecord("rec-1");
         await waitForExtraction(extractionPort.extract);
@@ -159,7 +167,11 @@ describe("CallProcessingService processing claim", () => {
             proposals: [{ field: "name", value: "winner" }],
         });
         const extractionPort = { extract: jest.fn().mockResolvedValue(extraction()) };
-        const service = new CallProcessingService(prisma as never, extractionPort as never);
+        const service = new CallProcessingService(
+            prisma as never,
+            extractionPort as never,
+            { refine: jest.fn() } as never,
+        );
 
         await expect(service.processCallRecord("rec-1")).resolves.toBe("processed");
 
@@ -186,8 +198,16 @@ describe("CallProcessingService processing claim", () => {
         secondExtraction.mockReturnValue(new Promise<CallExtractionResult>((resolve) => {
             resolveSecond = resolve;
         }));
-        const first = new CallProcessingService(prisma as never, { extract: firstExtraction } as never);
-        const second = new CallProcessingService(prisma as never, { extract: secondExtraction } as never);
+        const first = new CallProcessingService(
+            prisma as never,
+            { extract: firstExtraction } as never,
+            { refine: jest.fn() } as never,
+        );
+        const second = new CallProcessingService(
+            prisma as never,
+            { extract: secondExtraction } as never,
+            { refine: jest.fn() } as never,
+        );
 
         const staleOwner = first.processCallRecord("rec-1");
         await waitForExtraction(firstExtraction);
@@ -226,8 +246,16 @@ describe("CallProcessingService processing claim", () => {
         const nowSpy = jest.spyOn(Date, "now")
             .mockReturnValueOnce(1_000)
             .mockReturnValue(2_000);
-        const stale = new CallProcessingService(prisma as never, { extract: firstExtraction } as never);
-        const current = new CallProcessingService(prisma as never, { extract: secondExtraction } as never);
+        const stale = new CallProcessingService(
+            prisma as never,
+            { extract: firstExtraction } as never,
+            { refine: jest.fn() } as never,
+        );
+        const current = new CallProcessingService(
+            prisma as never,
+            { extract: secondExtraction } as never,
+            { refine: jest.fn() } as never,
+        );
 
         const staleOwner = stale.processCallRecord("rec-1");
         await waitForExtraction(firstExtraction);
@@ -260,7 +288,11 @@ describe("CallProcessingService processing claim", () => {
     it("does not let a losing invocation turn a successful winner into FAILED", async () => {
         const { record, prisma } = createState();
         const extractionPort = { extract: jest.fn().mockResolvedValue(extraction()) };
-        const service = new CallProcessingService(prisma as never, extractionPort as never);
+        const service = new CallProcessingService(
+            prisma as never,
+            extractionPort as never,
+            { refine: jest.fn() } as never,
+        );
 
         const winner = await service.processCallRecord("rec-1");
         const loser = await service.processCallRecord("rec-1");
@@ -281,7 +313,11 @@ describe("CallProcessingService processing claim", () => {
         staleExtraction.mockReturnValue(new Promise<CallExtractionResult>((_resolve, reject) => {
             rejectStale = reject;
         }));
-        const stale = new CallProcessingService(prisma as never, { extract: staleExtraction } as never);
+        const stale = new CallProcessingService(
+            prisma as never,
+            { extract: staleExtraction } as never,
+            { refine: jest.fn() } as never,
+        );
 
         const staleOwner = stale.processCallRecord("rec-1");
         await waitForExtraction(staleExtraction);
@@ -292,6 +328,7 @@ describe("CallProcessingService processing claim", () => {
         const winner = new CallProcessingService(
             prisma as never,
             { extract: jest.fn().mockResolvedValue(extraction({ requestSummary: "winner" })) } as never,
+            { refine: jest.fn() } as never,
         );
         expect(await winner.processCallRecord("rec-1")).toBe("processed");
 
@@ -315,7 +352,11 @@ describe("CallProcessingService processing claim", () => {
         const extractionPort = { extract: jest.fn()
             .mockRejectedValueOnce(new Error("provider unavailable"))
             .mockResolvedValueOnce(extraction()) };
-        const service = new CallProcessingService(prisma as never, extractionPort as never);
+        const service = new CallProcessingService(
+            prisma as never,
+            extractionPort as never,
+            { refine: jest.fn() } as never,
+        );
 
         await expect(service.processCallRecord("rec-1")).resolves.toBe("failed");
         expect(record.processingStatus).toBe("FAILED");

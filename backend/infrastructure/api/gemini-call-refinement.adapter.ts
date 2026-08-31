@@ -1,0 +1,92 @@
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import {
+    CallRefinementInput,
+    CallRefinementPort,
+    CallRefinementResult,
+    REFINED_SPEAKERS,
+} from "domain/ports/call-refinement.port";
+import {
+    buildCallRefinementPrompt,
+    CALL_REFINEMENT_RESPONSE_SCHEMA,
+} from "application/services/call-refinement.prompt";
+
+const GEMINI_URL =
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+const TIMEOUT_MS = 60_000;
+const ALLOWED_SPEAKERS = new Set<string>(REFINED_SPEAKERS);
+
+@Injectable()
+export class GeminiCallRefinementAdapter implements CallRefinementPort {
+    private readonly logger = new Logger(GeminiCallRefinementAdapter.name);
+
+    constructor(private readonly configService: ConfigService) {}
+
+    async refine(input: CallRefinementInput): Promise<CallRefinementResult> {
+        const apiKey = this.configService.get<string>("GEMINI_API_KEY")?.trim() ?? "";
+        if (!apiKey) {
+            throw new Error("GEMINI_API_KEY not configured");
+        }
+
+        const response = await fetch(GEMINI_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "x-goog-api-key": apiKey,
+            },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: buildCallRefinementPrompt(input) }] }],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: CALL_REFINEMENT_RESPONSE_SCHEMA,
+                },
+            }),
+            signal: AbortSignal.timeout(TIMEOUT_MS),
+        });
+
+        if (!response.ok) {
+            const detail = await response.text().catch(() => "");
+            throw new Error(`Gemini refinement failed (${response.status}): ${detail.slice(0, 500)}`);
+        }
+
+        const data = (await response.json()) as {
+            candidates?: { content?: { parts?: { text?: string }[] } }[];
+        };
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) {
+            throw new Error("Gemini refinement returned no candidates");
+        }
+
+        let parsed: CallRefinementResult;
+        try {
+            parsed = JSON.parse(text) as CallRefinementResult;
+        } catch {
+            throw new Error(`Gemini refinement returned unparseable JSON (length=${text.length})`);
+        }
+
+        this.assertValidRefinement(parsed);
+        return parsed;
+    }
+
+    /**
+     * Validation beyond the extraction sibling (which has none): the response
+     * schema's enum already constrains speaker at the model layer, but a model
+     * can still deviate (e.g. emitting "상담사" instead of "상담원"). Catching
+     * that here — rather than trusting the schema alone — throws so the
+     * record goes FAILED and the retry cron re-runs, instead of letting an
+     * out-of-vocabulary speaker poison the mobile UI's speaker-set
+     * classification (TranscriptView.tsx renders anything outside the six
+     * literals as unattributed, but a near-miss like "상담사" is a silent
+     * misclassification rather than a loud failure).
+     */
+    private assertValidRefinement(parsed: CallRefinementResult): void {
+        if (!Array.isArray(parsed.transcript) || parsed.transcript.length === 0) {
+            throw new Error("Gemini refinement returned an empty or non-array transcript");
+        }
+        for (const turn of parsed.transcript) {
+            if (!ALLOWED_SPEAKERS.has(turn.speaker)) {
+                throw new Error(`Gemini refinement returned an unrecognized speaker: "${turn.speaker}"`);
+            }
+        }
+    }
+}
