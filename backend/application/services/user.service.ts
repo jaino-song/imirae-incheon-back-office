@@ -543,6 +543,17 @@ export class UserService {
             if (params.role !== undefined && current.role === "owner") {
                 throw new ForbiddenException("오너 계정의 역할은 변경할 수 없습니다.");
             }
+            if (
+                params.role !== undefined
+                && params.role !== null
+                && getAccountAssignmentRoleRank(params.role) === undefined
+            ) {
+                // Owner promotion is exclusive to the system-admin flow. Audit the rejected
+                // attempt outside this transaction so the record survives the rollback that
+                // throwing here triggers.
+                await this.appendRejectedRoleGrantAudit(actor, id, current.role, params.role);
+                throw new ForbiddenException("owner 역할은 이 경로로 부여할 수 없습니다.");
+            }
 
             const roleChanged = params.role !== undefined && params.role !== current.role;
             const data: Prisma.userUpdateInput = {
@@ -576,13 +587,23 @@ export class UserService {
                 });
             }
 
-            await this.appendAudit(tx, actor ?? currentAdminAuditActor(), {
-                action: roleChanged ? "user.role.updated" : "user.profile.updated",
-                targetType: "user",
-                targetId: id,
-                before: { id, role: current.role, name: current.name, profileImage: current.profileImage },
-                after: { id, role: updated.role, name: updated.name, profileImage: updated.profileImage },
-            });
+            if (roleChanged) {
+                await this.appendAudit(tx, actor ?? currentAdminAuditActor(), {
+                    action: "user.role_change",
+                    targetType: "user",
+                    targetId: id,
+                    before: current.role,
+                    after: updated.role,
+                });
+            } else {
+                await this.appendAudit(tx, actor ?? currentAdminAuditActor(), {
+                    action: "user.profile.updated",
+                    targetType: "user",
+                    targetId: id,
+                    before: { id, role: current.role, name: current.name, profileImage: current.profileImage },
+                    after: { id, role: updated.role, name: updated.name, profileImage: updated.profileImage },
+                });
+            }
             return UserMapper.toDomain(updated);
         });
     }
@@ -746,6 +767,38 @@ export class UserService {
             throw new Error("Authenticated actor is required for audited user mutations");
         }
         await this.auditWriter.append(tx, { ...event, actor: actor ?? null, outcome: "success", source: "backend" });
+    }
+
+    /**
+     * Best-effort audit for a rejected owner-grant attempt. Writes through the plain
+     * (non-transactional) Prisma client so the record survives even though the caller
+     * throws right after this resolves, which rolls back the enclosing $transaction.
+     * A failure here must never mask the ForbiddenException the caller is about to throw.
+     */
+    private async appendRejectedRoleGrantAudit(
+        actor: AdminAuditActor,
+        targetId: string,
+        beforeRole: string | null,
+        attemptedRole: string,
+    ): Promise<void> {
+        if (!this.auditWriter) {
+            return;
+        }
+        try {
+            await this.auditWriter.append(this.prismaService, {
+                actor,
+                action: "user.role_change",
+                targetType: "user",
+                targetId,
+                before: beforeRole,
+                after: attemptedRole,
+                outcome: "rejected",
+                reason: "owner 역할은 이 경로로 부여할 수 없습니다.",
+                source: "backend",
+            });
+        } catch {
+            // Best-effort: an audit-write failure must not mask the ForbiddenException.
+        }
     }
 
     approve(

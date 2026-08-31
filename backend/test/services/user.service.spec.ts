@@ -1,4 +1,4 @@
-import { ConflictException } from "@nestjs/common";
+import { ConflictException, ForbiddenException } from "@nestjs/common";
 import { UserService } from "../../application/services/user.service";
 import {
     CreateUserUsecase,
@@ -8,6 +8,7 @@ import {
     DeleteUserUsecase,
 } from "../../application/usecases/user";
 import { PrismaService } from "../../infrastructure/database/prisma.service";
+import { AdminAuditActor, AdminAuditEventWriter } from "../../application/services/admin-audit-event.service";
 
 describe("UserService", () => {
     // ============================================
@@ -1314,6 +1315,148 @@ describe("UserService", () => {
                 }),
             );
             expect(result.approvalStatus).toBe("rejected");
+        });
+    });
+
+    // ============================================
+    // update / updateGlobalUser (role-change gate + audit)
+    // ============================================
+    describe("update (global role changes)", () => {
+        let auditWriter: { append: jest.Mock };
+        const actor: AdminAuditActor = { userId: "owner-1", globalRole: "owner" };
+
+        beforeEach(() => {
+            auditWriter = { append: jest.fn().mockResolvedValue(undefined) };
+            service = new UserService(
+                createUserUsecase as unknown as CreateUserUsecase,
+                findUserByIdUsecase as unknown as FindUserByIdUsecase,
+                findUserByKakaoIdUsecase as unknown as FindUserByKakaoIdUsecase,
+                updateUserUsecase as unknown as UpdateUserUsecase,
+                deleteUserUsecase as unknown as DeleteUserUsecase,
+                prismaService as unknown as PrismaService,
+                auditWriter as unknown as AdminAuditEventWriter,
+            );
+        });
+
+        it("writes exactly one success audit event with the correct action/before/after/actor when a role change is applied", async () => {
+            prismaService.user.findUnique.mockResolvedValue({
+                id: "user_1", role: "admin", name: "A", profileImage: null,
+            });
+            prismaService.user.update.mockResolvedValue({
+                id: "user_1", role: "manager", name: "A", profileImage: null,
+            });
+
+            const result = await service.update("user_1", {
+                role: "manager",
+                callerRole: "owner",
+                actor,
+            });
+
+            expect(result.role).toBe("manager");
+            expect(auditWriter.append).toHaveBeenCalledTimes(1);
+            expect(auditWriter.append).toHaveBeenCalledWith(
+                prismaService,
+                expect.objectContaining({
+                    action: "user.role_change",
+                    targetType: "user",
+                    targetId: "user_1",
+                    before: "admin",
+                    after: "manager",
+                    outcome: "success",
+                    actor,
+                }),
+            );
+        });
+
+        it("rolls back the role change when the audit write fails inside the transaction", async () => {
+            prismaService.user.findUnique.mockResolvedValue({
+                id: "user_1", role: "admin", name: "A", profileImage: null,
+            });
+            prismaService.user.update.mockResolvedValue({
+                id: "user_1", role: "manager", name: "A", profileImage: null,
+            });
+            auditWriter.append.mockRejectedValueOnce(new Error("audit db down"));
+
+            await expect(
+                service.update("user_1", { role: "manager", callerRole: "owner", actor }),
+            ).rejects.toThrow("audit db down");
+        });
+
+        it("rejects granting role 'owner' even when the caller is owner, writes a rejected audit event, and does not mutate the user", async () => {
+            prismaService.user.findUnique.mockResolvedValue({
+                id: "user_1", role: "admin", name: "A", profileImage: null,
+            });
+
+            await expect(
+                service.update("user_1", { role: "owner", callerRole: "owner", actor }),
+            ).rejects.toThrow(ForbiddenException);
+
+            expect(prismaService.user.update).not.toHaveBeenCalled();
+            expect(auditWriter.append).toHaveBeenCalledTimes(1);
+            expect(auditWriter.append).toHaveBeenCalledWith(
+                prismaService,
+                expect.objectContaining({
+                    action: "user.role_change",
+                    targetType: "user",
+                    targetId: "user_1",
+                    before: "admin",
+                    after: "owner",
+                    outcome: "rejected",
+                    actor,
+                }),
+            );
+            expect(auditWriter.append.mock.calls[0][1].reason).toBeTruthy();
+        });
+
+        it("still throws ForbiddenException (not masked) when the best-effort rejected-grant audit write itself fails", async () => {
+            prismaService.user.findUnique.mockResolvedValue({
+                id: "user_1", role: "admin", name: "A", profileImage: null,
+            });
+            auditWriter.append.mockRejectedValueOnce(new Error("audit db down"));
+
+            await expect(
+                service.update("user_1", { role: "owner", callerRole: "owner", actor }),
+            ).rejects.toThrow(ForbiddenException);
+            expect(prismaService.user.update).not.toHaveBeenCalled();
+        });
+
+        it("does not audit unrelated profile-only updates as a role change", async () => {
+            prismaService.user.findUnique.mockResolvedValue({
+                id: "user_1", role: "admin", name: "Old", profileImage: null,
+            });
+            prismaService.user.update.mockResolvedValue({
+                id: "user_1", role: "admin", name: "New", profileImage: null,
+            });
+
+            await service.update("user_1", { name: "New", actor });
+
+            expect(auditWriter.append).toHaveBeenCalledTimes(1);
+            expect(auditWriter.append).toHaveBeenCalledWith(
+                prismaService,
+                expect.objectContaining({ action: "user.profile.updated" }),
+            );
+        });
+
+        it("still throws ForbiddenException when a non-owner attempts a role change (existing guard preserved)", async () => {
+            prismaService.user.findUnique.mockResolvedValue({
+                id: "user_1", role: "admin", name: "A", profileImage: null,
+            });
+
+            await expect(
+                service.update("user_1", { role: "manager", callerRole: "manager", actor }),
+            ).rejects.toThrow(ForbiddenException);
+            expect(prismaService.user.update).not.toHaveBeenCalled();
+        });
+
+        it("still throws ForbiddenException when attempting to change an existing owner's role (existing guard preserved)", async () => {
+            prismaService.user.findUnique.mockResolvedValue({
+                id: "user_1", role: "owner", name: "A", profileImage: null,
+            });
+
+            await expect(
+                service.update("user_1", { role: "manager", callerRole: "owner", actor }),
+            ).rejects.toThrow(ForbiddenException);
+            expect(prismaService.user.update).not.toHaveBeenCalled();
         });
     });
 });
