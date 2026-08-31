@@ -328,6 +328,8 @@ export function createFailoverWorker({
     } catch (error) {
       if (error instanceof StaleGenerationError || error instanceof ConditionalStateWriteError) {
         const current = await safeReadState();
+        const disarmed = await clearDisarmedVerification(current, state);
+        if (disarmed) return disarmed;
         return result(WORKER_STATUS.BLOCKED, current, { reason: WORKER_REASONS.STATE_GENERATION_STALE });
       }
       const current = await safeReadState();
@@ -361,6 +363,76 @@ export function createFailoverWorker({
       pendingIncident: null,
       terminalReason: null,
     });
+  }
+
+  function samePendingLineage(current, expected) {
+    const expectedFingerprint = expected?.pendingIncident?.eventFingerprint;
+    const expectedPendingGeneration = expected?.pendingIncident?.generation;
+    return current
+      && expectedFingerprint
+      && Number.isSafeInteger(expectedPendingGeneration)
+      && current.phase === PHASES.VERIFYING
+      && current.currentDnsRole === DNS_ROLES.AWS
+      && current.currentEventFingerprint === expectedFingerprint
+      && current.pendingIncident?.eventFingerprint === expectedFingerprint
+      && current.pendingIncident?.generation === expectedPendingGeneration;
+  }
+
+  function isDisarmedVerification(current, expected) {
+    return samePendingLineage(current, expected) && current.armed === false;
+  }
+
+  async function clearDisarmedVerification(current, expected) {
+    if (!current) return undefined;
+    if (
+      current.armed === false
+      && current.phase === PHASES.AWS_ACTIVE
+      && current.currentDnsRole === DNS_ROLES.AWS
+      && current.pendingIncident === null
+      && current.currentEventFingerprint === null
+    ) {
+      return result(WORKER_STATUS.AWS_ACTIVE, current, {
+        accepted: true,
+        reason: WORKER_REASONS.CONTROLLER_DISARMED,
+      });
+    }
+    if (!isDisarmedVerification(current, expected)) return undefined;
+    try {
+      const reset = await stateStore.update({
+        expectedGeneration: current.generation,
+        expectedPhase: PHASES.VERIFYING,
+        patch: {
+          armed: false,
+          phase: PHASES.AWS_ACTIVE,
+          currentDnsRole: DNS_ROLES.AWS,
+          currentEventFingerprint: null,
+          pendingIncident: null,
+          terminalReason: null,
+        },
+        at: now(),
+      });
+      return result(WORKER_STATUS.AWS_ACTIVE, reset, {
+        accepted: true,
+        reason: WORKER_REASONS.CONTROLLER_DISARMED,
+      });
+    } catch (error) {
+      if (!(error instanceof StaleGenerationError) && !(error instanceof ConditionalStateWriteError)) {
+        return undefined;
+      }
+      const latest = await safeReadState();
+      if (
+        latest?.armed === false
+        && latest.phase === PHASES.AWS_ACTIVE
+        && latest.currentDnsRole === DNS_ROLES.AWS
+        && latest.pendingIncident === null
+      ) {
+        return result(WORKER_STATUS.AWS_ACTIVE, latest, {
+          accepted: true,
+          reason: WORKER_REASONS.CONTROLLER_DISARMED,
+        });
+      }
+      return undefined;
+    }
   }
 
   async function readFallbackStatusSafe() {
@@ -435,6 +507,35 @@ export function createFailoverWorker({
     }
   }
 
+  async function guardDnsMutation(state) {
+    const expectedFingerprint = state.pendingIncident?.eventFingerprint;
+    const expectedPendingGeneration = state.pendingIncident?.generation;
+    if (!expectedFingerprint || !Number.isSafeInteger(expectedPendingGeneration)) {
+      return {
+        ok: false,
+        state,
+        reason: WORKER_REASONS.STATE_GENERATION_STALE,
+      };
+    }
+
+    const current = await safeReadState();
+    const sameVerification = current
+      && current.generation === state.generation
+      && current.phase === PHASES.VERIFYING
+      && current.armed === true
+      && current.currentDnsRole === DNS_ROLES.AWS
+      && current.currentEventFingerprint === expectedFingerprint
+      && current.pendingIncident?.eventFingerprint === expectedFingerprint
+      && current.pendingIncident?.generation === expectedPendingGeneration;
+    if (sameVerification) return { ok: true, state: current };
+
+    const disarmed = await clearDisarmedVerification(current, state);
+    if (disarmed) {
+      return { ok: false, state: disarmed.state, reason: WORKER_REASONS.CONTROLLER_DISARMED };
+    }
+    return { ok: false, state: current, reason: WORKER_REASONS.STATE_GENERATION_STALE };
+  }
+
   async function runVerification(state) {
     const fallbackStatus = await readFallbackStatusSafe();
     if (!fallbackStatus.ok) return finishBlocked(state, fallbackStatus.reason);
@@ -480,6 +581,20 @@ export function createFailoverWorker({
     }
 
     if (dns.target === DNS_TARGET.FALLBACK) return finishFallback(state);
+
+    const mutationGuard = await guardDnsMutation(state);
+    if (!mutationGuard.ok) {
+      if (mutationGuard.reason === WORKER_REASONS.CONTROLLER_DISARMED) {
+        return result(WORKER_STATUS.AWS_ACTIVE, mutationGuard.state, {
+          accepted: true,
+          reason: WORKER_REASONS.CONTROLLER_DISARMED,
+        });
+      }
+      return result(WORKER_STATUS.BLOCKED, mutationGuard.state, {
+        reason: mutationGuard.reason,
+      });
+    }
+    state = mutationGuard.state;
 
     const switcher = fallbackSwitcher(dnsClient);
     try {

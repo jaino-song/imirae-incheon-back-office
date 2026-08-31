@@ -98,9 +98,9 @@ The safe operator flow is:
 5. For recovery, disarm first and restore AWS manually using the
    [manual failback procedure](./CONTROLLER_OPERATIONS.md#manual-failback-and-rollback).
 
-The current source has no dedicated arm/disarm CLI. Do not edit the state JSON
-by hand; production arming remains blocked until that protected interface is
-installed.
+The current source includes a dedicated arm/disarm CLI, but that protected
+interface is not installed on the host yet. Do not edit the state JSON by hand;
+production arming remains blocked until the bundle and service are installed.
 
 ## Related contracts
 

@@ -124,8 +124,8 @@ function normalizePendingIncident(value, stateGeneration) {
   if (!Number.isSafeInteger(value.generation) || value.generation < 1) {
     throw new StateValidationError('pendingIncident.generation must be a positive integer');
   }
-  if (value.generation !== stateGeneration) {
-    throw new StateValidationError('pendingIncident.generation must match state generation');
+  if (value.generation > stateGeneration) {
+    throw new StateValidationError('pendingIncident.generation cannot be ahead of state generation');
   }
   return {
     eventFingerprint,
