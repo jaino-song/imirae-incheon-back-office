@@ -10,6 +10,7 @@ import { TenantModule } from "infrastructure/tenant/tenant.module";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { GlobalValidationPipe } from "infrastructure/pipes/global-validation.pipe";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { CALL_VOCABULARY } from "domain/constants/call-vocabulary";
 
 /**
  * Call Inbox E2E — real DB, real call-inbox slice, vendor stubs.
@@ -88,6 +89,10 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
     let callRecordId: string;
     let draftId: string;
     let createdClientId: number | undefined;
+    // Second token, issued and revoked in case 9 to exercise the
+    // revoked-token path without touching the shared `ingestToken`.
+    let revokedIngestToken: string;
+    let revokedIngestTokenId: string | undefined;
 
     // Injects the seeded owner. TenantGuard (real) consumes this and verifies
     // the branch exists in the DB before allowing the request.
@@ -143,6 +148,11 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
             }
             if (ingestTokenId !== undefined) {
                 await prisma.call_ingest_token.deleteMany({ where: { id: ingestTokenId } }).catch(() => undefined);
+            }
+            if (revokedIngestTokenId !== undefined) {
+                await prisma.call_ingest_token
+                    .deleteMany({ where: { id: revokedIngestTokenId } })
+                    .catch(() => undefined);
             }
         }
         await app?.close();
@@ -281,6 +291,42 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
             .set("Authorization", "Bearer cit_invalid-token-e2e")
             .send({ ...webhookPayload, driveFileId: `${FILE_ID}-invalid` });
 
+        expect(res.status).toBe(401);
+    });
+
+    it("9. the vocabulary endpoint rejects a request without a token → 401", async () => {
+        const res = await request(app.getHttpServer()).get("/webhooks/call-transcripts/vocabulary");
+        expect(res.status).toBe(401);
+    });
+
+    it("10. the vocabulary endpoint returns {version, phrases} for a valid ingest token", async () => {
+        const res = await request(app.getHttpServer())
+            .get("/webhooks/call-transcripts/vocabulary")
+            .set("Authorization", `Bearer ${ingestToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({
+            version: CALL_VOCABULARY.version,
+            phrases: [...CALL_VOCABULARY.phrases],
+        });
+    });
+
+    it("11. the vocabulary endpoint rejects a revoked ingest token → 401", async () => {
+        const createRes = await request(app.getHttpServer())
+            .post(`/branches/${BRANCH_ID}/call-ingest-tokens`)
+            .send({ label: "e2e-revoked" });
+        expect(createRes.status).toBe(201);
+        revokedIngestToken = createRes.body.token;
+        revokedIngestTokenId = createRes.body.id;
+
+        const revokeRes = await request(app.getHttpServer()).post(
+            `/call-ingest-tokens/${revokedIngestTokenId}/revoke`,
+        );
+        expect(revokeRes.status).toBe(200);
+
+        const res = await request(app.getHttpServer())
+            .get("/webhooks/call-transcripts/vocabulary")
+            .set("Authorization", `Bearer ${revokedIngestToken}`);
         expect(res.status).toBe(401);
     });
 });

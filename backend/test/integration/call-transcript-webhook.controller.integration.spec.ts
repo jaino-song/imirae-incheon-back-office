@@ -6,6 +6,7 @@ import { CallIngestionService } from "application/services/call-ingestion.servic
 import { CallIngestTokenService } from "application/services/call-ingest-token.service";
 import { CallIngestGuard } from "infrastructure/auth/call-ingest.guard";
 import { GlobalValidationPipe } from "infrastructure/pipes/global-validation.pipe";
+import { CALL_VOCABULARY } from "domain/constants/call-vocabulary";
 
 describe("CallTranscriptWebhookController (Integration)", () => {
     let app: INestApplication;
@@ -98,5 +99,26 @@ describe("CallTranscriptWebhookController (Integration)", () => {
             .send({ ...payload, recordedAt: "2026-02-31T10:00:00.000Z" });
         expect(response.status).toBe(400);
         expect(ingestionService.ingest).not.toHaveBeenCalled();
+    });
+
+    it("GET vocabulary: 401 without a valid token", async () => {
+        tokenService.resolveBranchId.mockResolvedValue(null);
+        const response = await request(app.getHttpServer())
+            .get("/webhooks/call-transcripts/vocabulary")
+            .set({ Authorization: "Bearer cit_bad" });
+        expect(response.status).toBe(401);
+    });
+
+    it("GET vocabulary: 200 with exactly {version, phrases} matching the constant", async () => {
+        tokenService.resolveBranchId.mockResolvedValue("branch-1");
+        const response = await request(app.getHttpServer())
+            .get("/webhooks/call-transcripts/vocabulary")
+            .set({ Authorization: "Bearer cit_valid" });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({
+            version: CALL_VOCABULARY.version,
+            phrases: [...CALL_VOCABULARY.phrases],
+        });
     });
 });
