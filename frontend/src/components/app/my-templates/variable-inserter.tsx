@@ -7,7 +7,7 @@ interface VariableInserterProps {
     onInsert: (key: string) => void;
 }
 
-const PRESET_VARIABLES = [
+export const PRESET_VARIABLES = [
     { key: "name", label: "이름" },
     { key: "phone", label: "연락처" },
     { key: "address", label: "주소" },
