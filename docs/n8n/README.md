@@ -1,10 +1,10 @@
 # 통화 인박스 — 지점별 n8n 워크플로 온보딩
 
-이 폴더는 통화 녹취 → 전사/교정 → 백엔드 ingest 파이프라인의 **지점별 템플릿**을 담고 있습니다.
+이 폴더는 통화 녹취 → 전사(gemini-3.5-transcribe) → 백엔드 ingest 파이프라인의 **지점별 템플릿**을 담고 있습니다. n8n은 순수 plumbing만 담당합니다 — 용어 교정, 화자→역할 매핑, 통화 요약은 백엔드 refine → extract 단계에서 처리됩니다.
 신규 지점을 연결할 때마다 템플릿을 1회 복제하고 4개의 placeholder만 채우면 됩니다.
 
 - 템플릿: [`call-transcription-branch-template.json`](./call-transcription-branch-template.json)
-- 설계 근거: [`../superpowers/specs/2026-06-10-call-inbox-design.md`](../superpowers/specs/2026-06-10-call-inbox-design.md) §5.1 (브랜치 온보딩 런북)
+- 설계 근거: [`../superpowers/specs/2026-09-01-call-inbox-productionization-design.md`](../superpowers/specs/2026-09-01-call-inbox-productionization-design.md) §4.1 (신규 n8n 브랜치 템플릿 — thin plumbing)
 - API 계약: [`../api/call-inbox-api.md`](../api/call-inbox-api.md) (§4 Operator-side `POST /webhooks/call-transcripts`)
 
 ## 파이프라인 개요
@@ -12,18 +12,17 @@
 ```
 Google Drive Trigger (지점 폴더 1/min 감시)
   → Download file
-  → Initialize Upload Session  (Gemini resumable upload)
+  → Get Vocabulary               (Download file와 병렬; GET .../webhooks/call-transcripts/vocabulary → {version, phrases})
+  → Initialize Upload Session    (Gemini resumable upload)
   → Merge Upload URL + Binary
   → Upload File to Gemini
-  → Code in JavaScript          (1차: gemini-2.5-flash 전사 요청 + 용어 교정 사전)
-  → Gemini Transcribe Audio     (HTTP → 구조화 JSON: summary + transcript[])
-  → Build Correction Request    (2차: 사전 강제 교정 요청 빌드, 동일 JSON 스키마 유지)
-  → Gemini Correct Transcript   (HTTP, retry 5s)
-  → Build Webhook Payload       (fileId/fileName/recordedAt/transcript/summary)
-  → Send to Backend             (POST api.babyjamjam.com/webhooks/call-transcripts, retry 10s)
+  → Build Transcribe Request     (gemini-3.5-transcribe 요청 빌드: ko-KR, diarization_mode=speaker, custom_vocabulary=Get Vocabulary의 phrases)
+  → Gemini Transcribe Audio      (POST /v1beta/interactions — 실패 시 아래 폴백 참고)
+  → Build Webhook Payload        (driveFileId/fileName/recordedAt?/sttModel/diarized/vocabularyVersion/transcriptRaw)
+  → Send to Backend              (POST api.babyjamjam.com/webhooks/call-transcripts, retry 10s)
 ```
 
-전사는 2-pass입니다. 1차는 오디오를 직접 듣고 교정(audio-aware), 2차는 1차 JSON을 받아 사전 기반 텍스트 교정을 한 뒤 **같은 스키마**로 반환합니다. 마지막 노드가 idempotent webhook(`fileId` = 멱등 키)으로 백엔드에 보냅니다.
+전사는 **1회 호출**입니다. `Get Vocabulary`가 Download file 직후 병렬로 실행되어 백엔드 어휘 사전을 버전과 함께 미리 받아두고, `Gemini Transcribe Audio`가 diarization(화자분리) 활성 상태로 gemini-3.5-transcribe를 1회 호출합니다. 오디오가 diarization 한도(30분)를 초과해 이 호출이 실패하면, n8n이 diarization 없이 **정확히 1회만** 재시도합니다 — `Build Non-Diarized Retry Request → Gemini Transcribe Audio (Non-Diarized Retry)` — 이때 웹훅 payload는 `diarized: false`로 표시됩니다. 두 경로 모두 `Build Webhook Payload`로 수렴해 raw diarized transcript(`transcriptRaw`, 역할 매핑 없음)를 만듭니다 — 용어 교정과 화자→역할 매핑, 통화 요약은 이제 백엔드 refine → extract 단계에서 처리합니다(n8n은 순수 plumbing). 마지막 노드가 idempotent webhook(`driveFileId` = 멱등 키)으로 백엔드에 보냅니다.
 
 ## 지점 연결 절차
 
@@ -38,8 +37,8 @@ import 직후 워크플로는 비활성(`active: false`) 상태이고, 아래 pl
 |---|---|---|
 | `REPLACE_DRIVE_FOLDER_ID` | Google Drive Trigger → *Folder* | 이 지점 전용 녹음 폴더의 Drive 폴더 ID. 운영 계정에 공유되어 있어야 함 (아래 메모 참고). `Call Recordings — BRANCH_NAME` 표시명도 지점명으로 변경 |
 | `REPLACE_DRIVE_CREDENTIAL_ID` | Google Drive Trigger + Download file 두 노드의 *Credential* | 운영자의 **단일** Google Drive OAuth 자격증명. 공유 폴더는 이 한 계정으로 폴더 ID만 알면 감시 가능 — 지점마다 새 OAuth 불필요 |
-| `REPLACE_GEMINI_CREDENTIAL_ID` | Initialize Upload Session · Gemini Transcribe Audio · Gemini Correct Transcript 세 노드의 *Header Auth* (`Gemini API KEY`) | Gemini API 키 header-auth 자격증명 |
-| `REPLACE_CALL_INGEST_TOKEN` | Send to Backend → *Header Parameters* → `Authorization: Bearer …` | 이 지점의 ingest 토큰 (`cit_…`). 아래에서 발급 |
+| `REPLACE_GEMINI_CREDENTIAL_ID` | Initialize Upload Session · Gemini Transcribe Audio · Gemini Transcribe Audio (Non-Diarized Retry) 세 노드의 *Header Auth* (`Gemini API KEY`) | Gemini API 키 header-auth 자격증명 |
+| `REPLACE_CALL_INGEST_TOKEN` | Get Vocabulary · Send to Backend 두 노드의 *Header Parameters* → `Authorization: Bearer …` | 이 지점의 ingest 토큰 (`cit_…`). 아래에서 발급 |
 
 **ingest 토큰 발급 (백엔드, admin 권한):**
 
@@ -65,7 +64,7 @@ Body: { "label": "인천본점 n8n" }
 ### ⑤ 스모크 테스트
 
 1. 지점 녹음 폴더에 샘플 오디오 파일 1개를 업로드합니다.
-2. 약 2분 내(폴더 폴링 1/min + 2-pass Gemini)에 해당 지점의 **통화요약** 인박스에 통화가 1건 나타나는지 확인합니다.
+2. 약 1~2분 내(폴더 폴링 1/min + Gemini 전사 1회 호출)에 해당 지점의 **통화요약** 인박스에 통화가 1건 나타나는지 확인합니다.
 3. **다른 지점에는 나타나지 않아야** 합니다 — 나타난다면 토큰/폴더 매핑이 잘못 연결된 것입니다.
 
 오프보딩/로테이션: 토큰을 revoke(`POST /call-ingest-tokens/:id/revoke`)하면 정확히 그 소스 하나만 끊깁니다. 그 후 워크플로를 비활성화합니다.
@@ -74,10 +73,11 @@ Body: { "label": "인천본점 n8n" }
 
 | 증상 | 원인 | 조치 |
 |---|---|---|
-| Send to Backend **401** | ingest 토큰이 revoke되었거나 잘못된 지점의 토큰 | `Authorization` 헤더의 `cit_…` 값을 재확인. 필요 시 새 토큰 발급 후 교체 |
-| Send to Backend **400** | payload 형태 불일치 (필수: `fileId`, `fileName`, `transcript[]`) | Gemini 두 노드(Transcribe / Correct)가 반환한 JSON을 실행 로그에서 확인 — 모델이 스키마를 벗어난 출력을 냈는지 점검. Build Webhook Payload 노드 출력도 확인 |
-| Send to Backend **413** | transcript가 길이 cap 초과 | 매우 긴 통화. 백엔드 cap 정책 확인 필요 |
-| 같은 파일이 **중복** 인박스 진입 우려 | — | `fileId`가 멱등 키. 동일 `fileId` 재전송 시 백엔드는 **200 no-op**으로 응답함 (n8n retry 상황에서 정상). 중복 레코드는 생기지 않음 |
+| Get Vocabulary 또는 Send to Backend **401** | ingest 토큰이 revoke되었거나 잘못된 지점의 토큰 | `Authorization` 헤더의 `cit_…` 값을 재확인 (두 노드 모두 같은 토큰을 씀). 필요 시 새 토큰 발급 후 교체 |
+| Send to Backend **400** — 스키마 불일치 | payload 필드 누락 (필수: `driveFileId`, `fileName`, `sttModel`, `diarized`, `vocabularyVersion`, `transcriptRaw`) 또는 cap 초과 — `transcriptRaw` 최대 500 turn, `speaker` 최대 50자, `text` 최대 2,000자 (`backend/interface/dto/call-inbox.dto.ts:60,:64,:261`, 문서화: `docs/api/call-inbox-api.md:259-260`) | Build Webhook Payload 노드의 출력을 실행 로그에서 확인 — Gemini 응답 파싱이 정상인지, cap을 넘는 통화인지 점검 |
+| Send to Backend **400** — body 크기 초과 | webhook body가 **1MB** 제한을 초과 (매우 긴 통화의 `transcriptRaw`) | 매우 긴 통화. diarization 폴백(§ 아래)이 이미 발동했는지, 캡 정책을 조정해야 하는지 확인 |
+| 같은 파일이 **중복** 인박스 진입 우려 | — | `driveFileId`가 멱등 키. 동일 `driveFileId` 재전송 시 백엔드는 **200 no-op**으로 응답함 (n8n retry 상황에서 정상). 중복 레코드는 생기지 않음 |
+| 통화 화자가 모두 `화자`로만 표시됨 (역할명 없음) | n8n의 **>30분 diarization 폴백**이 발동 — 오디오가 diarization 한도를 초과해 diarization 없이 재시도됨 | 정상 동작입니다. n8n 실행 로그의 Build Webhook Payload 출력에서 `diarized: false`를 확인하세요. 백엔드가 화자 귀속 없이 정제하며, 모바일은 중립 라벨 `화자`로 표시합니다 |
 | 통화가 영영 안 나타남 | 폴더 ID/자격증명 오설정, 또는 워크플로 비활성 | Drive Trigger 노드의 폴더 ID·자격증명, 워크플로 Active 상태, 그리고 폴더에 실제로 파일이 올라왔는지 순서대로 확인 |
 
 ## Phase 3 메모

@@ -13,6 +13,7 @@ const env = {
     DIRECT_URL: databaseUrl,
     NODE_ENV: "test",
     E2E_VENDOR_STUBS: "1",
+    EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID: "tpl-test",
 };
 
 function run(command, args, options = {}) {
@@ -44,7 +45,7 @@ try {
     run("pnpm", [
         "exec",
         "jest",
-        "test/e2e/call-inbox.e2e.spec.ts",
+        "test/e2e/call-inbox",
         "--testPathIgnorePatterns=/node_modules/",
         "--runInBand",
     ]);
