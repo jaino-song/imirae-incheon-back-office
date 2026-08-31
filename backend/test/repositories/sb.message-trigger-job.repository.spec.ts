@@ -260,20 +260,6 @@ describe("SbMessageTriggerJobRepository", () => {
         jest.useRealTimers();
     });
 
-    it("claimPendingSystemScope returns true only when a pending row was claimed", async () => {
-        messageTriggerJobModel.updateMany
-            .mockResolvedValueOnce({ count: 1 })
-            .mockResolvedValueOnce({ count: 0 });
-
-        await expect(repository.claimPendingSystemScope("job-1")).resolves.toBe(true);
-        await expect(repository.claimPendingSystemScope("job-1")).resolves.toBe(false);
-
-        expect(messageTriggerJobModel.updateMany).toHaveBeenCalledWith({
-            where: { id: "job-1", status: "pending" },
-            data: { status: "processing", claimToken: expect.any(String) },
-        });
-    });
-
     it("claimPendingWithRuleFence locks the rule before claiming and refuses a stale rule", async () => {
         queryRaw
             .mockResolvedValueOnce([{ rule_id: "rule-1", branch_id: "branch-1" }])

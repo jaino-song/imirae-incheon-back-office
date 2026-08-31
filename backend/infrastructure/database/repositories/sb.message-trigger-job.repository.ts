@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import {
     IMessageTriggerJobRepository,
@@ -65,10 +65,6 @@ type MessageTriggerJobRawRow = {
     updated_at: Date | string;
     claim_token: string | null;
 };
-
-function cryptoRandomToken(): string {
-    return randomUUID();
-}
 
 function stableJson(value: unknown): string {
     if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -185,22 +181,9 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         return this.toDomain(row);
     }
 
-    async findByIdSystemScope(id: string): Promise<MessageTriggerJobEntity | null> {
-        const row = await this.prisma.message_trigger_job.findUnique({ where: { id } });
-        return row ? this.toDomain(row) : null;
-    }
-
     async findByIdInBranch(branchId: string, id: string): Promise<MessageTriggerJobEntity | null> {
         const row = await this.prisma.message_trigger_job.findFirst({ where: { id, branchId } });
         return row ? this.toDomain(row) : null;
-    }
-
-    async claimPendingSystemScope(id: string): Promise<boolean> {
-        const result = await this.prisma.message_trigger_job.updateMany({
-            where: { id, status: "pending" },
-            data: { status: "processing", claimToken: cryptoRandomToken() },
-        });
-        return result.count === 1;
     }
 
     async claimPendingWithRuleFence(id: string, branchId: string | null): Promise<string | null> {
@@ -373,13 +356,6 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
             orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
             take: limit,
             ...(beforeId ? { cursor: { id: beforeId }, skip: 1 } : {}),
-        });
-        return rows.map((row) => this.toDomain(row));
-    }
-
-    async findPendingByRuleId(ruleId: string): Promise<MessageTriggerJobEntity[]> {
-        const rows = await this.prisma.message_trigger_job.findMany({
-            where: { ruleId, status: "pending" },
         });
         return rows.map((row) => this.toDomain(row));
     }
