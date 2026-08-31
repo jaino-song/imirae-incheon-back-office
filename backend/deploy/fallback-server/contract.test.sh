@@ -9,6 +9,7 @@ readonly INSTALLER="$SCRIPT_ROOT/install.sh"
 readonly OPERATOR="$SCRIPT_ROOT/operator.sh"
 readonly IDENTITY_HELPER="$SCRIPT_ROOT/production-db-identity.sh"
 readonly IDENTITY_TEST="$SCRIPT_ROOT/production-db-identity.test.sh"
+readonly BEHAVIOR_TEST="$SCRIPT_ROOT/operator.behavior.test.sh"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -31,6 +32,7 @@ assert_not_contains() {
 [[ -r "$OPERATOR" ]] || fail "missing Fallback Server operator"
 [[ -r "$IDENTITY_HELPER" ]] || fail "missing Production DB identity helper"
 [[ -r "$IDENTITY_TEST" ]] || fail "missing Production DB identity tests"
+[[ -r "$BEHAVIOR_TEST" ]] || fail "missing temporary-active behavioral tests"
 assert_contains "$IDENTITY_HELPER" 'FALLBACK_PRODUCTION_DB_REF_SHA256' \
     "identity helper must reject the legacy in-environment digest"
 assert_contains "$IDENTITY_HELPER" 'PROJECT_REF_PATTERN' \
@@ -166,5 +168,6 @@ bash -n "$INSTALLER"
 bash -n "$IDENTITY_HELPER"
 bash -n "$IDENTITY_TEST"
 bash "$IDENTITY_TEST"
+bash "$BEHAVIOR_TEST"
 
 echo "Fallback Server contract tests passed"

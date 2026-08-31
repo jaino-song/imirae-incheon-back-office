@@ -195,6 +195,32 @@ deployments together, then turn Funnel off and run the Fallback operator `stop`.
 Sentry/controller automation, DNS changes, and any cloud-control-plane action
 remain outside this runbook and require their own approval.
 
+### Action-time Tailscale Funnel procedure
+
+Do not run these commands until the temporary-active approval, release, DB,
+egress, and rollback deadline are recorded. Publish only the API listener, not
+the controller:
+
+```bash
+tailscale funnel --bg 3101
+tailscale funnel status
+```
+
+Capture the URL returned by Tailscale in the incident record; never substitute
+or invent one. From an external approved observer, verify HTTPS, `/health/ready`,
+and an authenticated smoke flow. Update production `NEXT_PUBLIC_API_BASE_URL`
+for both linked Vercel projects, redeploy both, and verify both frontends before
+the approval expiry. If either fails, restore both prior deployments, verify
+both restored origins, then disable Funnel and stop the active runtime:
+
+```bash
+tailscale funnel off
+sudo /usr/local/sbin/babyjamjam-fallback-server stop
+```
+
+The rollback deadline must precede approval expiry. Controller/Sentry automatic
+failover is explicitly out of scope for this temporary procedure.
+
 The backend environment is root-owned, but Docker daemon/root users can inspect
 container environment metadata. This mode does not claim Docker `env_file` is a
 secret-store boundary: it never logs or prints values, and a file-based
