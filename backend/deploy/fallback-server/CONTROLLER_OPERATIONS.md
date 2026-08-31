@@ -66,16 +66,18 @@ the service account or an untrusted group:
 /opt/babyjamjam-fallback-server/backend.env
 /opt/babyjamjam-fallback-server/controller.env
 /opt/babyjamjam-fallback-server/state/
-└── failover-controller-state.json
-/opt/babyjamjam-fallback-server/state/failover-controller-state.json.lock
+├── failover-controller-state.json
+└── operator.lock
 ```
 
 `backend.env` is the Fallback API environment and must remain `root:root`
 mode `0600`. `controller.env` contains the controller's provider credentials
 and allowlists and must also be `root:root` mode `0600`. The state directory is
-root-owned mode `0700`; the state file and lock are mode `0600`. Executables and
-source files under `/usr/local` must be root-owned and non-writable by the
-service account. The approved Production DB reference digest is a separate
+root-owned mode `0700`; the state file and
+`/opt/babyjamjam-fallback-server/state/operator.lock` are mode `0600`.
+Executables and source files under `/usr/local` must be root-owned and
+non-writable by the service account. The approved Production DB reference digest
+is a separate
 `root:root` mode `0400` file at
 `/opt/babyjamjam-fallback-server/approved-production-db-ref.sha256`; it must not
 be copied into `backend.env`, `controller.env`, state, or logs. Never place
@@ -141,7 +143,8 @@ staging or arming:
 
    ```bash
    sudo /usr/local/libexec/babyjamjam-fallback-server/production-db-identity.sh \
-     /opt/babyjamjam-fallback-server/backend.env
+     /opt/babyjamjam-fallback-server/backend.env \
+     /opt/babyjamjam-fallback-server/approved-production-db-ref.sha256
    ```
 
 4. Run `sudo /usr/local/sbin/babyjamjam-fallback-server status` and require:
