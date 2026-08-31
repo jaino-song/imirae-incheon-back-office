@@ -80,20 +80,78 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Matches `where.branchId === branchId`, accepting the `{ equals: branchId }` object form. */
+/**
+ * Matches `where.branchId === branchId`, accepting the `{ equals: branchId }` and
+ * `{ in: [...branchId only...] }` object forms, and also accepting the compound-unique-key
+ * shape Prisma generates for `@@unique([branchId, ...])` (e.g. `branchId_phoneNormalized: {
+ * branchId, phoneNormalized }`): any top-level where key whose value is a plain object itself
+ * carrying `branchId === branchId` counts as a pin, even when the top-level `where.branchId`
+ * key is absent.
+ */
 function whereIsPinnedToBranch(where: unknown, branchId: string): boolean {
     if (!isPlainRecord(where)) return false;
+
     const value = where["branchId"];
     if (typeof value === "string") return value === branchId;
-    if (isPlainRecord(value) && "equals" in value) return value["equals"] === branchId;
+    if (isPlainRecord(value)) {
+        if (value["equals"] === branchId) return true;
+        const inValues = value["in"];
+        if (Array.isArray(inValues) && inValues.length > 0 && inValues.every((v) => v === branchId)) {
+            return true;
+        }
+    }
+
+    for (const nested of Object.values(where)) {
+        if (isPlainRecord(nested) && nested["branchId"] === branchId) return true;
+    }
+
     return false;
 }
 
 /**
- * Checks a single write payload's `branchId` field.
- * - `requirePresence` true (create/createMany rows, upsert.create): absence is `unpinned_create`.
- * - `requirePresence` false (update/updateMany.data, upsert.update): absence is fine, a present
- *   mismatch is still `branch_mutation`.
+ * Resolves the target branch id out of a `data.branch` relation-write payload, i.e. Prisma's
+ * relation spelling for pinning/moving the `branch` foreign key instead of the plain
+ * `data.branchId` scalar. Recognizes `connect.id`, `connectOrCreate.where.id`, and `create.id`;
+ * `disconnect: true` resolves to `{ id: null }` so it always compares unequal to a real branch
+ * id. Returns `null` when `branch` is absent or its shape carries no recognizable id (e.g. a
+ * `create` with no explicit `id`, left to Prisma's default generation) — the caller falls back
+ * to `data.branchId`-only behavior in that case.
+ */
+function resolveRelationBranchId(branch: unknown): { id: string | null } | null {
+    if (!isPlainRecord(branch)) return null;
+    if (branch["disconnect"] === true) return { id: null };
+
+    const connect = branch["connect"];
+    if (isPlainRecord(connect) && typeof connect["id"] === "string") {
+        return { id: connect["id"] };
+    }
+
+    const connectOrCreate = branch["connectOrCreate"];
+    if (isPlainRecord(connectOrCreate)) {
+        const where = connectOrCreate["where"];
+        if (isPlainRecord(where) && typeof where["id"] === "string") {
+            return { id: where["id"] };
+        }
+    }
+
+    const create = branch["create"];
+    if (isPlainRecord(create) && typeof create["id"] === "string") {
+        return { id: create["id"] };
+    }
+
+    return null;
+}
+
+/**
+ * Checks a single write payload's branch pin, across both the plain `data.branchId` scalar and
+ * the `data.branch` relation-write spelling (`connect`/`connectOrCreate`/`create`/`disconnect`).
+ * - Either form resolving to a different branch (or a `branch.disconnect`) is `branch_mutation`,
+ *   regardless of `requirePresence` — moving/detaching a row from its branch is never allowed.
+ * - If BOTH forms are present, both must match; a mismatch in either is `branch_mutation`.
+ * - `requirePresence` true (create/createMany rows, upsert.create): the row must be pinned by
+ *   EITHER form — a matching `branch.connect`/`connectOrCreate`/`create` id satisfies presence
+ *   just as a matching `data.branchId` does. Absence of both is `unpinned_create`.
+ * - `requirePresence` false (update/updateMany.data, upsert.update): absence of both is fine.
  */
 function checkDataBranchId(
     data: unknown,
@@ -103,11 +161,24 @@ function checkDataBranchId(
     if (!isPlainRecord(data)) {
         return requirePresence ? "unpinned_create" : null;
     }
-    const value = data["branchId"];
-    if (value === undefined) {
-        return requirePresence ? "unpinned_create" : null;
+
+    const relation = resolveRelationBranchId(data["branch"]);
+    if (relation && relation.id !== branchId) {
+        return "branch_mutation";
     }
-    return value === branchId ? null : "branch_mutation";
+
+    const value = data["branchId"];
+    if (value !== undefined) {
+        return value === branchId ? null : "branch_mutation";
+    }
+
+    if (relation) {
+        // No direct `data.branchId`, but a matching `branch` relation connect/create satisfies
+        // presence (relation.id === branchId here — a mismatch already returned above).
+        return null;
+    }
+
+    return requirePresence ? "unpinned_create" : null;
 }
 
 /** Pure, testable pre-execution check for write-op args. Exported for unit tests. */
@@ -163,12 +234,14 @@ export interface ReadResultViolation {
 
 /**
  * Pure, testable post-execution check for read-op results/args. Exported
- * for unit tests. Row-shaped ops scan at most `MAX_SCANNED_ROWS`; a row's
+ * for unit tests. Row-shaped ops scan at most `MAX_SCANNED_ROWS` (rows plus
+ * one level of `include`/nested-`select` relation children — see the F1-e
+ * scan below — share this one budget); a row's (or relation child's)
  * `branchId` counts as offending only when non-null and different from the
  * expected branch. Aggregate ops (`count`/`aggregate`/`groupBy`) have no row
- * identity to scan, so they're checked by args: `where.branchId` absent is
- * `unpinned_aggregate` (a present-but-different value is not separately
- * classified — this mirrors the brief's literal wording).
+ * identity to scan, so they're checked by args via `whereIsPinnedToBranch`:
+ * a missing, mismatched, or otherwise-unpinned `where.branchId` is
+ * `unpinned_aggregate`.
  */
 export function checkReadResult(
     operation: string,
@@ -178,20 +251,47 @@ export function checkReadResult(
 ): ReadResultViolation | null {
     if (AGGREGATE_READ_OPERATIONS.has(operation)) {
         const a = isPlainRecord(args) ? args : {};
-        const where = isPlainRecord(a["where"]) ? a["where"] : undefined;
-        if (!where || where["branchId"] === undefined) {
+        if (!whereIsPinnedToBranch(a["where"], branchId)) {
             return { kind: "unpinned_aggregate" };
         }
         return null;
     }
 
-    const rows = extractRows(result).slice(0, MAX_SCANNED_ROWS);
     const offending = new Set<string>();
-    for (const row of rows) {
+    let scanned = 0;
+
+    const recordIfOffending = (candidate: Record<string, unknown>): void => {
+        const candidateBranchId = candidate["branchId"];
+        if (candidateBranchId !== null && candidateBranchId !== undefined && candidateBranchId !== branchId) {
+            offending.add(String(candidateBranchId));
+        }
+    };
+
+    rowLoop: for (const row of extractRows(result)) {
+        if (scanned >= MAX_SCANNED_ROWS) break;
         if (!isPlainRecord(row)) continue;
-        const rowBranchId = row["branchId"];
-        if (rowBranchId !== null && rowBranchId !== undefined && rowBranchId !== branchId) {
-            offending.add(String(rowBranchId));
+        scanned += 1;
+        recordIfOffending(row);
+
+        // F1-e: one-level nested scan. Rows pulled via `include`/nested `select` on this
+        // tenant-root query carry their own `branchId` that the top-level check above never
+        // sees; walk each row's direct child properties (a relation object, or an array of
+        // relation objects) and apply the same non-null-mismatch check. Nested relations are
+        // not walked recursively — only this one level. Shares `scanned` (and therefore
+        // MAX_SCANNED_ROWS) with the parent row scan as a single total budget.
+        for (const value of Object.values(row)) {
+            if (scanned >= MAX_SCANNED_ROWS) break rowLoop;
+            if (Array.isArray(value)) {
+                for (const child of value) {
+                    if (scanned >= MAX_SCANNED_ROWS) break rowLoop;
+                    if (!isPlainRecord(child)) continue;
+                    scanned += 1;
+                    recordIfOffending(child);
+                }
+            } else if (isPlainRecord(value)) {
+                scanned += 1;
+                recordIfOffending(value);
+            }
         }
     }
     if (offending.size > 0) {
@@ -245,6 +345,69 @@ export function decidePreExecution(
 
 function isTenantModel(model: string | undefined): model is string {
     return model !== undefined && TENANT_MODELS.has(model);
+}
+
+export interface ReadArgsPreparation {
+    args: unknown;
+    /** True when `select` lacked a truthy `branchId` and we injected `branchId: true`. */
+    injectedSelectBranchId: boolean;
+    /** True when `omit` carried `branchId` and we deleted that key. */
+    deletedOmitBranchId: boolean;
+}
+
+/**
+ * F1-a: `select`/`omit` projection blinds `checkReadResult` — a caller-supplied
+ * `select`/`omit` that excludes `branchId` makes every fetched row's `rowBranchId` come back
+ * `undefined`, which the read check (correctly) treats as "no identity to check", so a
+ * cross-branch row sails through undetected even in `enforce` mode. FIX: for row-shaped read
+ * ops, force `branchId` into the fetched shape — inject `select.branchId: true` when a `select`
+ * is present but lacks a truthy `branchId`, and drop `branchId` out of `omit` when present —
+ * so `checkReadResult` always has real row identity to scan. The caller-visible shape is
+ * restored afterward by stripping the injected field back out of the result (see
+ * `stripInjectedBranchId`), so this mutation is invisible to callers when there's no
+ * violation. Only the top-level `select`/`omit` object is touched — nested selects for
+ * relations are out of scope, matching the module's documented top-level-only limitation.
+ */
+export function prepareReadArgsForBranchScan(operation: string, args: unknown): ReadArgsPreparation {
+    if (!ROW_READ_OPERATIONS.has(operation) || !isPlainRecord(args)) {
+        return { args, injectedSelectBranchId: false, deletedOmitBranchId: false };
+    }
+
+    let nextArgs: Record<string, unknown> = args;
+    let injectedSelectBranchId = false;
+    let deletedOmitBranchId = false;
+
+    const select = args["select"];
+    if (isPlainRecord(select) && !select["branchId"]) {
+        nextArgs = { ...nextArgs, select: { ...select, branchId: true } };
+        injectedSelectBranchId = true;
+    }
+
+    const omit = args["omit"];
+    if (isPlainRecord(omit) && "branchId" in omit) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars -- named only to drop it
+        const { branchId: _omittedBranchId, ...restOmit } = omit;
+        nextArgs = { ...nextArgs, omit: restOmit };
+        deletedOmitBranchId = true;
+    }
+
+    if (!injectedSelectBranchId && !deletedOmitBranchId) {
+        return { args, injectedSelectBranchId: false, deletedOmitBranchId: false };
+    }
+    return { args: nextArgs, injectedSelectBranchId, deletedOmitBranchId };
+}
+
+/** Deletes a top-level `branchId` key from a single row, leaving non-plain-object rows as-is. */
+function stripBranchIdField(row: unknown): unknown {
+    if (!isPlainRecord(row)) return row;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- named only to drop it
+    const { branchId: _rowBranchId, ...rest } = row;
+    return rest;
+}
+
+/** Undoes `prepareReadArgsForBranchScan`'s injection on the fetched result (single row or array). */
+function stripInjectedBranchId(result: unknown): unknown {
+    return Array.isArray(result) ? result.map(stripBranchIdField) : stripBranchIdField(result);
 }
 
 /**
@@ -302,15 +465,20 @@ export async function handleModelOperation(params: {
 
     // decision.action === "proceed"
     const branchId = store?.branchId as string; // decidePreExecution only reaches "proceed" with a branchId present
-    const result = await query(args);
+
+    // F1-a: force branchId into the fetched shape for row-shaped reads so checkReadResult has
+    // real row identity to scan, even when the caller's select/omit tried to exclude it.
+    const preparedRead = prepareReadArgsForBranchScan(operation, args);
+    const needsStrip = preparedRead.injectedSelectBranchId || preparedRead.deletedOmitBranchId;
+    const result = await query(preparedRead.args);
 
     if (!READ_OPERATIONS.has(operation)) {
         return result; // write op already arg-checked pre-execution
     }
 
-    const readViolation = checkReadResult(operation, args, result, branchId);
+    const readViolation = checkReadResult(operation, preparedRead.args, result, branchId);
     if (!readViolation) {
-        return result;
+        return needsStrip ? stripInjectedBranchId(result) : result;
     }
 
     reportTenantIsolationViolation({
@@ -327,7 +495,7 @@ export async function handleModelOperation(params: {
         // reach the caller.
         throw new TenantIsolationViolationError(readViolation.kind, model, operation);
     }
-    return result;
+    return needsStrip ? stripInjectedBranchId(result) : result;
 }
 
 /** Exported for the same testability reason as `handleModelOperation`. */

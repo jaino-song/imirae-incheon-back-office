@@ -89,6 +89,25 @@ export function resetTenantIsolationStats(): void {
     stats.violationsByKind = {};
 }
 
+/**
+ * F1-f: Sentry de-dup window. `reportTenantIsolationViolation` always structured-logs every
+ * occurrence, but a hot violation path (e.g. one bad query fired per request) can flood Sentry
+ * with an unsampled `captureMessage` per call. Cap Sentry reporting to at most once per
+ * `(kind, model, action)` triple per `SENTRY_DEDUP_WINDOW_MS`; the in-memory `Map` records the
+ * last-sent timestamp per key.
+ */
+const SENTRY_DEDUP_WINDOW_MS = 5 * 60 * 1000;
+const sentryLastSentAt = new Map<string, number>();
+
+function sentryDedupKey(kind: TenantIsolationViolationKind, model: string, action: string): string {
+    return `${kind}|${model}|${action}`;
+}
+
+/** Test-only helper: clears the Sentry de-dup window state between spec cases. */
+export function resetTenantIsolationSentryDedup(): void {
+    sentryLastSentAt.clear();
+}
+
 export function recordTenantIsolationBypass(): void {
     stats.bypass += 1;
 }
@@ -113,11 +132,14 @@ export interface ReportViolationParams {
 }
 
 /**
- * Reports a policy-matrix violation: always structured-logs a warning and
- * sends a Sentry message (following the `Sentry.withScope` + tags pattern
- * used by `infrastructure/observability/service-record-sentry.ts`), and
- * bumps the in-memory violation counters. Does NOT throw — the extension
- * decides whether to throw `TenantIsolationViolationError` based on mode.
+ * Reports a policy-matrix violation: always structured-logs a warning, and
+ * bumps the in-memory violation counters. Also sends a Sentry message
+ * (following the `Sentry.withScope` + tags pattern used by
+ * `infrastructure/observability/service-record-sentry.ts`), but at most once
+ * per `(kind, model, action)` per `SENTRY_DEDUP_WINDOW_MS` — see F1-f above;
+ * every occurrence still gets its own `logger.warn`, only Sentry reporting
+ * is deduped. Does NOT throw — the extension decides whether to throw
+ * `TenantIsolationViolationError` based on mode.
  */
 export function reportTenantIsolationViolation(params: ReportViolationParams): void {
     stats.violations += 1;
@@ -135,6 +157,14 @@ export function reportTenantIsolationViolation(params: ReportViolationParams): v
     };
 
     logger.warn(JSON.stringify(event));
+
+    const dedupKey = sentryDedupKey(params.kind, params.model, params.action);
+    const now = Date.now();
+    const lastSentAt = sentryLastSentAt.get(dedupKey);
+    if (lastSentAt !== undefined && now - lastSentAt < SENTRY_DEDUP_WINDOW_MS) {
+        return;
+    }
+    sentryLastSentAt.set(dedupKey, now);
 
     Sentry.withScope((scope) => {
         scope.setLevel("warning");
