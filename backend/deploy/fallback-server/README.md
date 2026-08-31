@@ -176,6 +176,12 @@ approval_nonce=<operator supplied lowercase nonce>
 expires_at_unix=<operator supplied expiry>
 ```
 
+Provision `/opt/babyjamjam-fallback-server/temporary-active-scheduler-evidence`
+separately as a regular, non-symlink `root:root` mode-`0400` file of at most
+4096 operator-supplied bytes. Its exact SHA-256 must equal the approval's
+`primary_scheduler_condition_ref_sha256`; only incident ID, evidence hash, and
+nonce are retained in protected active state, never evidence contents.
+
 Root possession of the protected approval file is the authority boundary; the
 file is not evidence of a separate identity. The operator validates ownership, exact release and DB-reference
 identity, future expiry, and two independent current egress observations without

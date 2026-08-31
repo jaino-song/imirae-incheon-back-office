@@ -21,6 +21,8 @@ readonly TEMPORARY_GUARD_TIMER="babyjamjam-fallback-temporary-active-guard.timer
 readonly RUNTIME_MODE_FILE="$STATE_DIRECTORY/runtime-mode"
 readonly ACTIVE_EXPIRY_FILE="$STATE_DIRECTORY/temporary-active-expiry"
 readonly APPROVAL_NONCES_FILE="$STATE_DIRECTORY/used-temporary-active-nonces"
+readonly SCHEDULER_EVIDENCE_FILE="$STATE_ROOT/temporary-active-scheduler-evidence"
+readonly ACTIVE_LINKAGE_FILE="$STATE_DIRECTORY/temporary-active-linkage"
 readonly LOCK_FILE="$STATE_DIRECTORY/operator.lock"
 readonly IMAGE_REPOSITORY="ghcr.io/jaino-song/babyjamjam-admin-backend"
 readonly LOCAL_IMAGE_REPOSITORY="babyjamjam-backend"
@@ -257,7 +259,7 @@ approval_value() {
 }
 
 validate_temporary_active_approval() {
-    local schema incident_id condition_hash approval_tag approval_digest approval_db_hash approval_egress_hash issued nonce expiry now line_count
+    local schema incident_id condition_hash evidence_hash approval_tag approval_digest approval_db_hash approval_egress_hash issued nonce expiry now line_count
 
     [[ -f "$TEMPORARY_ACTIVE_APPROVAL_FILE" && ! -L "$TEMPORARY_ACTIVE_APPROVAL_FILE" ]] \
         || die "The temporary-active approval artifact is missing or unsafe."
@@ -290,7 +292,14 @@ validate_temporary_active_approval() {
         || die "The temporary-active approval does not match the requested immutable release."
     /usr/bin/grep -Fqx "$approval_db_hash" "$APPROVED_DB_REF_HASH_FILE" \
         || die "The temporary-active approval does not match the approved Production DB reference."
-    printf '%s %s\n' "$approval_egress_hash" "$nonce"
+    [[ -f "$SCHEDULER_EVIDENCE_FILE" && ! -L "$SCHEDULER_EVIDENCE_FILE" \
+        && "$(/usr/bin/stat -c '%U:%G:%a' "$SCHEDULER_EVIDENCE_FILE")" == "root:root:400" ]] \
+        || die "The temporary-active scheduler evidence artifact is missing or unsafe."
+    [[ "$(/usr/bin/wc -c <"$SCHEDULER_EVIDENCE_FILE")" -le 4096 ]] \
+        || die "The temporary-active scheduler evidence artifact is oversized."
+    evidence_hash="$(sha256_file "$SCHEDULER_EVIDENCE_FILE")"
+    [[ "$condition_hash" == "$evidence_hash" ]] || die "The temporary-active approval does not match scheduler evidence."
+    printf '%s %s %s %s\n' "$approval_egress_hash" "$nonce" "$incident_id" "$condition_hash"
 }
 
 claim_approval_nonce() {
@@ -350,7 +359,7 @@ clear_temporary_expiry_timer() {
 }
 
 clear_temporary_active_state() {
-    /usr/bin/rm -f "$RUNTIME_MODE_FILE" "$ACTIVE_EXPIRY_FILE"
+    /usr/bin/rm -f "$RUNTIME_MODE_FILE" "$ACTIVE_EXPIRY_FILE" "$ACTIVE_LINKAGE_FILE"
     /usr/bin/systemctl disable "$TEMPORARY_GUARD_TIMER" >/dev/null 2>&1 || true
     /usr/bin/systemctl stop "$TEMPORARY_GUARD_TIMER" >/dev/null 2>&1 || true
 }
@@ -485,7 +494,7 @@ verify_temporary_active_runtime() {
 }
 
 temporary_activate_release() {
-    local commit_sha="$1" image_digest="$2" approval_data approval_egress_hash approval_nonce expiry current_tag current_digest container_id
+    local commit_sha="$1" image_digest="$2" approval_data approval_egress_hash approval_nonce incident_id evidence_hash expiry current_tag current_digest container_id
 
     validate_release "$commit_sha" "$image_digest"
     if [[ "$(read_state runtime-mode || true)" == "temporary-active" ]]; then
@@ -496,7 +505,7 @@ temporary_activate_release() {
     validate_env_file
     validate_production_db_identity
     approval_data="$(validate_temporary_active_approval "$commit_sha" "$image_digest")"
-    approval_egress_hash="${approval_data%% *}"; approval_nonce="${approval_data##* }"
+    read -r approval_egress_hash approval_nonce incident_id evidence_hash <<<"$approval_data"
     validate_active_aligo_env
     current_tag="$(read_state current-image-tag)" || die "No passive Fallback Server release is recorded."
     current_digest="$(read_state current-image-digest)" || die "No passive Fallback Server image digest is recorded."
@@ -509,6 +518,7 @@ temporary_activate_release() {
     schedule_temporary_expiry_stop "$expiry"
     write_state runtime-mode temporary-active
     write_state temporary-active-expiry "$expiry"
+    write_state temporary-active-linkage "$incident_id $evidence_hash $approval_nonce"
     /usr/bin/systemctl enable --now "$TEMPORARY_GUARD_TIMER" >/dev/null \
         || { clear_temporary_active_state; die "The temporary-active reboot-safe expiry guard could not be enabled."; }
     if ! active_compose "$commit_sha" up -d --no-build; then
@@ -624,6 +634,8 @@ status_release() {
     fi
     if [[ "$runtime_mode" == "temporary-active" ]]; then
         expiry="$(read_state temporary-active-expiry)" || die "Temporary-active expiry state is missing."
+        [[ "$(read_state temporary-active-linkage || true)" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}[[:space:]][0-9a-f]{64}[[:space:]][a-f0-9]{32,128}$ ]] \
+            || die "Temporary-active approval linkage is missing or invalid."
         now="$(/usr/bin/date +%s)"
         [[ "$expiry" =~ ^[0-9]{10,}$ && "$now" -lt "$expiry" ]] || die "Temporary-active approval is expired."
         /usr/bin/systemctl is-enabled --quiet "$TEMPORARY_GUARD_TIMER" || die "Temporary-active guard is not enabled."
