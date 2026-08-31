@@ -22,6 +22,13 @@ import {
   isValidKoreanPhoneNumber,
   normalizeKoreanPhoneLookupKey,
 } from "@/lib/phone";
+import {
+  getLmsTitle,
+  getTextByteLength,
+  MAX_BODY_LENGTH,
+  MAX_LMS_TITLE_BYTES,
+  SMS_BYTE_LIMIT,
+} from "@/lib/message/byte-length";
 import { cn } from "@/lib/utils";
 import { useFormStore } from "@/stores/form-store";
 import { ContactInput } from "./form-components/ContactInput";
@@ -31,10 +38,6 @@ import type {
   TemplateMessageDeliveryMode,
 } from "./form-components/TemplateMessageFormLayout";
 
-const SMS_BYTE_LIMIT = 90;
-const MAX_LMS_TITLE_BYTES = 44;
-const MAX_BODY_LENGTH = 2000;
-const DEFAULT_LMS_TITLE = "안내";
 const DUPLICATE_SEND_WINDOW_HOURS = 72;
 const DUPLICATE_SEND_WINDOW_MS = DUPLICATE_SEND_WINDOW_HOURS * 60 * 60 * 1000;
 
@@ -78,24 +81,6 @@ interface TemplateSendFormProps {
   showSubmitButton?: boolean;
   serviceRecordLinkPreparation?: ServiceRecordLinkPreparation | null;
   onSubmitStateChange?: (state: TemplateSendFormSubmitState | null) => void;
-}
-
-function getTextByteLength(text: string) {
-  if (typeof TextEncoder !== "undefined") {
-    return new TextEncoder().encode(text).length;
-  }
-
-  return Array.from(text).reduce((size, char) => {
-    const codePoint = char.codePointAt(0) ?? 0;
-    if (codePoint <= 0x7f) return size + 1;
-    if (codePoint <= 0x7ff) return size + 2;
-    if (codePoint <= 0xffff) return size + 3;
-    return size + 4;
-  }, 0);
-}
-
-function getLmsTitle(templateName: string) {
-  return getTextByteLength(templateName) <= MAX_LMS_TITLE_BYTES ? templateName : DEFAULT_LMS_TITLE;
 }
 
 function getClientDurationInDays(client: Client) {
