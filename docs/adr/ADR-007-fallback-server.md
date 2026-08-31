@@ -40,16 +40,17 @@ The Fallback Server:
 8. leaves DNS/load-balancer cutover and Aligo outbound-IP authorization as
    separately approved external operations.
 
-This role rename is documentation-only. Deployment paths and service names
-under `backend/deploy/covenant/` remain unchanged until the Phase 2 rename.
+This role name is logical; the physical Covenant server remains the host. The
+deployment implementation is tracked under `backend/deploy/fallback-server/`.
 
 ## Alternatives considered
 
 1. **Change Vercel's backend URL during each incident.** Rejected because the
    public environment variable applies only to a new deployment and increases
    recovery time and configuration drift.
-2. **Run Covenant active-active with AWS.** Rejected because current singleton
-   schedulers and document workers do not have a cross-host ownership lease.
+2. **Run the Fallback Server active-active with AWS.** Rejected because current
+   singleton schedulers and document workers do not have a cross-host ownership
+   lease.
 3. **Copy the Lightsail Systems Manager operator.** Rejected because its IAM,
    managed-node, protected-host, and production/preview assumptions are AWS and
    host specific.

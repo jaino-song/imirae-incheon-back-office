@@ -104,7 +104,7 @@ jobs:
         run: |
           backend/deploy/lightsail/ci-automation-contract.test.sh
           backend/deploy/lightsail/lightsail-cli.test.sh
-          backend/deploy/covenant/contract.test.sh
+          backend/deploy/fallback-server/contract.test.sh
 
       - name: Unit tests
         run: pnpm --filter ./backend test
