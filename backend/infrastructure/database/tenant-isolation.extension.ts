@@ -44,8 +44,10 @@ import {
 const WRITE_OPERATIONS = new Set([
     "create",
     "createMany",
+    "createManyAndReturn",
     "update",
     "updateMany",
+    "updateManyAndReturn",
     "upsert",
     "delete",
     "deleteMany",
@@ -63,7 +65,14 @@ const ROW_READ_OPERATIONS = new Set([
 
 const READ_OPERATIONS = new Set<string>([...ROW_READ_OPERATIONS, ...AGGREGATE_READ_OPERATIONS]);
 
-const WHERE_PIN_REQUIRED_WRITE_OPERATIONS = new Set(["update", "updateMany", "delete", "deleteMany", "upsert"]);
+const WHERE_PIN_REQUIRED_WRITE_OPERATIONS = new Set([
+    "update",
+    "updateMany",
+    "updateManyAndReturn",
+    "delete",
+    "deleteMany",
+    "upsert",
+]);
 
 const MAX_SCANNED_ROWS = 100;
 
@@ -116,8 +125,10 @@ export function checkWriteArgs(
     switch (operation) {
         case "create":
             return checkDataBranchId(a["data"], branchId, true);
-        case "createMany": {
-            const rows = Array.isArray(a["data"]) ? a["data"] : [];
+        case "createMany":
+        case "createManyAndReturn": {
+            // Prisma accepts a single object or an array for createMany data.
+            const rows = Array.isArray(a["data"]) ? a["data"] : [a["data"]];
             for (const row of rows) {
                 const violation = checkDataBranchId(row, branchId, true);
                 if (violation) return violation;
@@ -126,6 +137,7 @@ export function checkWriteArgs(
         }
         case "update":
         case "updateMany":
+        case "updateManyAndReturn":
             return checkDataBranchId(a["data"], branchId, false);
         case "upsert": {
             const createViolation = checkDataBranchId(a["create"], branchId, true);

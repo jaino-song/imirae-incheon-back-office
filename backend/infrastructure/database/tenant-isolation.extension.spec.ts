@@ -71,7 +71,7 @@ describe("decidePreExecution — policy matrix cases 1-4", () => {
 });
 
 describe("checkWriteArgs — unpinned_write (where must pin the branch)", () => {
-    it.each(["update", "updateMany", "delete", "deleteMany", "upsert"])(
+    it.each(["update", "updateMany", "updateManyAndReturn", "delete", "deleteMany", "upsert"])(
         "%s: missing where.branchId -> unpinned_write",
         (operation) => {
             expect(checkWriteArgs(operation, { where: { id: "x" } }, "b1")).toBe("unpinned_write");
@@ -117,6 +117,12 @@ describe("checkWriteArgs — branch_mutation (data.branchId present but differen
             checkWriteArgs("updateMany", { where: { branchId: "b1" }, data: { branchId: "b2" } }, "b1"),
         ).toBe("branch_mutation");
     });
+
+    it("updateManyAndReturn: data.branchId different -> branch_mutation", () => {
+        expect(
+            checkWriteArgs("updateManyAndReturn", { where: { branchId: "b1" }, data: { branchId: "b2" } }, "b1"),
+        ).toBe("branch_mutation");
+    });
 });
 
 describe("checkWriteArgs — unpinned_create (create/createMany/upsert.create require branchId)", () => {
@@ -147,6 +153,22 @@ describe("checkWriteArgs — unpinned_create (create/createMany/upsert.create re
     it("createMany: all rows correct -> no violation", () => {
         expect(
             checkWriteArgs("createMany", { data: [{ branchId: "b1" }, { branchId: "b1" }] }, "b1"),
+        ).toBeNull();
+    });
+
+    it("createMany: single-object (non-array) data is still checked -> unpinned_create", () => {
+        expect(checkWriteArgs("createMany", { data: { name: "no-branch" } }, "b1")).toBe("unpinned_create");
+    });
+
+    it("createManyAndReturn: row missing branchId -> unpinned_create", () => {
+        expect(
+            checkWriteArgs("createManyAndReturn", { data: [{ branchId: "b1" }, { name: "no-branch" }] }, "b1"),
+        ).toBe("unpinned_create");
+    });
+
+    it("createManyAndReturn: all rows correct -> no violation", () => {
+        expect(
+            checkWriteArgs("createManyAndReturn", { data: [{ branchId: "b1" }] }, "b1"),
         ).toBeNull();
     });
 });
