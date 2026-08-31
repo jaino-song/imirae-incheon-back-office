@@ -1,8 +1,8 @@
-# ADR-007: Covenant API-only production standby
+# ADR-007: Fallback Server API-only production standby
 
 ## Status
 
-Proposed
+Accepted — local implementation only; not installed or activated
 
 ## Context
 
@@ -13,21 +13,28 @@ duplicate schedulers, message sends, eformsign retries, and reconciliation.
 
 The existing Lightsail deployment already separates immutable application
 images, private API ports, Valkey, public edge routing, database readiness, and
-singleton scheduler ownership. The Covenant server has sufficient container
-capacity but is a separate non-AWS host and must not inherit AWS Systems Manager
-or Lightsail operator assumptions.
+singleton scheduler ownership. The physical Covenant server has sufficient
+container capacity but is a separate non-AWS host and must not inherit AWS
+Systems Manager or Lightsail operator assumptions. In this ADR, `Covenant
+server` names that physical host; `Fallback Server` is the logical production
+role assigned to it.
 
 ## Decision
 
-Maintain the Covenant server as a warm, API-only standby behind the stable
-`api.babyjamjam.com` hostname.
+Maintain the Fallback Server on the physical Covenant server as a warm,
+API-only standby behind the stable `api.babyjamjam.com` hostname.
 
-The standby:
+The Fallback Server:
 
 1. runs the exact production backend image selected by commit SHA and digest;
+   the controller receives the expected tag/digest only from its root-owned
+   `FAILOVER_EXPECTED_IMAGE_TAG` and `FAILOVER_EXPECTED_IMAGE_DIGEST`
+   environment values, never from incident state or webhook data;
 2. binds the API only to host loopback for a separately managed tunnel or proxy;
-3. uses production-compatible database, auth, storage, eformsign, and webhook
-   configuration;
+3. uses the Production DB with production-compatible auth, storage, eformsign,
+   and webhook configuration only after the approved project-reference digest
+   is read from the separate root-owned file
+   `/opt/babyjamjam-fallback-server/approved-production-db-ref.sha256`;
 4. hard-disables schedulers, auto-finalizers, eformsign reconciliation without
    a distributed lock, document-job intake, and document-job workers;
 5. blanks Aligo credentials until Covenant fixed egress is registered and
@@ -35,16 +42,29 @@ The standby:
 6. never applies database migrations;
 7. reports local container health, restart count, database readiness, release
    identity, and passive-gate state without claiming public routing;
-8. leaves DNS/load-balancer cutover and Aligo outbound-IP authorization as
-   separately approved external operations.
+8. leaves DNS cutover (including the controller's one-way, action-time-gated
+   Vercel mutation), load-balancer cutover, and Aligo outbound-IP authorization
+   as separately approved operations.
+
+This role name is logical; the physical Covenant server remains the host. The
+deployment implementation is tracked under `backend/deploy/fallback-server/`.
+
+The Fallback API/operator and controller installer, systemd unit source, CLI,
+and runtime are implemented and tested in the repository. The Covenant host
+has not received the controller service, Production DB environment, approved
+hash file, ingress/TLS configuration, or DNS/Vercel credentials. Automatic
+failover therefore remains disarmed pending the network, Sentry payload,
+Node.js 20+, Vercel rehearsal, and arm/disarm gates in
+[CONTROLLER_OPERATIONS.md](../../backend/deploy/fallback-server/CONTROLLER_OPERATIONS.md).
 
 ## Alternatives considered
 
 1. **Change Vercel's backend URL during each incident.** Rejected because the
    public environment variable applies only to a new deployment and increases
    recovery time and configuration drift.
-2. **Run Covenant active-active with AWS.** Rejected because current singleton
-   schedulers and document workers do not have a cross-host ownership lease.
+2. **Run the Fallback Server active-active with AWS.** Rejected because current
+   singleton schedulers and document workers do not have a cross-host ownership
+   lease.
 3. **Copy the Lightsail Systems Manager operator.** Rejected because its IAM,
    managed-node, protected-host, and production/preview assumptions are AWS and
    host specific.
@@ -56,19 +76,21 @@ The standby:
 ### Positive
 
 - Vercel keeps one stable API hostname.
-- The fallback is prebuilt and can be health-checked before an outage.
+- The Fallback Server is prebuilt and can be health-checked before an outage.
 - Autonomous duplicate side effects remain fenced off.
 - The same immutable production image and DB-backed readiness contract are
   retained across hosts.
 
 ### Negative
 
-- The standby initially restores synchronous API behavior only.
-- DNS or load-balancer cutover remains a separate operational action.
+- The Fallback Server initially restores synchronous API behavior only.
+- DNS or load-balancer cutover remains separately approved and action-time
+  gated; the controller's DNS path never changes unrelated records.
 - Aligo requires a fixed Covenant outbound IPv4 before SMS can be considered
   safe.
 - Production-compatible secrets must be provisioned and rotated on a second
-  host.
+  host; the approved Production DB reference digest must remain a separate
+  root-owned mode-0400 file, not a mutable environment value.
 
 ## Risks
 
