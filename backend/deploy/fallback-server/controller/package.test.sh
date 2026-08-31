@@ -67,7 +67,9 @@ for key in \
     FAILOVER_VERCEL_TEAM_ID \
     FAILOVER_VERCEL_DNS_RECORD_ID \
     FAILOVER_PRIMARY_IPV4 \
-    FAILOVER_FALLBACK_IPV4; do
+    FAILOVER_FALLBACK_IPV4 \
+    FAILOVER_EXPECTED_IMAGE_TAG \
+    FAILOVER_EXPECTED_IMAGE_DIGEST; do
     assert_contains "$TEMPLATE" "^${key}=$" "$key must be blank in the template"
 done
 

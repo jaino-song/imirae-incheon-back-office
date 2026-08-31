@@ -85,15 +85,9 @@ function parseNonNegativeInteger(value) {
 }
 
 function compareExpectedRelease(values, expectedImageTag, expectedImageDigest) {
-  if (expectedImageTag !== undefined) {
-    if (typeof expectedImageTag !== 'string' || !GIT_SHA_PATTERN.test(expectedImageTag)) fail();
-    if (values.current_tag !== expectedImageTag) return false;
-  }
-  if (expectedImageDigest !== undefined) {
-    if (typeof expectedImageDigest !== 'string' || !IMAGE_DIGEST_PATTERN.test(expectedImageDigest)) fail();
-    if (values.current_digest !== expectedImageDigest) return false;
-  }
-  return true;
+  if (typeof expectedImageTag !== 'string' || !GIT_SHA_PATTERN.test(expectedImageTag)) fail();
+  if (typeof expectedImageDigest !== 'string' || !IMAGE_DIGEST_PATTERN.test(expectedImageDigest)) fail();
+  return values.current_tag === expectedImageTag && values.current_digest === expectedImageDigest;
 }
 
 /**

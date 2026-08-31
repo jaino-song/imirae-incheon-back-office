@@ -106,8 +106,8 @@ function resolveWorker(config, options, stateStore, dnsClient, clock) {
         readFallbackStatus: options.readFallbackStatus ?? options.fallbackStatus ?? getFallbackStatus,
         evaluatePolicy: options.evaluatePolicy ?? options.policy ?? evaluateFailoverPolicy,
         fallbackStatusRunner: options.fallbackStatusRunner,
-        expectedImageTag: options.expectedImageTag,
-        expectedImageDigest: options.expectedImageDigest,
+        expectedImageTag: config.expectedImageTag,
+        expectedImageDigest: config.expectedImageDigest,
         primaryIpv4: config.primaryIpv4,
         fallbackIpv4: config.fallbackIpv4,
         healthConfig: options.healthConfig ?? {

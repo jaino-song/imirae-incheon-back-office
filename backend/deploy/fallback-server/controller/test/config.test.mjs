@@ -27,6 +27,8 @@ const VALID_ENV = Object.freeze({
   FAILOVER_VERCEL_DNS_RECORD_ID: 'rec_test',
   FAILOVER_PRIMARY_IPV4: '8.8.8.8',
   FAILOVER_FALLBACK_IPV4: '1.1.1.1',
+  FAILOVER_EXPECTED_IMAGE_TAG: 'a'.repeat(40),
+  FAILOVER_EXPECTED_IMAGE_DIGEST: `sha256:${'b'.repeat(64)}`,
 });
 
 function expectConfigError(fn, code) {
@@ -62,6 +64,8 @@ test('accepts complete enabled configuration and does not expose mutable setting
   assert.equal(config.sentryAlertId, '91011');
   assert.equal(config.primaryHealthUrl, VALID_ENV.FAILOVER_PRIMARY_HEALTH_URL);
   assert.equal(config.fallbackHealthUrl, VALID_ENV.FAILOVER_FALLBACK_HEALTH_URL);
+  assert.equal(config.expectedImageTag, VALID_ENV.FAILOVER_EXPECTED_IMAGE_TAG);
+  assert.equal(config.expectedImageDigest, VALID_ENV.FAILOVER_EXPECTED_IMAGE_DIGEST);
   assert.equal(Object.isFrozen(config), true);
 });
 
@@ -140,6 +144,61 @@ test('rejects missing DNS values, private addresses, equal origins, and malforme
   expectConfigError(
     () => parseControllerConfig({ ...VALID_ENV, FAILOVER_PRIMARY_IPV4: VALID_ENV.FAILOVER_FALLBACK_IPV4 }),
     CONFIG_ERROR_CODES.DNS_CONFIG_REQUIRED,
+  );
+});
+
+test('requires complete immutable production release identity when enabled', () => {
+  expectConfigError(
+    () => parseControllerConfig({ ...VALID_ENV, FAILOVER_EXPECTED_IMAGE_TAG: undefined }),
+    CONFIG_ERROR_CODES.INVALID_VALUE,
+  );
+  expectConfigError(
+    () => parseControllerConfig({ ...VALID_ENV, FAILOVER_EXPECTED_IMAGE_DIGEST: undefined }),
+    CONFIG_ERROR_CODES.INVALID_VALUE,
+  );
+  expectConfigError(
+    () => parseControllerConfig({ ...VALID_ENV, FAILOVER_EXPECTED_IMAGE_TAG: '' }),
+    CONFIG_ERROR_CODES.INVALID_VALUE,
+  );
+  expectConfigError(
+    () => parseControllerConfig({ ...VALID_ENV, FAILOVER_EXPECTED_IMAGE_DIGEST: '' }),
+    CONFIG_ERROR_CODES.INVALID_VALUE,
+  );
+  expectConfigError(
+    () => parseControllerConfig({ ...VALID_ENV, FAILOVER_EXPECTED_IMAGE_TAG: 'A'.repeat(40) }),
+    CONFIG_ERROR_CODES.INVALID_VALUE,
+  );
+  expectConfigError(
+    () => parseControllerConfig({ ...VALID_ENV, FAILOVER_EXPECTED_IMAGE_TAG: 'a'.repeat(39) }),
+    CONFIG_ERROR_CODES.INVALID_VALUE,
+  );
+  expectConfigError(
+    () => parseControllerConfig({ ...VALID_ENV, FAILOVER_EXPECTED_IMAGE_DIGEST: `sha256:${'b'.repeat(63)}` }),
+    CONFIG_ERROR_CODES.INVALID_VALUE,
+  );
+  expectConfigError(
+    () => parseControllerConfig({ ...VALID_ENV, FAILOVER_EXPECTED_IMAGE_DIGEST: `sha256:${'B'.repeat(64)}` }),
+    CONFIG_ERROR_CODES.INVALID_VALUE,
+  );
+});
+
+test('disabled mode may omit release identity but rejects malformed supplied values', () => {
+  const disabled = parseControllerConfig({ FAILOVER_CONTROLLER_ENABLED: 'false' });
+  assert.equal(disabled.expectedImageTag, undefined);
+  assert.equal(disabled.expectedImageDigest, undefined);
+  expectConfigError(
+    () => parseControllerConfig({
+      FAILOVER_CONTROLLER_ENABLED: 'false',
+      FAILOVER_EXPECTED_IMAGE_TAG: 'not-a-commit',
+    }),
+    CONFIG_ERROR_CODES.INVALID_VALUE,
+  );
+  expectConfigError(
+    () => parseControllerConfig({
+      FAILOVER_CONTROLLER_ENABLED: 'false',
+      FAILOVER_EXPECTED_IMAGE_DIGEST: 'sha256:not-a-digest',
+    }),
+    CONFIG_ERROR_CODES.INVALID_VALUE,
   );
 });
 

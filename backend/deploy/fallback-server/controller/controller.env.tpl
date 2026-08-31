@@ -28,3 +28,7 @@ FAILOVER_VERCEL_DNS_RECORD_ID=
 # Public origin values are supplied only after network preflight and rehearsal.
 FAILOVER_PRIMARY_IPV4=
 FAILOVER_FALLBACK_IPV4=
+
+# Immutable production release identity (required when enabled; supplied out of band).
+FAILOVER_EXPECTED_IMAGE_TAG=
+FAILOVER_EXPECTED_IMAGE_DIGEST=

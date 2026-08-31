@@ -240,6 +240,8 @@ env_keys=(
     FAILOVER_VERCEL_DNS_RECORD_ID
     FAILOVER_PRIMARY_IPV4
     FAILOVER_FALLBACK_IPV4
+    FAILOVER_EXPECTED_IMAGE_TAG
+    FAILOVER_EXPECTED_IMAGE_DIGEST
 )
 for key in "${env_keys[@]}"; do
     count="$(grep -Ec "^${key}=" "$ENV_TEMPLATE")"
@@ -254,6 +256,12 @@ for secret_key in \
     FAILOVER_VERCEL_API_TOKEN; do
     assert_contains "$ENV_TEMPLATE" "^${secret_key}=$" \
         "controller env template must leave ${secret_key} blank"
+done
+for release_key in \
+    FAILOVER_EXPECTED_IMAGE_TAG \
+    FAILOVER_EXPECTED_IMAGE_DIGEST; do
+    assert_contains "$ENV_TEMPLATE" "^${release_key}=$" \
+        "controller env template must leave ${release_key} blank"
 done
 if grep -En '(AKIA[0-9A-Z]{16}|sk_live_[0-9A-Za-z]+|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|postgresql?://[^[:space:]]+:[^@[:space:]]+@)' "$ENV_TEMPLATE"; then
     fail 'controller env template contains a secret literal'

@@ -30,6 +30,13 @@ function output(overrides = {}) {
   return `${Object.entries(fields).map(([key, value]) => `${key}=${value}`).join('\n')}\n`;
 }
 
+function parseWithExpected(overrides = {}) {
+  return parseFallbackStatus(output(overrides), {
+    expectedImageTag: IMAGE_TAG,
+    expectedImageDigest: IMAGE_DIGEST,
+  });
+}
+
 test('parseFallbackStatus accepts only the exact safe healthy envelope', () => {
   const status = parseFallbackStatus(output(), {
     expectedImageTag: IMAGE_TAG,
@@ -70,6 +77,8 @@ test('getFallbackStatus invokes only the fixed executable and status argument', 
 
 test('getFallbackStatus also supports an injected execFile-style callback runner', async () => {
   const status = await getFallbackStatus({
+    expectedImageTag: IMAGE_TAG,
+    expectedImageDigest: IMAGE_DIGEST,
     runner(file, args, options, callback) {
       assert.equal(file, FALLBACK_OPERATOR_PATH);
       assert.deepEqual(args, ['status']);
@@ -82,6 +91,8 @@ test('getFallbackStatus also supports an injected execFile-style callback runner
 
 test('getFallbackStatus accepts provider stdout buffers without exposing them', async () => {
   const status = await getFallbackStatus({
+    expectedImageTag: IMAGE_TAG,
+    expectedImageDigest: IMAGE_DIGEST,
     runner: async () => ({ stdout: Buffer.from(output()), stderr: Buffer.alloc(0) }),
   });
   assert.equal(status.releaseHealthy, true);
@@ -97,29 +108,58 @@ test('release identity mismatch returns an unhealthy result without exposing ima
   assert.equal(JSON.stringify(status).includes(IMAGE_DIGEST), false);
 });
 
+test('release identity expectations are required for every status read', async () => {
+  assert.throws(
+    () => parseFallbackStatus(output()),
+    (error) => error instanceof FallbackStatusError,
+  );
+  await assert.rejects(
+    getFallbackStatus({
+      runner: async () => ({ stdout: output(), stderr: '' }),
+    }),
+    (error) => error instanceof FallbackStatusError,
+  );
+  assert.throws(
+    () => parseFallbackStatus(output(), { expectedImageTag: IMAGE_TAG }),
+    (error) => error instanceof FallbackStatusError,
+  );
+  assert.throws(
+    () => parseFallbackStatus(output(), { expectedImageDigest: IMAGE_DIGEST }),
+    (error) => error instanceof FallbackStatusError,
+  );
+});
+
 test('parser rejects missing, duplicate, unknown, malformed, or unsafe status fields', () => {
   assert.throws(() => parseFallbackStatus(''), (error) => error instanceof FallbackStatusError);
-  assert.throws(() => parseFallbackStatus(output({ unknown: 'value' })), FallbackStatusError);
-  assert.throws(() => parseFallbackStatus(`${output()}environment=fallback-server\n`), FallbackStatusError);
-  assert.throws(() => parseFallbackStatus(output({ environment: 'covenant-server' })), FallbackStatusError);
-  assert.throws(() => parseFallbackStatus(output({ restart_count: '1' })), FallbackStatusError);
-  assert.throws(() => parseFallbackStatus(output({ schedulers_enabled: 'true' })), FallbackStatusError);
-  assert.throws(() => parseFallbackStatus(output({ current_tag: 'not-a-commit' })), FallbackStatusError);
-  assert.throws(() => parseFallbackStatus(output({ current_digest: 'https://secret.invalid' })), FallbackStatusError);
+  assert.throws(() => parseWithExpected({ unknown: 'value' }), FallbackStatusError);
+  assert.throws(() => parseFallbackStatus(`${output()}environment=fallback-server\n`, {
+    expectedImageTag: IMAGE_TAG,
+    expectedImageDigest: IMAGE_DIGEST,
+  }), FallbackStatusError);
+  assert.throws(() => parseWithExpected({ environment: 'covenant-server' }), FallbackStatusError);
+  assert.throws(() => parseWithExpected({ restart_count: '1' }), FallbackStatusError);
+  assert.throws(() => parseWithExpected({ schedulers_enabled: 'true' }), FallbackStatusError);
+  assert.throws(() => parseWithExpected({ current_tag: 'not-a-commit' }), FallbackStatusError);
+  assert.throws(() => parseWithExpected({ current_digest: 'https://secret.invalid' }), FallbackStatusError);
 });
 
 test('parser enforces bounded output and rejects raw multiline or credential-shaped values', () => {
   assert.throws(
-    () => parseFallbackStatus(`${output()}${'x'.repeat(20_000)}`),
+    () => parseFallbackStatus(`${output()}${'x'.repeat(20_000)}`, {
+      expectedImageTag: IMAGE_TAG,
+      expectedImageDigest: IMAGE_DIGEST,
+    }),
     (error) => error.code === FALLBACK_STATUS_ERROR_CODES.OUTPUT_TOO_LARGE,
   );
-  assert.throws(() => parseFallbackStatus(output({ db_readiness: 'ok\npassword=secret' })), FallbackStatusError);
-  assert.throws(() => parseFallbackStatus(output({ public_routing: 'https://secret.invalid' })), FallbackStatusError);
+  assert.throws(() => parseWithExpected({ db_readiness: 'ok\npassword=secret' }), FallbackStatusError);
+  assert.throws(() => parseWithExpected({ public_routing: 'https://secret.invalid' }), FallbackStatusError);
 });
 
 test('command failures and stderr are sanitized', async () => {
   await assert.rejects(
     getFallbackStatus({
+      expectedImageTag: IMAGE_TAG,
+      expectedImageDigest: IMAGE_DIGEST,
       runner: async () => {
         throw new Error('password=secret https://private.invalid');
       },
@@ -132,6 +172,8 @@ test('command failures and stderr are sanitized', async () => {
   );
   await assert.rejects(
     getFallbackStatus({
+      expectedImageTag: IMAGE_TAG,
+      expectedImageDigest: IMAGE_DIGEST,
       runner: async () => ({ stdout: output(), stderr: 'secret stderr' }),
     }),
     (error) => error.code === FALLBACK_STATUS_ERROR_CODES.COMMAND_FAILED,
