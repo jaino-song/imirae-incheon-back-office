@@ -7,6 +7,13 @@ import {
 } from "domain/ports/call-extraction.port";
 import { GeminiCallExtractionAdapter } from "infrastructure/api/gemini-call-extraction.adapter";
 import {
+    CallRefinementInput,
+    CallRefinementPort,
+    CallRefinementResult,
+    NEUTRAL_SPEAKER,
+} from "domain/ports/call-refinement.port";
+import { GeminiCallRefinementAdapter } from "infrastructure/api/gemini-call-refinement.adapter";
+import {
     AligoSendSmsParams,
     AligoSmsResponse,
     IAligoSmsApiPort,
@@ -759,4 +766,35 @@ export function createCallExtractionAdapter(configService: ConfigService): CallE
         return new StubCallExtractionAdapter();
     }
     return new GeminiCallExtractionAdapter(configService);
+}
+
+/**
+ * Deterministic diarized-speaker map for the e2e stub. Only "1"/"2" are
+ * mapped (the raw labels this repo's fixtures use); any other raw speaker
+ * falls back to NEUTRAL_SPEAKER rather than guessing a role — the same
+ * never-guess posture the real refine prompt takes for diarized:false.
+ */
+const STUB_DIARIZED_SPEAKER_MAP: Readonly<Record<string, string>> = {
+    "1": "아이미래로",
+    "2": "고객",
+};
+
+export class StubCallRefinementAdapter implements CallRefinementPort {
+    async refine(input: CallRefinementInput): Promise<CallRefinementResult> {
+        return {
+            transcript: input.segments.map((turn) => ({
+                speaker: input.diarized
+                    ? (STUB_DIARIZED_SPEAKER_MAP[turn.speaker] ?? NEUTRAL_SPEAKER)
+                    : NEUTRAL_SPEAKER,
+                text: turn.text,
+            })),
+        };
+    }
+}
+
+export function createCallRefinementAdapter(configService: ConfigService): CallRefinementPort {
+    if (areE2EVendorStubsEnabled(configService)) {
+        return new StubCallRefinementAdapter();
+    }
+    return new GeminiCallRefinementAdapter(configService);
 }
