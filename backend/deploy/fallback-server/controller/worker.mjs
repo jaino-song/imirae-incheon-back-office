@@ -51,6 +51,8 @@ export const WORKER_REASONS = Object.freeze({
   VERIFICATION_ABORTED: 'verification_aborted',
   POLICY_REFUSED: 'policy_refused',
   DNS_UPDATE_FAILED: 'dns_update_failed',
+  DNS_COMMIT_RESERVATION_FAILED: 'dns_commit_reservation_failed',
+  DNS_COMMIT_PRIMARY_OBSERVED: 'dns_commit_primary_observed',
   STATE_UPDATE_FAILED: 'state_update_failed',
 });
 
@@ -58,6 +60,7 @@ export const WORKER_STATUS = Object.freeze({
   ACCEPTED: 'accepted',
   IGNORED: 'ignored',
   VERIFYING: 'verifying',
+  DNS_COMMITTING: 'dns_committing',
   FALLBACK_ACTIVE: 'fallback_active',
   AWS_ACTIVE: 'aws_active',
   BLOCKED: 'blocked',
@@ -244,6 +247,8 @@ export function createFailoverWorker({
   sleep,
   clock = () => Date.now(),
   autoResume = true,
+  afterDnsReservation,
+  beforeDnsPatch,
 } = {}) {
   const healthVerifier = verify ?? verifyHealth;
   const statusReader = fallbackStatus ?? readFallbackStatus;
@@ -257,6 +262,10 @@ export function createFailoverWorker({
   });
   if (typeof autoResume !== 'boolean') throw new FailoverWorkerError(WORKER_REASONS.STATE_UNAVAILABLE);
   const now = normalizeClock(clock);
+  const dnsCommitPause = afterDnsReservation ?? beforeDnsPatch;
+  if (dnsCommitPause !== undefined && typeof dnsCommitPause !== 'function') {
+    throw new FailoverWorkerError(WORKER_REASONS.STATE_UNAVAILABLE);
+  }
   const inFlight = new Map();
 
   async function safeReadState() {
@@ -306,16 +315,18 @@ export function createFailoverWorker({
     }
   }
 
-  async function persist(state, patch, reason = undefined) {
+  async function persist(state, patch, reason = undefined, expectedPhase = PHASES.VERIFYING) {
     try {
       const next = await stateStore.update({
         expectedGeneration: state.generation,
-        expectedPhase: PHASES.VERIFYING,
+        expectedPhase,
         patch,
         at: now(),
       });
       return result(
-        next.phase === PHASES.FALLBACK_ACTIVE
+        next.phase === PHASES.DNS_COMMITTING
+          ? WORKER_STATUS.DNS_COMMITTING
+          : next.phase === PHASES.FALLBACK_ACTIVE
           ? WORKER_STATUS.FALLBACK_ACTIVE
           : next.phase === PHASES.AWS_ACTIVE
             ? WORKER_STATUS.AWS_ACTIVE
@@ -328,7 +339,9 @@ export function createFailoverWorker({
     } catch (error) {
       if (error instanceof StaleGenerationError || error instanceof ConditionalStateWriteError) {
         const current = await safeReadState();
-        const disarmed = await clearDisarmedVerification(current, state);
+        const disarmed = expectedPhase === PHASES.VERIFYING
+          ? await clearDisarmedVerification(current, state)
+          : undefined;
         if (disarmed) return disarmed;
         return result(WORKER_STATUS.BLOCKED, current, { reason: WORKER_REASONS.STATE_GENERATION_STALE });
       }
@@ -347,22 +360,22 @@ export function createFailoverWorker({
     }, reason);
   }
 
-  async function finishBlocked(state, reason, dnsTarget = DNS_ROLES.AWS) {
+  async function finishBlocked(state, reason, dnsTarget = DNS_ROLES.AWS, expectedPhase = PHASES.VERIFYING) {
     return persist(state, {
       phase: PHASES.BLOCKED,
       currentDnsRole: dnsTarget,
       pendingIncident: null,
       terminalReason: stableReason(reason, WORKER_REASONS.STATE_UPDATE_FAILED),
-    }, reason);
+    }, reason, expectedPhase);
   }
 
-  async function finishFallback(state) {
+  async function finishFallback(state, expectedPhase = PHASES.VERIFYING) {
     return persist(state, {
       phase: PHASES.FALLBACK_ACTIVE,
       currentDnsRole: DNS_ROLES.FALLBACK,
       pendingIncident: null,
       terminalReason: null,
-    });
+    }, undefined, expectedPhase);
   }
 
   function samePendingLineage(current, expected) {
@@ -536,7 +549,62 @@ export function createFailoverWorker({
     return { ok: false, state: current, reason: WORKER_REASONS.STATE_GENERATION_STALE };
   }
 
+  async function reserveDnsCommit(state) {
+    const guard = await guardDnsMutation(state);
+    if (!guard.ok) return guard;
+    const current = guard.state;
+    const pendingIncident = current.pendingIncident;
+    if (!pendingIncident) {
+      return { ok: false, state: current, reason: WORKER_REASONS.DNS_COMMIT_RESERVATION_FAILED };
+    }
+    try {
+      const reserved = await stateStore.update({
+        expectedGeneration: current.generation,
+        expectedPhase: PHASES.VERIFYING,
+        patch: {
+          phase: PHASES.DNS_COMMITTING,
+          armed: true,
+          currentDnsRole: DNS_ROLES.AWS,
+          currentEventFingerprint: pendingIncident.eventFingerprint,
+          pendingIncident: {
+            ...pendingIncident,
+            generation: current.generation + 1,
+          },
+          terminalReason: null,
+        },
+        at: now(),
+      });
+      return { ok: true, state: reserved };
+    } catch (error) {
+      if (!(error instanceof StaleGenerationError) && !(error instanceof ConditionalStateWriteError)) {
+        return { ok: false, state: current, reason: WORKER_REASONS.DNS_COMMIT_RESERVATION_FAILED };
+      }
+      const latest = await safeReadState();
+      if (latest?.phase === PHASES.DNS_COMMITTING
+        && latest.currentEventFingerprint === pendingIncident.eventFingerprint) {
+        return { ok: true, state: latest };
+      }
+      const disarmed = await clearDisarmedVerification(latest, current);
+      if (disarmed) return { ok: false, state: disarmed.state, reason: WORKER_REASONS.CONTROLLER_DISARMED };
+      return { ok: false, state: latest, reason: WORKER_REASONS.DNS_COMMIT_RESERVATION_FAILED };
+    }
+  }
+
+  async function recoverDnsCommit(state) {
+    const dns = await readDnsTargetSafe();
+    if (!dns.ok) return finishBlocked(state, dns.reason, DNS_ROLES.AWS, PHASES.DNS_COMMITTING);
+    if (dns.target === DNS_TARGET.FALLBACK) return finishFallback(state, PHASES.DNS_COMMITTING);
+
+    return finishBlocked(
+      state,
+      WORKER_REASONS.DNS_COMMIT_PRIMARY_OBSERVED,
+      DNS_ROLES.AWS,
+      PHASES.DNS_COMMITTING,
+    );
+  }
+
   async function runVerification(state) {
+    if (state.phase === PHASES.DNS_COMMITTING) return recoverDnsCommit(state);
     const fallbackStatus = await readFallbackStatusSafe();
     if (!fallbackStatus.ok) return finishBlocked(state, fallbackStatus.reason);
 
@@ -582,31 +650,42 @@ export function createFailoverWorker({
 
     if (dns.target === DNS_TARGET.FALLBACK) return finishFallback(state);
 
-    const mutationGuard = await guardDnsMutation(state);
-    if (!mutationGuard.ok) {
-      if (mutationGuard.reason === WORKER_REASONS.CONTROLLER_DISARMED) {
-        return result(WORKER_STATUS.AWS_ACTIVE, mutationGuard.state, {
+    const mutationReservation = await reserveDnsCommit(state);
+    if (!mutationReservation.ok) {
+      if (mutationReservation.reason === WORKER_REASONS.CONTROLLER_DISARMED) {
+        return result(WORKER_STATUS.AWS_ACTIVE, mutationReservation.state, {
           accepted: true,
           reason: WORKER_REASONS.CONTROLLER_DISARMED,
         });
       }
-      return result(WORKER_STATUS.BLOCKED, mutationGuard.state, {
-        reason: mutationGuard.reason,
+      return result(WORKER_STATUS.BLOCKED, mutationReservation.state, {
+        reason: mutationReservation.reason,
       });
     }
-    state = mutationGuard.state;
+    state = mutationReservation.state;
+
+    try {
+      if (typeof dnsCommitPause === 'function') await dnsCommitPause({ state: clone(state) });
+    } catch {
+      return finishBlocked(state, WORKER_REASONS.DNS_COMMIT_RESERVATION_FAILED, DNS_ROLES.AWS, PHASES.DNS_COMMITTING);
+    }
 
     const switcher = fallbackSwitcher(dnsClient);
     try {
       const switched = await switcher();
-      if (!isRecord(switched)) return finishBlocked(state, WORKER_REASONS.DNS_UPDATE_FAILED);
+      if (!isRecord(switched)) return finishBlocked(state, WORKER_REASONS.DNS_UPDATE_FAILED, DNS_ROLES.AWS, PHASES.DNS_COMMITTING);
       if (switched.route !== WORKER_STATUS.FALLBACK_ACTIVE && switched.route !== 'FALLBACK_ACTIVE') {
-        return finishBlocked(state, WORKER_REASONS.DNS_UPDATE_FAILED);
+        return finishBlocked(state, WORKER_REASONS.DNS_UPDATE_FAILED, DNS_ROLES.AWS, PHASES.DNS_COMMITTING);
       }
     } catch (error) {
-      return finishBlocked(state, isDnsAmbiguous(error) ? WORKER_REASONS.DNS_AMBIGUOUS : WORKER_REASONS.DNS_UPDATE_FAILED);
+      return finishBlocked(
+        state,
+        isDnsAmbiguous(error) ? WORKER_REASONS.DNS_AMBIGUOUS : WORKER_REASONS.DNS_UPDATE_FAILED,
+        DNS_ROLES.AWS,
+        PHASES.DNS_COMMITTING,
+      );
     }
-    return finishFallback(state);
+    return finishFallback(state, PHASES.DNS_COMMITTING);
   }
 
   function pendingKey(state) {
@@ -712,7 +791,10 @@ export function createFailoverWorker({
   async function resumePending() {
     const state = await safeReadState();
     if (!state) return result(WORKER_STATUS.IGNORED, undefined, { accepted: true, reason: WORKER_REASONS.NO_PENDING_VERIFICATION });
-    if (state.phase !== PHASES.VERIFYING || !state.pendingIncident) {
+    if (
+      (state.phase !== PHASES.VERIFYING && state.phase !== PHASES.DNS_COMMITTING)
+      || !state.pendingIncident
+    ) {
       return result(WORKER_STATUS.IGNORED, state, { accepted: true, reason: WORKER_REASONS.NO_PENDING_VERIFICATION });
     }
     return schedule(state);
