@@ -270,6 +270,73 @@ test('primary recovery never auto-fails back when DNS is already on Fallback', a
   assert.equal(dns.switchCalls, 0);
 });
 
+test('disarm during health verification clears pending state and prevents DNS mutation', async (t) => {
+  const value = await fixture();
+  t.after(() => fs.rm(value.directory, { recursive: true, force: true }));
+  const dns = fakeDns();
+  const worker = workerFor(value, {
+    dnsClient: dns,
+    verifyHealth: async () => {
+      const current = await value.stateStore.read();
+      await value.stateStore.update({
+        expectedGeneration: current.generation,
+        expectedPhase: PHASES.VERIFYING,
+        patch: { armed: false },
+        at: NOW + 1,
+      });
+      return eligibleHealth();
+    },
+  });
+
+  await worker.acceptAuthenticatedEvent(authEvent('z'));
+  const result = await worker.resumePending();
+  const state = await value.stateStore.read();
+
+  assert.equal(result.status, WORKER_STATUS.AWS_ACTIVE);
+  assert.equal(result.reason, WORKER_REASONS.CONTROLLER_DISARMED);
+  assert.equal(dns.switchCalls, 0);
+  assert.equal(state.armed, false);
+  assert.equal(state.phase, PHASES.AWS_ACTIVE);
+  assert.equal(state.currentDnsRole, DNS_ROLES.AWS);
+  assert.equal(state.pendingIncident, null);
+  assert.equal(state.currentEventFingerprint, null);
+});
+
+test('disarm during a blocked verification clears pending state without leaving a retryable incident', async (t) => {
+  const value = await fixture();
+  t.after(() => fs.rm(value.directory, { recursive: true, force: true }));
+  const dns = fakeDns();
+  const worker = workerFor(value, {
+    dnsClient: dns,
+    verifyHealth: async () => {
+      const current = await value.stateStore.read();
+      await value.stateStore.update({
+        expectedGeneration: current.generation,
+        expectedPhase: PHASES.VERIFYING,
+        patch: { armed: false },
+        at: NOW + 1,
+      });
+      return {
+        decision: VERIFICATION_DECISION.BLOCKED,
+        reason: VERIFICATION_REASONS.BOTH_ORIGINS_DOWN,
+        primaryFailures: 3,
+        fallbackSuccesses: 0,
+      };
+    },
+  });
+
+  await worker.acceptAuthenticatedEvent(authEvent('y'));
+  const result = await worker.resumePending();
+  const state = await value.stateStore.read();
+
+  assert.equal(result.status, WORKER_STATUS.AWS_ACTIVE);
+  assert.equal(result.reason, WORKER_REASONS.CONTROLLER_DISARMED);
+  assert.equal(dns.switchCalls, 0);
+  assert.equal(state.armed, false);
+  assert.equal(state.phase, PHASES.AWS_ACTIVE);
+  assert.equal(state.pendingIncident, null);
+});
+
 test('both origins down becomes a terminal blocked state with a stable reason', async (t) => {
   const value = await fixture();
   t.after(() => fs.rm(value.directory, { recursive: true, force: true }));

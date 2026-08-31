@@ -32,6 +32,8 @@ die() {
     exit 1
 }
 
+[[ "$EUID" -eq 0 ]] || die "Controller installer must run as root."
+
 assert_regular_source() {
     local path="$1"
     [[ -f "$path" && ! -L "$path" ]] || die "Controller source file is missing or unsafe."

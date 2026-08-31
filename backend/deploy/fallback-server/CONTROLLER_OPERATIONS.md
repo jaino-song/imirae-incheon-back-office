@@ -205,17 +205,20 @@ following at action time:
 6. The operator approves the one-way transition and records the evidence
    bundle before enabling the service.
 
-The current repository has no dedicated `arm` or `disarm` CLI. Until that
-root-owned operator interface exists, do not edit the JSON state file by hand
-and do not claim production arming. This is an explicit activation blocker.
+The repository includes the dedicated `arm` and `disarm` CLI, but the
+root-owned operator interface is not installed on the host yet. Until the
+protected bundle and service are installed, do not edit the JSON state file by
+hand and do not claim production arming. This is an explicit activation
+blocker.
 
 ### Disarm
 
 - Stop new failover work through the approved controller operator interface
   (once installed) and record `armed=false` without changing the current DNS
   route.
-- If a verification is already in progress, wait for its terminal state or
-  stop the service and reconcile the state file under the lock.
+- If a verification is already in progress, the worker re-reads durable state
+  immediately before DNS mutation. A disarm is treated as a terminal
+  `AWS_ACTIVE` reset with the pending incident cleared and no DNS mutation.
 - Disarm does not restore AWS traffic automatically.
 
 ### Status
@@ -313,7 +316,9 @@ The latest network preflight records these unresolved blockers:
   be captured and verified.
 - The Vercel write scope and a non-production test-record PATCH rehearsal are
   not complete.
-- The repository has no arm/disarm CLI; state must not be edited manually.
+- The arm/disarm CLI exists in the repository, but it is not installed on the
+  host yet; until the protected bundle and service are installed, state must
+  not be edited manually.
 
 Until every blocker is cleared, the correct state is **implemented locally,
 dark/not activated**. A passing unit test, local health response, or frontend

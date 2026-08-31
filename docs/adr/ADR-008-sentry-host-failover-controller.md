@@ -112,11 +112,11 @@ The Controller stores a versioned, root-owned local state file with atomic
 replace and an exclusive lock. The record contains only safe operational data:
 
 - a schema version and monotonic generation;
-- the current route (`AWS_ACTIVE` or `FALLBACK_ACTIVE`), event fingerprint, and
-  last accepted event time;
-- bounded AWS-failure and Fallback-success counters;
-- a pending transition (previous route, target route, and transition start);
-- the last probe result, terminal reason, and safe timestamps.
+- the current route (`AWS_ACTIVE` or `FALLBACK_ACTIVE`) and current/last event
+  fingerprints;
+- a pending transition fingerprint and start/generation lineage while a
+  verification is in progress;
+- a bounded replay-fingerprint history, terminal reason, and safe timestamps.
 
 The state file contains no URL, token, password, raw request, or arbitrary shell
 input. A restart may continue one persisted pending transition, but it may not
@@ -227,7 +227,7 @@ Automatic failover must remain disarmed until each blocker is cleared:
       both-origin failure, DB/image/passive-gate mismatch, timeout, or DNS
       drift persists `BLOCKED` and performs no update.
 - [ ] Duplicate deliveries, concurrent deliveries, and process restarts do not
-      increment counters twice or issue a second DNS update.
+      claim the same fingerprint twice or issue a second DNS update.
 - [ ] Vercel API timeout or ambiguous response requires live record
       reconciliation and bounded operator action; it never starts an
       unbounded retry loop.

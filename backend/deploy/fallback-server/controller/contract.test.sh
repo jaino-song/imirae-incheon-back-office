@@ -7,8 +7,9 @@ readonly FALLBACK_ROOT="$(cd "$CONTROLLER_ROOT/.." && pwd -P)"
 readonly BUNDLE_ROOT="/usr/local/libexec/babyjamjam-failover-controller"
 readonly CLI_PATH="/usr/local/sbin/babyjamjam-failover-controller"
 readonly ENV_PATH="/opt/babyjamjam-fallback-server/controller.env"
-readonly STATE_ROOT="/opt/babyjamjam-fallback-server/controller"
-readonly STATE_PATH="$STATE_ROOT/state.json"
+readonly STATE_ROOT="/opt/babyjamjam-fallback-server"
+readonly STATE_DIRECTORY="$STATE_ROOT/state"
+readonly STATE_PATH="$STATE_DIRECTORY/failover-controller-state.json"
 
 readonly CONFIG="$CONTROLLER_ROOT/config.mjs"
 readonly MAIN="$CONTROLLER_ROOT/main.mjs"
@@ -26,7 +27,7 @@ readonly OPERATOR_MJS="$CONTROLLER_ROOT/operator.mjs"
 readonly OPERATOR_SH="$CONTROLLER_ROOT/operator.sh"
 readonly ENV_TEMPLATE="$CONTROLLER_ROOT/controller.env.tpl"
 readonly TEST_ALL="$CONTROLLER_ROOT/test-all.sh"
-readonly SYSTEMD_UNIT="$FALLBACK_ROOT/systemd/babyjamjam-failover-controller.service"
+readonly SYSTEMD_UNIT="$CONTROLLER_ROOT/systemd/babyjamjam-failover-controller.service"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -139,7 +140,7 @@ assert_active_not_contains "$WORKER" '(^|[^A-Za-z])(eval|exec|spawn|fork|execSyn
     'worker must not execute arbitrary shell code'
 assert_active_not_contains "$STATUS" '(^|[^A-Za-z])(eval|exec|spawn|fork|execSync|execFileSync)[[:space:]]*\(' \
     'status reader must not execute arbitrary shell code'
-assert_active_not_contains "$OPERATOR_MJS" '(^|[^A-Za-z])(eval|exec|spawn|fork|execSync|execFileSync)[[:space:]]*\(' \
+assert_active_not_contains "$OPERATOR_MJS" '(^|[^A-Za-z_.])(eval|exec|spawn|fork|execSync|execFileSync)[[:space:]]*\(|child_process[.]exec' \
     'controller operator must not execute arbitrary shell code'
 assert_active_not_contains "$OPERATOR_SH" '(^|[^A-Za-z])eval([[:space:]]|$)|\$\{[^}]*\$\(' \
     'controller shell operator must not evaluate arbitrary input'
@@ -160,12 +161,13 @@ assert_contains "$WORKER" 'containerHealthy|restartCount|dbReady|productionDbIde
 assert_contains "$OPERATOR_MJS" 'status' 'controller operator must provide status action'
 assert_contains "$OPERATOR_MJS" 'arm' 'controller operator must provide arm action'
 assert_contains "$OPERATOR_MJS" 'disarm' 'controller operator must provide disarm action'
-assert_active_not_contains "$OPERATOR_MJS" '(^|[^A-Za-z])(deploy|rollback|stop|manual-failback|failback)([^A-Za-z]|$)' \
+assert_active_not_contains "$OPERATOR_MJS" '(^|[^A-Za-z_])(deploy|rollback|stop|manual-failback|failback)([^A-Za-z_]|$)' \
     'controller operator must expose only status, arm, and disarm'
-assert_contains "$OPERATOR_SH" 'status' 'controller shell wrapper must provide status action'
-assert_contains "$OPERATOR_SH" 'arm' 'controller shell wrapper must provide arm action'
-assert_contains "$OPERATOR_SH" 'disarm' 'controller shell wrapper must provide disarm action'
-assert_active_not_contains "$OPERATOR_SH" '(^|[^A-Za-z])(deploy|rollback|stop|manual-failback|failback)([^A-Za-z]|$)' \
+assert_contains "$OPERATOR_SH" 'CONTROLLER_OPERATOR=.*operator\.mjs' \
+    'controller shell wrapper must invoke the fixed operator module'
+assert_contains "$OPERATOR_SH" 'exec[[:space:]]+/usr/bin/env[[:space:]]+node' \
+    'controller shell wrapper must use the fixed Node executable'
+assert_active_not_contains "$OPERATOR_SH" '(^|[^A-Za-z_])(deploy|rollback|stop|manual-failback|failback)([^A-Za-z_]|$)' \
     'controller shell wrapper must expose only status, arm, and disarm'
 
 assert_contains "$INSTALLER" "${BUNDLE_ROOT//\//\\/}" \
@@ -176,8 +178,8 @@ assert_contains "$INSTALLER" "${ENV_PATH//\//\\/}" \
     'controller installer must use the protected environment path'
 assert_contains "$INSTALLER" "${STATE_ROOT//\//\\/}" \
     'controller installer must use the protected state directory'
-assert_contains "$INSTALLER" "${STATE_PATH//\//\\/}" \
-    'controller installer must use the protected state file'
+assert_contains "$INSTALLER" 'STATE_DIRECTORY=.*STATE_ROOT/state' \
+    'controller installer must create the controller state directory'
 assert_contains "$INSTALLER" 'EUID.*-eq[[:space:]]+0|must run as root' \
     'controller installer must require root'
 assert_contains "$INSTALLER" 'install[[:space:]]+-d[^\n]*-o[[:space:]]+root[^\n]*-g[[:space:]]+root[^\n]*-m[[:space:]]+700' \
@@ -195,7 +197,7 @@ assert_not_contains "$INSTALLER" 'sudoers|authorized_keys|docker[[:space:]]+grou
 assert_not_contains "$INSTALLER" 'prisma.*migrate|migrate.*deploy|ALIGO_' \
     'controller installer must not run migrations or enable Aligo'
 
-assert_contains "$SYSTEMD_UNIT" 'ExecStart=/usr/bin/node /usr/local/libexec/babyjamjam-failover-controller/main\.mjs' \
+assert_contains "$SYSTEMD_UNIT" 'ExecStart=/usr/bin/env node /usr/local/libexec/babyjamjam-failover-controller/main\.mjs' \
     'systemd unit must execute the fixed controller entrypoint'
 assert_contains "$SYSTEMD_UNIT" 'EnvironmentFile=-?/opt/babyjamjam-fallback-server/controller\.env' \
     'systemd unit must use the fixed controller environment file'
@@ -213,7 +215,7 @@ assert_contains "$SYSTEMD_UNIT" '^UMask=0077$' \
     'systemd unit must use a private umask'
 assert_contains "$SYSTEMD_UNIT" '^CapabilityBoundingSet=$' \
     'systemd unit must clear capability bounding set'
-assert_contains "$SYSTEMD_UNIT" "ReadWritePaths=${STATE_ROOT//\//\\/}" \
+assert_contains "$SYSTEMD_UNIT" "ReadWritePaths=${STATE_DIRECTORY//\//\\/}" \
     'systemd unit write access must be limited to controller state'
 assert_not_contains "$SYSTEMD_UNIT" 'ReadWritePaths=/([[:space:]]|$)' \
     'systemd unit must not grant root write access'
