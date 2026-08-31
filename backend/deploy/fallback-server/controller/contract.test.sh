@@ -28,6 +28,7 @@ readonly OPERATOR_SH="$CONTROLLER_ROOT/operator.sh"
 readonly ENV_TEMPLATE="$CONTROLLER_ROOT/controller.env.tpl"
 readonly TEST_ALL="$CONTROLLER_ROOT/test-all.sh"
 readonly SYSTEMD_UNIT="$CONTROLLER_ROOT/systemd/babyjamjam-failover-controller.service"
+readonly FALLBACK_OPERATOR="$FALLBACK_ROOT/operator.sh"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -95,6 +96,7 @@ require_file "$OPERATOR_SH"
 require_file "$ENV_TEMPLATE"
 require_file "$TEST_ALL"
 require_file "$SYSTEMD_UNIT"
+require_file "$FALLBACK_OPERATOR"
 
 assert_contains "$CONFIG" "CONTROLLER_BIND_HOST[[:space:]]*=[[:space:]]*['\"]127\\.0\\.0\\.1['\"]" \
     'controller must bind to loopback only'
@@ -217,6 +219,10 @@ assert_contains "$SYSTEMD_UNIT" '^CapabilityBoundingSet=$' \
     'systemd unit must clear capability bounding set'
 assert_contains "$SYSTEMD_UNIT" "ReadWritePaths=${STATE_DIRECTORY//\//\\/}" \
     'systemd unit write access must be limited to controller state'
+assert_contains "$FALLBACK_OPERATOR" 'readonly LOCK_FILE="\$STATE_DIRECTORY/operator\.lock"' \
+    'fallback operator lock must stay within the systemd writable state boundary'
+assert_not_contains "$FALLBACK_OPERATOR" '/run/lock/babyjamjam-fallback-server\.lock' \
+    'fallback operator must not lock outside the systemd writable state boundary'
 assert_not_contains "$SYSTEMD_UNIT" 'ReadWritePaths=/([[:space:]]|$)' \
     'systemd unit must not grant root write access'
 assert_not_contains "$SYSTEMD_UNIT" 'ExecStart=.*(sh|bash)[[:space:]]+-c' \
