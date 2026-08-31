@@ -7,7 +7,6 @@ import test from 'node:test';
 
 import {
   POLICY_REFUSAL_REASONS,
-  SWITCH_TO_FALLBACK,
 } from './policy.mjs';
 import {
   VERIFICATION_DECISION,
