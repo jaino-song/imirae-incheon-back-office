@@ -14,4 +14,14 @@ export const systemScopeImportAllowlist = [
     // so it doesn't self-trip the tenant-isolation extension's
     // `http_no_tenant` violation. See tenant.guard.ts canActivate().
     "infrastructure/tenant/tenant.guard.ts",
+    // AuthService enumerates the authenticated user's OWN user_branch
+    // memberships (login result, getUserBranches, pending onboarding) and
+    // verifies membership during branch selection/switch — all before or
+    // while the tenant store's branchId is being established, always pinned
+    // to `where: { userId }` (+ target branchId).
+    "application/services/auth.service.ts",
+    // AuthSessionService re-validates the session's selected-branch
+    // membership during token refresh, before any tenant store branchId
+    // exists for the request.
+    "application/services/auth-session.service.ts",
 ];
