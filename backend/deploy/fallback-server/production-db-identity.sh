@@ -37,6 +37,42 @@ EOF_METADATA
     fi
 }
 
+validate_approval_file() {
+    local approval_file="$1"
+    local require_root="$2"
+    local metadata
+    local owner_uid
+    local owner_gid
+    local mode
+
+    [[ -n "$approval_file" && -f "$approval_file" && ! -L "$approval_file" ]] || return 1
+    [[ "$require_root" == true || "$require_root" == false ]] || return 1
+    metadata="$(stat_owner_mode "$approval_file" 2>/dev/null)" || return 1
+    IFS=: read -r owner_uid owner_gid mode <<EOF_METADATA
+$metadata
+EOF_METADATA
+    [[ "$mode" == 400 ]] || return 1
+    if [[ "$require_root" == true && ( "$owner_uid" != 0 || "$owner_gid" != 0 ) ]]; then
+        return 1
+    fi
+}
+
+read_approval_hash() {
+    local approval_file="$1"
+    local value
+
+    # Awk checks every physical line so a second blank line or trailing
+    # whitespace cannot be stripped by command substitution and accepted.
+    awk '
+        NR == 1 && $0 ~ /^[0-9a-f]{64}$/ { valid = 1; next }
+        { invalid = 1 }
+        END { exit (valid == 1 && invalid == 0) ? 0 : 1 }
+    ' "$approval_file" >/dev/null 2>&1 || return 1
+    value="$(awk 'NR == 1 { print; exit }' "$approval_file")" || return 1
+    [[ "$value" =~ $HASH_PATTERN ]] || return 1
+    printf '%s' "$value"
+}
+
 validate_env_syntax() {
     local env_file="$1"
 
@@ -97,7 +133,7 @@ validate_database_url() {
     local host
 
     [[ "$database_url" =~ ^postgres(ql)?://[^[:space:]]+$ ]] || return 1
-    [[ "$database_url" != *\"* && "$database_url" != *\'* ]] || return 1
+    [[ "$database_url" != *\"* && "$database_url" != *\'* && "$database_url" != *'#'* ]] || return 1
 
     authority="${database_url#*://}"
     host_port="${authority%%[/?#]*}"
@@ -141,27 +177,31 @@ hash_project_ref() {
 
 check_production_db_identity_impl() {
     local env_file="$1"
-    local require_root="$2"
+    local approval_file="$2"
+    local require_root="$3"
     local line
     local key
     local raw_value
     local supabase_url=''
     local database_url=''
     local direct_url=''
-    local expected_hash=''
+    local approved_hash=''
     local supabase_count=0
     local database_count=0
     local direct_count=0
-    local expected_hash_count=0
     local project_ref
     local computed_hash
 
     validate_env_file "$env_file" "$require_root" || return 1
+    validate_approval_file "$approval_file" "$require_root" || return 1
     validate_env_syntax "$env_file" || return 1
+    approved_hash="$(read_approval_hash "$approval_file")" || return 1
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         [[ "$line" != *$'\r'* ]] || return 1
-        [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
+        if [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]]; then
+            continue
+        fi
         [[ "$line" =~ ^([A-Z][A-Z0-9_]*)=(.*)$ ]] || return 1
         key="${BASH_REMATCH[1]}"
         raw_value="${BASH_REMATCH[2]}"
@@ -179,8 +219,9 @@ check_production_db_identity_impl() {
                 direct_url="$(unquote_value "$raw_value")" || return 1
                 ;;
             FALLBACK_PRODUCTION_DB_REF_SHA256)
-                expected_hash_count=$((expected_hash_count + 1))
-                expected_hash="$(unquote_value "$raw_value")" || return 1
+                # The expected digest must never be supplied by the file being
+                # attested; rejecting the legacy key prevents self-attestation.
+                return 1
                 ;;
             *)
                 ;;
@@ -190,23 +231,22 @@ check_production_db_identity_impl() {
     [[ "$supabase_count" -eq 1 ]] || return 1
     [[ "$database_count" -eq 1 ]] || return 1
     [[ "$direct_count" -eq 1 ]] || return 1
-    [[ "$expected_hash_count" -eq 1 ]] || return 1
     [[ "$supabase_url" =~ ^https://([a-z0-9]{20})\.supabase\.co/?$ ]] || return 1
     project_ref="${BASH_REMATCH[1]}"
     [[ "$project_ref" =~ $PROJECT_REF_PATTERN ]] || return 1
-    [[ "$expected_hash" =~ $HASH_PATTERN ]] || return 1
 
     validate_database_url "$database_url" "$project_ref" || return 1
     validate_database_url "$direct_url" "$project_ref" || return 1
     computed_hash="$(hash_project_ref "$project_ref")" || return 1
-    [[ "$computed_hash" == "$expected_hash" ]] || return 1
+    [[ "$computed_hash" == "$approved_hash" ]] || return 1
 }
 
 check_production_db_identity() {
     local env_file="${1:-}"
-    local require_root="${2:-true}"
+    local approval_file="${2:-}"
+    local require_root="${3:-true}"
 
-    if check_production_db_identity_impl "$env_file" "$require_root"; then
+    if check_production_db_identity_impl "$env_file" "$approval_file" "$require_root"; then
         printf '%s\n' 'production_db_identity=ok'
         return 0
     fi
@@ -215,11 +255,11 @@ check_production_db_identity() {
 }
 
 main() {
-    [[ "$#" -eq 1 ]] || {
+    [[ "$#" -eq 2 ]] || {
         printf '%s\n' 'production_db_identity=failed' >&2
         return 1
     }
-    check_production_db_identity "$1" true
+    check_production_db_identity "$1" "$2" true
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

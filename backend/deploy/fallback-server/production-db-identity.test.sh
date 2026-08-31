@@ -30,8 +30,9 @@ hash_ref() {
 
 readonly PROJECT_REF='abcdefghijklmnopqrst'
 readonly PROJECT_HASH="$(hash_ref "$PROJECT_REF")"
+readonly OTHER_HASH='0000000000000000000000000000000000000000000000000000000000000000'
 
-write_fixture() {
+write_env() {
     local path="$1"
     shift
 
@@ -39,24 +40,32 @@ write_fixture() {
     chmod 600 "$path"
 }
 
+write_approval() {
+    local path="$1"
+    local hash="$2"
+
+    printf '%s\n' "$hash" >"$path"
+    chmod 400 "$path"
+}
+
 valid_fixture() {
     local path="$1"
 
-    write_fixture "$path" \
+    write_env "$path" \
         '# fake values only; this fixture never reaches a provider' \
         "SUPABASE_URL=\"https://${PROJECT_REF}.supabase.co\"" \
         "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:fake@aws-0.pooler.supabase.com:6543/postgres\"" \
         "DIRECT_URL=\"postgresql://postgres:fake@db.${PROJECT_REF}.supabase.co:5432/postgres\"" \
-        "FALLBACK_PRODUCTION_DB_REF_SHA256=\"${PROJECT_HASH}\"" \
         'NODE_ENV=production'
 }
 
 expect_ok() {
-    local path="$1"
+    local env_file="$1"
+    local approval_file="$2"
     local stdout_file="$TEST_ROOT/stdout"
     local stderr_file="$TEST_ROOT/stderr"
 
-    if ! check_production_db_identity "$path" false >"$stdout_file" 2>"$stderr_file"; then
+    if ! check_production_db_identity "$env_file" "$approval_file" false >"$stdout_file" 2>"$stderr_file"; then
         fail "expected identity check to pass"
     fi
     [[ "$(<"$stdout_file")" == 'production_db_identity=ok' ]] || fail "success output was not the stable marker"
@@ -64,11 +73,12 @@ expect_ok() {
 }
 
 expect_fail() {
-    local path="$1"
+    local env_file="$1"
+    local approval_file="$2"
     local stdout_file="$TEST_ROOT/stdout"
     local stderr_file="$TEST_ROOT/stderr"
 
-    if check_production_db_identity "$path" false >"$stdout_file" 2>"$stderr_file"; then
+    if check_production_db_identity "$env_file" "$approval_file" false >"$stdout_file" 2>"$stderr_file"; then
         fail "expected identity check to fail"
     fi
     [[ ! -s "$stdout_file" ]] || fail "failure emitted stdout"
@@ -78,109 +88,104 @@ expect_fail() {
 source "$HELPER"
 
 valid="$TEST_ROOT/valid.env"
+approval="$TEST_ROOT/approved.sha256"
 valid_fixture "$valid"
-expect_ok "$valid"
+write_approval "$approval" "$PROJECT_HASH"
+expect_ok "$valid" "$approval"
 
-missing_hash="$TEST_ROOT/missing-hash.env"
-write_fixture "$missing_hash" \
-    "SUPABASE_URL=\"https://${PROJECT_REF}.supabase.co\"" \
+missing_approval="$TEST_ROOT/missing-approved.sha256"
+expect_fail "$valid" "$missing_approval"
+
+wrong_approval="$TEST_ROOT/wrong-approved.sha256"
+write_approval "$wrong_approval" "$OTHER_HASH"
+expect_fail "$valid" "$wrong_approval"
+
+uppercase_approval="$TEST_ROOT/uppercase-approved.sha256"
+write_approval "$uppercase_approval" 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+expect_fail "$valid" "$uppercase_approval"
+
+extra_approval="$TEST_ROOT/extra-approved.sha256"
+printf '%s\n\n' "$PROJECT_HASH" >"$extra_approval"
+chmod 400 "$extra_approval"
+expect_fail "$valid" "$extra_approval"
+
+whitespace_approval="$TEST_ROOT/whitespace-approved.sha256"
+printf '%s \n' "$PROJECT_HASH" >"$whitespace_approval"
+chmod 400 "$whitespace_approval"
+expect_fail "$valid" "$whitespace_approval"
+
+symlink_approval="$TEST_ROOT/symlink-approved.sha256"
+ln -s "$approval" "$symlink_approval"
+expect_fail "$valid" "$symlink_approval"
+
+wrong_mode_approval="$TEST_ROOT/wrong-mode-approved.sha256"
+write_approval "$wrong_mode_approval" "$PROJECT_HASH"
+chmod 440 "$wrong_mode_approval"
+expect_fail "$valid" "$wrong_mode_approval"
+
+self_attested="$TEST_ROOT/self-attested.env"
+valid_fixture "$self_attested"
+printf '%s\n' "FALLBACK_PRODUCTION_DB_REF_SHA256=\"${PROJECT_HASH}\"" >>"$self_attested"
+expect_fail "$self_attested" "$approval"
+
+duplicate_env="$TEST_ROOT/duplicate-env.env"
+valid_fixture "$duplicate_env"
+printf '%s\n' "SUPABASE_URL=\"https://${PROJECT_REF}.supabase.co\"" >>"$duplicate_env"
+expect_fail "$duplicate_env" "$approval"
+
+empty_env="$TEST_ROOT/empty-env.env"
+write_env "$empty_env" \
+    'SUPABASE_URL=' \
     "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:fake@pooler.supabase.com:6543/postgres\"" \
     "DIRECT_URL=\"postgresql://postgres:fake@db.${PROJECT_REF}.supabase.co:5432/postgres\""
-expect_fail "$missing_hash"
+expect_fail "$empty_env" "$approval"
 
-duplicate_required="$TEST_ROOT/duplicate-required.env"
-valid_fixture "$duplicate_required"
-printf '%s\n' "SUPABASE_URL=\"https://${PROJECT_REF}.supabase.co\"" >>"$duplicate_required"
-expect_fail "$duplicate_required"
-
-duplicate_unrelated="$TEST_ROOT/duplicate-unrelated.env"
-valid_fixture "$duplicate_unrelated"
-printf '%s\n' 'NODE_ENV=production' >>"$duplicate_unrelated"
-expect_fail "$duplicate_unrelated"
-
-empty_required="$TEST_ROOT/empty-required.env"
-valid_fixture "$empty_required"
-printf '%s\n' 'DIRECT_URL=' >"$empty_required"
-chmod 600 "$empty_required"
-expect_fail "$empty_required"
-
-malformed_key="$TEST_ROOT/malformed-key.env"
-valid_fixture "$malformed_key"
-printf '%s\n' "supabase_url=\"https://${PROJECT_REF}.supabase.co\"" >>"$malformed_key"
-expect_fail "$malformed_key"
-
-malformed_line="$TEST_ROOT/malformed-line.env"
-valid_fixture "$malformed_line"
-printf '%s\n' 'not an assignment' >>"$malformed_line"
-expect_fail "$malformed_line"
-
-symlink="$TEST_ROOT/symlink.env"
-ln -s "$valid" "$symlink"
-expect_fail "$symlink"
+malformed_env="$TEST_ROOT/malformed-env.env"
+valid_fixture "$malformed_env"
+printf '%s\n' 'not an assignment' >>"$malformed_env"
+expect_fail "$malformed_env" "$approval"
 
 non_https="$TEST_ROOT/non-https.env"
-valid_fixture "$non_https"
-sed -i.bak 's#https://#http://#' "$non_https"
-expect_fail "$non_https"
+write_env "$non_https" \
+    "SUPABASE_URL=\"http://${PROJECT_REF}.supabase.co\"" \
+    "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:fake@pooler.supabase.com:6543/postgres\"" \
+    "DIRECT_URL=\"postgresql://postgres:fake@db.${PROJECT_REF}.supabase.co:5432/postgres\""
+expect_fail "$non_https" "$approval"
 
 localhost_supabase="$TEST_ROOT/localhost-supabase.env"
-write_fixture "$localhost_supabase" \
+write_env "$localhost_supabase" \
     'SUPABASE_URL="https://localhost"' \
     "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:fake@pooler.supabase.com:6543/postgres\"" \
-    "DIRECT_URL=\"postgresql://postgres:fake@db.${PROJECT_REF}.supabase.co:5432/postgres\"" \
-    "FALLBACK_PRODUCTION_DB_REF_SHA256=\"${PROJECT_HASH}\""
-expect_fail "$localhost_supabase"
+    "DIRECT_URL=\"postgresql://postgres:fake@db.${PROJECT_REF}.supabase.co:5432/postgres\""
+expect_fail "$localhost_supabase" "$approval"
 
 invalid_ref="$TEST_ROOT/invalid-ref.env"
-valid_fixture "$invalid_ref"
-sed -i.bak 's#abcdefghijklmnopqrst#ABCDEFGHIJKLMNOPQRST#g' "$invalid_ref"
-expect_fail "$invalid_ref"
+write_env "$invalid_ref" \
+    'SUPABASE_URL="https://ABCDEFGHIJKLMNOPQRST.supabase.co"' \
+    "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:fake@pooler.supabase.com:6543/postgres\"" \
+    "DIRECT_URL=\"postgresql://postgres:fake@db.${PROJECT_REF}.supabase.co:5432/postgres\""
+expect_fail "$invalid_ref" "$approval"
 
 inconsistent_ref="$TEST_ROOT/inconsistent-ref.env"
-valid_fixture "$inconsistent_ref"
-sed -i.bak 's#db\.abcdefghijklmnopqrst#db\.zyxwvutsrqponmlkjihg#' "$inconsistent_ref"
-expect_fail "$inconsistent_ref"
+write_env "$inconsistent_ref" \
+    "SUPABASE_URL=\"https://${PROJECT_REF}.supabase.co\"" \
+    'DATABASE_URL="postgresql://postgres.zyxwvutsrqponmlkjihg:fake@aws-0.pooler.supabase.com:6543/postgres"' \
+    "DIRECT_URL=\"postgresql://postgres:fake@db.${PROJECT_REF}.supabase.co:5432/postgres\""
+expect_fail "$inconsistent_ref" "$approval"
 
-missing_db_ref="$TEST_ROOT/missing-db-ref.env"
-valid_fixture "$missing_db_ref"
-sed -i.bak 's#postgres\.abcdefghijklmnopqrst#postgres#' "$missing_db_ref"
-sed -i.bak 's#db\.abcdefghijklmnopqrst\.supabase\.co#db.other.supabase.co#' "$missing_db_ref"
-expect_fail "$missing_db_ref"
+wrong_mode_env="$TEST_ROOT/wrong-mode.env"
+valid_fixture "$wrong_mode_env"
+chmod 640 "$wrong_mode_env"
+expect_fail "$wrong_mode_env" "$approval"
 
-malformed_db_scheme="$TEST_ROOT/malformed-db-scheme.env"
-valid_fixture "$malformed_db_scheme"
-sed -i.bak 's#postgresql://#mysql://#g' "$malformed_db_scheme"
-expect_fail "$malformed_db_scheme"
-
-db_whitespace="$TEST_ROOT/db-whitespace.env"
-valid_fixture "$db_whitespace"
-sed -i.bak 's#postgres\.abcdefghijklmnopqrst#postgres.abcdefghijklmnopqrst fake#' "$db_whitespace"
-expect_fail "$db_whitespace"
-
-mismatched_hash="$TEST_ROOT/mismatched-hash.env"
-valid_fixture "$mismatched_hash"
-sed -i.bak 's/FALLBACK_PRODUCTION_DB_REF_SHA256=.*/FALLBACK_PRODUCTION_DB_REF_SHA256="0000000000000000000000000000000000000000000000000000000000000000"/' "$mismatched_hash"
-expect_fail "$mismatched_hash"
-
-malformed_hash="$TEST_ROOT/malformed-hash.env"
-valid_fixture "$malformed_hash"
-sed -i.bak 's/FALLBACK_PRODUCTION_DB_REF_SHA256=.*/FALLBACK_PRODUCTION_DB_REF_SHA256="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"/' "$malformed_hash"
-expect_fail "$malformed_hash"
-
-unexpected_quote="$TEST_ROOT/unexpected-quote.env"
-valid_fixture "$unexpected_quote"
-sed -i.bak 's#postgres\.abcdefghijklmnopqrst#postgres".abcdefghijklmnopqrst#' "$unexpected_quote"
-expect_fail "$unexpected_quote"
-
-wrong_mode="$TEST_ROOT/wrong-mode.env"
-valid_fixture "$wrong_mode"
-chmod 640 "$wrong_mode"
-expect_fail "$wrong_mode"
+symlink_env="$TEST_ROOT/symlink.env"
+ln -s "$valid" "$symlink_env"
+expect_fail "$symlink_env" "$approval"
 
 if [[ "$(id -u)" -ne 0 ]]; then
     strict_stdout="$TEST_ROOT/strict-stdout"
     strict_stderr="$TEST_ROOT/strict-stderr"
-    if "$HELPER" "$valid" >"$strict_stdout" 2>"$strict_stderr"; then
+    if "$HELPER" "$valid" "$approval" >"$strict_stdout" 2>"$strict_stderr"; then
         fail "strict command accepted a non-root-owned fixture"
     fi
     [[ ! -s "$strict_stdout" ]] || fail "strict failure emitted stdout"

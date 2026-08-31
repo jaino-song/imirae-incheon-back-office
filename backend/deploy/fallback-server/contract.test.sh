@@ -30,7 +30,7 @@ assert_not_contains() {
 [[ -r "$IDENTITY_HELPER" ]] || fail "missing Production DB identity helper"
 [[ -r "$IDENTITY_TEST" ]] || fail "missing Production DB identity tests"
 assert_contains "$IDENTITY_HELPER" 'FALLBACK_PRODUCTION_DB_REF_SHA256' \
-    "identity helper must require the approved Production DB ref digest"
+    "identity helper must reject the legacy in-environment digest"
 assert_contains "$IDENTITY_HELPER" 'PROJECT_REF_PATTERN' \
     "identity helper must enforce a strict Supabase project URL"
 assert_contains "$IDENTITY_HELPER" 'production_db_identity=failed' \
@@ -73,8 +73,10 @@ assert_contains "$OPERATOR" 'running Fallback Server container does not match th
     "operator must verify the running container image against recorded state"
 assert_contains "$OPERATOR" 'health/ready' \
     "operator must verify DB-backed readiness"
-assert_contains "$OPERATOR" 'FALLBACK_PRODUCTION_DB_REF_SHA256' \
-    "operator must require the Production DB identity digest"
+assert_not_contains "$OPERATOR" 'FALLBACK_PRODUCTION_DB_REF_SHA256' \
+    "operator must not accept a self-attested Production DB ref digest"
+assert_contains "$OPERATOR" 'approved-production-db-ref\.sha256' \
+    "operator must use the external approved Production DB ref digest"
 assert_contains "$OPERATOR" 'validate_production_db_identity' \
     "operator must run the Production DB identity gate"
 assert_contains "$OPERATOR" 'production_db_identity=ok' \
@@ -100,6 +102,8 @@ assert_contains "$INSTALLER" '/usr/local/libexec/babyjamjam-fallback-server' \
     "installer must use a fixed protected artifact directory"
 assert_contains "$INSTALLER" '/opt/babyjamjam-fallback-server' \
     "installer must use a fixed protected state directory"
+assert_contains "$INSTALLER" 'approved-production-db-ref\.sha256' \
+    "installer must protect the external Production DB ref digest"
 assert_not_contains "$INSTALLER" '(sudoers|authorized_keys|docker[[:space:]]+group)' \
     "installer must not broaden host privileges"
 assert_not_contains "$OPERATOR" "${legacy_project_prefix}-${legacy_project_suffix}|babyjamjam-${legacy_project_prefix}" \

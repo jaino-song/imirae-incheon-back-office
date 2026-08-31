@@ -11,6 +11,7 @@ readonly STATE_ROOT="/opt/babyjamjam-fallback-server"
 readonly SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly IDENTITY_HELPER_SOURCE="$SCRIPT_ROOT/production-db-identity.sh"
 readonly IDENTITY_HELPER_ARTIFACT="$ARTIFACT_ROOT/production-db-identity.sh"
+readonly APPROVED_DB_REF_HASH_FILE="$STATE_ROOT/approved-production-db-ref.sha256"
 
 die() {
     echo "$*" >&2
@@ -26,6 +27,26 @@ sha256_file() {
     printf '%s\n' "$output"
 }
 
+validate_existing_approval() {
+    local metadata
+
+    if [[ ! -e "$APPROVED_DB_REF_HASH_FILE" && ! -L "$APPROVED_DB_REF_HASH_FILE" ]]; then
+        return 0
+    fi
+    [[ -f "$APPROVED_DB_REF_HASH_FILE" && ! -L "$APPROVED_DB_REF_HASH_FILE" ]] \
+        || die "The approved Production DB ref file is missing or unsafe."
+    metadata="$(stat -c '%u:%g:%a' "$APPROVED_DB_REF_HASH_FILE" 2>/dev/null)" \
+        || die "The approved Production DB ref file metadata is unavailable."
+    [[ "$metadata" == "0:0:400" ]] \
+        || die "The approved Production DB ref file must be root-owned mode 400."
+    awk '
+        NR == 1 && $0 ~ /^[0-9a-f]{64}$/ { valid = 1; next }
+        { invalid = 1 }
+        END { exit (valid == 1 && invalid == 0) ? 0 : 1 }
+    ' "$APPROVED_DB_REF_HASH_FILE" >/dev/null 2>&1 \
+        || die "The approved Production DB ref file must contain one lowercase SHA-256 line."
+}
+
 [[ "$EUID" -eq 0 ]] || die "The Fallback Server installer must run as root."
 [[ -f "$SCRIPT_ROOT/operator.sh" && ! -L "$SCRIPT_ROOT/operator.sh" ]] \
     || die "The Fallback Server operator source is missing or invalid."
@@ -33,9 +54,10 @@ sha256_file() {
     || die "The Fallback Server Compose source is missing or invalid."
 [[ -f "$IDENTITY_HELPER_SOURCE" && ! -L "$IDENTITY_HELPER_SOURCE" ]] \
     || die "The Fallback Server Production DB identity helper source is missing or invalid."
-for protected_path in "$ARTIFACT_ROOT" "$INSTALLED_OPERATOR" "$STATE_ROOT" "$IDENTITY_HELPER_ARTIFACT"; do
+for protected_path in "$ARTIFACT_ROOT" "$INSTALLED_OPERATOR" "$STATE_ROOT" "$IDENTITY_HELPER_ARTIFACT" "$APPROVED_DB_REF_HASH_FILE"; do
     [[ ! -L "$protected_path" ]] || die "A Fallback Server installation path is a symbolic link."
 done
+validate_existing_approval
 
 install -d -o root -g root -m 700 "$ARTIFACT_ROOT"
 install -d -o root -g root -m 700 "$STATE_ROOT"
@@ -56,4 +78,4 @@ mv -f "$manifest" "$ARTIFACT_ROOT/bundle.manifest"
 
 printf '%s\n' \
     "Fallback Server operator installed." \
-    "Next: provision $STATE_ROOT/backend.env as root:root mode 600, then run status or deploy."
+    "Next: provision $STATE_ROOT/backend.env as root:root mode 600 and $APPROVED_DB_REF_HASH_FILE as root:root mode 400, then run status or deploy."
