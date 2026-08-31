@@ -34,8 +34,9 @@ import { CALL_VOCABULARY } from "domain/constants/call-vocabulary";
  *
  * StubCallExtractionAdapter (infrastructure/vendor-stubs/e2e-vendor-stubs.ts)
  * returns a deterministic NEW_CONSULTATION result for 김서연 (name + dueDate
- * proposals, both high-confidence, requestSummary "...(E2E stub)"). Aligo is
- * stubbed too, and confirm passes suppressGreetingSms anyway, so no SMS egress.
+ * proposals, both high-confidence, requestSummary "...(E2E stub)", plus a
+ * fixed structured summary object). Aligo is stubbed too, and confirm passes
+ * suppressGreetingSms anyway, so no SMS egress.
  *
  * Guards: CallIngestGuard and TenantGuard run REAL (token resolution + branch
  * authorization are genuinely exercised against the DB). Only JwtGuard is
@@ -214,16 +215,17 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
         callRecordId = res.body.callRecordId;
     });
 
-    it("2b. the stored call_record carries transcript_raw + stt_meta; summary stays null at ingest", async () => {
+    it("2b. the stored call_record carries transcript_raw + stt_meta", async () => {
         const record = await prisma.call_record.findUnique({ where: { id: callRecordId } });
 
         expect(record).not.toBeNull();
-        // NOT asserting record.transcript here: call-ingestion.service.ts:71
+        // NOT asserting record.transcript or record.summary here: call-ingestion.service.ts:71
         // fires processCallRecord fire-and-forget right after the 202, and the
-        // refine stage overwrites `transcript` asynchronously — an equality
-        // check against the raw payload here would be racy. transcriptRaw and
-        // sttMeta are the stable columns refine never mutates; `transcript`
-        // is asserted for its POST-refine content in test 4b below instead.
+        // refine/extract stages overwrite `transcript` and `summary`
+        // asynchronously — an equality check against pre-processing state here
+        // would be racy. transcriptRaw and sttMeta are the stable columns
+        // refine never mutates; `transcript` and `summary` are asserted for
+        // their POST-processing content in test 4b below instead.
         expect(record?.transcript).toBeDefined();
         expect(record?.transcriptRaw).toEqual(webhookPayload.transcriptRaw);
         expect(record?.sttMeta).toEqual({
@@ -231,7 +233,6 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
             diarized: webhookPayload.diarized,
             vocabularyVersion: webhookPayload.vocabularyVersion,
         });
-        expect(record?.summary).toBeNull();
     });
 
     it("3. re-posting the identical payload is idempotent → 200 duplicate, same callRecordId", async () => {
@@ -280,6 +281,30 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
             { speaker: "고객", text: "네 알겠습니다" },
         ]);
         expect(record?.transcriptRaw).toEqual(webhookPayload.transcriptRaw);
+        expect(record?.summary).toEqual({
+            inquiry_type: "신규상담",
+            customer_info: "김서연 / 010-4821-7763",
+            key_content: "산모가 산후도우미 서비스 문의 (E2E stub)",
+            result_action: "상담 예약 안내",
+        });
+    });
+
+    it("4c. GET /call-records/:id returns the structured summary; the drafted record's summaryLine still comes from the draft", async () => {
+        const res = await request(app.getHttpServer()).get(`/call-records/${callRecordId}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.summary).toEqual({
+            inquiry_type: "신규상담",
+            customer_info: "김서연 / 010-4821-7763",
+            key_content: "산모가 산후도우미 서비스 문의 (E2E stub)",
+            result_action: "상담 예약 안내",
+        });
+        // Precedence check: summaryLine = draft?.requestSummary ?? summary.key_content
+        // (call-inbox.service.ts:136-138). This record has a draft, so its
+        // requestSummary must keep winning over summary.key_content, which is
+        // deliberately a different string in the stub fixtures above.
+        expect(res.body.summaryLine).toBe(res.body.draft.requestSummary);
+        expect(res.body.summaryLine).not.toBe(res.body.summary.key_content);
     });
 
     it("5. staff confirms the draft → creates a client (suppressGreetingSms)", async () => {

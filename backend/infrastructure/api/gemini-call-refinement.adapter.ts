@@ -10,9 +10,9 @@ import {
     buildCallRefinementPrompt,
     CALL_REFINEMENT_RESPONSE_SCHEMA,
 } from "application/services/call-refinement.prompt";
+import { resolveCallExtractionModel } from "infrastructure/api/gemini-call-extraction.adapter";
 
-const GEMINI_URL =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+const GEMINI_URL_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const TIMEOUT_MS = 60_000;
 const ALLOWED_SPEAKERS = new Set<string>(REFINED_SPEAKERS);
 
@@ -28,7 +28,8 @@ export class GeminiCallRefinementAdapter implements CallRefinementPort {
             throw new Error("GEMINI_API_KEY not configured");
         }
 
-        const response = await fetch(GEMINI_URL, {
+        const model = resolveCallExtractionModel(this.configService);
+        const response = await fetch(`${GEMINI_URL_BASE}/${model}:generateContent`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
