@@ -557,6 +557,8 @@ deploy_release() {
     local current_tag=""
 
     validate_release "$commit_sha" "$image_digest"
+    [[ "$(read_state runtime-mode || true)" != "temporary-active" ]] \
+        || die "Stop the temporary-active runtime before passive deployment."
     validate_env_file
     validate_production_db_identity
     current_tag="$(read_state current-image-tag || true)"
@@ -671,6 +673,8 @@ rollback_release() {
 
     clear_temporary_expiry_timer
     clear_temporary_active_state
+    [[ "$(read_state runtime-mode || true)" != "temporary-active" ]] \
+        || die "Stop the temporary-active runtime before passive rollback."
     current_tag="$(read_state current-image-tag)" || die "No current Fallback Server release is recorded."
     current_digest="$(read_state current-image-digest)" || die "No current Fallback Server digest is recorded."
     previous_tag="$(read_state previous-image-tag)" || die "No previous Fallback Server release is recorded."

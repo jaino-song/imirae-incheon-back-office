@@ -71,7 +71,11 @@ for protected_path in "$ARTIFACT_ROOT" "$INSTALLED_OPERATOR" "$STATE_ROOT" "$IDE
 done
 validate_existing_approval
 
-install -d -o root -g root -m 700 "$ARTIFACT_ROOT" "$SYSTEMD_DIR"
+install -d -o root -g root -m 700 "$ARTIFACT_ROOT"
+if [[ ! -d "$SYSTEMD_DIR" ]]; then
+    install -d -o root -g root -m 755 "$SYSTEMD_DIR"
+fi
+[[ -d "$SYSTEMD_DIR" && ! -L "$SYSTEMD_DIR" ]] || die "The systemd unit directory is unsafe."
 install -d -o root -g root -m 700 "$STATE_ROOT"
 install -d -o root -g root -m 700 "$STATE_ROOT/state"
 stage="$(mktemp -d "$ARTIFACT_ROOT/.stage.XXXXXX")"
