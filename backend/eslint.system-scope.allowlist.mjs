@@ -9,4 +9,9 @@
 // `tenant_system_scope_used` event on every call).
 export const systemScopeImportAllowlist = [
     "**/*.spec.ts",
+    // TenantGuard wraps its own membership-lookup query (which runs before
+    // `assignPrincipal` sets the ALS store's branchId) in `runSystemScope`
+    // so it doesn't self-trip the tenant-isolation extension's
+    // `http_no_tenant` violation. See tenant.guard.ts canActivate().
+    "infrastructure/tenant/tenant.guard.ts",
 ];
