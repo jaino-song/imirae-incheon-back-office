@@ -1,0 +1,71 @@
+name: babyjamjam-covenant-standby
+
+services:
+  api:
+    image: ${BACKEND_IMAGE:-babyjamjam-backend}:${BACKEND_IMAGE_TAG:?BACKEND_IMAGE_TAG is required}
+    pull_policy: never
+    env_file:
+      - ${BACKEND_ENV_FILE:-/opt/babyjamjam-covenant/backend.env}
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: "3001"
+      NODE_ENV: production
+      DATABASE_CONNECTION_MODE: ${DATABASE_CONNECTION_MODE:-shared}
+      VALKEY_URL: redis://valkey:6379
+      # The Covenant runtime is an API-only standby. These fixed overrides take
+      # precedence over the supplied environment file and prevent split-brain
+      # schedulers, retries, and provider mutations while AWS owns production.
+      SCHEDULERS_ENABLED: "false"
+      SERVICE_RECORD_AUTO_FINALIZE_ENABLED: "false"
+      CONTRACT_AUTO_FINALIZE_ENABLED: "false"
+      EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED: "false"
+      EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED: "false"
+      EFORMSIGN_RECONCILE_ALLOW_UNLOCKED: "false"
+      # The Covenant egress address is not yet registered with Aligo. Blank the
+      # provider credentials even when the source environment file contains
+      # them, so synchronous API calls cannot bypass the outbound-IP gate.
+      ALIGO_API_KEY: ""
+      ALIGO_USER_ID: ""
+      ALIGO_SENDER_PHONE: ""
+    depends_on:
+      valkey:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3101:3001"
+    init: true
+    restart: unless-stopped
+    cpus: 2.0
+    mem_limit: 3g
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 1gb
+    networks:
+      - backend
+      - outbound
+
+  valkey:
+    image: valkey/valkey:8.1-alpine
+    command: ["valkey-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 256m
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - valkey_data:/data
+    networks:
+      - backend
+
+networks:
+  backend:
+    internal: true
+  outbound:
+
+volumes:
+  valkey_data:
+    name: babyjamjam-covenant-standby-valkey-data
