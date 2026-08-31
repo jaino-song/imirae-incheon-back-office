@@ -331,11 +331,11 @@ egress_hash() {
 }
 
 verify_approved_egress() {
-    local expected_hash="$1" first_hash second_hash
-    first_hash="$(egress_hash 'https://api.ipify.org')" \
-        || die "The first temporary-active egress observation failed."
-    second_hash="$(egress_hash 'https://ifconfig.me/ip')" \
-        || die "The second temporary-active egress observation failed."
+    local expected_hash="$1" tag="$2" first_hash second_hash
+    /usr/bin/docker network inspect "${PROJECT_NAME}_outbound" >/dev/null 2>&1 || die "The temporary-active outbound network is unavailable."
+    first_hash="$(/usr/bin/docker run --rm --network "${PROJECT_NAME}_outbound" "$LOCAL_IMAGE_REPOSITORY:$tag" node -e 'fetch("https://api.ipify.org").then(r=>r.text()).then(x=>process.stdout.write(require("crypto").createHash("sha256").update(x.trim()).digest("hex"))).catch(()=>process.exit(1))' 2>/dev/null)" || die "The first container egress observation failed."
+    second_hash="$(/usr/bin/docker run --rm --network "${PROJECT_NAME}_outbound" "$LOCAL_IMAGE_REPOSITORY:$tag" node -e 'fetch("https://ifconfig.me/ip").then(r=>r.text()).then(x=>process.stdout.write(require("crypto").createHash("sha256").update(x.trim()).digest("hex"))).catch(()=>process.exit(1))' 2>/dev/null)" || die "The second container egress observation failed."
+    [[ "$first_hash" =~ ^[0-9a-f]{64}$ && "$second_hash" =~ ^[0-9a-f]{64}$ ]] || die "The container egress observation is invalid."
     [[ "$first_hash" == "$second_hash" && "$first_hash" == "$expected_hash" ]] \
         || die "The temporary-active egress observations do not match the approved hash."
 }
@@ -493,6 +493,7 @@ temporary_activate_release() {
     [[ "$current_tag" == "$commit_sha" && "$current_digest" == "$image_digest" ]] \
         || die "The temporary-active release must match the recorded passive release."
     verify_image_identity "$commit_sha" "$image_digest"
+    verify_approved_egress "$approval_egress_hash" "$commit_sha"
     claim_approval_nonce "$approval_nonce"
     expiry="$(approval_value expires_at_unix)"
     schedule_temporary_expiry_stop "$expiry"
