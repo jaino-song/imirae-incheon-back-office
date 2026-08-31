@@ -768,7 +768,7 @@ export class MessageTriggerService {
             const approvedBranchIds = await this.messageSenderApprovalService.getApprovedBranchIds(
                 [...new Set(jobs.map((job) => job.branchId).filter((id): id is string => !!id))],
             );
-            const sentIds = await this.messageLogRepository.findSentTriggerJobIds(
+            const sentIds = await this.messageLogRepository.findSentTriggerJobIdsSystemScope(
                 jobs.map((job) => job.id),
             );
             for (const job of jobs) {
@@ -797,7 +797,7 @@ export class MessageTriggerService {
         const approvedBranchIds = await this.messageSenderApprovalService.getApprovedBranchIds(
             job.branchId ? [job.branchId] : [],
         );
-        const sentIds = await this.messageLogRepository.findSentTriggerJobIds([job.id]);
+        const sentIds = await this.messageLogRepository.findSentTriggerJobIdsSystemScope([job.id]);
         await this.dispatchClaimedJob(job, sentIds, approvedBranchIds);
 
         return await this.jobRepository.findById(jobId) ?? job;
@@ -2505,14 +2505,14 @@ export class MessageTriggerService {
             return;
         }
 
-        const sentIds = await this.messageLogRepository.findSentTriggerJobIds(
+        const sentIds = await this.messageLogRepository.findSentTriggerJobIdsSystemScope(
             stale.map((job) => job.id),
         );
         const logRepository = this.messageLogRepository as IMessageLogRepository & {
-            findUncertainTriggerJobIds?: (jobIds: string[]) => Promise<Set<string>>;
+            findUncertainTriggerJobIdsSystemScope?: (jobIds: string[]) => Promise<Set<string>>;
         };
-        const uncertainIds = typeof logRepository.findUncertainTriggerJobIds === "function"
-            ? await logRepository.findUncertainTriggerJobIds(stale.map((job) => job.id))
+        const uncertainIds = typeof logRepository.findUncertainTriggerJobIdsSystemScope === "function"
+            ? await logRepository.findUncertainTriggerJobIdsSystemScope(stale.map((job) => job.id))
             : new Set<string>();
         for (const job of stale) {
             if (sentIds.has(job.id)) {

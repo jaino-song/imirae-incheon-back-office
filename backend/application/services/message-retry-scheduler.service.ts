@@ -42,7 +42,7 @@ export class MessageRetrySchedulerService {
         }
 
         try {
-            const pendingLogs = await this.logRepository.findPendingRetries();
+            const pendingLogs = await this.logRepository.findPendingRetriesSystemScope();
             if (pendingLogs.length === 0) return;
 
             this.logger.log(`[Retry] Found ${pendingLogs.length} messages to retry`);

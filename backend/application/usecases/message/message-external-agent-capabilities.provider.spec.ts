@@ -404,7 +404,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             claimPending: jest.fn().mockImplementation(async (id: string) => id === stagedRetry?.id),
             claimPendingWithRuleFence: jest.fn().mockImplementation(async (id: string) => id === stagedRetry?.id ? "claim-a" : null),
             update: jest.fn().mockResolvedValue(undefined),
-            findSentTriggerJobIds: jest.fn().mockResolvedValue(new Set<string>()),
+            findSentTriggerJobIdsSystemScope: jest.fn().mockResolvedValue(new Set<string>()),
         };
         const providerApi = {
             sendSms: jest.fn().mockResolvedValue({
@@ -447,7 +447,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             senderApproval as never,
             {} as never,
             repository as never,
-            { findSentTriggerJobIds: jest.fn().mockResolvedValue(new Set<string>()), save: jest.fn() } as never,
+            { findSentTriggerJobIdsSystemScope: jest.fn().mockResolvedValue(new Set<string>()), save: jest.fn() } as never,
             systemTemplateService as never,
             {
                 runExclusive: jest.fn().mockImplementation(async (

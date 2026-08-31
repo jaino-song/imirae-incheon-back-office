@@ -155,7 +155,7 @@ describe("MessageTriggerService", () => {
         );
 
     const createMessageLogRepository = () => ({
-        findSentTriggerJobIds: jest.fn<Promise<Set<string>>, [string[]]>().mockResolvedValue(
+        findSentTriggerJobIdsSystemScope: jest.fn<Promise<Set<string>>, [string[]]>().mockResolvedValue(
             new Set<string>(),
         ),
         findRecentByBranch: jest.fn().mockResolvedValue([]),
@@ -1376,7 +1376,7 @@ describe("MessageTriggerService", () => {
             createDispatchService();
         const job = createJob();
         jobRepository.findDuePending.mockResolvedValue([job]);
-        messageLogRepository.findSentTriggerJobIds.mockResolvedValue(new Set([job.id]));
+        messageLogRepository.findSentTriggerJobIdsSystemScope.mockResolvedValue(new Set([job.id]));
 
         await service.dispatchDueJobs();
 
@@ -2015,7 +2015,7 @@ describe("MessageTriggerService", () => {
         const deliveredJob = createJob({ id: "job-delivered", status: "processing" });
         const unsentJob = createJob({ id: "job-unsent", status: "processing" });
         jobRepository.findStaleProcessing.mockResolvedValue([deliveredJob, unsentJob]);
-        messageLogRepository.findSentTriggerJobIds.mockResolvedValue(new Set([deliveredJob.id]));
+        messageLogRepository.findSentTriggerJobIdsSystemScope.mockResolvedValue(new Set([deliveredJob.id]));
 
         await service.dispatchDueJobs();
 
@@ -2030,7 +2030,7 @@ describe("MessageTriggerService", () => {
         const { service, jobRepository, messageLogRepository } = createDispatchService();
         const dispatchingJob = createJob({ id: "job-dispatching", status: "dispatching" });
         jobRepository.findStaleProcessing.mockResolvedValue([dispatchingJob]);
-        messageLogRepository.findSentTriggerJobIds.mockResolvedValue(new Set());
+        messageLogRepository.findSentTriggerJobIdsSystemScope.mockResolvedValue(new Set());
 
         await service.dispatchDueJobs();
 
