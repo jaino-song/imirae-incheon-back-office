@@ -1,18 +1,18 @@
-name: babyjamjam-covenant-standby
+name: babyjamjam-fallback-server
 
 services:
   api:
     image: ${BACKEND_IMAGE:-babyjamjam-backend}:${BACKEND_IMAGE_TAG:?BACKEND_IMAGE_TAG is required}
     pull_policy: never
     env_file:
-      - ${BACKEND_ENV_FILE:-/opt/babyjamjam-covenant/backend.env}
+      - ${BACKEND_ENV_FILE:-/opt/babyjamjam-fallback-server/backend.env}
     environment:
       APP_HOST: 0.0.0.0
       APP_PORT: "3001"
       NODE_ENV: production
       DATABASE_CONNECTION_MODE: ${DATABASE_CONNECTION_MODE:-shared}
       VALKEY_URL: redis://valkey:6379
-      # The Covenant runtime is an API-only standby. These fixed overrides take
+      # The Fallback Server runtime is API-only and passive. These fixed overrides take
       # precedence over the supplied environment file and prevent split-brain
       # schedulers, retries, and provider mutations while AWS owns production.
       SCHEDULERS_ENABLED: "false"
@@ -21,7 +21,7 @@ services:
       EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED: "false"
       EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED: "false"
       EFORMSIGN_RECONCILE_ALLOW_UNLOCKED: "false"
-      # The Covenant egress address is not yet registered with Aligo. Blank the
+      # The Fallback egress address is not yet registered with Aligo. Blank the
       # provider credentials even when the source environment file contains
       # them, so synchronous API calls cannot bypass the outbound-IP gate.
       ALIGO_API_KEY: ""
@@ -68,4 +68,4 @@ networks:
 
 volumes:
   valkey_data:
-    name: babyjamjam-covenant-standby-valkey-data
+    name: babyjamjam-fallback-server-valkey-data

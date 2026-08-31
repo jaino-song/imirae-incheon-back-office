@@ -278,11 +278,11 @@ The repository already fixes the surrounding ownership boundaries:
 - The Covenant/Fallback API binds to loopback and requires a separately
   approved tunnel or proxy for inbound traffic; the operator explicitly does
   not change DNS, Vercel, or Cloudflare
-  ([`backend/deploy/covenant/README.md:10-22`](./README.md),
-  [`backend/deploy/covenant/operator.sh:60-62`](./operator.sh)).
+  ([`backend/deploy/fallback-server/README.md:10-22`](./README.md),
+  [`backend/deploy/fallback-server/operator.sh:60-62`](./operator.sh)).
 - Incident cutover is currently an external DNS/load-balancer operation and
   must follow readiness, eFormsign reconciliation, and public smoke checks
-  ([`backend/deploy/covenant/README.md:60-71`](./README.md)).
+  ([`backend/deploy/fallback-server/README.md:60-71`](./README.md)).
 - The accepted failover ADR narrows the future client to one `api`/`A` record,
   two allowlisted origin values, pre/post reads, and no indefinite retry
   ([`docs/adr/ADR-008-sentry-host-failover-controller.md:107-124`](../../../docs/adr/ADR-008-sentry-host-failover-controller.md)).

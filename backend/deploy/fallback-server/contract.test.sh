@@ -22,14 +22,22 @@ assert_not_contains() {
     fi
 }
 
-[[ -r "$COMPOSE_FILE" ]] || fail "missing Covenant standby Compose file"
-[[ -r "$INSTALLER" ]] || fail "missing Covenant standby installer"
-[[ -r "$OPERATOR" ]] || fail "missing Covenant standby operator"
+[[ -r "$COMPOSE_FILE" ]] || fail "missing Fallback Server Compose file"
+[[ -r "$INSTALLER" ]] || fail "missing Fallback Server installer"
+[[ -r "$OPERATOR" ]] || fail "missing Fallback Server operator"
 
 assert_contains "$COMPOSE_FILE" '127\.0\.0\.1:3101:3001' \
-    "standby API must bind only to loopback"
+    "Fallback Server API must bind only to loopback"
+assert_contains "$COMPOSE_FILE" '^name:[[:space:]]+babyjamjam-fallback-server$' \
+    "Compose project must use the Fallback Server identifier"
+assert_contains "$COMPOSE_FILE" 'name:[[:space:]]+babyjamjam-fallback-server-valkey-data' \
+    "Valkey volume must use the Fallback Server identifier"
 assert_not_contains "$COMPOSE_FILE" '(^|["[:space:]-])0\.0\.0\.0:.*3001' \
-    "standby API must not publish port 3001 publicly"
+    "Fallback Server API must not publish port 3001 publicly"
+legacy_project_prefix='covenant'
+legacy_project_suffix='standby'
+assert_not_contains "$COMPOSE_FILE" "${legacy_project_prefix}-${legacy_project_suffix}|babyjamjam-${legacy_project_prefix}" \
+    "Compose must not retain the old Covenant standby identifier"
 for key in \
     SCHEDULERS_ENABLED \
     SERVICE_RECORD_AUTO_FINALIZE_ENABLED \
@@ -38,7 +46,7 @@ for key in \
     EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED \
     EFORMSIGN_RECONCILE_ALLOW_UNLOCKED; do
     assert_contains "$COMPOSE_FILE" "$key:[[:space:]]+\"false\"" \
-        "$key must be hard-disabled in the standby runtime"
+        "$key must be hard-disabled in the Fallback Server runtime"
 done
 for key in ALIGO_API_KEY ALIGO_USER_ID ALIGO_SENDER_PHONE; do
     assert_contains "$COMPOSE_FILE" "$key:[[:space:]]+\"\"" \
@@ -51,7 +59,7 @@ assert_contains "$OPERATOR" 'ghcr\.io/jaino-song/babyjamjam-admin-backend' \
     "operator must use the fixed backend image repository"
 assert_contains "$OPERATOR" 'org\.opencontainers\.image\.revision' \
     "operator must verify immutable image revision metadata"
-assert_contains "$OPERATOR" 'running Covenant standby container does not match the recorded release' \
+assert_contains "$OPERATOR" 'running Fallback Server container does not match the recorded release' \
     "operator must verify the running container image against recorded state"
 assert_contains "$OPERATOR" 'health/ready' \
     "operator must verify DB-backed readiness"
@@ -62,16 +70,20 @@ assert_contains "$OPERATOR" 'exec 9>"\$LOCK_FILE"' \
 assert_not_contains "$OPERATOR" '(aws[[:space:]]|ssh[[:space:]]|cloudflared|vercel)' \
     "operator must not mutate external routing or cloud control planes"
 assert_not_contains "$OPERATOR" 'prisma.*migrate|migrate.*deploy' \
-    "standby deployment must not apply production migrations"
+    "Fallback Server deployment must not apply production migrations"
 
-assert_contains "$INSTALLER" '/usr/local/libexec/babyjamjam-covenant-standby' \
+assert_contains "$INSTALLER" '/usr/local/libexec/babyjamjam-fallback-server' \
     "installer must use a fixed protected artifact directory"
-assert_contains "$INSTALLER" '/opt/babyjamjam-covenant' \
+assert_contains "$INSTALLER" '/opt/babyjamjam-fallback-server' \
     "installer must use a fixed protected state directory"
 assert_not_contains "$INSTALLER" '(sudoers|authorized_keys|docker[[:space:]]+group)' \
     "installer must not broaden host privileges"
+assert_not_contains "$OPERATOR" "${legacy_project_prefix}-${legacy_project_suffix}|babyjamjam-${legacy_project_prefix}" \
+    "operator must not retain the old Covenant standby identifier"
+assert_contains "$OPERATOR" 'environment=fallback-server' \
+    "operator status must use the Fallback Server identifier"
 
 bash -n "$OPERATOR"
 bash -n "$INSTALLER"
 
-echo "Covenant standby contract tests passed"
+echo "Fallback Server contract tests passed"
