@@ -61,7 +61,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         );
         const repository = {
             findHistoryByBranch: jest.fn().mockResolvedValue([source]),
-            findById: jest.fn().mockResolvedValue(source),
+            findByIdInBranch: jest.fn().mockResolvedValue(source),
             upsertPending: jest.fn().mockImplementation(async (candidate: MessageTriggerJobEntity) => Object.assign(candidate, { id: "retry-job" })),
             claimProviderRejectedForRetry: jest.fn().mockImplementation(async (_branchId: string, _sourceJobId: string, _version: string, _snapshotHash: string, _source: MessageTriggerJobEntity, candidate: MessageTriggerJobEntity) => Object.assign(candidate, { id: "retry-job" })),
         };
@@ -365,7 +365,9 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
                 status: "pending",
             }),
         );
-        expect(delivery.dispatchPendingJobNow).toHaveBeenCalledWith("retry-job");
+        expect(delivery.dispatchPendingJobNow).toHaveBeenCalledWith("retry-job", {
+            expectedBranchId: principal.branchId,
+        });
         expect(result).toEqual({ status: "sent", jobId: "retry-job" });
     });
 
@@ -391,7 +393,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         const source = terminalJob();
         let stagedRetry: MessageTriggerJobEntity | undefined;
         const repository = {
-            findById: jest.fn().mockImplementation(async (id: string) => id === "job-a" ? source : stagedRetry),
+            findByIdInBranch: jest.fn().mockImplementation(async (_branchId: string, id: string) => id === "job-a" ? source : stagedRetry),
             findHistoryByBranch: jest.fn().mockResolvedValue([]),
             upsertPending: jest.fn().mockImplementation(async (candidate: MessageTriggerJobEntity) => {
                 stagedRetry = Object.assign(candidate, { id: "retry-job" });
@@ -401,10 +403,9 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
                 stagedRetry = Object.assign(candidate, { id: "retry-job" });
                 return stagedRetry;
             }),
-            claimPending: jest.fn().mockImplementation(async (id: string) => id === stagedRetry?.id),
             claimPendingWithRuleFence: jest.fn().mockImplementation(async (id: string) => id === stagedRetry?.id ? "claim-a" : null),
             update: jest.fn().mockResolvedValue(undefined),
-            findSentTriggerJobIds: jest.fn().mockResolvedValue(new Set<string>()),
+            findSentTriggerJobIdsSystemScope: jest.fn().mockResolvedValue(new Set<string>()),
         };
         const providerApi = {
             sendSms: jest.fn().mockResolvedValue({
@@ -447,7 +448,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             senderApproval as never,
             {} as never,
             repository as never,
-            { findSentTriggerJobIds: jest.fn().mockResolvedValue(new Set<string>()), save: jest.fn() } as never,
+            { findSentTriggerJobIdsSystemScope: jest.fn().mockResolvedValue(new Set<string>()), save: jest.fn() } as never,
             systemTemplateService as never,
             {
                 runExclusive: jest.fn().mockImplementation(async (
@@ -569,7 +570,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         const capability = capabilities.find((entry) => entry.meta.name === "messages.retrySms")!;
 
         const inspection = await capability.inspect!(context, { jobId: "job-a" });
-        const source = await repository.findById("job-a");
+        const source = await repository.findByIdInBranch(principal.branchId, "job-a");
         await smsDelivery.sendJob(source!);
 
         const request = aligoService.sendSms.mock.calls[0]?.[0] as {
@@ -602,7 +603,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         mutate(source);
 
         await expect(capability.revalidate!(context, { jobId: source.id }, inspection.targetVersion!)).resolves.toEqual(expect.objectContaining({ valid: false }));
-        expect(repository.findById).toHaveBeenCalledWith(source.id);
+        expect(repository.findByIdInBranch).toHaveBeenCalledWith(principal.branchId, source.id);
     });
 
     it("refuses retry when provider rejection or current-branch ownership cannot be proven", async () => {

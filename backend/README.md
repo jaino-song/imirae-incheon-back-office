@@ -15,6 +15,7 @@ NestJS service powering the BabyJamJam Admin operations platform. The project fo
   - [Schema Overview](#schema-overview)
   - [Repository Pattern](#repository-pattern)
   - [Mapper Pattern](#mapper-pattern)
+- [Tenant isolation backstop](#tenant-isolation-backstop)
 - [Testing Strategy](#testing-strategy)
   - [TDD Principles](#tdd-principles)
   - [Test Structure](#test-structure)
@@ -375,6 +376,60 @@ export class ClientMapper {
     }
 }
 ```
+
+---
+
+## Tenant isolation backstop
+
+A defense-in-depth backstop against branch/tenant data leaks, layered under the existing guard-level and repository-level scoping. `TenantAlsMiddleware` / `TenantGuard` (`infrastructure/tenant/tenant-als.middleware.ts`, `infrastructure/tenant/tenant.guard.ts`) seed an `AsyncLocalStorage`-backed `tenantContextStore` (`infrastructure/tenant/tenant-context.store.ts`) with the current request's `branchId`. A Prisma Client extension (`infrastructure/database/tenant-isolation.extension.ts`, applied in `infrastructure/database/database.module.ts` via `.$extends(tenantIsolationExtension())`) consults that ambient store on every query against one of the **34 branch-scoped models** in `TENANT_MODELS` (`infrastructure/tenant/tenant-models.generated.ts`).
+
+### Modes
+
+Controlled by the `TENANT_ISOLATION_MODE` env var, resolved by `resolveTenantIsolationMode()` (`infrastructure/tenant/tenant-isolation.reporter.ts`); an unset or unrecognized value falls back to `observe`.
+
+| Mode | Behavior |
+|------|----------|
+| `off` | No checks and no logging — the extension passes every query straight through. |
+| `observe` (default) | Violations are logged (`tenant_isolation_violation` structured log on every occurrence; Sentry deduplicated to one event per `(kind, model, action)` per 5 minutes) and counted, but the query still executes/returns normally. |
+| `enforce` | Same reporting, plus enforcement: a violation caught before execution (missing branch context, or an unpinned/mismatched write) throws `TenantIsolationViolationError` instead of running the query; a violation caught only after execution (an out-of-branch row in a read result) still runs, but the result is discarded and the error is thrown instead of being returned. |
+
+### Bounded guarantee
+
+For Prisma model queries against the 34 tenant models, the extension checks:
+
+- Arg-checked writes (`create`/`update`/`delete`/`upsert`-family operations, checked before execution). `data.branchId` and the relation spelling `data.branch` (`connect` / `connectOrCreate` / `create` / `disconnect`) are both inspected; `where` pins are value-checked, including `{ in: [...] }` and compound-unique shapes like `branchId_phoneNormalized`.
+- Result-checked reads (checked after execution). `select`/`omit` projections cannot hide the check — the extension transparently injects `branchId` into the projection and strips it from the returned rows. One level of nested rows pulled via `include`/nested `select` is also scanned. The scan is capped at a total budget of 100 items (rows + their scanned children) per query.
+- Aggregates (`count` / `aggregate` / `groupBy`): the `where` clause must be pinned to the current branch's value, not merely mention `branchId`.
+
+Outside that guarantee — these rely on guard-layer scoping, repository-level branch pinning, and `observe`-mode logging instead:
+
+- Raw SQL (`$queryRaw` / `$queryRawUnsafe` / `$executeRaw` / `$executeRawUnsafe`) — never blocked, only logged when the active store is HTTP-origin.
+- Read results beyond the 100-item scan budget per query.
+- Nested relation rows deeper than one level, and tenant-model rows pulled via `include` from a query whose **root** model is not a tenant model (the extension keys on the root model of each operation).
+- Nested relation writes targeting other models (e.g. `client.update({ data: { messages: { create: {...} } } })`) — only the top-level `data`/`where` args are inspected.
+- Models that are branch-scoped only **transitively** through a parent and carry no `branch_id` column of their own (currently: `eformsign_doc_file`, `chat_message`, `chat_feedback`, `agent_message`, `doc_template`, `bank_account_info`). `TENANT_MODELS` is generated from the presence of a `branch_id` column ("branch-keyed" models), so these six are invisible to the backstop and depend entirely on their parent-scoped access paths.
+
+### `runSystemScope`
+
+`infrastructure/tenant/run-system-scope.ts` wraps legitimate cross-branch request paths — code that deliberately needs to act outside a single branch's scope. Every call:
+
+- Sets `{ origin: "system", systemScope: true }` on the ambient store, bypassing tenant isolation for the callback's duration.
+- Is audit-logged with a structured `tenant_system_scope_used` event that records the call site. The log is emitted by `TenantContextStore.run` itself, so entering system scope through the raw store API (without the wrapper) is audited too.
+- Is import-restricted by ESLint across **all** backend TypeScript files: `no-restricted-imports` in `eslint.config.mjs` only permits importing it from files listed in `eslint.system-scope.allowlist.mjs`. New call sites require explicit review. Current production caller: `infrastructure/tenant/tenant.guard.ts`, which runs its own `user_branch` membership lookup under system scope (it executes before the request's `branchId` is established). A fixture-based spec (`test/eslint/tenant-freeze.lint.spec.ts`) exercises both this rule and the `PrismaService` freeze against the real flat config, so a config reshuffle cannot silently disable either gate.
+
+### Rollout: observe → enforce
+
+1. Ship `observe` (current default — wired into the CI `auth-e2e` job and `backend/env.example`).
+2. Burn in for 1–2 weeks in staging and production.
+3. Triage every `tenant_isolation_violation` event: fix the offending query, or wrap the legitimate cross-branch path in `runSystemScope`.
+4. After 7 consecutive violation-free days, flip staging to `enforce` and run the `auth-e2e` and Backend Full Flow CI suites against it.
+5. Flip production to `enforce` via an env var change only — no deploy required.
+6. Rollback: set `TENANT_ISOLATION_MODE` back to `observe` — again no deploy required.
+
+### Freeze rules
+
+- New `application/` code must not import `PrismaService` directly — go through a domain repository instead. The grandfathered exceptions live in `eslint.tenant-freeze.allowlist.mjs`, enforced by `no-restricted-imports` in `eslint.config.mjs`; that list only shrinks.
+- After any `prisma/schema.prisma` change affecting a branch-scoped model, regenerate `infrastructure/tenant/tenant-models.generated.ts` with `pnpm run tenant:models:generate`. `infrastructure/tenant/tenant-models.drift.spec.ts` fails if the generated file is out of date with the schema.
 
 ---
 

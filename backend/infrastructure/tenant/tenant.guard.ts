@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { TenantContext, VerifiedTenantPrincipal } from './tenant.context';
+import { tenantContextStore } from './tenant-context.store';
+import { runSystemScope } from './run-system-scope';
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -46,20 +48,30 @@ export class TenantGuard implements CanActivate {
             return true;
         }
 
-        const membership = await this.prisma.user_branch.findFirst({
-            where: {
-                userId: user.userId,
-                branchId: user.branchId,
-            },
-            select: {
-                role: true,
-                branch: {
-                    select: {
-                        isActive: true,
+        // Runs BEFORE assignPrincipal() writes branchId onto the ALS store
+        // (it's the query that determines whether we're even allowed to set
+        // it), so at this point the store is still `{ origin: "http" }` with
+        // no branchId. `user_branch` IS a tenant model, so without this
+        // wrapper the tenant-isolation extension would flag every
+        // authenticated non-owner request as an `http_no_tenant` violation.
+        // The owner path's `branch.findUnique` above is NOT a tenant model
+        // (branch has no branchId column) and is deliberately left unwrapped.
+        const membership = await runSystemScope(() =>
+            this.prisma.user_branch.findFirst({
+                where: {
+                    userId: user.userId,
+                    branchId: user.branchId,
+                },
+                select: {
+                    role: true,
+                    branch: {
+                        select: {
+                            isActive: true,
+                        },
                     },
                 },
-            },
-        });
+            }),
+        );
 
         if (!membership?.branch.isActive) {
             this.logDenial(user.userId, user.branchId, "membership_missing");
@@ -95,5 +107,6 @@ export class TenantGuard implements CanActivate {
     ): void {
         request.tenant = principal;
         this.tenantContext.assign(principal);
+        tenantContextStore.setBranchId(principal.branchId);
     }
 }

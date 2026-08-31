@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { SentryModule } from "@sentry/nestjs/setup";
 import { resolve } from "node:path";
 import { JwtModule } from "@nestjs/jwt";
@@ -27,6 +27,7 @@ import { AreaTemplateModule } from "module/area-template.module";
 import { DocumentModule } from "module/document.module";
 import { DatabaseModule } from "infrastructure/database/database.module";
 import { TenantModule } from "./infrastructure/tenant/tenant.module";
+import { TenantAlsMiddleware } from "./infrastructure/tenant/tenant-als.middleware";
 import { NotificationModule } from "module/notification.module";
 import { AIChatModule } from "module/ai-chat.module";
 import { MessageDeliveryModule } from "module/message-delivery.module";
@@ -101,4 +102,10 @@ const ENV_FILE_PATHS = [
         ReadinessService,
     ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+    configure(consumer: MiddlewareConsumer): void {
+        // Stamps every HTTP request with an ambient tenant store
+        // (AsyncLocalStorage) before it reaches guards/controllers.
+        consumer.apply(TenantAlsMiddleware).forRoutes("*");
+    }
+}

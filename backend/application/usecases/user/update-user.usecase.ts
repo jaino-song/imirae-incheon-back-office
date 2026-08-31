@@ -12,6 +12,9 @@ export type UpdateUserParams = {
     branchId?: string;
 };
 
+/** Roles that may be granted through this path. Owner promotion is exclusive to the system-admin flow. */
+const ASSIGNABLE_ROLES = new Set(["admin", "manager", "user"]);
+
 @Injectable()
 export class UpdateUserUsecase {
     constructor(
@@ -46,6 +49,9 @@ export class UpdateUserUsecase {
             }
             if (user.role === "owner") {
                 throw new ForbiddenException("오너 계정의 역할은 변경할 수 없습니다.");
+            }
+            if (updates.role !== null && !ASSIGNABLE_ROLES.has(updates.role)) {
+                throw new ForbiddenException("owner 역할은 이 경로로 부여할 수 없습니다.");
             }
             user.role = updates.role;
             const membershipRole = updates.role === "admin" || updates.role === "manager"

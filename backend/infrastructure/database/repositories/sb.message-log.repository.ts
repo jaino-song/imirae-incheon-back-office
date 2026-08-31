@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 
 import { IMessageLogRepository } from "domain/repositories/message-log.repository.interface";
@@ -12,7 +12,23 @@ import {
 
 @Injectable()
 export class SbMessageLogRepository implements IMessageLogRepository {
+    private readonly logger = new Logger(SbMessageLogRepository.name);
+
     constructor(private readonly prisma: PrismaService) {}
+
+    /**
+     * Build the branch-pinning fragment for a bare-id where clause. `message_log.branchId`
+     * is nullable for legacy rows: when the entity carries no branch, fall back to an
+     * id-only where instead of filtering on `branchId: null`, and warn so the legacy write
+     * path stays visible.
+     */
+    private branchWhereFragment(log: MessageLogEntity): { branchId?: string } {
+        if (log.branchId == null) {
+            this.logger.warn(`message_log_null_branch_write id=${log.id}`);
+            return {};
+        }
+        return { branchId: log.branchId };
+    }
 
     async save(log: MessageLogEntity): Promise<MessageLogEntity> {
         const row = await this.prisma.message_log.create({
@@ -23,7 +39,7 @@ export class SbMessageLogRepository implements IMessageLogRepository {
 
     async update(log: MessageLogEntity): Promise<MessageLogEntity> {
         const row = await this.prisma.message_log.update({
-            where: { id: log.id },
+            where: { id: log.id, ...this.branchWhereFragment(log) },
             data: MessageLogMapper.toPrismaUpdate(log),
         });
         return MessageLogMapper.toDomain(row);
@@ -72,9 +88,12 @@ export class SbMessageLogRepository implements IMessageLogRepository {
             throw new Error("SMS provider acceptance key and fingerprint are required before dispatch");
         }
 
+        const branchWhere = this.branchWhereFragment(log);
+
         const claimed = await this.prisma.message_log.updateMany({
             where: {
                 id: log.id,
+                ...branchWhere,
                 providerAcceptanceKey: log.providerAcceptanceKey,
                 providerAcceptanceFingerprint: log.providerAcceptanceFingerprint,
                 providerAcceptanceState: "prepared",
@@ -87,7 +106,7 @@ export class SbMessageLogRepository implements IMessageLogRepository {
         if (claimed.count !== 1) return null;
 
         const row = await this.prisma.message_log.findUnique({
-            where: { id: log.id },
+            where: { id: log.id, ...branchWhere },
         });
         return row ? MessageLogMapper.toDomain(row) : null;
     }
@@ -99,9 +118,10 @@ export class SbMessageLogRepository implements IMessageLogRepository {
         reason: string,
         providerMessageId?: string | null,
     ): Promise<MessageLogEntity | null> {
+        const branchWhere = this.branchWhereFragment(log);
         return this.prisma.$transaction(async (transaction) => {
             const current = await transaction.message_log.findUnique({
-                where: { id: log.id },
+                where: { id: log.id, ...branchWhere },
             });
             if (!current) return null;
 
@@ -121,6 +141,7 @@ export class SbMessageLogRepository implements IMessageLogRepository {
             const claimed = await transaction.message_log.updateMany({
                 where: {
                     id: log.id,
+                    ...branchWhere,
                     providerAcceptanceState: expectedState,
                     updatedAt: expectedUpdatedAt,
                 },
@@ -129,7 +150,7 @@ export class SbMessageLogRepository implements IMessageLogRepository {
             if (claimed.count !== 1) return null;
 
             const updated = await transaction.message_log.findUnique({
-                where: { id: log.id },
+                where: { id: log.id, ...branchWhere },
             });
             return updated ? MessageLogMapper.toDomain(updated) : null;
         });
@@ -173,7 +194,7 @@ export class SbMessageLogRepository implements IMessageLogRepository {
         return row ? MessageLogMapper.toDomain(row) : null;
     }
 
-    async findSentTriggerJobIds(jobIds: string[]): Promise<Set<string>> {
+    async findSentTriggerJobIdsSystemScope(jobIds: string[]): Promise<Set<string>> {
         if (jobIds.length === 0) {
             return new Set<string>();
         }
@@ -193,7 +214,7 @@ export class SbMessageLogRepository implements IMessageLogRepository {
         );
     }
 
-    async findUncertainTriggerJobIds(jobIds: string[]): Promise<Set<string>> {
+    async findUncertainTriggerJobIdsSystemScope(jobIds: string[]): Promise<Set<string>> {
         if (jobIds.length === 0) return new Set<string>();
 
         const rows = await this.prisma.message_log.findMany({
@@ -211,7 +232,7 @@ export class SbMessageLogRepository implements IMessageLogRepository {
         );
     }
 
-    async findPendingRetries(): Promise<MessageLogEntity[]> {
+    async findPendingRetriesSystemScope(): Promise<MessageLogEntity[]> {
         const rows = await this.prisma.message_log.findMany({
             where: {
                 status: { in: ["pending", "failed"] },

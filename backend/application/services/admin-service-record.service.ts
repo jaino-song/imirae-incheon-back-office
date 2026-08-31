@@ -236,7 +236,9 @@ export class AdminServiceRecordService {
             preparedLinkToken,
             recipientPhone,
         );
-        const dispatched = await this.messageTriggerService.dispatchPendingJobNow(queued.jobId);
+        const dispatched = await this.messageTriggerService.dispatchPendingJobNow(queued.jobId, {
+            expectedBranchId: branchId,
+        });
 
         return {
             ok: dispatched.status === "sent",
