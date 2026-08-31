@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   Bell,
+  KeyRound,
   type LucideProps,
   Palette,
   Shield,
@@ -12,6 +13,7 @@ import {
   Moon,
   Monitor,
 } from "lucide-react";
+import { CallIngestTokenSection } from "@/components/app/call-ingest-tokens/CallIngestTokenSection";
 import { ContentPaper } from "@/components/app/root/content-paper";
 import { SectionNav } from "@/components/app/v3";
 import { useGetAuthUser } from "@/hooks/useGetAuthUser";
@@ -66,7 +68,18 @@ const BASE_NAV_SECTIONS = [
   { id: "security", label: "보안", icon: Shield },
 ] as const;
 
-type SectionId = "profile" | "notifications" | "theme" | "security" | "pricing";
+/** Owner-only sections, appended to the base nav when the current user is an owner. */
+const OWNER_NAV_SECTIONS = [
+  { id: "call-ingest-tokens", label: "통화 수집 토큰", icon: KeyRound },
+] as const;
+
+type SectionId =
+  | "profile"
+  | "notifications"
+  | "theme"
+  | "security"
+  | "pricing"
+  | "call-ingest-tokens";
 
 const THEME_OPTIONS = [
   { id: "light", label: "라이트", icon: Sun, description: "밝은 테마" },
@@ -80,6 +93,12 @@ export default function SettingsPage() {
   const initialUser = useInitialUser();
   const authUserQuery = useGetAuthUser({ initialData: initialUser });
   const { data: user } = authUserQuery;
+  const isOwner = user?.role === "owner";
+  // `AuthUser` doesn't declare `branchId` (extending it is out of this
+  // section's scope), but the backend's `/auth/me` response includes it —
+  // see backend/interface/controllers/auth.controller.ts:189-193.
+  const branchId = (user as { branchId?: string | null } | undefined)?.branchId ?? null;
+  const navSections = isOwner ? [...BASE_NAV_SECTIONS, ...OWNER_NAV_SECTIONS] : BASE_NAV_SECTIONS;
   const queryClient = useQueryClient();
   const notificationPreferencesQuery = useQuery({
     queryKey: ["settings", "notification-preferences"],
@@ -131,7 +150,7 @@ export default function SettingsPage() {
       >
         <SectionNav
           data-component="desktop_settings_sections_section-nav"
-          items={BASE_NAV_SECTIONS}
+          items={navSections}
           activeId={activeSection}
           onSelect={(id) => setActiveSection(id as SectionId)}
         />
@@ -429,6 +448,10 @@ export default function SettingsPage() {
               </div>
             </ContentPaper>
           </section>
+          )}
+
+          {activeSection === "call-ingest-tokens" && isOwner && branchId && (
+            <CallIngestTokenSection branchId={branchId} />
           )}
 
         </div>

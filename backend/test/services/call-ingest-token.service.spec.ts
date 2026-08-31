@@ -7,6 +7,7 @@ describe("CallIngestTokenService", () => {
         call_ingest_token: {
             create: jest.fn(),
             findUnique: jest.fn(),
+            findMany: jest.fn(),
             update: jest.fn(),
             updateMany: jest.fn(),
         },
@@ -65,5 +66,51 @@ describe("CallIngestTokenService", () => {
     it("404s when revoking a token from another branch", async () => {
         prisma.call_ingest_token.updateMany = jest.fn().mockResolvedValue({ count: 0 });
         await expect(service.revoke("tok-1", "branch-2")).rejects.toThrow(NotFoundException);
+    });
+
+    it("scopes the list query to the given branch, most-recent first", async () => {
+        prisma.call_ingest_token.findMany.mockResolvedValue([]);
+        await service.list("branch-1");
+        expect(prisma.call_ingest_token.findMany).toHaveBeenCalledWith({
+            where: { branchId: "branch-1" },
+            select: { id: true, label: true, active: true, createdAt: true },
+            orderBy: { createdAt: "desc" },
+        });
+    });
+
+    it("returns list rows with exactly {id,label,active,createdAt} — never the token hash or any other column", async () => {
+        const createdAt = new Date("2026-01-01T00:00:00Z");
+        // Simulates what a broadened (or forgotten) `select` would hand back,
+        // to prove the service's own reshape — not Prisma's select — is what
+        // keeps the hash out of the response.
+        prisma.call_ingest_token.findMany.mockResolvedValue([
+            {
+                id: "tok-1",
+                branchId: "branch-1",
+                tokenHash: "deadbeef",
+                label: "인천본점 n8n",
+                active: true,
+                lastUsedAt: null,
+                revokedAt: null,
+                createdAt,
+            },
+        ]);
+
+        const result = await service.list("branch-1");
+
+        expect(result).toHaveLength(1);
+        expect(Object.keys(result[0]!).sort()).toEqual(["active", "createdAt", "id", "label"]);
+        expect(result[0]).toEqual({ id: "tok-1", label: "인천본점 n8n", active: true, createdAt });
+    });
+
+    it("lists revoked tokens as inactive", async () => {
+        const createdAt = new Date("2026-01-02T00:00:00Z");
+        prisma.call_ingest_token.findMany.mockResolvedValue([
+            { id: "tok-2", label: "구 토큰", active: false, createdAt },
+        ]);
+
+        const result = await service.list("branch-1");
+
+        expect(result[0]).toEqual({ id: "tok-2", label: "구 토큰", active: false, createdAt });
     });
 });

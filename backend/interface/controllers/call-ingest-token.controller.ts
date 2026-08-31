@@ -2,6 +2,7 @@ import {
     Body,
     Controller,
     ForbiddenException,
+    Get,
     HttpCode,
     Param,
     Post,
@@ -35,6 +36,15 @@ export class CallIngestTokenController {
             throw new ForbiddenException("Cannot manage tokens for another branch");
         }
         return this.tokenService.createToken(branchId, dto.label);
+    }
+
+    @Get("branches/:branchId/call-ingest-tokens")
+    async list(@Param("branchId") branchId: string) {
+        this.assertOwner();
+        if (branchId !== this.tenantContext.branchId) {
+            throw new ForbiddenException("Cannot manage tokens for another branch");
+        }
+        return this.tokenService.list(branchId);
     }
 
     @Post("call-ingest-tokens/:id/revoke")

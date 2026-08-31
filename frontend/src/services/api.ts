@@ -596,6 +596,34 @@ export const settingsApi = {
     },
 }
 
+/** Owner-only. Safe fields only — never the token hash or plaintext. */
+export interface CallIngestToken {
+    id: string;
+    label: string;
+    active: boolean;
+    createdAt: string;
+}
+
+/** The `token` plaintext is present only here, exactly once, at issuance. */
+export interface CreatedCallIngestToken extends CallIngestToken {
+    branchId: string;
+    token: string;
+}
+
+export const callIngestTokenApi = {
+    list: async (branchId: string): Promise<CallIngestToken[]> => {
+        const { data } = await api.get(`/branches/${branchId}/call-ingest-tokens`);
+        return data;
+    },
+    create: async (branchId: string, label: string): Promise<CreatedCallIngestToken> => {
+        const { data } = await api.post(`/branches/${branchId}/call-ingest-tokens`, { label });
+        return data;
+    },
+    revoke: async (id: string): Promise<void> => {
+        await api.post(`/call-ingest-tokens/${id}/revoke`);
+    },
+};
+
 export const consultationInquiriesApi = {
     list: async (params: ConsultationInquiryListParams = {}): Promise<ConsultationInquiryListResponse> => {
         const { data } = await api.get("/consultation-inquiries", { params });
