@@ -226,6 +226,12 @@ sudo /usr/local/sbin/babyjamjam-fallback-server stop
 The rollback deadline must precede approval expiry. Controller/Sentry automatic
 failover is explicitly out of scope for this temporary procedure.
 
+`tailscale funnel --bg` may resume after reboot, while this API is deliberately
+configured with `restart: "no"`. After any reboot, immediately run
+`tailscale funnel off`, verify Funnel is unavailable, and do not re-point or
+redeploy either frontend until a full new temporary-active approval and status
+proof have been completed.
+
 The backend environment is root-owned, but Docker daemon/root users can inspect
 container environment metadata. This mode does not claim Docker `env_file` is a
 secret-store boundary: it never logs or prints values, and a file-based

@@ -306,7 +306,10 @@ claim_approval_nonce() {
 validate_active_aligo_env() {
     local key
     for key in ALIGO_API_KEY ALIGO_USER_ID ALIGO_SENDER_PHONE; do
-        /usr/bin/awk -F= -v wanted="$key" '$1 == wanted {v=substr($0,index($0,"=")+1); if(v!="") c++} END{exit c==1?0:1}' "$ENV_FILE" \
+        /usr/bin/awk -F= -v wanted="$key" '
+            $1 == wanted { count += 1; value=substr($0,index($0,"=")+1); gsub(/^[[:space:]]+|[[:space:]]+$/, "", value); if ((value=="\"\"" || value=="\047\047" || value=="") ) invalid=1 }
+            END{exit (count==1 && invalid!=1)?0:1}
+        ' "$ENV_FILE" \
             || die "Temporary-active requires a nonempty Aligo credential."
     done
 }
@@ -333,8 +336,8 @@ egress_hash() {
 verify_approved_egress() {
     local expected_hash="$1" tag="$2" first_hash second_hash
     /usr/bin/docker network inspect "${PROJECT_NAME}_outbound" >/dev/null 2>&1 || die "The temporary-active outbound network is unavailable."
-    first_hash="$(/usr/bin/docker run --rm --network "${PROJECT_NAME}_outbound" "$LOCAL_IMAGE_REPOSITORY:$tag" node -e 'fetch("https://api.ipify.org").then(r=>r.text()).then(x=>process.stdout.write(require("crypto").createHash("sha256").update(x.trim()).digest("hex"))).catch(()=>process.exit(1))' 2>/dev/null)" || die "The first container egress observation failed."
-    second_hash="$(/usr/bin/docker run --rm --network "${PROJECT_NAME}_outbound" "$LOCAL_IMAGE_REPOSITORY:$tag" node -e 'fetch("https://ifconfig.me/ip").then(r=>r.text()).then(x=>process.stdout.write(require("crypto").createHash("sha256").update(x.trim()).digest("hex"))).catch(()=>process.exit(1))' 2>/dev/null)" || die "The second container egress observation failed."
+    first_hash="$(/usr/bin/docker run --rm --network "${PROJECT_NAME}_outbound" "$LOCAL_IMAGE_REPOSITORY:$tag" node -e 'fetch("https://api.ipify.org").then(r=>r.ok?r.text():Promise.reject()).then(x=>{x=x.trim();const p=x.split(".");if(!/^(?:0|[1-9][0-9]{0,2})(?:\.(?:0|[1-9][0-9]{0,2})){3}$/.test(x)||p.some(n=>Number(n)>255))throw 0;process.stdout.write(require("crypto").createHash("sha256").update(x).digest("hex"))}).catch(()=>process.exit(1))' 2>/dev/null)" || die "The first container egress observation failed."
+    second_hash="$(/usr/bin/docker run --rm --network "${PROJECT_NAME}_outbound" "$LOCAL_IMAGE_REPOSITORY:$tag" node -e 'fetch("https://ifconfig.me/ip").then(r=>r.ok?r.text():Promise.reject()).then(x=>{x=x.trim();const p=x.split(".");if(!/^(?:0|[1-9][0-9]{0,2})(?:\.(?:0|[1-9][0-9]{0,2})){3}$/.test(x)||p.some(n=>Number(n)>255))throw 0;process.stdout.write(require("crypto").createHash("sha256").update(x).digest("hex"))}).catch(()=>process.exit(1))' 2>/dev/null)" || die "The second container egress observation failed."
     [[ "$first_hash" =~ ^[0-9a-f]{64}$ && "$second_hash" =~ ^[0-9a-f]{64}$ ]] || die "The container egress observation is invalid."
     [[ "$first_hash" == "$second_hash" && "$first_hash" == "$expected_hash" ]] \
         || die "The temporary-active egress observations do not match the approved hash."
