@@ -7,6 +7,7 @@ export PATH="$SAFE_PATH"
 
 readonly ARTIFACT_ROOT="/usr/local/libexec/babyjamjam-fallback-server"
 readonly COMPOSE_FILE="$ARTIFACT_ROOT/compose.yml"
+readonly DB_IDENTITY_HELPER="$ARTIFACT_ROOT/production-db-identity.sh"
 readonly BUNDLE_MANIFEST="$ARTIFACT_ROOT/bundle.manifest"
 readonly INSTALLED_OPERATOR="/usr/local/sbin/babyjamjam-fallback-server"
 readonly STATE_ROOT="/opt/babyjamjam-fallback-server"
@@ -28,6 +29,7 @@ readonly REQUIRED_ENV_KEYS=(
     KAKAO_CLIENT_SECRET
     KAKAO_CALLBACK_URL
     SUPABASE_URL
+    FALLBACK_PRODUCTION_DB_REF_SHA256
     SUPABASE_SERVICE_KEY
     EFORMSIGN_USER_EMAIL
     EFORMSIGN_API_URL
@@ -90,6 +92,7 @@ sha256_file() {
 
 validate_bundle() {
     local compose_digest
+    local identity_digest
     local operator_digest
 
     [[ "$0" == "$INSTALLED_OPERATOR" ]] \
@@ -101,6 +104,9 @@ validate_bundle() {
     [[ -f "$COMPOSE_FILE" && ! -L "$COMPOSE_FILE" \
         && "$(/usr/bin/stat -c '%U:%G:%a' "$COMPOSE_FILE")" == "root:root:640" ]] \
         || die "The protected Fallback Server Compose artifact is missing or unsafe."
+    [[ -f "$DB_IDENTITY_HELPER" && ! -L "$DB_IDENTITY_HELPER" \
+        && "$(/usr/bin/stat -c '%U:%G:%a' "$DB_IDENTITY_HELPER")" == "root:root:750" ]] \
+        || die "The protected Production DB identity helper is missing or unsafe."
     [[ -f "$BUNDLE_MANIFEST" && ! -L "$BUNDLE_MANIFEST" \
         && "$(/usr/bin/stat -c '%U:%G:%a' "$BUNDLE_MANIFEST")" == "root:root:640" ]] \
         || die "The Fallback Server bundle manifest is missing or unsafe."
@@ -109,11 +115,14 @@ validate_bundle() {
 
     operator_digest="$(sha256_file "$INSTALLED_OPERATOR")"
     compose_digest="$(sha256_file "$COMPOSE_FILE")"
+    identity_digest="$(sha256_file "$DB_IDENTITY_HELPER")"
     /usr/bin/grep -Fqx "operator.sh=$operator_digest" "$BUNDLE_MANIFEST" \
         || die "The installed Fallback Server operator does not match its manifest."
     /usr/bin/grep -Fqx "compose.yml=$compose_digest" "$BUNDLE_MANIFEST" \
         || die "The Fallback Server Compose artifact does not match its manifest."
-    [[ "$(/usr/bin/wc -l <"$BUNDLE_MANIFEST")" -eq 2 ]] \
+    /usr/bin/grep -Fqx "production-db-identity.sh=$identity_digest" "$BUNDLE_MANIFEST" \
+        || die "The Production DB identity helper does not match its manifest."
+    [[ "$(/usr/bin/wc -l <"$BUNDLE_MANIFEST")" -eq 3 ]] \
         || die "The Fallback Server bundle manifest is incomplete."
 }
 
@@ -135,6 +144,15 @@ validate_env_file() {
             END { exit found == 1 ? 0 : 1 }
         ' "$ENV_FILE" || die "The Fallback Server environment file is missing a required value."
     done
+}
+
+validate_production_db_identity() {
+    local output
+
+    output="$("$DB_IDENTITY_HELPER" "$ENV_FILE")" \
+        || die "The Fallback Server Production DB identity check failed."
+    [[ "$output" == "production_db_identity=ok" ]] \
+        || die "The Fallback Server Production DB identity check failed."
 }
 
 validate_release() {
@@ -241,6 +259,7 @@ verify_passive_runtime() {
 activate_release() {
     local commit_sha="$1"
 
+    validate_production_db_identity
     compose "$commit_sha" up -d --no-build
     wait_until_ready "$commit_sha" || return 1
     verify_passive_runtime "$commit_sha"
@@ -254,6 +273,7 @@ deploy_release() {
 
     validate_release "$commit_sha" "$image_digest"
     validate_env_file
+    validate_production_db_identity
     current_tag="$(read_state current-image-tag || true)"
     current_digest="$(read_state current-image-digest || true)"
     if [[ -n "$current_tag" || -n "$current_digest" ]]; then
@@ -295,6 +315,8 @@ status_release() {
     local restart_count
     local running_image_id
 
+    validate_env_file
+    validate_production_db_identity
     commit_sha="$(read_state current-image-tag)" || die "No healthy Fallback Server release is recorded."
     image_digest="$(read_state current-image-digest)" || die "No Fallback Server image digest is recorded."
     validate_release "$commit_sha" "$image_digest"
@@ -328,6 +350,7 @@ status_release() {
         "container_health=$container_health" \
         "restart_count=$restart_count" \
         "db_readiness=ok" \
+        "production_db_identity=ok" \
         "public_routing=not_managed" \
         "schedulers_enabled=false" \
         "document_jobs_accepting=false" \

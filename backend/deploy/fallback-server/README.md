@@ -28,7 +28,8 @@ healthy.
 /usr/local/sbin/babyjamjam-fallback-server
 /usr/local/libexec/babyjamjam-fallback-server/
 ├── bundle.manifest
-└── compose.yml
+├── compose.yml
+└── production-db-identity.sh
 /opt/babyjamjam-fallback-server/
 ├── backend.env
 └── state/
@@ -40,6 +41,29 @@ healthy.
 
 The operator and artifact bundle are root-owned. `backend.env` must be a
 regular, non-symlink file owned by `root:root` with mode `0600`.
+
+## Production DB identity gate
+
+Before an image is pulled, a release is activated, or status is reported, the
+protected `production-db-identity.sh` helper validates the host environment:
+
+- `SUPABASE_URL` must be an HTTPS URL for a strict 20-character Supabase
+  project ref; localhost and non-HTTPS values are rejected.
+- `DATABASE_URL` and `DIRECT_URL` must be PostgreSQL URLs whose authority
+  contains that same project ref.
+- `FALLBACK_PRODUCTION_DB_REF_SHA256` must be a 64-character lowercase
+  SHA-256 digest of the exact project ref. The helper hashes only the ref and
+  never prints any URL, credential, or digest value.
+- Required assignments must be unique, non-empty, and syntactically valid;
+  the environment file must remain a non-symlink `root:root` mode `0600` file.
+
+The helper emits only `production_db_identity=ok` on success and the generic
+`production_db_identity=failed` marker on failure. The operator captures the
+success marker and includes it in safe status output. Provision the real
+production values directly in `/opt/babyjamjam-fallback-server/backend.env`;
+do not commit that file or its values. The repository's application manifest
+remains the source for the shared backend keys, so no second checkout `.env`
+manifest is created for this host-only file.
 
 ## Install and stage
 
