@@ -13,6 +13,7 @@ readonly INSTALLED_OPERATOR="/usr/local/sbin/babyjamjam-fallback-server"
 readonly STATE_ROOT="/opt/babyjamjam-fallback-server"
 readonly STATE_DIRECTORY="$STATE_ROOT/state"
 readonly ENV_FILE="$STATE_ROOT/backend.env"
+readonly APPROVED_DB_REF_HASH_FILE="$STATE_ROOT/approved-production-db-ref.sha256"
 readonly LOCK_FILE="/run/lock/babyjamjam-fallback-server.lock"
 readonly IMAGE_REPOSITORY="ghcr.io/jaino-song/babyjamjam-admin-backend"
 readonly LOCAL_IMAGE_REPOSITORY="babyjamjam-backend"
@@ -29,7 +30,6 @@ readonly REQUIRED_ENV_KEYS=(
     KAKAO_CLIENT_SECRET
     KAKAO_CALLBACK_URL
     SUPABASE_URL
-    FALLBACK_PRODUCTION_DB_REF_SHA256
     SUPABASE_SERVICE_KEY
     EFORMSIGN_USER_EMAIL
     EFORMSIGN_API_URL
@@ -149,7 +149,7 @@ validate_env_file() {
 validate_production_db_identity() {
     local output
 
-    output="$("$DB_IDENTITY_HELPER" "$ENV_FILE")" \
+    output="$("$DB_IDENTITY_HELPER" "$ENV_FILE" "$APPROVED_DB_REF_HASH_FILE")" \
         || die "The Fallback Server Production DB identity check failed."
     [[ "$output" == "production_db_identity=ok" ]] \
         || die "The Fallback Server Production DB identity check failed."
