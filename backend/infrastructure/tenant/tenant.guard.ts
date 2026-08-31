@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { TenantContext, VerifiedTenantPrincipal } from './tenant.context';
+import { tenantContextStore } from './tenant-context.store';
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -95,5 +96,6 @@ export class TenantGuard implements CanActivate {
     ): void {
         request.tenant = principal;
         this.tenantContext.assign(principal);
+        tenantContextStore.setBranchId(principal.branchId);
     }
 }
