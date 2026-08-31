@@ -20,6 +20,17 @@ calls=''
 active_compose(){ calls+="stop "; return 1; }
 cleanup_active_after_failure a && fail 'cleanup accepted stop failure'
 [[ "$calls" == 'stop ' ]] || fail 'cleanup cleared state after stop failure'
+read_state(){ [[ "$1" == runtime-mode ]] && printf '%s\n' passive; [[ "$1" == current-image-tag ]] && return 1; }
+container_id_for(){ return 1; }
+refuse_active_or_unknown_runtime || fail 'passive empty runtime refused'
+read_state(){ [[ "$1" == runtime-mode ]] && printf '%s\n' temporary-active; }
+if ( refuse_active_or_unknown_runtime ) 2>/dev/null; then fail 'active mode accepted'; fi
+read_state(){ [[ "$1" == runtime-mode ]] && printf '%s\n' corrupt; }
+if ( refuse_active_or_unknown_runtime ) 2>/dev/null; then fail 'corrupt mode accepted'; fi
+read_state(){ [[ "$1" == runtime-mode ]] && printf '%s\n' passive; [[ "$1" == current-image-tag ]] && printf '%s\n' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; }
+container_id_for(){ printf '%s\n' deadbeefdead; }
+runtime_env_for(){ printf '%s\n' 'SCHEDULERS_ENABLED=true'; }
+if ( refuse_active_or_unknown_runtime ) 2>/dev/null; then fail 'active gates accepted'; fi
 # Execute the public validation primitives that do not touch providers.
 validate_release "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 if ( validate_release bad "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ) 2>/dev/null; then fail 'bad release accepted'; fi

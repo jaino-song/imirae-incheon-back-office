@@ -230,6 +230,30 @@ validate_release() {
     [[ "$image_digest" =~ $DIGEST_PATTERN ]] || die "The image digest must be a SHA-256 digest."
 }
 
+runtime_env_for() {
+    /usr/bin/docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$1" 2>/dev/null
+}
+
+refuse_active_or_unknown_runtime() {
+    local mode tag container_id gates key
+    mode="$(read_state runtime-mode || true)"
+    [[ -z "$mode" || "$mode" == "passive" ]] || die "An active or unknown Fallback runtime must be stopped first."
+    tag="$(read_state current-image-tag || true)"
+    [[ -z "$tag" ]] && return 0
+    [[ "$tag" =~ $SHA_PATTERN ]] || die "The recorded Fallback runtime is unsafe."
+    container_id="$(container_id_for "$tag" || true)"
+    [[ -z "$container_id" ]] && return 0
+    gates="$(runtime_env_for "$container_id" || true)"
+    [[ -n "$gates" ]] || die "The running Fallback runtime cannot be safely identified."
+    [[ "$gates" != *$'SCHEDULERS_ENABLED=true'* ]] || die "The running Fallback runtime is active."
+    for key in "${ACTIVE_TRUE_ENV_KEYS[@]}"; do
+        [[ "$gates" != *"$key=true"* ]] || die "The running Fallback runtime is active."
+    done
+    for key in "${PASSIVE_ENV_KEYS[@]}"; do
+        [[ "$gates" == *"$key=false"* ]] || die "The running Fallback runtime is unsafe."
+    done
+}
+
 compose() {
     /usr/bin/env \
         BACKEND_ENV_FILE="$ENV_FILE" \
@@ -518,6 +542,7 @@ temporary_activate_release() {
     local commit_sha="$1" image_digest="$2" approval_data approval_egress_hash approval_nonce incident_id evidence_hash expiry current_tag current_digest container_id
 
     validate_release "$commit_sha" "$image_digest"
+    refuse_active_or_unknown_runtime
     if [[ "$(read_state runtime-mode || true)" == "temporary-active" ]]; then
         die "An existing temporary-active runtime must be stopped before replacement."
     fi
@@ -580,6 +605,7 @@ deploy_release() {
     local current_tag=""
 
     validate_release "$commit_sha" "$image_digest"
+    refuse_active_or_unknown_runtime
     [[ "$(read_state runtime-mode || true)" != "temporary-active" ]] \
         || die "Stop the temporary-active runtime before passive deployment."
     validate_env_file
@@ -694,8 +720,7 @@ rollback_release() {
     local previous_digest
     local previous_tag
 
-    [[ "$(read_state runtime-mode || true)" != "temporary-active" ]] \
-        || die "Stop the temporary-active runtime before passive rollback."
+    refuse_active_or_unknown_runtime
     current_tag="$(read_state current-image-tag)" || die "No current Fallback Server release is recorded."
     current_digest="$(read_state current-image-digest)" || die "No current Fallback Server digest is recorded."
     previous_tag="$(read_state previous-image-tag)" || die "No previous Fallback Server release is recorded."
