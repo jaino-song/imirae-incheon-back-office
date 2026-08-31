@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
-import { mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  symlink,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -11,6 +18,7 @@ import {
   PHASES,
   StateOwnershipError,
   StatePathError,
+  StateLockError,
   StateValidationError,
   StaleGenerationError,
   createInitialState,
@@ -33,6 +41,20 @@ async function makeFixture() {
 
 async function cleanup(directory) {
   await fs.rm(directory, { recursive: true, force: true });
+}
+
+async function writeLock(statePath, metadata, { ageMs = 0 } = {}) {
+  const lockPath = `${statePath}.lock`;
+  const value = typeof metadata === 'string' ? metadata : `${JSON.stringify(metadata)}\n`;
+  await writeFile(lockPath, value, { mode: 0o600 });
+  if (ageMs > 0) {
+    const old = new Date(Date.now() - ageMs);
+    await utimes(lockPath, old, old);
+  }
+}
+
+function lockName(statePath) {
+  return path.basename(`${statePath}.lock`);
 }
 
 function fingerprint(character) {
@@ -75,6 +97,64 @@ test('create, read, and conditional update persist the strict state envelope', a
   const stats = await fs.lstat(fixture.statePath);
   assert.equal(stats.mode & 0o777, 0o600);
   assert.equal(stats.isSymbolicLink(), false);
+});
+
+test('DNS_COMMITTING is a complete point-of-no-return phase and rejects disarm updates', async (t) => {
+  const fixture = await makeFixture();
+  t.after(() => cleanup(fixture.directory));
+  await fixture.store.create({ armed: true });
+  const eventFingerprint = fingerprint('e');
+  const verifying = await fixture.store.update({
+    expectedGeneration: 0,
+    expectedPhase: PHASES.AWS_ACTIVE,
+    patch: {
+      phase: PHASES.VERIFYING,
+      currentEventFingerprint: eventFingerprint,
+      lastEventFingerprint: eventFingerprint,
+      pendingIncident: {
+        eventFingerprint,
+        startedAt: NOW,
+        generation: 1,
+      },
+    },
+    at: NOW,
+  });
+  const committing = await fixture.store.update({
+    expectedGeneration: verifying.generation,
+    expectedPhase: PHASES.VERIFYING,
+    patch: {
+      phase: PHASES.DNS_COMMITTING,
+      armed: true,
+      pendingIncident: {
+        ...verifying.pendingIncident,
+        generation: verifying.generation + 1,
+      },
+    },
+    at: NOW + 1,
+  });
+  assert.equal(committing.phase, PHASES.DNS_COMMITTING);
+  assert.equal(committing.pendingIncident.generation, committing.generation);
+
+  await assert.rejects(
+    fixture.store.update({
+      expectedGeneration: committing.generation,
+      expectedPhase: PHASES.DNS_COMMITTING,
+      patch: { armed: false },
+      at: NOW + 2,
+    }),
+    (error) => error.code === 'DNS_COMMITTING_DISARM_FORBIDDEN',
+  );
+  assert.deepEqual(await fixture.store.read(), committing);
+  const recovery = await fixture.store.startupRecovery();
+  assert.equal(recovery.dnsCommitting, true);
+  assert.deepEqual(recovery.pendingIncident, committing.pendingIncident);
+  assert.equal(recovery.canPromoteToFallback, false);
+
+  assert.throws(() => parseState({ ...committing, armed: false }), StateValidationError);
+  assert.throws(() => parseState({
+    ...committing,
+    generation: committing.generation + 1,
+  }), StateValidationError);
 });
 
 test('VERIFYING state is complete, recoverable, and never promoted by startup recovery', async (t) => {
@@ -240,6 +320,107 @@ test('atomic rename failure preserves the previous state and cleans the temp fil
   assert.deepEqual(await fixture.store.read(), before);
   const names = await readdir(fixture.directory);
   assert.deepEqual(names, ['controller-state.json']);
+});
+
+test('stale lock metadata is reclaimed when the owner is dead, PID-reused, or from another boot', async (t) => {
+  const scenarios = [
+    { name: 'dead owner', metadata: { pid: 9_999, startToken: 'dead', bootId: 'boot' }, alive: false, observedStart: undefined },
+    { name: 'pid reuse', metadata: { pid: 123, startToken: 'old-start', bootId: 'boot' }, alive: true, observedStart: 'new-start' },
+    { name: 'boot mismatch', metadata: { pid: 123, startToken: 'same-start', bootId: 'old-boot' }, alive: true, observedStart: 'same-start' },
+  ];
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async (t2) => {
+      const fixture = await makeFixture();
+      t2.after(() => cleanup(fixture.directory));
+      await fixture.store.create();
+      const lockStore = createStateStore({
+        statePath: fixture.statePath,
+        parentDir: fixture.directory,
+        lockIdentity: { pid: 123, startToken: 'current-start', bootId: 'boot' },
+        isProcessAlive: async () => scenario.alive,
+        readProcessStartToken: async () => scenario.observedStart,
+        readBootId: async () => 'boot',
+        now: () => NOW,
+      });
+      await writeLock(fixture.statePath, {
+        schemaVersion: 1,
+        ...scenario.metadata,
+        token: '00000000-0000-4000-8000-000000000000',
+        acquiredAt: NOW,
+      });
+      const updated = await lockStore.update({
+        expectedGeneration: 0,
+        patch: { armed: true },
+        at: NOW + 1,
+      });
+      assert.equal(updated.generation, 1);
+      assert.equal((await readdir(fixture.directory)).includes(lockName(fixture.statePath)), false);
+    });
+  }
+});
+
+test('fresh or live locks are never reclaimed, including malformed locks', async (t) => {
+  await t.test('live metadata remains', async (t2) => {
+    const fixture = await makeFixture();
+    t2.after(() => cleanup(fixture.directory));
+    await fixture.store.create();
+    const lockStore = createStateStore({
+      statePath: fixture.statePath,
+      parentDir: fixture.directory,
+      lockIdentity: { pid: 123, startToken: 'live-start', bootId: 'boot' },
+      isProcessAlive: async () => true,
+      readProcessStartToken: async () => 'live-start',
+      readBootId: async () => 'boot',
+      lockTimeoutMs: 0,
+    });
+    await writeLock(fixture.statePath, {
+      schemaVersion: 1,
+      pid: 123,
+      startToken: 'live-start',
+      bootId: 'boot',
+      token: '00000000-0000-4000-8000-000000000001',
+      acquiredAt: NOW,
+    }, { ageMs: 120_000 });
+    await assert.rejects(lockStore.update({ expectedGeneration: 0, patch: { armed: true }, at: NOW + 1 }), StateLockError);
+    assert.equal((await readdir(fixture.directory)).includes(lockName(fixture.statePath)), true);
+  });
+
+  await t.test('fresh malformed lock remains', async (t2) => {
+    const fixture = await makeFixture();
+    t2.after(() => cleanup(fixture.directory));
+    await fixture.store.create();
+    const lockStore = createStateStore({ statePath: fixture.statePath, parentDir: fixture.directory, lockTimeoutMs: 0 });
+    await writeLock(fixture.statePath, 'partially-written-lock');
+    await assert.rejects(lockStore.update({ expectedGeneration: 0, patch: { armed: true }, at: NOW + 1 }), StateLockError);
+    assert.equal((await readdir(fixture.directory)).includes(lockName(fixture.statePath)), true);
+  });
+
+  await t.test('old malformed lock is reclaimed', async (t2) => {
+    const fixture = await makeFixture();
+    t2.after(() => cleanup(fixture.directory));
+    await fixture.store.create();
+    const lockStore = createStateStore({
+      statePath: fixture.statePath,
+      parentDir: fixture.directory,
+      lockStaleAfterMs: 60_000,
+      now: () => NOW,
+    });
+    await writeLock(fixture.statePath, '', { ageMs: 120_000 });
+    const updated = await lockStore.update({ expectedGeneration: 0, patch: { armed: true }, at: NOW + 1 });
+    assert.equal(updated.generation, 1);
+    assert.equal((await readdir(fixture.directory)).includes(lockName(fixture.statePath)), false);
+  });
+});
+
+test('lock symlinks are treated as unsafe and are not unlinked', async (t) => {
+  const fixture = await makeFixture();
+  t.after(() => cleanup(fixture.directory));
+  await fixture.store.create();
+  await writeFile(path.join(fixture.directory, 'lock-target'), 'lock', { mode: 0o600 });
+  await symlink('lock-target', `${fixture.statePath}.lock`);
+  const lockStore = createStateStore({ statePath: fixture.statePath, parentDir: fixture.directory, lockTimeoutMs: 0 });
+  await assert.rejects(lockStore.update({ expectedGeneration: 0, patch: { armed: true }, at: NOW + 1 }), StateLockError);
+  assert.equal((await fs.lstat(`${fixture.statePath}.lock`)).isSymbolicLink(), true);
 });
 
 test('strict parser rejects malformed JSON, unknown fields, invalid enums, and partial transitions', async () => {

@@ -12,6 +12,7 @@ export const MAX_PATH_LENGTH = 4_096;
 export const PHASES = Object.freeze({
   AWS_ACTIVE: 'AWS_ACTIVE',
   VERIFYING: 'VERIFYING',
+  DNS_COMMITTING: 'DNS_COMMITTING',
   FALLBACK_ACTIVE: 'FALLBACK_ACTIVE',
   BLOCKED: 'BLOCKED',
 });
@@ -57,8 +58,20 @@ const FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/i;
 const SAFE_TERMINAL_REASON_PATTERN = /^[a-z][a-z0-9_.:-]{0,127}$/;
 const IPV4_PATTERN = /(?:^|[^0-9])(?:\d{1,3}\.){3}\d{1,3}(?:$|[^0-9])/;
 const IPV6_PATTERN = /(?:[0-9a-f]{1,4}:){2,}[0-9a-f:]{0,19}/i;
+const LOCK_SCHEMA_VERSION = 1;
 const LOCK_RETRY_DELAY_MS = 10;
 const DEFAULT_LOCK_TIMEOUT_MS = 5_000;
+const DEFAULT_LOCK_STALE_AFTER_MS = 60_000;
+const LOCK_METADATA_KEYS = Object.freeze([
+  'schemaVersion',
+  'pid',
+  'startToken',
+  'bootId',
+  'token',
+  'acquiredAt',
+]);
+const LOCK_TOKEN_PATTERN = /^[0-9a-f-]{36}$/i;
+const LOCK_IDENTITY_PATTERN = /^[^\u0000-\u001f\u007f]{1,256}$/u;
 const UNSUPPORTED_DIRECTORY_FSYNC_CODES = new Set(['EINVAL', 'ENOTSUP', 'EISDIR']);
 
 function clone(value) {
@@ -180,11 +193,18 @@ function normalizeState(value) {
   assertSafeTimestamp(value.createdAt, 'createdAt');
   assertSafeTimestamp(value.updatedAt, 'updatedAt');
 
-  if (value.phase === PHASES.VERIFYING && pendingIncident === null) {
-    throw new StateValidationError('VERIFYING requires a complete pendingIncident');
+  if (
+    (value.phase === PHASES.VERIFYING || value.phase === PHASES.DNS_COMMITTING)
+    && pendingIncident === null
+  ) {
+    throw new StateValidationError(`${value.phase} requires a complete pendingIncident`);
   }
-  if (value.phase !== PHASES.VERIFYING && pendingIncident !== null) {
-    throw new StateValidationError('pendingIncident is only valid during VERIFYING');
+  if (
+    value.phase !== PHASES.VERIFYING
+    && value.phase !== PHASES.DNS_COMMITTING
+    && pendingIncident !== null
+  ) {
+    throw new StateValidationError('pendingIncident is only valid during verification or DNS commit');
   }
   if (pendingIncident && currentEventFingerprint !== pendingIncident.eventFingerprint) {
     throw new StateValidationError('pendingIncident fingerprint must match currentEventFingerprint');
@@ -194,6 +214,19 @@ function normalizeState(value) {
   }
   if (value.phase === PHASES.VERIFYING && value.currentDnsRole !== DNS_ROLES.AWS) {
     throw new StateValidationError('VERIFYING requires the AWS DNS role before cutover');
+  }
+  if (value.phase === PHASES.DNS_COMMITTING && value.currentDnsRole !== DNS_ROLES.AWS) {
+    throw new StateValidationError('DNS_COMMITTING requires the AWS DNS role before cutover');
+  }
+  if (value.phase === PHASES.DNS_COMMITTING && value.armed !== true) {
+    throw new StateValidationError('DNS_COMMITTING requires the controller to remain armed');
+  }
+  if (
+    value.phase === PHASES.DNS_COMMITTING
+    && pendingIncident
+    && pendingIncident.generation !== value.generation
+  ) {
+    throw new StateValidationError('DNS_COMMITTING pendingIncident must match state generation');
   }
   if (value.phase === PHASES.FALLBACK_ACTIVE && value.currentDnsRole !== DNS_ROLES.FALLBACK) {
     throw new StateValidationError('FALLBACK_ACTIVE requires the Fallback DNS role');
@@ -296,6 +329,13 @@ export class StatePhaseMismatchError extends ConditionalStateWriteError {
   }
 }
 
+export class DnsCommitDisarmError extends ConditionalStateWriteError {
+  constructor() {
+    super('cannot disarm during DNS commit', 'DNS_COMMITTING_DISARM_FORBIDDEN');
+    this.retryable = false;
+  }
+}
+
 export class ReplayFingerprintExistsError extends ConditionalStateWriteError {
   constructor() {
     super('replay fingerprint already exists', 'REPLAY_FINGERPRINT_EXISTS');
@@ -386,6 +426,59 @@ function isUnsupportedDirectoryFsync(error) {
   return UNSUPPORTED_DIRECTORY_FSYNC_CODES.has(error?.code);
 }
 
+function isProcessMissing(error) {
+  return error?.code === 'ESRCH';
+}
+
+function isPermissionDenied(error) {
+  return error?.code === 'EPERM' || error?.code === 'EACCES';
+}
+
+function safeLockIdentityPart(value) {
+  return typeof value === 'string' && LOCK_IDENTITY_PATTERN.test(value);
+}
+
+function parseLockMetadata(raw) {
+  if (typeof raw !== 'string') return undefined;
+  let value;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!isPlainObject(value)) return undefined;
+  const actualKeys = Object.keys(value).sort();
+  const expectedKeys = [...LOCK_METADATA_KEYS].sort();
+  if (
+    actualKeys.length !== expectedKeys.length
+    || actualKeys.some((key, index) => key !== expectedKeys[index])
+  ) {
+    return undefined;
+  }
+  if (value.schemaVersion !== LOCK_SCHEMA_VERSION || !Number.isSafeInteger(value.pid) || value.pid < 1) {
+    return undefined;
+  }
+  if (!safeLockIdentityPart(value.startToken) || !safeLockIdentityPart(value.bootId)) return undefined;
+  if (typeof value.token !== 'string' || !LOCK_TOKEN_PATTERN.test(value.token)) return undefined;
+  if (!Number.isSafeInteger(value.acquiredAt) || value.acquiredAt < 0) return undefined;
+  return {
+    schemaVersion: LOCK_SCHEMA_VERSION,
+    pid: value.pid,
+    startToken: value.startToken,
+    bootId: value.bootId,
+    token: value.token,
+    acquiredAt: value.acquiredAt,
+  };
+}
+
+function sameLockFile(statsA, statsB) {
+  if (!statsA || !statsB) return false;
+  return statsA.dev === statsB.dev
+    && statsA.ino === statsB.ino
+    && statsA.size === statsB.size
+    && statsA.mtimeMs === statsB.mtimeMs;
+}
+
 async function closeQuietly(handle) {
   if (!handle || typeof handle.close !== 'function') return;
   try {
@@ -403,6 +496,11 @@ export function createStateStore({
   fsModule = nodeFs,
   now = () => Date.now(),
   lockTimeoutMs = DEFAULT_LOCK_TIMEOUT_MS,
+  lockStaleAfterMs = DEFAULT_LOCK_STALE_AFTER_MS,
+  lockIdentity,
+  isProcessAlive,
+  readProcessStartToken,
+  readBootId,
 } = {}) {
   const fs = asFsModule(fsModule);
   const resolvedStatePath = normalizePathOption(statePath, 'statePath');
@@ -416,6 +514,9 @@ export function createStateStore({
   const mustBeRootOwned = productionMode || requireRootOwnership;
   if (!Number.isSafeInteger(lockTimeoutMs) || lockTimeoutMs < 0) {
     throw new TypeError('lockTimeoutMs must be a non-negative integer');
+  }
+  if (!Number.isSafeInteger(lockStaleAfterMs) || lockStaleAfterMs < 0) {
+    throw new TypeError('lockStaleAfterMs must be a non-negative integer');
   }
   const lockPath = `${resolvedStatePath}.lock`;
 
@@ -470,6 +571,193 @@ export function createStateStore({
       throw error;
     }
     return parseState(raw);
+  }
+
+  async function readBootIdentifier() {
+    if (typeof readBootId === 'function') {
+      try {
+        const value = await readBootId();
+        return safeLockIdentityPart(value) ? value : 'unknown-boot';
+      } catch {
+        return 'unknown-boot';
+      }
+    }
+    try {
+      const value = (await fs.readFile('/proc/sys/kernel/random/boot_id', 'utf8')).trim();
+      return safeLockIdentityPart(value) ? value : 'unknown-boot';
+    } catch {
+      return 'unknown-boot';
+    }
+  }
+
+  async function readStartIdentifier(pid) {
+    if (typeof readProcessStartToken === 'function') {
+      try {
+        const value = await readProcessStartToken(pid);
+        return safeLockIdentityPart(value) ? value : undefined;
+      } catch {
+        return undefined;
+      }
+    }
+    try {
+      const raw = await fs.readFile(`/proc/${pid}/stat`, 'utf8');
+      const closingParenthesis = raw.lastIndexOf(')');
+      if (closingParenthesis < 0) return undefined;
+      const fields = raw.slice(closingParenthesis + 2).trim().split(/\s+/u);
+      const startToken = fields[19];
+      return safeLockIdentityPart(startToken) ? startToken : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function currentLockIdentity() {
+    if (lockIdentity !== undefined) {
+      if (!isPlainObject(lockIdentity)) throw new StateOwnershipError('lock identity is invalid');
+      const value = {
+        pid: lockIdentity.pid,
+        startToken: lockIdentity.startToken,
+        bootId: lockIdentity.bootId,
+      };
+      if (!Number.isSafeInteger(value.pid) || value.pid < 1) throw new StateOwnershipError('lock identity is invalid');
+      if (!safeLockIdentityPart(value.startToken) || !safeLockIdentityPart(value.bootId)) {
+        throw new StateOwnershipError('lock identity is invalid');
+      }
+      return value;
+    }
+    const pid = process.pid;
+    const startToken = await readStartIdentifier(pid) ?? `node-${pid}-${Math.floor(process.uptime() * 1_000)}`;
+    return { pid, startToken, bootId: await readBootIdentifier() };
+  }
+
+  async function processIsAlive(pid) {
+    if (typeof isProcessAlive === 'function') {
+      try {
+        return (await isProcessAlive(pid)) === true;
+      } catch {
+        return false;
+      }
+    }
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      if (isProcessMissing(error)) return false;
+      if (isPermissionDenied(error)) return true;
+      return false;
+    }
+  }
+
+  async function lockMetadata() {
+    const identity = await currentLockIdentity();
+    return {
+      schemaVersion: LOCK_SCHEMA_VERSION,
+      pid: identity.pid,
+      startToken: identity.startToken,
+      bootId: identity.bootId,
+      token: randomUUID(),
+      acquiredAt: resolveNow(now),
+    };
+  }
+
+  async function readLockFile() {
+    let stats;
+    try {
+      stats = await fs.lstat(lockPath);
+    } catch (error) {
+      if (isNotFound(error)) return undefined;
+      throw error;
+    }
+    if (stats.isSymbolicLink?.() || !stats.isFile?.()) {
+      return { stale: false, unsafe: true, stats };
+    }
+    if ((stats.mode & 0o777) !== 0o600) {
+      return { stale: false, unsafe: true, stats };
+    }
+    if (mustBeRootOwned && (stats.uid !== 0 || stats.gid !== 0)) {
+      return { stale: false, unsafe: true, stats };
+    }
+    let raw;
+    try {
+      raw = await fs.readFile(lockPath, 'utf8');
+    } catch (error) {
+      if (isNotFound(error)) return undefined;
+      throw error;
+    }
+    const metadata = parseLockMetadata(raw);
+    if (!metadata) {
+      const age = Date.now() - Number(stats.mtimeMs ?? 0);
+      return {
+        stale: Number.isFinite(age) && age >= lockStaleAfterMs,
+        unsafe: false,
+        stats,
+      };
+    }
+    const identity = await currentLockIdentity();
+    if (metadata.bootId !== identity.bootId) return { stale: true, unsafe: false, metadata, stats };
+    if (!(await processIsAlive(metadata.pid))) return { stale: true, unsafe: false, metadata, stats };
+    const observedStartToken = await readStartIdentifier(metadata.pid);
+    if (observedStartToken !== undefined && observedStartToken !== metadata.startToken) {
+      return { stale: true, unsafe: false, metadata, stats };
+    }
+    return { stale: false, unsafe: false, metadata, stats };
+  }
+
+  async function reclaimStaleLock(observed) {
+    if (!observed?.stale || observed.unsafe) return false;
+    const latest = await readLockFile();
+    if (!latest) return true;
+    if (!sameLockFile(latest.stats, observed.stats)) return false;
+    if (latest.metadata?.token !== observed.metadata?.token) return false;
+    const quarantinePath = `${lockPath}.stale.${process.pid}.${randomUUID()}`;
+    let quarantineOwned = false;
+    try {
+      await fs.rename(lockPath, quarantinePath);
+    } catch (error) {
+      if (isNotFound(error)) return true;
+      return false;
+    }
+    try {
+      let quarantineRaw;
+      try {
+        quarantineRaw = await fs.readFile(quarantinePath, 'utf8');
+      } catch {
+        quarantineRaw = undefined;
+      }
+      const quarantineMetadata = parseLockMetadata(quarantineRaw);
+      const sameToken = observed.metadata?.token === undefined
+        ? quarantineMetadata === undefined
+        : quarantineMetadata?.token === observed.metadata.token;
+      if (!sameToken) {
+        // Do not unlink a replacement lock that appeared between the final
+        // identity check and rename. The quarantine is intentionally retained
+        // for manual inspection rather than risking a live-owner unlink. If
+        // the path is still vacant, restore the quarantined lock first.
+        try {
+          await fs.lstat(lockPath);
+        } catch (error) {
+          if (isNotFound(error)) {
+            try {
+              await fs.rename(quarantinePath, lockPath);
+              quarantineOwned = false;
+            } catch {
+              // Leave the quarantine for a later bounded reconciliation.
+            }
+          }
+        }
+        return false;
+      }
+      quarantineOwned = true;
+      return true;
+    } finally {
+      if (quarantineOwned) {
+        try {
+          await fs.unlink(quarantinePath);
+        } catch (error) {
+          if (!isNotFound(error)) throw error;
+        }
+      }
+    }
   }
 
   async function syncParentDirectory() {
@@ -527,20 +815,45 @@ export function createStateStore({
   async function acquireLock() {
     const deadline = Date.now() + lockTimeoutMs;
     while (true) {
+      let handle;
+      let created = false;
       try {
-        const handle = await fs.open(lockPath, 'wx', 0o600);
+        handle = await fs.open(lockPath, 'wx', 0o600);
+        created = true;
+        if (typeof handle.writeFile !== 'function') {
+          throw new StateStoreError('fs lock handle.writeFile is required');
+        }
+        const metadata = await lockMetadata();
+        await handle.writeFile(`${JSON.stringify(metadata)}\n`, 'utf8');
         if (typeof handle.sync === 'function') await handle.sync();
-        return handle;
+        return { handle, token: metadata.token };
       } catch (error) {
+        await closeQuietly(handle);
+        if (created) {
+          try {
+            await fs.unlink(lockPath);
+          } catch (unlinkError) {
+            if (!isNotFound(unlinkError)) throw unlinkError;
+          }
+        }
         if (!isAlreadyExists(error)) throw error;
+        const observed = await readLockFile();
+        if (await reclaimStaleLock(observed)) continue;
         if (Date.now() >= deadline) throw new StateLockError();
         await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_DELAY_MS));
       }
     }
   }
 
-  async function releaseLock(handle) {
-    await closeQuietly(handle);
+  async function releaseLock(lock) {
+    await closeQuietly(lock?.handle);
+    let observed;
+    try {
+      observed = await readLockFile();
+    } catch {
+      return;
+    }
+    if (observed?.metadata?.token !== lock?.token) return;
     try {
       await fs.unlink(lockPath);
     } catch (error) {
@@ -550,11 +863,11 @@ export function createStateStore({
 
   async function withMutationLock(operation) {
     await inspectDirectory();
-    const handle = await acquireLock();
+    const lock = await acquireLock();
     try {
       return await operation();
     } finally {
-      await releaseLock(handle);
+      await releaseLock(lock);
     }
   }
 
@@ -594,6 +907,15 @@ export function createStateStore({
       if (current.generation !== expectedGeneration) throw new StaleGenerationError();
       if (expectedPhase !== undefined && current.phase !== expectedPhase) {
         throw new StatePhaseMismatchError();
+      }
+      const nextPhase = normalizedPatch.phase ?? current.phase;
+      const nextArmed = normalizedPatch.armed ?? current.armed;
+      if (
+        current.armed === true
+        && nextArmed === false
+        && (current.phase === PHASES.DNS_COMMITTING || nextPhase === PHASES.DNS_COMMITTING)
+      ) {
+        throw new DnsCommitDisarmError();
       }
       const next = {
         ...current,
@@ -674,12 +996,16 @@ export function createStateStore({
       return {
         state: undefined,
         pendingIncident: null,
+        dnsCommitting: false,
         canPromoteToFallback: false,
       };
     }
     return {
       state: clone(state),
-      pendingIncident: state.phase === PHASES.VERIFYING ? clone(state.pendingIncident) : null,
+      pendingIncident: state.phase === PHASES.VERIFYING || state.phase === PHASES.DNS_COMMITTING
+        ? clone(state.pendingIncident)
+        : null,
+      dnsCommitting: state.phase === PHASES.DNS_COMMITTING,
       canPromoteToFallback: false,
     };
   }
