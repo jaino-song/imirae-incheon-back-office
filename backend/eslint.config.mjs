@@ -1,4 +1,5 @@
 import tseslint from "typescript-eslint";
+import { prismaServiceImportAllowlist } from "./eslint.tenant-freeze.allowlist.mjs";
 
 export default tseslint.config(
     {
@@ -36,6 +37,24 @@ export default tseslint.config(
             "@typescript-eslint/no-explicit-any": "off",
             "@typescript-eslint/no-require-imports": "off",
             "@typescript-eslint/no-unused-expressions": "off",
+        },
+    },
+    {
+        files: ["application/**/*.ts"],
+        ignores: [...prismaServiceImportAllowlist, "**/*.spec.ts"],
+        rules: {
+            "no-restricted-imports": [
+                "error",
+                {
+                    patterns: [
+                        {
+                            group: ["**/infrastructure/database/prisma.service"],
+                            message:
+                                "application/ code must not import PrismaService directly. Use a domain repository instead. If this file genuinely needs grandfathering, add it to eslint.tenant-freeze.allowlist.mjs via explicit review.",
+                        },
+                    ],
+                },
+            ],
         },
     },
 );
