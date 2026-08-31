@@ -23,6 +23,7 @@
     "agent:manifest": "ts-node scripts/agent/generate-capability-manifest.ts",
     "agent:manifest:check": "ts-node scripts/agent/generate-capability-manifest.ts --check && ts-node scripts/agent/check-capability-drift.ts",
     "agent:cutover:guard": "ts-node scripts/agent/check-cutover-readiness.ts",
+    "tenant:models:generate": "ts-node scripts/tenant/generate-tenant-models.ts",
     "lint": "eslint .",
     "start": "nest start",
     "start:dev": "node scripts/start-dev-lan.mjs",
