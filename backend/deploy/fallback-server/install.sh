@@ -19,6 +19,7 @@ readonly GUARD_SERVICE_SOURCE="$SCRIPT_ROOT/systemd/babyjamjam-fallback-temporar
 readonly GUARD_TIMER_SOURCE="$SCRIPT_ROOT/systemd/babyjamjam-fallback-temporary-active-guard.timer"
 readonly GUARD_SERVICE_ARTIFACT="$SYSTEMD_DIR/babyjamjam-fallback-temporary-active-guard.service"
 readonly GUARD_TIMER_ARTIFACT="$SYSTEMD_DIR/babyjamjam-fallback-temporary-active-guard.timer"
+source "$SCRIPT_ROOT/install-backup-map.sh"
 
 die() {
     echo "$*" >&2
@@ -96,9 +97,10 @@ printf '%s\n' \
 chown root:root "$manifest"
 chmod 640 "$manifest"
 for live in "$INSTALLED_OPERATOR" "$ARTIFACT_ROOT/compose.yml" "$ACTIVE_COMPOSE_ARTIFACT" "$IDENTITY_HELPER_ARTIFACT" "$GUARD_SERVICE_ARTIFACT" "$GUARD_TIMER_ARTIFACT" "$ARTIFACT_ROOT/bundle.manifest"; do
-    [[ -e "$live" ]] && cp -p "$live" "$backup/$(basename "$live")"
+    key="$(backup_key_for_destination "$live")" || die "Installer rollback mapping is invalid."
+    if [[ -e "$live" ]]; then cp -p "$live" "$backup/$key"; else : >"$backup/$key.absent"; fi
 done
-rollback(){ for saved in "$backup"/*; do [[ -e "$saved" ]] || continue; case "$(basename "$saved")" in operator.sh) cp -p "$saved" "$INSTALLED_OPERATOR";; compose.yml) cp -p "$saved" "$ARTIFACT_ROOT/compose.yml";; compose.temporary-active.yml) cp -p "$saved" "$ACTIVE_COMPOSE_ARTIFACT";; production-db-identity.sh) cp -p "$saved" "$IDENTITY_HELPER_ARTIFACT";; guard.service) cp -p "$saved" "$GUARD_SERVICE_ARTIFACT";; guard.timer) cp -p "$saved" "$GUARD_TIMER_ARTIFACT";; bundle.manifest) cp -p "$saved" "$ARTIFACT_ROOT/bundle.manifest";; esac; done; }
+rollback(){ for key in operator passive-compose active-compose db-helper guard-service guard-timer manifest; do dest="$(rollback_destination_for_key "$key" "$INSTALLED_OPERATOR" "$ARTIFACT_ROOT" "$SYSTEMD_DIR")"; if [[ -f "$backup/$key" ]]; then cp -p "$backup/$key" "$dest"; else rm -f "$dest"; fi; done; }
 trap 'rollback; cleanup' ERR
 install -o root -g root -m 750 "$stage/operator.sh" "$INSTALLED_OPERATOR"
 install -o root -g root -m 640 "$stage/compose.yml" "$ARTIFACT_ROOT/compose.yml"
