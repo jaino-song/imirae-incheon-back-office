@@ -247,7 +247,9 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                     const job = await this.enqueueSms(context, input, new Date(), IMMEDIATE_SMS_TITLE);
                     let delivered: MessageTriggerJobEntity;
                     try {
-                        delivered = await this.messageTriggerService.dispatchPendingJobNow(job.id);
+                        delivered = await this.messageTriggerService.dispatchPendingJobNow(job.id, {
+                            expectedBranchId: context.principal.branchId,
+                        });
                     } catch {
                         throw new AgentActionUncertainError("SMS delivery status is uncertain", { jobId: job.id });
                     }
@@ -689,7 +691,9 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
         }
         let delivered: MessageTriggerJobEntity;
         try {
-            delivered = await this.messageTriggerService.dispatchPendingJobNow(retry.id);
+            delivered = await this.messageTriggerService.dispatchPendingJobNow(retry.id, {
+                expectedBranchId: context.principal.branchId,
+            });
         } catch {
             throw new AgentActionUncertainError("SMS retry delivery status is uncertain", { jobId: retry.id });
         }
@@ -750,8 +754,8 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
     }
 
     private async findRetryableJob(branchId: string, jobId: string): Promise<MessageTriggerJobEntity> {
-        const job = await this.jobRepository.findById(jobId);
-        if (!job || job.branchId !== branchId || job.status !== "failed" || job.payload.templateVariables["retrySafety"] !== "provider-rejected") {
+        const job = await this.jobRepository.findByIdInBranch(branchId, jobId);
+        if (!job || job.status !== "failed" || job.payload.templateVariables["retrySafety"] !== "provider-rejected") {
             throw new Error("SMS job is not safely retryable in the current branch");
         }
         return job;

@@ -16,6 +16,7 @@ import {
     MessageTriggerJobEntity,
     MessageTriggerJobPayload,
 } from "domain/entities/message-trigger-job.entity";
+import { Logger } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { SbMessageTriggerJobRepository } from "infrastructure/database/repositories/sb.message-trigger-job.repository";
@@ -259,13 +260,13 @@ describe("SbMessageTriggerJobRepository", () => {
         jest.useRealTimers();
     });
 
-    it("claimPending returns true only when a pending row was claimed", async () => {
+    it("claimPendingSystemScope returns true only when a pending row was claimed", async () => {
         messageTriggerJobModel.updateMany
             .mockResolvedValueOnce({ count: 1 })
             .mockResolvedValueOnce({ count: 0 });
 
-        await expect(repository.claimPending("job-1")).resolves.toBe(true);
-        await expect(repository.claimPending("job-1")).resolves.toBe(false);
+        await expect(repository.claimPendingSystemScope("job-1")).resolves.toBe(true);
+        await expect(repository.claimPendingSystemScope("job-1")).resolves.toBe(false);
 
         expect(messageTriggerJobModel.updateMany).toHaveBeenCalledWith({
             where: { id: "job-1", status: "pending" },
@@ -304,7 +305,7 @@ describe("SbMessageTriggerJobRepository", () => {
         const result = await repository.update(staleAttempt);
 
         expect(messageTriggerJobModel.updateMany).toHaveBeenCalledWith({
-            where: { id: staleAttempt.id, claimToken: "claim-a" },
+            where: { id: staleAttempt.id, claimToken: "claim-a", branchId: "branch-1" },
             data: expect.objectContaining({ claimToken: "claim-a" }),
         });
         expect(messageTriggerJobModel.update).not.toHaveBeenCalled();
@@ -349,10 +350,10 @@ describe("SbMessageTriggerJobRepository", () => {
         });
     });
 
-    it("findDuePending filters out jobs with future nextAttemptAt and includes null/past", async () => {
+    it("findDuePendingSystemScope filters out jobs with future nextAttemptAt and includes null/past", async () => {
         messageTriggerJobModel.findMany.mockResolvedValue([]);
 
-        await repository.findDuePending(25);
+        await repository.findDuePendingSystemScope(25);
 
         expect(messageTriggerJobModel.findMany).toHaveBeenCalledWith({
             where: {
@@ -1168,7 +1169,7 @@ describe("SbMessageTriggerJobRepository", () => {
         });
     });
 
-    it("findStaleProcessing queries processing and dispatching rows older than cutoff", async () => {
+    it("findStaleProcessingSystemScope queries processing and dispatching rows older than cutoff", async () => {
         const cutoff = new Date("2026-07-09T00:10:00.000Z");
         messageTriggerJobModel.findMany.mockResolvedValue([
             createRow({
@@ -1182,7 +1183,7 @@ describe("SbMessageTriggerJobRepository", () => {
             }),
         ]);
 
-        const result = await repository.findStaleProcessing(cutoff, 10);
+        const result = await repository.findStaleProcessingSystemScope(cutoff, 10);
 
         expect(messageTriggerJobModel.findMany).toHaveBeenCalledWith({
             where: {
@@ -1193,5 +1194,71 @@ describe("SbMessageTriggerJobRepository", () => {
             take: 10,
         });
         expect(result.map((job) => job.status)).toEqual(["processing", "dispatching"]);
+    });
+
+    it("findByIdInBranch returns null when the id and branch do not both match", async () => {
+        messageTriggerJobModel.findFirst.mockResolvedValueOnce(null);
+
+        await expect(repository.findByIdInBranch("branch-1", "job-1")).resolves.toBeNull();
+
+        expect(messageTriggerJobModel.findFirst).toHaveBeenCalledWith({
+            where: { id: "job-1", branchId: "branch-1" },
+        });
+    });
+
+    it("findByIdInBranch resolves the row when the id and branch both match", async () => {
+        messageTriggerJobModel.findFirst.mockResolvedValueOnce(createRow());
+
+        const result = await repository.findByIdInBranch("branch-1", "job-1");
+
+        expect(result?.id).toBe("job-1");
+        expect(result?.branchId).toBe("branch-1");
+    });
+
+    it("update pins branchId into the claim-token updateMany where clause", async () => {
+        const job = createJob();
+        job.claimToken = "claim-a";
+        messageTriggerJobModel.updateMany.mockResolvedValue({ count: 1 });
+        messageTriggerJobModel.findUnique.mockResolvedValue(createRow({ claimToken: "claim-a" }));
+
+        await repository.update(job);
+
+        expect(messageTriggerJobModel.updateMany).toHaveBeenCalledWith({
+            where: { id: job.id, claimToken: "claim-a", branchId: "branch-1" },
+            data: expect.any(Object),
+        });
+        expect(messageTriggerJobModel.findUnique).toHaveBeenCalledWith({
+            where: { id: job.id, branchId: "branch-1" },
+        });
+    });
+
+    it("update pins branchId into the plain update where clause when there is no claim token", async () => {
+        const job = createJob();
+        messageTriggerJobModel.update.mockResolvedValue(createRow());
+
+        await repository.update(job);
+
+        expect(messageTriggerJobModel.update).toHaveBeenCalledWith({
+            where: { id: job.id, branchId: "branch-1" },
+            data: expect.any(Object),
+        });
+    });
+
+    it("update falls back to an id-only where and warns when the job has no branch", async () => {
+        const warnSpy = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+        const job = createJob();
+        job.branchId = null;
+        messageTriggerJobModel.update.mockResolvedValue(createRow({ branchId: null }));
+
+        await repository.update(job);
+
+        expect(messageTriggerJobModel.update).toHaveBeenCalledWith({
+            where: { id: job.id },
+            data: expect.any(Object),
+        });
+        expect(warnSpy).toHaveBeenCalledWith(
+            expect.stringContaining("message_trigger_job_null_branch_write"),
+        );
+        warnSpy.mockRestore();
     });
 });

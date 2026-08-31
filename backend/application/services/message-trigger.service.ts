@@ -579,7 +579,7 @@ export class MessageTriggerService {
                 }),
                 writeTransaction,
             );
-            await this.ruleRepository.markJobsStale(rule.id, writeTransaction);
+            await this.ruleRepository.markJobsStale(branchId, rule.id, writeTransaction);
             return rule;
         };
         const rule = await this.runRuleTemplateMutation(params, persistRule, transaction);
@@ -616,7 +616,7 @@ export class MessageTriggerService {
                 offsetDays: this.normalizeOffsetDays(nextState.offsetType, nextState.offsetDays),
             });
             const persisted = await this.ruleRepository.update(branchId, rule, transaction);
-            await this.ruleRepository.markJobsStale(persisted.id, transaction);
+            await this.ruleRepository.markJobsStale(branchId, persisted.id, transaction);
             return persisted;
         });
         await this.cancelPendingJobsForRule(branchId, updated, "Rule updated", false);
@@ -762,7 +762,7 @@ export class MessageTriggerService {
         // Rebuild before querying due rows so a rule saved immediately before
         // this tick can dispatch on this tick instead of waiting another minute.
         await this.processStaleRuleRebuilds();
-        const jobs = await this.jobRepository.findDuePending(100);
+        const jobs = await this.jobRepository.findDuePendingSystemScope(100);
 
         if (jobs.length > 0) {
             const approvedBranchIds = await this.messageSenderApprovalService.getApprovedBranchIds(
@@ -785,8 +785,15 @@ export class MessageTriggerService {
 
     }
 
-    async dispatchPendingJobNow(jobId: string): Promise<MessageTriggerJobEntity> {
-        const job = await this.jobRepository.findById(jobId);
+    async dispatchPendingJobNow(
+        jobId: string,
+        opts?: { expectedBranchId?: string },
+    ): Promise<MessageTriggerJobEntity> {
+        const fetchJob = () => opts?.expectedBranchId
+            ? this.jobRepository.findByIdInBranch(opts.expectedBranchId, jobId)
+            : this.jobRepository.findByIdSystemScope(jobId);
+
+        const job = await fetchJob();
         if (!job) {
             throw new NotFoundException("Message trigger job not found");
         }
@@ -800,7 +807,7 @@ export class MessageTriggerService {
         const sentIds = await this.messageLogRepository.findSentTriggerJobIdsSystemScope([job.id]);
         await this.dispatchClaimedJob(job, sentIds, approvedBranchIds);
 
-        return await this.jobRepository.findById(jobId) ?? job;
+        return await fetchJob() ?? job;
     }
 
     /**
@@ -2487,7 +2494,7 @@ export class MessageTriggerService {
                 await this.runRuleTemplateMutation(nextState, async (transaction) => {
                     rule.update({ isActive: true });
                     await this.ruleRepository.update(rule.branchId!, rule, transaction);
-                    await this.ruleRepository.markJobsStale(rule.id, transaction);
+                    await this.ruleRepository.markJobsStale(rule.branchId!, rule.id, transaction);
                 });
             } catch (error) {
                 this.logger.error(
@@ -2500,7 +2507,7 @@ export class MessageTriggerService {
 
     private async reclaimStaleProcessingJobs(): Promise<void> {
         const cutoff = new Date(Date.now() - TRIGGER_JOB_PROCESSING_RECLAIM_MS);
-        const stale = await this.jobRepository.findStaleProcessing(cutoff);
+        const stale = await this.jobRepository.findStaleProcessingSystemScope(cutoff);
         if (stale.length === 0) {
             return;
         }

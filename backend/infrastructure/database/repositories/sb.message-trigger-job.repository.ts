@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "infrastructure/database/prisma.service";
@@ -129,7 +129,23 @@ function jobTargetVersion(job: MessageTriggerJobEntity, snapshotHash: string): s
 
 @Injectable()
 export class SbMessageTriggerJobRepository implements IMessageTriggerJobRepository {
+    private readonly logger = new Logger(SbMessageTriggerJobRepository.name);
+
     constructor(private readonly prisma: PrismaService) {}
+
+    /**
+     * Build the branch-pinning fragment for a bare-id where clause. `message_trigger_job.branchId`
+     * is nullable for legacy rows: when the entity carries no branch, fall back to an
+     * id-only where instead of filtering on `branchId: null`, and warn so the legacy write
+     * path stays visible.
+     */
+    private branchWhereFragment(job: MessageTriggerJobEntity): { branchId?: string } {
+        if (job.branchId == null) {
+            this.logger.warn(`message_trigger_job_null_branch_write id=${job.id}`);
+            return {};
+        }
+        return { branchId: job.branchId };
+    }
 
     async create(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity> {
         const row = await this.prisma.message_trigger_job.create({
@@ -139,37 +155,47 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
     }
 
     async update(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity> {
+        const branchWhere = this.branchWhereFragment(job);
         if (job.claimToken) {
             const result = await this.prisma.message_trigger_job.updateMany({
-                where: { id: job.id, claimToken: job.claimToken },
+                where: { id: job.id, claimToken: job.claimToken, ...branchWhere },
                 data: this.toUpdate(job),
             });
             if (result.count !== 1) {
-                const current = await this.prisma.message_trigger_job.findUnique({ where: { id: job.id } });
+                const current = await this.prisma.message_trigger_job.findUnique({
+                    where: { id: job.id, ...branchWhere },
+                });
                 if (!current) {
                     throw new Error(`Message trigger job not found: ${job.id}`);
                 }
                 return this.toDomain(current);
             }
-            const current = await this.prisma.message_trigger_job.findUnique({ where: { id: job.id } });
+            const current = await this.prisma.message_trigger_job.findUnique({
+                where: { id: job.id, ...branchWhere },
+            });
             if (!current) {
                 throw new Error(`Message trigger job not found: ${job.id}`);
             }
             return this.toDomain(current);
         }
         const row = await this.prisma.message_trigger_job.update({
-            where: { id: job.id },
+            where: { id: job.id, ...branchWhere },
             data: this.toUpdate(job),
         });
         return this.toDomain(row);
     }
 
-    async findById(id: string): Promise<MessageTriggerJobEntity | null> {
+    async findByIdSystemScope(id: string): Promise<MessageTriggerJobEntity | null> {
         const row = await this.prisma.message_trigger_job.findUnique({ where: { id } });
         return row ? this.toDomain(row) : null;
     }
 
-    async claimPending(id: string): Promise<boolean> {
+    async findByIdInBranch(branchId: string, id: string): Promise<MessageTriggerJobEntity | null> {
+        const row = await this.prisma.message_trigger_job.findFirst({ where: { id, branchId } });
+        return row ? this.toDomain(row) : null;
+    }
+
+    async claimPendingSystemScope(id: string): Promise<boolean> {
         const result = await this.prisma.message_trigger_job.updateMany({
             where: { id, status: "pending" },
             data: { status: "processing", claimToken: cryptoRandomToken() },
@@ -222,7 +248,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         });
     }
 
-    async findDuePending(limit = 100): Promise<MessageTriggerJobEntity[]> {
+    async findDuePendingSystemScope(limit = 100): Promise<MessageTriggerJobEntity[]> {
         const now = new Date();
         const rows = await this.prisma.message_trigger_job.findMany({
             where: {
@@ -239,7 +265,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         return rows.map((row) => this.toDomain(row));
     }
 
-    async findStaleProcessing(cutoff: Date, limit = 50): Promise<MessageTriggerJobEntity[]> {
+    async findStaleProcessingSystemScope(cutoff: Date, limit = 50): Promise<MessageTriggerJobEntity[]> {
         const rows = await this.prisma.message_trigger_job.findMany({
             where: {
                 // `dispatching` is an irreversible provider authorization
