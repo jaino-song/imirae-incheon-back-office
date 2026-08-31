@@ -20,20 +20,28 @@ API-only while AWS owns production traffic.
 This decision extends [ADR-007](ADR-007-covenant-api-only-standby.md), which
 defines the Fallback Server's passive runtime and physical-host boundary.
 
-Sentry Uptime can detect an externally visible readiness failure and send a
-service-hook webhook. It is a wake-up signal, not an authority to change DNS:
-alerts may be delayed, duplicated, replayed, resolved, or caused by a shared
-database failure. Vercel Cron, a Vercel Function, and a hosted Redis lease are
-intentionally excluded; the controller is event-driven and runs on the
-Fallback Server itself.
+The provider-source and payload boundary in the Phase 1
+[Sentry host-failover webhook contract](../../backend/deploy/covenant/SENTRY_HOST_FAILOVER.md)
+is authoritative for this ADR.
+
+Sentry Uptime can detect an externally visible readiness failure, create an
+issue, and feed a Monitor-sourced Alert/Workflow. That Alert action invokes an
+Internal Integration issue-alert webhook. It is a wake-up signal, not an
+authority to change DNS: alerts may be delayed, duplicated, replayed, resolved,
+or caused by a shared database failure. Vercel Cron, a Vercel Function, and a
+hosted Redis lease are intentionally excluded; the controller is event-driven
+and runs on the Fallback Server itself.
 
 ## Decision
 
 ### Control-plane ownership
 
-1. Sentry Uptime sends the configured `event.alert` service-hook delivery to
-   the dedicated Controller endpoint `failover.babyjamjam.com`, separate from
-   `api.babyjamjam.com`. Sentry also retains its normal human notification
+1. An Uptime failure creates an issue; a Monitor-sourced Alert/Workflow then
+   invokes an Internal Integration issue-alert webhook to the dedicated
+   Controller endpoint `failover.babyjamjam.com`, separate from
+   `api.babyjamjam.com`. The eligible delivery is identified by resource
+   `event_alert` and action `triggered` (the combined contract
+   `event_alert.triggered`). Sentry also retains its normal human notification
    path.
 2. The Controller validates and records a delivery, then performs the bounded
    probes and DNS decision. Sentry never selects, writes, or commands a route.
@@ -44,6 +52,29 @@ Fallback Server itself.
    with `AWS_ACTIVE`, an eligible incident may automatically move traffic from
    AWS to the Fallback Server. The Controller never performs an automatic
    Fallback-to-AWS failback.
+
+The legacy project Service Hook `event.alert` contract is not the source for
+this flow and must not be substituted for the Internal Integration delivery.
+
+### Provider source and parser boundary
+
+The source contract is fixed to this chain:
+
+```text
+Uptime Monitor
+  -> Uptime failure creates an issue
+  -> Monitor-sourced Alert/Workflow matches the issue
+  -> Internal Integration issue-alert webhook
+  -> resource event_alert, action triggered (event_alert.triggered)
+```
+
+The Controller therefore requires a separate `event_alert` parser and policy.
+The existing metric-alert receiver may share only raw-body handling, HMAC,
+constant-time comparison, size limits, and freshness primitives. Its
+`metric_alert` payload normalization, `data.metric_alert` parsing, metric
+aggregate/threshold policy, and metric resource/action allowlist must not be
+reused for this Uptime path. A `metric_alert` delivery or a legacy project
+Service Hook delivery is rejected rather than silently reinterpreted.
 
 ### Webhook security boundary
 
@@ -56,8 +87,11 @@ following checks pass:
   five-minute receipt window; future or stale deliveries are rejected.
 - The raw body is at most 64 KiB, and the Sentry monitor, project, and
   organization identifiers match fixed allowlists.
-- The configured Uptime alert is in the eligible alert state. Resolved or
-  unknown events are recorded as ignored and cannot start a transition.
+- The top-level resource is exactly `event_alert` and the action is exactly
+  `triggered` (the combined contract is `event_alert.triggered`) for the
+  configured Monitor-sourced Alert/Workflow. Resolved, unknown, `metric_alert`,
+  and legacy project Service Hook events are recorded as ignored and cannot
+  start a transition.
 - A SHA-256 body fingerprint is claimed in durable state before returning
   `202`. A duplicate fingerprint is an idempotent no-op.
 
@@ -152,8 +186,11 @@ Automatic failover must remain disarmed until each blocker is cleared:
 
 - no verified fixed inbound origin (or approved tunnel) and TLS endpoint for
   the Fallback Server;
-- no captured and verified Sentry signature/payload contract or monitor,
-  project, and organization allowlist;
+- no captured and verified Sentry Internal Integration signature/payload
+  contract or monitor, project, and organization allowlist;
+- no live Uptime -> Monitor-sourced Alert/Workflow -> Internal Integration
+  configuration and sanitized real `event_alert.triggered` delivery fixture
+  (Phase 5 blocker);
 - no preflight-captured Vercel record ID, exact record shape, two-value IP
   allowlist, and root-only token storage;
 - no approved Production DB identity marker/hash or matching readiness proof;
@@ -166,9 +203,11 @@ Automatic failover must remain disarmed until each blocker is cleared:
 
 ## Acceptance criteria
 
-- [ ] A valid, fresh, allowlisted Sentry Uptime webhook is accepted with
-      `202`; an invalid signature, stale timestamp, oversized body, disallowed
-      monitor, replay, or resolved event causes no DNS mutation.
+- [ ] A valid, fresh, allowlisted Internal Integration issue-alert webhook with
+      resource `event_alert` and action `triggered` (`event_alert.triggered`) is
+      accepted with `202`; an invalid signature, stale timestamp, oversized
+      body, disallowed monitor, replay, resolved event, `metric_alert`, or
+      legacy project Service Hook event causes no DNS mutation.
 - [ ] No cron, systemd timer, Vercel Function, or periodic polling is required;
       a service restart resumes only a persisted pending incident.
 - [ ] With `AWS_ACTIVE`, three AWS readiness failures, three Fallback readiness
@@ -232,8 +271,9 @@ Automatic failover must remain disarmed until each blocker is cleared:
 
 ## Rollout and rollback
 
-1. Capture and verify the Sentry service-hook payload, Fallback network/TLS,
-   Production DB identity, release digest, and Vercel record contract.
+1. Capture and verify the Uptime -> Monitor-sourced Alert/Workflow -> Internal
+   Integration issue-alert payload, Fallback network/TLS, Production DB
+   identity, release digest, and Vercel record contract.
 2. Install the Controller in dark mode with `FAILOVER_ENABLED=false`; exercise
    signed delivery, replay, blockers, state recovery, and log redaction.
 3. Rehearse on a test DNS record, including AWS-to-Fallback, duplicate delivery,
