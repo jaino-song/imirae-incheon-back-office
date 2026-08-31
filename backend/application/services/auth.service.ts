@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../infrastructure/database/prisma.service";
+import { runSystemScope } from "../../infrastructure/tenant/run-system-scope";
 import { JwtService } from "@nestjs/jwt";
 import * as crypto from "crypto";
 import * as bcrypt from "bcrypt";
@@ -241,7 +242,9 @@ export class AuthService {
         tokenVersion: number;
     }): Promise<UserValidationResult | PendingAccountOnboardingValidationResult> {
         this.assertUserApproved(user);
-        const userOrgs = this.filterSelectableUserBranches(await this.prisma.user_branch.findMany({
+        // Cross-branch by design: enumerates the user's own memberships before any
+        // branch is selected, so no tenant store branchId exists yet.
+        const userOrgs = this.filterSelectableUserBranches(await runSystemScope(() => this.prisma.user_branch.findMany({
             where: { userId: user.id },
             select: {
                 branchId: true,
@@ -253,7 +256,7 @@ export class AuthService {
                     },
                 },
             },
-        }));
+        })));
 
         if (user.role === 'owner') {
             const { accessToken, refreshToken } =
@@ -411,8 +414,10 @@ export class AuthService {
             return this.issueBranchTokens(user, branchid, 'owner', sessionId);
         }
 
-        // Regular users must be linked to the branch
-        const userOrg = await this.prisma.user_branch.findFirst({
+        // Regular users must be linked to the branch.
+        // System scope: membership is verified while the branch context is
+        // still being established, so no tenant store branchId exists yet.
+        const userOrg = await runSystemScope(() => this.prisma.user_branch.findFirst({
             where: { userId: userid, branchId: branchid },
             include: {
                 branch: {
@@ -422,7 +427,7 @@ export class AuthService {
                     },
                 },
             },
-        });
+        }));
         if (!userOrg || !this.isSelectableBranch(userOrg.branch)) {
             throw new ForbiddenException("User does not belong to this branch");
         }
@@ -453,8 +458,10 @@ export class AuthService {
             return this.issueBranchTokens(user, newbranchid, 'owner', sessionId);
         }
 
-        // Regular users must be linked to the branch
-        const userOrg = await this.prisma.user_branch.findFirst({
+        // Regular users must be linked to the branch.
+        // System scope: branch switch verifies membership in the TARGET
+        // branch, which by definition differs from the store's current one.
+        const userOrg = await runSystemScope(() => this.prisma.user_branch.findFirst({
             where: { userId: userid, branchId: newbranchid },
             include: {
                 branch: {
@@ -464,7 +471,7 @@ export class AuthService {
                     },
                 },
             },
-        });
+        }));
         if (!userOrg || !this.isSelectableBranch(userOrg.branch)) {
             throw new ForbiddenException("User does not belong to target branch");
         }
@@ -503,11 +510,12 @@ export class AuthService {
             }));
         }
 
-        // Regular users: only get branches they're linked to
-        const userOrgs = await this.prisma.user_branch.findMany({
+        // Regular users: only get branches they're linked to.
+        // Cross-branch by design: lists the user's own memberships across branches.
+        const userOrgs = await runSystemScope(() => this.prisma.user_branch.findMany({
             where: { userId: userid },
             include: { branch: true }
-        });
+        }));
 
         if (userOrgs.length === 0) {
             return [];
@@ -804,7 +812,8 @@ export class AuthService {
             throw new UnauthorizedException("Pending account onboarding user not found");
         }
 
-        const userOrgs = this.filterSelectableUserBranches(await this.prisma.user_branch.findMany({
+        // Cross-branch by design: pending-onboarding users have no selected branch yet.
+        const userOrgs = this.filterSelectableUserBranches(await runSystemScope(() => this.prisma.user_branch.findMany({
             where: { userId: user.id },
             select: {
                 branchId: true,
@@ -816,7 +825,7 @@ export class AuthService {
                     },
                 },
             },
-        }));
+        })));
 
         return this.getPendingAccountOnboardingProfile(user, userOrgs) ?? {
             email: user.email ?? undefined,
