@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
 import { UserService } from "../../application/services/user.service";
 import {
     CreateUserUsecase,
@@ -1368,18 +1368,42 @@ describe("UserService", () => {
             );
         });
 
-        it("rolls back the role change when the audit write fails inside the transaction", async () => {
-            prismaService.user.findUnique.mockResolvedValue({
-                id: "user_1", role: "admin", name: "A", profileImage: null,
+        it("runs the role update and the audit append against the same transaction client, in order, and propagates an audit failure out of the callback (the signal a real transaction rolls back on)", async () => {
+            // The default createMockPrismaService() $transaction mock hands the callback
+            // the plain prismaService object itself, which can't distinguish "ran against
+            // the transaction client" from "ran against the plain client". This test wires
+            // a distinct sentinel tx client instead, so identity is actually provable.
+            const events: string[] = [];
+            const txClient = {
+                user: {
+                    findUnique: jest.fn().mockResolvedValue({
+                        id: "user_1", role: "admin", name: "A", profileImage: null,
+                    }),
+                    update: jest.fn().mockImplementation(async () => {
+                        events.push("user.update");
+                        return { id: "user_1", role: "manager", name: "A", profileImage: null };
+                    }),
+                },
+                branch: { findMany: jest.fn().mockResolvedValue([]) },
+                auth_session: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+            };
+            prismaService.$transaction.mockImplementation(
+                async (callback: (tx: unknown) => Promise<unknown>) => callback(txClient),
+            );
+            auditWriter.append.mockImplementation(async (tx: unknown) => {
+                events.push(tx === txClient ? "audit.append(tx)" : "audit.append(wrong-client)");
+                throw new Error("audit db down");
             });
-            prismaService.user.update.mockResolvedValue({
-                id: "user_1", role: "manager", name: "A", profileImage: null,
-            });
-            auditWriter.append.mockRejectedValueOnce(new Error("audit db down"));
 
             await expect(
                 service.update("user_1", { role: "manager", callerRole: "owner", actor }),
             ).rejects.toThrow("audit db down");
+
+            // Both the role update and the audit append ran, in order, against the exact
+            // transaction client the $transaction callback received (not the plain client),
+            // and the audit failure propagated out of the callback -- the signal a real
+            // Postgres transaction uses to roll back everything the callback did.
+            expect(events).toEqual(["user.update", "audit.append(tx)"]);
         });
 
         it("rejects granting role 'owner' even when the caller is owner, writes a rejected audit event, and does not mutate the user", async () => {
@@ -1407,6 +1431,21 @@ describe("UserService", () => {
             );
             expect(auditWriter.append.mock.calls[0][1].reason).toBeTruthy();
         });
+
+        it.each(["constructor", "__proto__", "toString", "hasOwnProperty"])(
+            "rejects role '%s' as not assignable (an Object.prototype key must never pass the rank-lookup gate)",
+            async (role) => {
+                prismaService.user.findUnique.mockResolvedValue({
+                    id: "user_1", role: "admin", name: "A", profileImage: null,
+                });
+
+                await expect(
+                    service.update("user_1", { role, callerRole: "owner", actor }),
+                ).rejects.toThrow(ForbiddenException);
+
+                expect(prismaService.user.update).not.toHaveBeenCalled();
+            },
+        );
 
         it("still throws ForbiddenException (not masked) when the best-effort rejected-grant audit write itself fails", async () => {
             prismaService.user.findUnique.mockResolvedValue({
@@ -1457,6 +1496,24 @@ describe("UserService", () => {
                 service.update("user_1", { role: "manager", callerRole: "owner", actor }),
             ).rejects.toThrow(ForbiddenException);
             expect(prismaService.user.update).not.toHaveBeenCalled();
+        });
+
+        it("rejects a branchId with no branchRole instead of silently discarding it as a global update", async () => {
+            await expect(
+                service.update("user_1", { branchId: "branch-1", name: "New", actor }),
+            ).rejects.toThrow(BadRequestException);
+
+            expect(prismaService.user.findUnique).not.toHaveBeenCalled();
+            expect(prismaService.$transaction).not.toHaveBeenCalled();
+        });
+
+        it("rejects a role-change request with no resolvable audit actor instead of falling through unaudited", async () => {
+            await expect(
+                service.update("user_1", { role: "manager", callerRole: "owner" }),
+            ).rejects.toThrow(BadRequestException);
+
+            expect(prismaService.user.findUnique).not.toHaveBeenCalled();
+            expect(updateUserUsecase.execute).not.toHaveBeenCalled();
         });
     });
 });

@@ -30,8 +30,13 @@ const ACCOUNT_ASSIGNMENT_ROLE_RANK: Readonly<Record<AccountAssignmentRole, numbe
     admin: 2,
 };
 
+/** Explicit allowlist gate so an object-prototype key (e.g. "constructor") can never
+ *  be mistaken for an assignable role by a bracket-index lookup. Mirrors ASSIGNABLE_ROLES
+ *  in application/usecases/user/update-user.usecase.ts. */
+const ASSIGNABLE_ACCOUNT_ASSIGNMENT_ROLES = new Set<AccountAssignmentRole>(["admin", "manager", "user"]);
+
 function getAccountAssignmentRoleRank(role: string | null | undefined): number | undefined {
-    if (!role) {
+    if (!role || !ASSIGNABLE_ACCOUNT_ASSIGNMENT_ROLES.has(role as AccountAssignmentRole)) {
         return undefined;
     }
 
@@ -126,7 +131,7 @@ export class UserService {
         return this.findUserByKakaoIdUsecase.execute(kakaoId);
     }
 
-    update(id: string, params: {
+    async update(id: string, params: {
         name?: string;
         email?: string;
         profileImage?: string;
@@ -139,6 +144,17 @@ export class UserService {
         const actor = params.actor ?? currentAdminAuditActor();
         if (params.branchId && params.branchRole !== undefined) {
             return this.updateBranchMembership(id, params.branchId, params.branchRole, params.callerRole, actor);
+        }
+        if (params.branchId) {
+            // branchId without branchRole is not a recognized branch-scoped update; the
+            // global-user path below does not accept (or apply) branchId, so refuse rather
+            // than silently discarding it and letting the caller believe it scoped anything.
+            throw new BadRequestException("branchId를 지정하려면 branchRole도 함께 지정해야 합니다.");
+        }
+        if (params.role !== undefined && !actor) {
+            // A role change with no audit actor would fall through to updateUserUsecase,
+            // which applies the role change without writing an audit event.
+            throw new BadRequestException("역할 변경에는 감사 주체(actor) 정보가 필요합니다.");
         }
         if (actor) {
             return this.updateGlobalUser(id, params, actor);
