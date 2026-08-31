@@ -22,6 +22,7 @@ cleanup_active_after_failure a && fail 'cleanup accepted stop failure'
 [[ "$calls" == 'stop ' ]] || fail 'cleanup cleared state after stop failure'
 read_state(){ [[ "$1" == runtime-mode ]] && printf '%s\n' passive; [[ "$1" == current-image-tag ]] && return 1; }
 container_id_for(){ return 1; }
+discover_running_api_container(){ return 0; }
 refuse_active_or_unknown_runtime || fail 'passive empty runtime refused'
 read_state(){ [[ "$1" == runtime-mode ]] && printf '%s\n' temporary-active; }
 if ( refuse_active_or_unknown_runtime ) 2>/dev/null; then fail 'active mode accepted'; fi

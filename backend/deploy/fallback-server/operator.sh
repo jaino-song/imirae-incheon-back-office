@@ -245,11 +245,12 @@ discover_running_api_container() {
 }
 
 stop_discovered_api_container() {
-    local container_id
+    local container_id remaining
     container_id="$(discover_running_api_container)" || return 1
     [[ -z "$container_id" ]] && return 0
     /usr/bin/docker stop "$container_id" >/dev/null 2>&1 || return 1
-    [[ -z "$(discover_running_api_container)" ]]
+    remaining="$(discover_running_api_container)" || return 1
+    [[ -z "$remaining" ]]
 }
 
 refuse_active_or_unknown_runtime() {
@@ -257,9 +258,12 @@ refuse_active_or_unknown_runtime() {
     mode="$(read_state runtime-mode || true)"
     [[ -z "$mode" || "$mode" == "passive" ]] || die "An active or unknown Fallback runtime must be stopped first."
     tag="$(read_state current-image-tag || true)"
-    [[ -z "$tag" ]] && return 0
-    [[ "$tag" =~ $SHA_PATTERN ]] || die "The recorded Fallback runtime is unsafe."
-    container_id="$(container_id_for "$tag" || true)"
+    if [[ ! "$tag" =~ $SHA_PATTERN ]]; then
+        container_id="$(discover_running_api_container)" || die "The running Fallback runtime cannot be safely identified."
+        [[ -z "$container_id" ]] && return 0
+    else
+        container_id="$(container_id_for "$tag" || true)"
+    fi
     [[ -z "$container_id" ]] && return 0
     gates="$(runtime_env_for "$container_id" || true)"
     [[ -n "$gates" ]] || die "The running Fallback runtime cannot be safely identified."
@@ -417,10 +421,12 @@ cleanup_active_after_failure() {
 guard_expiry() {
     local expiry now tag mode container_id gates
     mode="$(read_state runtime-mode || true)"
-    tag="$(read_state current-image-tag || true)"
     if [[ "$mode" != "temporary-active" ]]; then
-        [[ "$tag" =~ $SHA_PATTERN ]] || return 0
-        container_id="$(container_id_for "$tag" || true)"
+        if [[ "$tag" =~ $SHA_PATTERN ]]; then
+            container_id="$(container_id_for "$tag" || true)"
+        else
+            container_id="$(discover_running_api_container)" || return 1
+        fi
         [[ -z "$container_id" ]] && return 0
         gates="$(/usr/bin/docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container_id" 2>/dev/null || true)"
         if [[ "$gates" == *$'SCHEDULERS_ENABLED=true'* ]] || [[ -z "$gates" ]]; then
