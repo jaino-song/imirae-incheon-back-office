@@ -483,6 +483,8 @@ temporary_activate_release() {
     local commit_sha="$1" image_digest="$2" approval_data approval_egress_hash approval_nonce expiry current_tag current_digest container_id
 
     validate_release "$commit_sha" "$image_digest"
+    clear_temporary_expiry_timer
+    clear_temporary_active_state
     validate_env_file
     validate_production_db_identity
     approval_data="$(validate_temporary_active_approval "$commit_sha" "$image_digest")"
@@ -579,6 +581,7 @@ status_release() {
     local local_image_id
     local restart_count
     local running_image_id
+    local runtime_mode expiry now
 
     validate_env_file
     validate_production_db_identity
@@ -606,7 +609,24 @@ status_release() {
     [[ "$restart_count" == "0" ]] || die "The Fallback Server API container has restarted."
     /usr/bin/curl --fail --silent --show-error --connect-timeout 2 --max-time 5 \
         "$LOOPBACK_READY_URL" >/dev/null || die "The Fallback Server readiness endpoint failed."
-    verify_passive_runtime "$commit_sha"
+    runtime_mode="$(read_state runtime-mode || true)"
+    if [[ -z "$runtime_mode" ]]; then
+        [[ ! -e "$ACTIVE_EXPIRY_FILE" ]] || die "Fallback runtime state is inconsistent."
+        runtime_mode="passive"
+    fi
+    if [[ "$runtime_mode" == "temporary-active" ]]; then
+        expiry="$(read_state temporary-active-expiry)" || die "Temporary-active expiry state is missing."
+        now="$(/usr/bin/date +%s)"
+        [[ "$expiry" =~ ^[0-9]{10,}$ && "$now" -lt "$expiry" ]] || die "Temporary-active approval is expired."
+        /usr/bin/systemctl is-enabled --quiet "$TEMPORARY_GUARD_TIMER" || die "Temporary-active guard is not enabled."
+        /usr/bin/systemctl is-active --quiet "$TEMPORARY_GUARD_TIMER" || die "Temporary-active guard is not active."
+        verify_temporary_active_runtime "$commit_sha"
+    elif [[ "$runtime_mode" == "passive" ]]; then
+        [[ ! -e "$ACTIVE_EXPIRY_FILE" ]] || die "Fallback runtime state is inconsistent."
+        verify_passive_runtime "$commit_sha"
+    else
+        die "Fallback runtime mode is invalid."
+    fi
 
     printf '%s\n' \
         "environment=fallback-server" \
@@ -617,9 +637,10 @@ status_release() {
         "db_readiness=ok" \
         "production_db_identity=ok" \
         "public_routing=not_managed" \
-        "schedulers_enabled=false" \
-        "document_jobs_accepting=false" \
-        "document_jobs_worker=false"
+        "runtime_mode=$runtime_mode" \
+        "schedulers_enabled=$([[ "$runtime_mode" == temporary-active ]] && printf true || printf false)" \
+        "document_jobs_accepting=$([[ "$runtime_mode" == temporary-active ]] && printf true || printf false)" \
+        "document_jobs_worker=$([[ "$runtime_mode" == temporary-active ]] && printf true || printf false)"
 }
 
 rollback_release() {
@@ -628,6 +649,8 @@ rollback_release() {
     local previous_digest
     local previous_tag
 
+    clear_temporary_expiry_timer
+    clear_temporary_active_state
     current_tag="$(read_state current-image-tag)" || die "No current Fallback Server release is recorded."
     current_digest="$(read_state current-image-digest)" || die "No current Fallback Server digest is recorded."
     previous_tag="$(read_state previous-image-tag)" || die "No previous Fallback Server release is recorded."
