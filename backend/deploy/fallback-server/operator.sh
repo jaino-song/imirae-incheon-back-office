@@ -374,13 +374,26 @@ cleanup_active_after_failure() {
 }
 
 guard_expiry() {
-    local expiry now tag
-    [[ -f "$RUNTIME_MODE_FILE" && "$(<"$RUNTIME_MODE_FILE")" == "temporary-active" ]] || return 0
+    local expiry now tag mode container_id gates
+    mode="$(read_state runtime-mode || true)"
+    tag="$(read_state current-image-tag || true)"
+    if [[ "$mode" != "temporary-active" ]]; then
+        [[ "$tag" =~ $SHA_PATTERN ]] || return 0
+        container_id="$(container_id_for "$tag" || true)"
+        [[ -z "$container_id" ]] && return 0
+        gates="$(/usr/bin/docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container_id" 2>/dev/null || true)"
+        if [[ "$gates" == *$'SCHEDULERS_ENABLED=true'* ]] || [[ -z "$gates" ]]; then
+            active_compose "$tag" stop api >/dev/null 2>&1 || return 1
+            container_id_for "$tag" >/dev/null 2>&1 && return 1
+            clear_temporary_expiry_timer
+            clear_temporary_active_state
+        fi
+        return 0
+    fi
     expiry="$(read_state temporary-active-expiry || true)"
     [[ "$expiry" =~ ^[0-9]{10,}$ ]] || expiry=0
     now="$(/usr/bin/date +%s)"
     (( now < expiry )) && return 0
-    tag="$(read_state current-image-tag || true)"
     [[ "$tag" =~ $SHA_PATTERN ]] || return 1
     compose "$tag" stop api >/dev/null 2>&1 || return 1
     if container_id_for "$tag" >/dev/null 2>&1; then return 1; fi

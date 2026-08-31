@@ -151,6 +151,12 @@ The current source includes a dedicated arm/disarm CLI, but that protected
 interface is not installed on the host yet. Do not edit the state JSON by hand;
 production arming remains blocked until the bundle and service are installed.
 
+The protected Fallback bundle includes passive and temporary-active Compose
+artifacts, the expiry guard service/timer, approval/evidence files, and active
+mode/expiry/linkage state under the root-only state directory. The controller's
+no-timer statement applies only to its automatic polling behavior; the separate
+temporary-active expiry guard is deliberately periodic and fail-closed.
+
 ## Temporary Funnel active mode (manual, expiry-bound)
 
 `deploy` remains the ordinary passive deployment path: it fixes every scheduler,
