@@ -7,6 +7,7 @@ import { AuthTokenEntity } from "domain/entities/auth-token.entity";
 import { EmailPort } from "domain/ports/email.port";
 import { IAuthTokenRepository } from "domain/repositories/auth-token.repository.interface";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { tenantContextStore } from "infrastructure/tenant/tenant-context.store";
 
 describe("AuthService approval and token hardening", () => {
     const prisma = {
@@ -95,6 +96,24 @@ describe("AuthService approval and token hardening", () => {
         await service.validateEmailPassword("a@example.com", "Password1!");
 
         expect(jwt.signAsync).toHaveBeenCalledWith(expect.objectContaining({ tokenVersion: 4, type: "access" }), expect.any(Object));
+    });
+
+    it("runs the login membership lookup under an audited system-scope store", async () => {
+        jest.spyOn(service, "verifyPassword").mockResolvedValue(true);
+        prisma.user.findUnique.mockResolvedValue({
+            id: "user-1", email: "a@example.com", name: "A", profileImage: null, phone: "010",
+            birthDate: "1990-01-01", passwordHash: "hash", emailVerified: true, role: "user",
+            approvalStatus: "approved", tokenVersion: 4,
+        });
+        let observedStore: ReturnType<typeof tenantContextStore.get>;
+        prisma.user_branch.findMany.mockImplementation(async () => {
+            observedStore = tenantContextStore.get();
+            return [{ branchId: "branch-1", role: "user" }];
+        });
+
+        await service.validateEmailPassword("a@example.com", "Password1!");
+
+        expect(observedStore).toMatchObject({ origin: "system", systemScope: true });
     });
 
     it("rejects incomplete approved accounts instead of starting self-service onboarding", async () => {
