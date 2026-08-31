@@ -30,6 +30,14 @@
     "deleting": "Deleting...",
     "close": "Close"
   },
+  "template-editor": {
+    "fallback-label": "Fallback (when value is empty)",
+    "fallback-hint": "Used in the message when the value is empty at send time.",
+    "insert-variable": "Insert variable",
+    "byte-count-sms": "SMS",
+    "byte-count-lms": "Switched to LMS",
+    "body-too-long": "Message exceeds the 2,000-character limit."
+  },
   "header": {
     "companyName": "BabyJamJam",
     "companySubtitle": "Admin App"
