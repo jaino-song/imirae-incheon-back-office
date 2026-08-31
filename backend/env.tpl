@@ -13,6 +13,8 @@ DATABASE_URL=
 DIRECT_URL=
 # Database route selected at startup: shared uses DATABASE_URL; direct uses DIRECT_URL.
 DATABASE_CONNECTION_MODE="shared"
+# Tenant-isolation Prisma extension enforcement level: off | observe | enforce. Default observe.
+TENANT_ISOLATION_MODE="observe"
 JWT_SECRET=
 KAKAO_CLIENT_ID="479afcedc0c97cded2033bfbfb4472ee"
 KAKAO_CLIENT_SECRET=
