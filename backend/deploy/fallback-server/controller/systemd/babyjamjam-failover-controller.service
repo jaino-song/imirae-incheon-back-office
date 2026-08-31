@@ -1,0 +1,43 @@
+[Unit]
+Description=BabyJamJam Fallback Server failover controller
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+EnvironmentFile=-/opt/babyjamjam-fallback-server/controller.env
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=BABYJAMJAM_CONTROLLER_SERVICE_CHECK=1
+ExecStartPre=/usr/bin/env node /usr/local/libexec/babyjamjam-failover-controller/operator.mjs --check-bundle
+ExecStart=/usr/bin/env node /usr/local/libexec/babyjamjam-failover-controller/main.mjs
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=10s
+KillSignal=SIGTERM
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/opt/babyjamjam-fallback-server/state
+
+[Install]
+WantedBy=multi-user.target
