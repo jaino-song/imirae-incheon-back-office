@@ -34,9 +34,16 @@ export class ChatFeedbackRepository {
         });
     }
 
-    async findById(id: string) {
-        return this.prisma.chat_feedback.findUnique({
-            where: { id },
+    // `chat_feedback` has no branch_id column, so branch scoping (the admin analytics path,
+    // AdminFeedbackController) is a nested relation filter through `chatSession` rather than a
+    // direct `chat_session` query — the latter would trip the tenant-isolation Prisma
+    // extension's `http_no_tenant` guard in enforce mode from this un-tenant-guarded route.
+    // `chat_session.branchId` is nullable: feedback hanging off a null-branch session can never
+    // satisfy `chatSession: { branchId }` for any concrete branch, so it is invisible to every
+    // branch admin — fail closed, the same semantic applied to null-branch areas elsewhere.
+    async findById(id: string, branchId?: string) {
+        return this.prisma.chat_feedback.findFirst({
+            where: branchId ? { id, chatSession: { branchId } } : { id },
             include: {
                 chatSession: {
                     include: { messages: { orderBy: { timestamp: 'asc' } } },
@@ -59,11 +66,15 @@ export class ChatFeedbackRepository {
         page: number;
         limit: number;
         type?: 'positive' | 'negative';
+        branchId: string;
     }) {
-        const { page, limit, type } = params;
+        const { page, limit, type, branchId } = params;
         const skip = (page - 1) * limit;
 
-        const where = type ? { type } : {};
+        // Nested relation filter through chatSession — see the findById comment above for why
+        // this can't be a direct chat_session query, and why a null-branch session's feedback
+        // is fail-closed invisible here.
+        const where = { ...(type ? { type } : {}), chatSession: { branchId } };
 
         const [data, total] = await Promise.all([
             this.prisma.chat_feedback.findMany({
@@ -82,11 +93,14 @@ export class ChatFeedbackRepository {
         return { data, total };
     }
 
-    async getStats() {
+    async getStats(branchId: string) {
+        // See the findById comment above: nested relation filter, fail-closed on a null-branch
+        // session's feedback.
+        const where = { chatSession: { branchId } };
         const [positive, negative, total] = await Promise.all([
-            this.prisma.chat_feedback.count({ where: { type: 'positive' } }),
-            this.prisma.chat_feedback.count({ where: { type: 'negative' } }),
-            this.prisma.chat_feedback.count(),
+            this.prisma.chat_feedback.count({ where: { ...where, type: 'positive' } }),
+            this.prisma.chat_feedback.count({ where: { ...where, type: 'negative' } }),
+            this.prisma.chat_feedback.count({ where }),
         ]);
 
         return { positive, negative, total };
