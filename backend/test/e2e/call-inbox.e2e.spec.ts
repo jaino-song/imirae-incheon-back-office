@@ -60,9 +60,12 @@ const FILE_ID = `e2e-call-${Date.now()}`;
 const FILE_NAME = "통화 녹음 김서연_010-4821-7763.m4a";
 
 const webhookPayload = {
-    fileId: FILE_ID,
+    driveFileId: FILE_ID,
     fileName: FILE_NAME,
-    transcript: [{ speaker: "고객", text: "산후도우미 문의요" }],
+    sttModel: "gemini-3.5-transcribe",
+    diarized: true,
+    vocabularyVersion: "v1",
+    transcriptRaw: [{ speaker: "1", text: "산후도우미 문의요" }],
 };
 
 interface DraftListItem {
@@ -173,6 +176,20 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
         callRecordId = res.body.callRecordId;
     });
 
+    it("2b. the stored call_record carries transcript_raw + stt_meta; summary stays null at ingest", async () => {
+        const record = await prisma.call_record.findUnique({ where: { id: callRecordId } });
+
+        expect(record).not.toBeNull();
+        expect(record?.transcript).toEqual(webhookPayload.transcriptRaw);
+        expect(record?.transcriptRaw).toEqual(webhookPayload.transcriptRaw);
+        expect(record?.sttMeta).toEqual({
+            sttModel: webhookPayload.sttModel,
+            diarized: webhookPayload.diarized,
+            vocabularyVersion: webhookPayload.vocabularyVersion,
+        });
+        expect(record?.summary).toBeNull();
+    });
+
     it("3. re-posting the identical payload is idempotent → 200 duplicate, same callRecordId", async () => {
         const res = await request(app.getHttpServer())
             .post("/webhooks/call-transcripts")
@@ -262,7 +279,7 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
         const res = await request(app.getHttpServer())
             .post("/webhooks/call-transcripts")
             .set("Authorization", "Bearer cit_invalid-token-e2e")
-            .send({ ...webhookPayload, fileId: `${FILE_ID}-invalid` });
+            .send({ ...webhookPayload, driveFileId: `${FILE_ID}-invalid` });
 
         expect(res.status).toBe(401);
     });

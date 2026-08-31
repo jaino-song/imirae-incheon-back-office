@@ -22,7 +22,7 @@ export class CallTranscriptWebhookController {
         @Res({ passthrough: true }) response: Response,
     ) {
         const branchId = request.callIngestBranchId as string;
-        this.logger.log(`Received call transcript ${payload.fileId} for branch ${branchId}`);
+        this.logger.log(`Received call transcript ${payload.driveFileId} for branch ${branchId}`);
 
         const result = await this.ingestionService.ingest(branchId, payload);
         response.status(result.duplicate ? 200 : 202);
