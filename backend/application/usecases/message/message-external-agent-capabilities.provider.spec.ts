@@ -403,7 +403,6 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
                 stagedRetry = Object.assign(candidate, { id: "retry-job" });
                 return stagedRetry;
             }),
-            claimPendingSystemScope: jest.fn().mockImplementation(async (id: string) => id === stagedRetry?.id),
             claimPendingWithRuleFence: jest.fn().mockImplementation(async (id: string) => id === stagedRetry?.id ? "claim-a" : null),
             update: jest.fn().mockResolvedValue(undefined),
             findSentTriggerJobIdsSystemScope: jest.fn().mockResolvedValue(new Set<string>()),

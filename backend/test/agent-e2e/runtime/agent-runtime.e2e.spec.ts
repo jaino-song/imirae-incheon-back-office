@@ -318,7 +318,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                 targetSnapshot,
             );
             await new Promise((resolve) => setTimeout(resolve, 50));
-            const dispatchPromise = triggerService.dispatchPendingJobNow(job.id);
+            const dispatchPromise = triggerService.dispatchPendingJobNow(job.id, { expectedBranchId: BRANCH_ID });
             await new Promise((resolve) => setTimeout(resolve, 50));
             releaseGate();
 
@@ -450,7 +450,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                 ruleTargetVersion(rule: typeof currentRule): string;
             }).ruleTargetVersion(currentRule);
 
-            const dispatchPromise = triggerService.dispatchPendingJobNow(job.id);
+            const dispatchPromise = triggerService.dispatchPendingJobNow(job.id, { expectedBranchId: BRANCH_ID });
             await new Promise((resolve) => setTimeout(resolve, 50));
             const updatePromise = triggerService.updateRuleApprovedTarget(
                 BRANCH_ID,
@@ -601,7 +601,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
             )).resolves.toBe(true);
             expect(sendSpy).not.toHaveBeenCalled();
 
-            await expect(triggerService.dispatchPendingJobNow(job.id)).resolves.toEqual(
+            await expect(triggerService.dispatchPendingJobNow(job.id, { expectedBranchId: BRANCH_ID })).resolves.toEqual(
                 expect.objectContaining({ id: job.id, status: "sent" }),
             );
             expect(sendSpy).toHaveBeenCalledTimes(1);
@@ -809,7 +809,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                 templateKey: r2TemplateKey,
             }));
 
-            await expect(triggerService.dispatchPendingJobNow(rebuiltJob!.id)).resolves.toEqual(
+            await expect(triggerService.dispatchPendingJobNow(rebuiltJob!.id, { expectedBranchId: BRANCH_ID })).resolves.toEqual(
                 expect.objectContaining({ id: rebuiltJob!.id, status: "sent" }),
             );
             expect(sendSpy).toHaveBeenCalledTimes(1);

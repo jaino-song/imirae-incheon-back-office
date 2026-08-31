@@ -9,12 +9,8 @@ export interface MessageTriggerJobCancellationScope {
 export interface IMessageTriggerJobRepository {
     create(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity>;
     update(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity>;
-    /** Unscoped read used only by system/scheduler callers with no caller branch to fence on. */
-    findByIdSystemScope(id: string): Promise<MessageTriggerJobEntity | null>;
     /** Branch-fenced read for request-path callers; a branch mismatch resolves to null, not another branch's row. */
     findByIdInBranch(branchId: string, id: string): Promise<MessageTriggerJobEntity | null>;
-    /** Unscoped claim used only by system/scheduler callers; request-path callers must use claimPendingWithRuleFence. */
-    claimPendingSystemScope(id: string): Promise<boolean>;
     /**
      * Claim only while the branch-scoped rule is not fenced as stale. The
      * returned token is unique to this processing attempt and must be supplied
@@ -56,7 +52,6 @@ export interface IMessageTriggerJobRepository {
         limit?: number,
         beforeId?: string,
     ): Promise<MessageTriggerJobEntity[]>;
-    findPendingByRuleId(ruleId: string): Promise<MessageTriggerJobEntity[]>;
     /** Whether a rule still has active jobs persisted before its current version fence. */
     hasActiveJobsBefore(branchId: string, ruleId: string, before: Date): Promise<boolean>;
     findPendingByRuleIdsAndClientId(ruleIds: string[], clientId: number): Promise<MessageTriggerJobEntity[]>;

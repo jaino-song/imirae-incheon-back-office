@@ -787,11 +787,9 @@ export class MessageTriggerService {
 
     async dispatchPendingJobNow(
         jobId: string,
-        opts?: { expectedBranchId?: string },
+        scope: { expectedBranchId: string },
     ): Promise<MessageTriggerJobEntity> {
-        const fetchJob = () => opts?.expectedBranchId
-            ? this.jobRepository.findByIdInBranch(opts.expectedBranchId, jobId)
-            : this.jobRepository.findByIdSystemScope(jobId);
+        const fetchJob = () => this.jobRepository.findByIdInBranch(scope.expectedBranchId, jobId);
 
         const job = await fetchJob();
         if (!job) {

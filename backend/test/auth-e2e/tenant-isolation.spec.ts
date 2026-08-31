@@ -23,6 +23,7 @@ import {
     getTenantIsolationStats,
     resetTenantIsolationStats,
     resolveTenantIsolationMode,
+    TenantIsolationViolationError,
 } from "infrastructure/tenant/tenant-isolation.reporter";
 
 import { AppModule } from "../../app.module";
@@ -53,6 +54,7 @@ describe("live-database cross-branch tenant isolation", () => {
     let verifyPrisma: PrismaClient;
 
     let branch1ClientId: number;
+    let branch1ClientName: string;
     let branch2ClientId: number;
 
     beforeAll(async () => {
@@ -84,6 +86,7 @@ describe("live-database cross-branch tenant isolation", () => {
             }),
         ]);
         branch1ClientId = branch1Client.id;
+        branch1ClientName = branch1Client.name;
         branch2ClientId = branch2Client.id;
     });
 
@@ -136,6 +139,10 @@ describe("live-database cross-branch tenant isolation", () => {
                 .set("Authorization", `Bearer ${session.accessToken}`)
                 .expect(200);
             expect(response.body?.id).not.toBe(branch1ClientId);
+            // Guards against a leak that survives the id check alone (e.g. the full branch-1
+            // record returned under a different key, or with its own id stripped/renamed).
+            expect(JSON.stringify(response.body ?? {})).not.toContain(branch1ClientName);
+            expect(response.body?.branchId).not.toBe(BRANCH_1);
         });
 
         it("excludes branch-1 rows from a branch-2 session's client list", async () => {
@@ -148,6 +155,9 @@ describe("live-database cross-branch tenant isolation", () => {
 
             const ids = (response.body as Array<{ id: number }>).map((c) => c.id);
             expect(ids).not.toContain(branch1ClientId);
+            // Positive control: own-branch data IS visible, so the assertion above is proving
+            // isolation and not just an accidentally-empty response.
+            expect(ids).toContain(branch2ClientId);
         });
     });
 
@@ -290,30 +300,63 @@ describe("live-database cross-branch tenant isolation", () => {
     // so this does not leak into auth-lifecycle.spec.ts or any other file even under
     // maxWorkers: 1). If this ever proves flaky -- e.g. a future edit to an earlier `it` in
     // this file starts touching a tenant model inside an ALS-scoped store between the
-    // resetTenantIsolationStats() call and the assertion below -- skip just this describe block
-    // (change `describe` to `describe.skip` two lines down) rather than the whole file; nothing
-    // else in this spec depends on it.
-    (resolveTenantIsolationMode() === "observe" ? describe : describe.skip)(
-        "observe-mode tenant_isolation_violation reporting",
-        () => {
+    // resetTenantIsolationStats() call and the assertion below -- skip just the active branch
+    // below (its own `describe` -> `describe.skip`) rather than the whole file; nothing else in
+    // this spec depends on it.
+    //
+    // Only one of the three branches below actually runs per process (TENANT_ISOLATION_MODE
+    // selects it); the other two are `describe.skip`. All three bodies still compile and get
+    // parsed under every mode, so switching TENANT_ISOLATION_MODE never leaves a mode's
+    // assertion untested-by-omission from this file.
+    describe("tenant_isolation_violation reporting for a deliberately unscoped read", () => {
+        async function readAcrossBranchesUnscoped(): Promise<void> {
+            // Deliberately unscoped: no `where.branchId` filter, issued through the
+            // DI-provided (tenant-isolation-extended) PrismaService while an artificial
+            // http-origin ALS store claims branch1. branch2ClientId (this spec's own
+            // branch-2 fixture) is enough to trip `cross_branch_read`.
+            await tenantContextStore.run({ origin: "http", branchId: BRANCH_1 }, async () => {
+                await prisma.client.findMany({
+                    where: { id: { in: [branch1ClientId, branch2ClientId] } },
+                });
+            });
+        }
+
+        (resolveTenantIsolationMode() === "observe" ? describe : describe.skip)("observe mode", () => {
             it("records exactly one violation for a deliberately unscoped read inside an artificial http-origin store", async () => {
                 resetTenantIsolationStats();
 
-                await tenantContextStore.run({ origin: "http", branchId: BRANCH_1 }, async () => {
-                    // Deliberately unscoped: no `where.branchId` filter, issued through the
-                    // DI-provided (tenant-isolation-extended) PrismaService while an artificial
-                    // http-origin ALS store claims branch1. branch2ClientId (this spec's own
-                    // branch-2 fixture) is enough to trip `cross_branch_read`.
-                    await prisma.client.findMany({
-                        where: { id: { in: [branch1ClientId, branch2ClientId] } },
-                    });
-                });
+                await readAcrossBranchesUnscoped();
 
                 expect(getTenantIsolationStats()).toMatchObject({
                     violations: 1,
                     violationsByKind: { cross_branch_read: 1 },
                 });
             });
-        },
-    );
+        });
+
+        (resolveTenantIsolationMode() === "enforce" ? describe : describe.skip)("enforce mode", () => {
+            it("throws TenantIsolationViolationError for a deliberately unscoped read inside an artificial http-origin store", async () => {
+                resetTenantIsolationStats();
+
+                await expect(readAcrossBranchesUnscoped()).rejects.toThrow(TenantIsolationViolationError);
+
+                // The extension reports the violation (and bumps the counter) before throwing;
+                // enforce mode blocks the RESULT from reaching the caller, not the report.
+                expect(getTenantIsolationStats()).toMatchObject({
+                    violations: 1,
+                    violationsByKind: { cross_branch_read: 1 },
+                });
+            });
+        });
+
+        (resolveTenantIsolationMode() === "off" ? describe : describe.skip)("off mode", () => {
+            it("runs the deliberately unscoped read without recording a violation", async () => {
+                resetTenantIsolationStats();
+
+                await readAcrossBranchesUnscoped();
+
+                expect(getTenantIsolationStats().violations).toBe(0);
+            });
+        });
+    });
 });
