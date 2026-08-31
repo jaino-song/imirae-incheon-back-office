@@ -67,6 +67,30 @@
     },
     {
       "parameters": {
+        "method": "GET",
+        "url": "https://api.babyjamjam.com/webhooks/call-transcripts/vocabulary",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer REPLACE_CALL_INGEST_TOKEN"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        220
+      ],
+      "id": "get-vocabulary-001",
+      "name": "Get Vocabulary"
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "https://generativelanguage.googleapis.com/upload/v1beta/files",
         "authentication": "genericCredentialType",
@@ -170,7 +194,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const fileUri = $input.first().json.file.uri;\nconst requestBody = {\n  contents: [{\n    parts: [\n      {\n        file_data: {\n          mime_type: \"audio/mp4\",\n          file_uri: fileUri\n        }\n      },\n      {\n        text: `# Role\n당신은 '인천 아이미래로(산후도우미·산모신생아 건강관리 업체)'의 통화 녹취록 전문 에디터입니다.\nSTT(음성 인식) 결과물의 오타를 수정하고, 화자를 명확히 구분하여 가독성 높은 상담 스크립트로 정제하는 것이 임무입니다.\n# Task\n제공된 오디오를 전사(transcription)하고, **가독성 높은 대화 대본**으로 재구성하십시오.\n# 1. Terminology Correction (용어 교정 사전)\n아래 오인식된 단어(좌측)가 보이면 반드시 올바른 단어(우측)로 수정하십시오.\n* **업체명 (가장 중요)**\n   - 아이미레로, 아이미레, 이미래로, 아미래로 → **아이미래로**\n* **산후조리 관련 용어**\n   - 산우도우미, 산우 → **산후도우미**\n   - 구리원, 조류원 → **조리원**\n   - 알루사님, 관리, 이모님 → **관리사님**\n   - 재앙절개, 재앙 → **제왕절개**\n   - 단퇴, 단태 → **단태아**\n   - A가, 가형 → **A가형**\n   - A라, 라형 → **A라형**\n   - 나비, 라비 → **납입** (결제 문맥)\n   - 쌍, 쌍둥 → **쌍둥이** (다태아)\n   - A 통합, A형 → **A-통합형**\n   - 바우처, 보건소 등록 → **바우처/정부 지원** 문맥 확인\n   - 본인 부담금, 자부담 → **본인 부담금**\n   - 목적이 홍철, 국적이 → **국적** (다문화 가정 문맥 시)\n   - 11월 → 문맥에 따라 **10일(기간)** 또는 **11월(날짜)** 구분\n# 2. Speaker Identification Rules (화자 분리 규칙)\n* **아이미래로**: \n   - \"네, 아이미래로입니다\", \"감사합니다, 아이미래로입니다\"라고 인사하는 사람\n   - 업체 입장에서 서비스를 안내하거나 문의에 답변하는 사람\n* **고객**: \n   - 아이미래로에 문의하거나 서비스를 신청하는 상대방\n   - 산모, 남편, 제휴업체 담당자 등 (확실하면 [산모], [남편] 표기)\n# 3. Refinement Guidelines (정제 가이드)\n- \"어...\", \"그...\", \"네네네\" 같은 추임새는 제거하거나 \"네.\"로 축약\n- 마침표(.), 물음표(?)를 정확히 사용\n- 날짜, 금액, 규격, 전화번호 등 숫자는 절대 변경 금지`\n      }\n    ]\n  }],\n  generationConfig: {\n    responseMimeType: \"application/json\",\n    responseSchema: {\n      type: \"OBJECT\",\n      properties: {\n        summary: {\n          type: \"OBJECT\",\n          description: \"상담 요약 정보\",\n          properties: {\n            inquiry_type: {\n              type: \"STRING\",\n              description: \"문의 유형 (예: 산후도우미 예약, 결제 문의, 행사 규격 문의)\"\n            },\n            customer_info: {\n              type: \"STRING\",\n              description: \"고객 정보 (예: 1월 21일 출산 예정, 베이비페어 담당자)\"\n            },\n            key_content: {\n              type: \"STRING\",\n              description: \"상담의 핵심 내용 요약 (3~4줄)\"\n            },\n            result_action: {\n              type: \"STRING\",\n              description: \"결과/조치 (예: 예약 확정, 문자 발송 예정, 추후 연락)\"\n            }\n          },\n          required: [\"inquiry_type\", \"key_content\"]\n        },\n        transcript: {\n          type: \"ARRAY\",\n          description: \"정제된 대화 스크립트\",\n          items: {\n            type: \"OBJECT\",\n            properties: {\n              speaker: {\n                type: \"STRING\",\n                enum: [\"아이미래로\", \"고객\", \"산모\", \"남편\"],\n                description: \"화자 구분\"\n              },\n              text: {\n                type: \"STRING\",\n                description: \"교정된 발화 내용\"\n              }\n            },\n            required: [\"speaker\", \"text\"]\n          }\n        }\n      },\n      required: [\"summary\", \"transcript\"]\n    }\n  }\n};\nreturn [{\n  json: {\n    requestBody: JSON.stringify(requestBody)\n  }\n}];"
+        "jsCode": "// Build the single gemini-3.5-transcribe request. Diarization is ON here;\n// the >30-min fallback (no diarization) lives in \"Build Non-Diarized Retry\n// Request\", wired to this call's error output.\nconst fileUri = $input.first().json.file.uri;\nconst vocabulary = $('Get Vocabulary').item.json.phrases;\n\nconst requestBody = {\n  model: \"gemini-3.5-transcribe\",\n  // NOTE: the exact envelope key for the audio input on POST /v1beta/interactions\n  // (here: input.audio) follows the Files API convention used elsewhere in this\n  // template; confirm the field name against the live Interactions API docs\n  // when available.\n  input: {\n    audio: {\n      file_uri: fileUri,\n      mime_type: \"audio/mp4\"\n    }\n  },\n  language_codes: [\"ko-KR\"],\n  mode: {\n    diarization_mode: \"speaker\"\n  },\n  custom_vocabulary: vocabulary\n};\n\nreturn [{ json: { requestBody: JSON.stringify(requestBody) } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -179,12 +203,12 @@
         0
       ],
       "id": "c99dfe28-6d2a-47e5-b361-12665b54774a",
-      "name": "Code in JavaScript"
+      "name": "Build Transcribe Request"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -199,7 +223,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ $json.requestBody }} ",
+        "body": "={{ $json.requestBody }}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -215,25 +239,26 @@
           "id": "REPLACE_GEMINI_CREDENTIAL_ID",
           "name": "Gemini API KEY"
         }
-      }
+      },
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
-        "jsCode": "const pass1 = JSON.parse($json.candidates[0].content.parts[0].text);\nconst requestBody = {\n  contents: [{\n    parts: [{\n      text: `# Role\n당신은 산후도우미 업체 '아이미래로' 통화 스크립트의 최종 교정자입니다.\n아래 JSON(1차 전사 결과)의 transcript 발화들에서 남아있는 STT 오인식을 교정하여, 입력과 동일한 JSON 구조로 반환하십시오.\n# 교정 사전 (좌측 발견 시 우측으로 수정)\n산우도우미/산우→산후도우미, 구리원/조류원→조리원, 알루사님/이모님(호칭 문맥)→관리사님,\n재앙절개/재앙→제왕절개, 단퇴/단태→단태아, 쌍/쌍둥→쌍둥이,\nA가/가형→A가형, A라/라형→A라형, A 통합/A형→A-통합형, 나비/라비→납입(결제 문맥),\n아이미레로/아이미레/이미래로/아미래로→아이미래로\n# 규칙\n- 날짜·금액·기간·전화번호 숫자는 절대 변경 금지\n- speaker 값과 turn 개수·순서 유지\n- summary 필드들도 같은 사전으로 교정\n# 입력 JSON\n${JSON.stringify(pass1)}`\n    }]\n  }],\n  generationConfig: {\n    responseMimeType: \"application/json\",\n    responseSchema: {\n      type: \"OBJECT\",\n      properties: {\n        summary: { type: \"OBJECT\", properties: {\n          inquiry_type: { type: \"STRING\" }, customer_info: { type: \"STRING\" },\n          key_content: { type: \"STRING\" }, result_action: { type: \"STRING\" } },\n          required: [\"inquiry_type\", \"key_content\"] },\n        transcript: { type: \"ARRAY\", items: { type: \"OBJECT\", properties: {\n          speaker: { type: \"STRING\", enum: [\"아이미래로\", \"고객\", \"산모\", \"남편\"] },\n          text: { type: \"STRING\" } }, required: [\"speaker\", \"text\"] } }\n      },\n      required: [\"summary\", \"transcript\"]\n    }\n  }\n};\nreturn [{ json: { requestBody: JSON.stringify(requestBody) } }];"
+        "jsCode": "// >30-min fallback: gemini-3.5-transcribe rejects diarization above the\n// 30-minute limit (spec section 4.1). Retry the SAME audio once with\n// diarization simply omitted -- everything else (vocabulary, language)\n// stays the same. \"Build Webhook Payload\" detects this path ran and sets\n// diarized: false accordingly.\nconst fileUri = $('Upload File to Gemini').item.json.file.uri;\nconst vocabulary = $('Get Vocabulary').item.json.phrases;\n\nconst requestBody = {\n  model: \"gemini-3.5-transcribe\",\n  input: {\n    audio: {\n      file_uri: fileUri,\n      mime_type: \"audio/mp4\"\n    }\n  },\n  language_codes: [\"ko-KR\"],\n  custom_vocabulary: vocabulary\n};\n\nreturn [{ json: { requestBody: JSON.stringify(requestBody) } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         1568,
-        0
+        220
       ],
-      "id": "build-correction-001",
-      "name": "Build Correction Request"
+      "id": "build-retry-request-001",
+      "name": "Build Non-Diarized Retry Request"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
@@ -255,22 +280,20 @@
       "typeVersion": 4.2,
       "position": [
         1792,
-        0
+        220
       ],
-      "id": "gemini-correct-001",
-      "name": "Gemini Correct Transcript",
+      "id": "transcribe-retry-001",
+      "name": "Gemini Transcribe Audio (Non-Diarized Retry)",
       "credentials": {
         "httpHeaderAuth": {
           "id": "REPLACE_GEMINI_CREDENTIAL_ID",
           "name": "Gemini API KEY"
         }
-      },
-      "retryOnFail": true,
-      "waitBetweenTries": 5000
+      }
     },
     {
       "parameters": {
-        "jsCode": "const corrected = JSON.parse($json.candidates[0].content.parts[0].text);\nconst trigger = $('Google Drive Trigger').item.json;\nreturn [{ json: {\n  fileId: trigger.id,\n  fileName: trigger.name,\n  recordedAt: trigger.createdTime || undefined,\n  transcript: corrected.transcript,\n  summary: corrected.summary\n} }];"
+        "jsCode": "// TODO(BJJ-231): confirm gemini-3.5-transcribe response shape against the\n// live API. The Interactions API response schema for gemini-3.5-transcribe\n// is not confirmed anywhere in this repo, and this environment has no\n// network access to check it directly. This parser tries the plausible\n// documented candidate shapes in order and THROWS when none match, so an\n// operator sees a red n8n execution instead of a malformed webhook payload\n// silently reaching the backend.\nfunction parseTranscriptRaw(response) {\n  // Candidate 1: interaction.output_text -- a serialized diarized transcript\n  // (JSON array of {speaker, text}-shaped turns) as a string.\n  if (response && response.interaction && typeof response.interaction.output_text === \"string\") {\n    const parsed = JSON.parse(response.interaction.output_text);\n    if (Array.isArray(parsed)) {\n      return parsed.map((turn) => ({\n        speaker: String(turn.speaker !== undefined ? turn.speaker : (turn.speaker_label !== undefined ? turn.speaker_label : \"\")),\n        text: String(turn.text !== undefined ? turn.text : \"\")\n      }));\n    }\n  }\n\n  // Candidate 2: top-level output_text, same shape, no interaction wrapper.\n  if (response && typeof response.output_text === \"string\") {\n    const parsed = JSON.parse(response.output_text);\n    if (Array.isArray(parsed)) {\n      return parsed.map((turn) => ({\n        speaker: String(turn.speaker !== undefined ? turn.speaker : (turn.speaker_label !== undefined ? turn.speaker_label : \"\")),\n        text: String(turn.text !== undefined ? turn.text : \"\")\n      }));\n    }\n  }\n\n  // Candidate 3: a segments/words array with a per-segment speaker label --\n  // the common ASR diarization shape (interaction.output.segments[] or\n  // response.segments[]).\n  const segments = (response && response.interaction && response.interaction.output && response.interaction.output.segments)\n    || (response && response.segments);\n  if (Array.isArray(segments) && segments.length > 0) {\n    return segments.map((segment) => ({\n      speaker: String(segment.speaker !== undefined ? segment.speaker : (segment.speaker_label !== undefined ? segment.speaker_label : (segment.speakerId !== undefined ? segment.speakerId : \"\"))),\n      text: String(segment.text !== undefined ? segment.text : (segment.transcript !== undefined ? segment.transcript : \"\"))\n    }));\n  }\n\n  throw new Error(\n    \"gemini-3.5-transcribe response did not match any known shape \" +\n    \"(interaction.output_text / output_text / segments). Update \" +\n    \"parseTranscriptRaw against the live API response -- see TODO(BJJ-231).\"\n  );\n}\n\nconst trigger = $('Google Drive Trigger').item.json;\nconst vocabularyVersion = $('Get Vocabulary').item.json.version;\n\n// The >30-min fallback fired iff its retry node ran in this execution.\nlet diarized = true;\ntry {\n  if ($('Gemini Transcribe Audio (Non-Diarized Retry)').isExecuted) {\n    diarized = false;\n  }\n} catch (e) {\n  // isExecuted unsupported on this n8n version -- this branch only reaches\n  // \"Build Webhook Payload\" via the diarized (primary) path when that is\n  // the case, so the default above is already correct.\n}\n\nconst transcriptRaw = parseTranscriptRaw($json);\n\nreturn [{\n  json: {\n    driveFileId: trigger.id,\n    fileName: trigger.name,\n    recordedAt: trigger.createdTime || undefined,\n    sttModel: \"gemini-3.5-transcribe\",\n    diarized: diarized,\n    vocabularyVersion: vocabularyVersion,\n    transcriptRaw: transcriptRaw\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -340,6 +363,11 @@
             "node": "Merge Upload URL + Binary",
             "type": "main",
             "index": 1
+          },
+          {
+            "node": "Get Vocabulary",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -370,14 +398,14 @@
       "main": [
         [
           {
-            "node": "Code in JavaScript",
+            "node": "Build Transcribe Request",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Code in JavaScript": {
+    "Build Transcribe Request": {
       "main": [
         [
           {
@@ -392,25 +420,32 @@
       "main": [
         [
           {
-            "node": "Build Correction Request",
+            "node": "Build Webhook Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Non-Diarized Retry Request",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build Correction Request": {
+    "Build Non-Diarized Retry Request": {
       "main": [
         [
           {
-            "node": "Gemini Correct Transcript",
+            "node": "Gemini Transcribe Audio (Non-Diarized Retry)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Gemini Correct Transcript": {
+    "Gemini Transcribe Audio (Non-Diarized Retry)": {
       "main": [
         [
           {
