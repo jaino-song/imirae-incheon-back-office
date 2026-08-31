@@ -354,8 +354,7 @@ verify_approved_egress() {
 
 clear_temporary_expiry_timer() {
     /usr/bin/systemctl stop "$TEMPORARY_STOP_UNIT.timer" >/dev/null 2>&1 || true
-    /usr/bin/systemctl stop "$TEMPORARY_STOP_UNIT.service" >/dev/null 2>&1 || true
-    /usr/bin/systemctl reset-failed "$TEMPORARY_STOP_UNIT.timer" "$TEMPORARY_STOP_UNIT.service" >/dev/null 2>&1 || true
+    /usr/bin/systemctl reset-failed "$TEMPORARY_STOP_UNIT.timer" >/dev/null 2>&1 || true
 }
 
 clear_temporary_active_state() {
@@ -398,8 +397,8 @@ guard_expiry() {
     compose "$tag" stop api >/dev/null 2>&1 || return 1
     if container_id_for "$tag" >/dev/null 2>&1; then return 1; fi
     # Do not stop this service from itself; disable prevents a future tick.
-    /usr/bin/systemctl disable "$TEMPORARY_GUARD_TIMER" >/dev/null 2>&1 || true
-    /usr/bin/rm -f "$RUNTIME_MODE_FILE" "$ACTIVE_EXPIRY_FILE"
+    clear_temporary_expiry_timer
+    clear_temporary_active_state
 }
 
 schedule_temporary_expiry_stop() {
@@ -717,6 +716,9 @@ stop_release() {
 
     current_tag="$(read_state current-image-tag)" || die "No current Fallback Server release is recorded."
     compose "$current_tag" stop api >/dev/null
+    if container_id_for "$current_tag" >/dev/null 2>&1; then
+        die "The Fallback Server API container did not stop."
+    fi
     clear_temporary_expiry_timer
     clear_temporary_active_state
     printf '%s\n' \
