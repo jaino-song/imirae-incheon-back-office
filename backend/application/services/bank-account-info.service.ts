@@ -30,11 +30,11 @@ export class BankAccountInfoService {
         return this.findBankAccountInfoByAreaUsecase.execute(area, branchId);
     }
 
-    update(area: string, params: { bankName?: string | null, accNum?: string | null }): Promise<BankAccountInfoEntity> {
-        return this.updateBankAccountInfoUsecase.execute(area, params);
+    update(area: string, params: { bankName?: string | null, accNum?: string | null }, branchId?: string): Promise<BankAccountInfoEntity> {
+        return this.updateBankAccountInfoUsecase.execute(area, params, branchId);
     }
 
-    delete(area: string) {
-        return this.deleteBankAccountInfoUsecase.execute(area);
+    delete(area: string, branchId?: string) {
+        return this.deleteBankAccountInfoUsecase.execute(area, branchId);
     }
 }

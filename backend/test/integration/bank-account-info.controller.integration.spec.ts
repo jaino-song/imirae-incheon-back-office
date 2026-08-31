@@ -13,8 +13,14 @@ describe("BankAccountInfoController (Integration)", () => {
     // Test Fixtures & Setup
     // ============================================
 
+    const BRANCH_A = "branch-a-id";
+    const BRANCH_B = "branch-b-id";
+
     let app: INestApplication;
     let bankAccountInfoService: jest.Mocked<BankAccountInfoService>;
+    // Reassignable per-test so individual tests can simulate a different caller (a different
+    // branch's admin, or a session missing branchId) without re-compiling the testing module.
+    let currentUser: { userId: string; role: string; branchId?: string };
 
     type BankAccountInfoOverrides = Partial<{
         area: string;
@@ -38,6 +44,8 @@ describe("BankAccountInfoController (Integration)", () => {
     };
 
     beforeEach(async () => {
+        currentUser = { userId: "owner-user-id", role: "owner", branchId: BRANCH_A };
+
         const mockBankAccountInfoService = {
             create: jest.fn(),
             findAll: jest.fn(),
@@ -59,7 +67,7 @@ describe("BankAccountInfoController (Integration)", () => {
             .useValue({
                 canActivate: (context: { switchToHttp: () => { getRequest: () => { user?: unknown } } }) => {
                     const request = context.switchToHttp().getRequest();
-                    request.user = { userId: "owner-user-id", role: "owner" };
+                    request.user = currentUser;
                     return true;
                 },
             })
@@ -152,7 +160,7 @@ describe("BankAccountInfoController (Integration)", () => {
         });
 
         describe("given bank account infos exist", () => {
-            it("should return all bank account infos", async () => {
+            it("should return all bank account infos scoped to the caller's branch", async () => {
                 // Arrange
                 const infos = [
                     createMockBankAccountInfo({ area: "Seoul" }),
@@ -168,7 +176,7 @@ describe("BankAccountInfoController (Integration)", () => {
                 // Assert
                 expect(response.status).toBe(200);
                 expect(response.body).toHaveLength(3);
-                expect(bankAccountInfoService.findAll).toHaveBeenCalled();
+                expect(bankAccountInfoService.findAll).toHaveBeenCalledWith(BRANCH_A);
             });
         });
 
@@ -184,6 +192,36 @@ describe("BankAccountInfoController (Integration)", () => {
                 // Assert
                 expect(response.status).toBe(200);
                 expect(response.body).toEqual([]);
+            });
+        });
+
+        describe("given a different branch's admin session (negative case)", () => {
+            it("should pass that caller's own branch, not a hardcoded one", async () => {
+                // Arrange
+                currentUser = { ...currentUser, branchId: BRANCH_B };
+                bankAccountInfoService.findAll.mockResolvedValue([]);
+
+                // Act
+                await request(app.getHttpServer()).get("/bank-account-infos");
+
+                // Assert
+                expect(bankAccountInfoService.findAll).toHaveBeenCalledWith(BRANCH_B);
+                expect(bankAccountInfoService.findAll).not.toHaveBeenCalledWith(BRANCH_A);
+            });
+        });
+
+        describe("given a session without a selected branch (fail-closed)", () => {
+            it("should return 403 and never call the service", async () => {
+                // Arrange
+                currentUser = { userId: "owner-user-id", role: "owner" };
+
+                // Act
+                const response = await request(app.getHttpServer())
+                    .get("/bank-account-infos");
+
+                // Assert
+                expect(response.status).toBe(403);
+                expect(bankAccountInfoService.findAll).not.toHaveBeenCalled();
             });
         });
     });
@@ -215,7 +253,7 @@ describe("BankAccountInfoController (Integration)", () => {
 
                 // Assert
                 expect(response.status).toBe(200);
-                expect(bankAccountInfoService.findByArea).toHaveBeenCalledWith("Daegu");
+                expect(bankAccountInfoService.findByArea).toHaveBeenCalledWith("Daegu", BRANCH_A);
             });
         });
 
@@ -231,7 +269,7 @@ describe("BankAccountInfoController (Integration)", () => {
 
                 // Assert
                 expect(response.status).toBe(200);
-                expect(bankAccountInfoService.findByArea).toHaveBeenCalledWith("NonexistentArea");
+                expect(bankAccountInfoService.findByArea).toHaveBeenCalledWith("NonexistentArea", BRANCH_A);
             });
         });
 
@@ -254,7 +292,40 @@ describe("BankAccountInfoController (Integration)", () => {
 
                 // Assert
                 expect(response.status).toBe(200);
-                expect(bankAccountInfoService.findByArea).toHaveBeenCalledWith(area);
+                expect(bankAccountInfoService.findByArea).toHaveBeenCalledWith(area, BRANCH_A);
+            });
+        });
+
+        describe("given a different branch's admin session (negative case)", () => {
+            it("should pass that caller's own branch, not a hardcoded one", async () => {
+                // Arrange
+                currentUser = { ...currentUser, branchId: BRANCH_B };
+                bankAccountInfoService.findByArea.mockResolvedValue(null);
+
+                // Act
+                await request(app.getHttpServer())
+                    .get("/bank-account-infos/area")
+                    .query({ area: "Daegu" });
+
+                // Assert
+                expect(bankAccountInfoService.findByArea).toHaveBeenCalledWith("Daegu", BRANCH_B);
+                expect(bankAccountInfoService.findByArea).not.toHaveBeenCalledWith("Daegu", BRANCH_A);
+            });
+        });
+
+        describe("given a session without a selected branch (fail-closed)", () => {
+            it("should return 403 and never call the service", async () => {
+                // Arrange
+                currentUser = { userId: "owner-user-id", role: "owner" };
+
+                // Act
+                const response = await request(app.getHttpServer())
+                    .get("/bank-account-infos/area")
+                    .query({ area: "Daegu" });
+
+                // Assert
+                expect(response.status).toBe(403);
+                expect(bankAccountInfoService.findByArea).not.toHaveBeenCalled();
             });
         });
     });
@@ -290,6 +361,7 @@ describe("BankAccountInfoController (Integration)", () => {
                         bankName: "우리은행",
                         accNum: "111-222-333444",
                     }),
+                    BRANCH_A,
                 );
             });
         });
@@ -315,6 +387,7 @@ describe("BankAccountInfoController (Integration)", () => {
                 expect(bankAccountInfoService.update).toHaveBeenCalledWith(
                     "Busan",
                     expect.objectContaining({ bankName: "하나은행" }),
+                    BRANCH_A,
                 );
             });
         });
@@ -340,7 +413,47 @@ describe("BankAccountInfoController (Integration)", () => {
                 expect(bankAccountInfoService.update).toHaveBeenCalledWith(
                     "Incheon",
                     expect.objectContaining({ accNum: "000-000-000000" }),
+                    BRANCH_A,
                 );
+            });
+        });
+
+        describe("given a different branch's admin session (negative case)", () => {
+            it("should pass that caller's own branch, not a hardcoded one", async () => {
+                // Arrange
+                currentUser = { ...currentUser, branchId: BRANCH_B };
+                const updatedInfo = createMockBankAccountInfo({ area: "Seoul", bankName: "우리은행" });
+                bankAccountInfoService.update.mockResolvedValue(updatedInfo);
+
+                // Act
+                await request(app.getHttpServer())
+                    .patch("/bank-account-infos")
+                    .query({ area: "Seoul" })
+                    .send({ bankName: "우리은행" });
+
+                // Assert
+                expect(bankAccountInfoService.update).toHaveBeenCalledWith(
+                    "Seoul",
+                    expect.objectContaining({ bankName: "우리은행" }),
+                    BRANCH_B,
+                );
+            });
+        });
+
+        describe("given a session without a selected branch (fail-closed)", () => {
+            it("should return 403 and never call the service", async () => {
+                // Arrange
+                currentUser = { userId: "owner-user-id", role: "owner" };
+
+                // Act
+                const response = await request(app.getHttpServer())
+                    .patch("/bank-account-infos")
+                    .query({ area: "Seoul" })
+                    .send({ bankName: "우리은행" });
+
+                // Assert
+                expect(response.status).toBe(403);
+                expect(bankAccountInfoService.update).not.toHaveBeenCalled();
             });
         });
     });
@@ -361,7 +474,7 @@ describe("BankAccountInfoController (Integration)", () => {
 
                 // Assert
                 expect(response.status).toBe(200);
-                expect(bankAccountInfoService.delete).toHaveBeenCalledWith("Seoul");
+                expect(bankAccountInfoService.delete).toHaveBeenCalledWith("Seoul", BRANCH_A);
             });
         });
 
@@ -383,7 +496,39 @@ describe("BankAccountInfoController (Integration)", () => {
 
                 // Assert
                 expect(response.status).toBe(200);
-                expect(bankAccountInfoService.delete).toHaveBeenCalledWith(area);
+                expect(bankAccountInfoService.delete).toHaveBeenCalledWith(area, BRANCH_A);
+            });
+        });
+
+        describe("given a different branch's admin session (negative case)", () => {
+            it("should pass that caller's own branch, not a hardcoded one", async () => {
+                // Arrange
+                currentUser = { ...currentUser, branchId: BRANCH_B };
+                bankAccountInfoService.delete.mockResolvedValue(undefined);
+
+                // Act
+                await request(app.getHttpServer())
+                    .delete("/bank-account-infos")
+                    .query({ area: "Seoul" });
+
+                // Assert
+                expect(bankAccountInfoService.delete).toHaveBeenCalledWith("Seoul", BRANCH_B);
+            });
+        });
+
+        describe("given a session without a selected branch (fail-closed)", () => {
+            it("should return 403 and never call the service", async () => {
+                // Arrange
+                currentUser = { userId: "owner-user-id", role: "owner" };
+
+                // Act
+                const response = await request(app.getHttpServer())
+                    .delete("/bank-account-infos")
+                    .query({ area: "Seoul" });
+
+                // Assert
+                expect(response.status).toBe(403);
+                expect(bankAccountInfoService.delete).not.toHaveBeenCalled();
             });
         });
     });
