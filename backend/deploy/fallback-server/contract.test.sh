@@ -4,6 +4,7 @@ set -euo pipefail
 
 readonly SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly COMPOSE_FILE="$SCRIPT_ROOT/compose.yml"
+readonly ACTIVE_COMPOSE_FILE="$SCRIPT_ROOT/compose.temporary-active.yml"
 readonly INSTALLER="$SCRIPT_ROOT/install.sh"
 readonly OPERATOR="$SCRIPT_ROOT/operator.sh"
 readonly IDENTITY_HELPER="$SCRIPT_ROOT/production-db-identity.sh"
@@ -25,6 +26,7 @@ assert_not_contains() {
 }
 
 [[ -r "$COMPOSE_FILE" ]] || fail "missing Fallback Server Compose file"
+[[ -r "$ACTIVE_COMPOSE_FILE" ]] || fail "missing temporary-active Fallback Server Compose file"
 [[ -r "$INSTALLER" ]] || fail "missing Fallback Server installer"
 [[ -r "$OPERATOR" ]] || fail "missing Fallback Server operator"
 [[ -r "$IDENTITY_HELPER" ]] || fail "missing Production DB identity helper"
@@ -54,7 +56,8 @@ for key in \
     CONTRACT_AUTO_FINALIZE_ENABLED \
     EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED \
     EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED \
-    EFORMSIGN_RECONCILE_ALLOW_UNLOCKED; do
+    EFORMSIGN_RECONCILE_ALLOW_UNLOCKED \
+    MESSAGE_TRIGGER_JOBS_WORKER_ENABLED; do
     assert_contains "$COMPOSE_FILE" "$key:[[:space:]]+\"false\"" \
         "$key must be hard-disabled in the Fallback Server runtime"
 done
@@ -62,6 +65,21 @@ for key in ALIGO_API_KEY ALIGO_USER_ID ALIGO_SENDER_PHONE; do
     assert_contains "$COMPOSE_FILE" "$key:[[:space:]]+\"\"" \
         "$key must be blank until Covenant fixed egress is authorized"
 done
+for key in \
+    SCHEDULERS_ENABLED \
+    SERVICE_RECORD_AUTO_FINALIZE_ENABLED \
+    CONTRACT_AUTO_FINALIZE_ENABLED \
+    EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED \
+    EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED; do
+    assert_contains "$ACTIVE_COMPOSE_FILE" "$key:[[:space:]]+\"true\"" \
+        "$key must be enabled only in the temporary-active runtime"
+done
+for key in EFORMSIGN_RECONCILE_ALLOW_UNLOCKED MESSAGE_TRIGGER_JOBS_WORKER_ENABLED; do
+    assert_contains "$ACTIVE_COMPOSE_FILE" "$key:[[:space:]]+\"false\"" \
+        "$key must remain disabled in the temporary-active runtime"
+done
+assert_not_contains "$ACTIVE_COMPOSE_FILE" 'ALIGO_(API_KEY|USER_ID|SENDER_PHONE)' \
+    "temporary-active Compose must receive Aligo credentials only through backend.env"
 assert_contains "$COMPOSE_FILE" 'pull_policy:[[:space:]]+never' \
     "Compose must not resolve a mutable image during activation"
 
@@ -87,8 +105,24 @@ assert_contains "$INSTALLER" 'production-db-identity\.sh=\$\(sha256_file' \
     "installer must record the Production DB identity helper digest"
 assert_contains "$OPERATOR" 'production-db-identity\.sh=\$identity_digest' \
     "operator must verify the Production DB identity helper digest"
-assert_contains "$OPERATOR" 'wc -l <"\$BUNDLE_MANIFEST"\)" -eq 3' \
-    "bundle manifest must include the Production DB identity helper"
+assert_contains "$INSTALLER" 'compose\.temporary-active\.yml=\$\(sha256_file' \
+    "installer must record the temporary-active Compose digest"
+assert_contains "$OPERATOR" 'compose\.temporary-active\.yml=\$active_compose_digest' \
+    "operator must verify the temporary-active Compose digest"
+assert_contains "$OPERATOR" 'TEMPORARY_ACTIVE_APPROVAL_FILE' \
+    "operator must require a separate temporary-active approval artifact"
+assert_contains "$OPERATOR" 'aligo_egress_ipv4_sha256' \
+    "operator must verify the approved Aligo egress hash without printing an address"
+assert_contains "$OPERATOR" 'api\.ipify\.org' \
+    "operator must collect a first independent egress observation"
+assert_contains "$OPERATOR" 'ifconfig\.me/ip' \
+    "operator must collect a second independent egress observation"
+assert_contains "$OPERATOR" 'systemd-run' \
+    "operator must schedule the temporary-active expiry stop through systemd"
+assert_contains "$OPERATOR" 'temporary-active' \
+    "operator must expose the explicit temporary-active deployment mode"
+assert_contains "$OPERATOR" 'wc -l <"\$BUNDLE_MANIFEST"\)" -eq 4' \
+    "bundle manifest must include both passive and temporary-active Compose artifacts"
 assert_contains "$OPERATOR" 'public_routing=not_managed' \
     "operator status must keep DNS outside its authority"
 assert_contains "$OPERATOR" 'exec 9>"\$LOCK_FILE"' \

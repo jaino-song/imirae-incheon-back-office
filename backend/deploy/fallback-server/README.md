@@ -151,6 +151,45 @@ The current source includes a dedicated arm/disarm CLI, but that protected
 interface is not installed on the host yet. Do not edit the state JSON by hand;
 production arming remains blocked until the bundle and service are installed.
 
+## Temporary Funnel active mode (manual, expiry-bound)
+
+`deploy` remains the ordinary passive deployment path: it fixes every scheduler,
+document-job, reconciliation, and message-trigger worker gate to `false` and
+blanks Aligo credentials. It never activates public routing.
+
+The separate `temporary-active` command is an exceptional, manually approved
+mode for a bounded incident. It never pulls or builds an image and only starts
+the already-recorded immutable passive release. Before startup it requires a
+separate root-owned mode-`0400` approval artifact at
+`/opt/babyjamjam-fallback-server/temporary-active-approval` with exactly:
+
+```text
+schema_version=1
+incident_id=<operator supplied>
+image_tag=<approved immutable tag>
+image_digest=<approved immutable digest>
+production_db_ref_sha256=<approved production DB reference hash>
+aligo_egress_ipv4_sha256=<approved egress hash>
+expires_at_unix=<operator supplied expiry>
+```
+
+The operator validates the artifact ownership, exact release and DB-reference
+identity, future expiry, and two independent current egress observations without
+printing an address. It schedules a persistent root systemd expiry stop before
+starting. If scheduling or any runtime check fails, it does not remain active.
+Only the five explicitly named scheduler/document-job gates become `true`; the
+reconciliation-unlocked and message-trigger-worker gates remain `false`. Aligo
+values are never interpolated by Compose: Docker reads them only from the
+root-owned `backend.env` at active container runtime.
+
+For the temporary ingress operation, publish only the loopback API listener
+through Tailscale Funnel; do not publish the controller. Coordinate both Vercel
+projects' production `NEXT_PUBLIC_API_BASE_URL` change with fresh production
+redeploys, because it is build-time client configuration. Roll back both
+deployments together, then turn Funnel off and run the Fallback operator `stop`.
+Sentry/controller automation, DNS changes, and any cloud-control-plane action
+remain outside this runbook and require their own approval.
+
 ## Related contracts
 
 - [Controller operations](./CONTROLLER_OPERATIONS.md)

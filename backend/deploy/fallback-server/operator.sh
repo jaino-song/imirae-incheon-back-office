@@ -7,6 +7,7 @@ export PATH="$SAFE_PATH"
 
 readonly ARTIFACT_ROOT="/usr/local/libexec/babyjamjam-fallback-server"
 readonly COMPOSE_FILE="$ARTIFACT_ROOT/compose.yml"
+readonly ACTIVE_COMPOSE_FILE="$ARTIFACT_ROOT/compose.temporary-active.yml"
 readonly DB_IDENTITY_HELPER="$ARTIFACT_ROOT/production-db-identity.sh"
 readonly BUNDLE_MANIFEST="$ARTIFACT_ROOT/bundle.manifest"
 readonly INSTALLED_OPERATOR="/usr/local/sbin/babyjamjam-fallback-server"
@@ -14,6 +15,8 @@ readonly STATE_ROOT="/opt/babyjamjam-fallback-server"
 readonly STATE_DIRECTORY="$STATE_ROOT/state"
 readonly ENV_FILE="$STATE_ROOT/backend.env"
 readonly APPROVED_DB_REF_HASH_FILE="$STATE_ROOT/approved-production-db-ref.sha256"
+readonly TEMPORARY_ACTIVE_APPROVAL_FILE="$STATE_ROOT/temporary-active-approval"
+readonly TEMPORARY_STOP_UNIT="babyjamjam-fallback-temporary-active-stop"
 readonly LOCK_FILE="$STATE_DIRECTORY/operator.lock"
 readonly IMAGE_REPOSITORY="ghcr.io/jaino-song/babyjamjam-admin-backend"
 readonly LOCAL_IMAGE_REPOSITORY="babyjamjam-backend"
@@ -49,6 +52,14 @@ readonly PASSIVE_ENV_KEYS=(
     EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED
     EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED
     EFORMSIGN_RECONCILE_ALLOW_UNLOCKED
+    MESSAGE_TRIGGER_JOBS_WORKER_ENABLED
+)
+readonly ACTIVE_TRUE_ENV_KEYS=(
+    SCHEDULERS_ENABLED
+    SERVICE_RECORD_AUTO_FINALIZE_ENABLED
+    CONTRACT_AUTO_FINALIZE_ENABLED
+    EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED
+    EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED
 )
 
 usage() {
@@ -56,10 +67,12 @@ usage() {
 Usage:
   babyjamjam-fallback-server status
   babyjamjam-fallback-server deploy <40-character-commit-sha> <sha256-image-digest>
+  babyjamjam-fallback-server temporary-active <40-character-commit-sha> <sha256-image-digest>
   babyjamjam-fallback-server rollback
   babyjamjam-fallback-server stop
 
-This operator manages only the loopback-bound, passive Fallback Server. It
+This operator manages the loopback-bound Fallback Server. Ordinary deploy is
+passive; temporary-active requires the separately approved expiry artifact. It
 does not change DNS, Cloudflare, Vercel, AWS, Aligo, migrations, or scheduler
 ownership.
 EOF
@@ -93,6 +106,7 @@ sha256_file() {
 validate_bundle() {
     local compose_digest
     local identity_digest
+    local active_compose_digest
     local operator_digest
 
     [[ "$0" == "$INSTALLED_OPERATOR" ]] \
@@ -104,6 +118,9 @@ validate_bundle() {
     [[ -f "$COMPOSE_FILE" && ! -L "$COMPOSE_FILE" \
         && "$(/usr/bin/stat -c '%U:%G:%a' "$COMPOSE_FILE")" == "root:root:640" ]] \
         || die "The protected Fallback Server Compose artifact is missing or unsafe."
+    [[ -f "$ACTIVE_COMPOSE_FILE" && ! -L "$ACTIVE_COMPOSE_FILE" \
+        && "$(/usr/bin/stat -c '%U:%G:%a' "$ACTIVE_COMPOSE_FILE")" == "root:root:640" ]] \
+        || die "The protected temporary-active Compose artifact is missing or unsafe."
     [[ -f "$DB_IDENTITY_HELPER" && ! -L "$DB_IDENTITY_HELPER" \
         && "$(/usr/bin/stat -c '%U:%G:%a' "$DB_IDENTITY_HELPER")" == "root:root:750" ]] \
         || die "The protected Production DB identity helper is missing or unsafe."
@@ -115,14 +132,17 @@ validate_bundle() {
 
     operator_digest="$(sha256_file "$INSTALLED_OPERATOR")"
     compose_digest="$(sha256_file "$COMPOSE_FILE")"
+    active_compose_digest="$(sha256_file "$ACTIVE_COMPOSE_FILE")"
     identity_digest="$(sha256_file "$DB_IDENTITY_HELPER")"
     /usr/bin/grep -Fqx "operator.sh=$operator_digest" "$BUNDLE_MANIFEST" \
         || die "The installed Fallback Server operator does not match its manifest."
     /usr/bin/grep -Fqx "compose.yml=$compose_digest" "$BUNDLE_MANIFEST" \
         || die "The Fallback Server Compose artifact does not match its manifest."
+    /usr/bin/grep -Fqx "compose.temporary-active.yml=$active_compose_digest" "$BUNDLE_MANIFEST" \
+        || die "The temporary-active Compose artifact does not match its manifest."
     /usr/bin/grep -Fqx "production-db-identity.sh=$identity_digest" "$BUNDLE_MANIFEST" \
         || die "The Production DB identity helper does not match its manifest."
-    [[ "$(/usr/bin/wc -l <"$BUNDLE_MANIFEST")" -eq 3 ]] \
+    [[ "$(/usr/bin/wc -l <"$BUNDLE_MANIFEST")" -eq 4 ]] \
         || die "The Fallback Server bundle manifest is incomplete."
 }
 
@@ -206,6 +226,90 @@ compose() {
         --project-directory "$ARTIFACT_ROOT" -f "$COMPOSE_FILE" "${@:2}"
 }
 
+active_compose() {
+    /usr/bin/env \
+        BACKEND_ENV_FILE="$ENV_FILE" \
+        BACKEND_IMAGE="$LOCAL_IMAGE_REPOSITORY" \
+        BACKEND_IMAGE_TAG="$1" \
+        DATABASE_CONNECTION_MODE="shared" \
+        /usr/bin/docker compose --env-file "$COMPOSE_ENV_FILE" \
+        --project-directory "$ARTIFACT_ROOT" -f "$ACTIVE_COMPOSE_FILE" "${@:2}"
+}
+
+approval_value() {
+    local key="$1"
+    /usr/bin/awk -F= -v wanted="$key" '
+        $1 == wanted { count += 1; value = substr($0, index($0, "=") + 1) }
+        END { if (count == 1 && value != "") print value; else exit 1 }
+    ' "$TEMPORARY_ACTIVE_APPROVAL_FILE"
+}
+
+validate_temporary_active_approval() {
+    local schema incident_id approval_tag approval_digest approval_db_hash approval_egress_hash expiry now line_count
+
+    [[ -f "$TEMPORARY_ACTIVE_APPROVAL_FILE" && ! -L "$TEMPORARY_ACTIVE_APPROVAL_FILE" ]] \
+        || die "The temporary-active approval artifact is missing or unsafe."
+    [[ "$(/usr/bin/stat -c '%U:%G:%a' "$TEMPORARY_ACTIVE_APPROVAL_FILE")" == "root:root:400" ]] \
+        || die "The temporary-active approval artifact must be root:root mode 400."
+    line_count="$(/usr/bin/wc -l <"$TEMPORARY_ACTIVE_APPROVAL_FILE")"
+    [[ "$line_count" == "7" ]] || die "The temporary-active approval artifact schema is invalid."
+    schema="$(approval_value schema_version || true)"
+    incident_id="$(approval_value incident_id || true)"
+    approval_tag="$(approval_value image_tag || true)"
+    approval_digest="$(approval_value image_digest || true)"
+    approval_db_hash="$(approval_value production_db_ref_sha256 || true)"
+    approval_egress_hash="$(approval_value aligo_egress_ipv4_sha256 || true)"
+    expiry="$(approval_value expires_at_unix || true)"
+    [[ "$schema" == "1" && "$incident_id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$ ]] \
+        || die "The temporary-active approval artifact schema is invalid."
+    [[ "$approval_tag" =~ $SHA_PATTERN && "$approval_digest" =~ $DIGEST_PATTERN \
+        && "$approval_db_hash" =~ ^[0-9a-f]{64}$ && "$approval_egress_hash" =~ ^[0-9a-f]{64}$ \
+        && "$expiry" =~ ^[0-9]{10,}$ ]] || die "The temporary-active approval artifact schema is invalid."
+    now="$(/usr/bin/date +%s)"
+    (( expiry > now )) || die "The temporary-active approval artifact has expired."
+    [[ "$approval_tag" == "$1" && "$approval_digest" == "$2" ]] \
+        || die "The temporary-active approval does not match the requested immutable release."
+    /usr/bin/grep -Fqx "$approval_db_hash" "$APPROVED_DB_REF_HASH_FILE" \
+        || die "The temporary-active approval does not match the approved Production DB reference."
+    printf '%s\n' "$approval_egress_hash"
+}
+
+egress_hash() {
+    local endpoint="$1" value digest
+    value="$(/usr/bin/curl --fail --silent --show-error --connect-timeout 3 --max-time 8 "$endpoint")" \
+        || return 1
+    [[ "$value" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+    digest="$(printf '%s' "$value" | /usr/bin/sha256sum | /usr/bin/awk '{print $1}')" || return 1
+    [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+    printf '%s\n' "$digest"
+}
+
+verify_approved_egress() {
+    local expected_hash="$1" first_hash second_hash
+    first_hash="$(egress_hash 'https://api.ipify.org')" \
+        || die "The first temporary-active egress observation failed."
+    second_hash="$(egress_hash 'https://ifconfig.me/ip')" \
+        || die "The second temporary-active egress observation failed."
+    [[ "$first_hash" == "$second_hash" && "$first_hash" == "$expected_hash" ]] \
+        || die "The temporary-active egress observations do not match the approved hash."
+}
+
+clear_temporary_expiry_timer() {
+    /usr/bin/systemctl stop "$TEMPORARY_STOP_UNIT.timer" >/dev/null 2>&1 || true
+    /usr/bin/systemctl stop "$TEMPORARY_STOP_UNIT.service" >/dev/null 2>&1 || true
+    /usr/bin/systemctl reset-failed "$TEMPORARY_STOP_UNIT.timer" "$TEMPORARY_STOP_UNIT.service" >/dev/null 2>&1 || true
+}
+
+schedule_temporary_expiry_stop() {
+    local expiry="$1"
+    clear_temporary_expiry_timer
+    /usr/bin/systemd-run --unit="$TEMPORARY_STOP_UNIT" --on-calendar="@$expiry" \
+        --timer-property=Persistent=true --service-type=oneshot "$INSTALLED_OPERATOR" stop >/dev/null \
+        || die "The temporary-active expiry stop could not be scheduled."
+    /usr/bin/systemctl is-active --quiet "$TEMPORARY_STOP_UNIT.timer" \
+        || { clear_temporary_expiry_timer; die "The temporary-active expiry timer is not active."; }
+}
+
 read_state() {
     local name="$1"
     local path="$STATE_DIRECTORY/$name"
@@ -287,6 +391,60 @@ verify_passive_runtime() {
             || die "A passive Fallback runtime gate is missing or duplicated."
         [[ "$value" == "false" ]] || die "A passive Fallback runtime gate is not disabled."
     done
+}
+
+verify_temporary_active_runtime() {
+    local commit_sha="$1"
+    local container_id key value
+
+    container_id="$(container_id_for "$commit_sha")" \
+        || die "The temporary-active Fallback Server API container is not running."
+    for key in "${ACTIVE_TRUE_ENV_KEYS[@]}"; do
+        value="$(/usr/bin/docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container_id" \
+            | /usr/bin/awk -F= -v wanted="$key" '$1 == wanted { count += 1; value = tolower($2) } END { if (count == 1) print value; else exit 1 }')" \
+            || die "A temporary-active runtime gate is missing or duplicated."
+        [[ "$value" == "true" ]] || die "A temporary-active runtime gate is not enabled."
+    done
+    for key in EFORMSIGN_RECONCILE_ALLOW_UNLOCKED MESSAGE_TRIGGER_JOBS_WORKER_ENABLED; do
+        value="$(/usr/bin/docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container_id" \
+            | /usr/bin/awk -F= -v wanted="$key" '$1 == wanted { count += 1; value = tolower($2) } END { if (count == 1) print value; else exit 1 }')" \
+            || die "A temporary-active disabled runtime gate is missing or duplicated."
+        [[ "$value" == "false" ]] || die "A temporary-active disabled runtime gate is not disabled."
+    done
+}
+
+temporary_activate_release() {
+    local commit_sha="$1" image_digest="$2" approval_egress_hash expiry current_tag current_digest
+
+    validate_release "$commit_sha" "$image_digest"
+    validate_env_file
+    validate_production_db_identity
+    approval_egress_hash="$(validate_temporary_active_approval "$commit_sha" "$image_digest")"
+    verify_approved_egress "$approval_egress_hash"
+    current_tag="$(read_state current-image-tag)" || die "No passive Fallback Server release is recorded."
+    current_digest="$(read_state current-image-digest)" || die "No passive Fallback Server image digest is recorded."
+    [[ "$current_tag" == "$commit_sha" && "$current_digest" == "$image_digest" ]] \
+        || die "The temporary-active release must match the recorded passive release."
+    /usr/bin/docker image inspect "$LOCAL_IMAGE_REPOSITORY:$commit_sha" >/dev/null 2>&1 \
+        || die "The approved temporary-active image is not already present locally."
+    /usr/bin/docker image inspect "$IMAGE_REPOSITORY@$image_digest" >/dev/null 2>&1 \
+        || die "The approved immutable temporary-active image is not already present locally."
+    expiry="$(approval_value expires_at_unix)"
+    schedule_temporary_expiry_stop "$expiry"
+    if ! active_compose "$commit_sha" up -d --no-build; then
+        clear_temporary_expiry_timer
+        die "The temporary-active Fallback Server startup failed."
+    fi
+    if ! wait_until_ready "$commit_sha" || ! verify_temporary_active_runtime "$commit_sha"; then
+        compose "$commit_sha" stop api >/dev/null 2>&1 || true
+        clear_temporary_expiry_timer
+        die "The temporary-active Fallback Server runtime verification failed."
+    fi
+    printf '%s\n' \
+        "environment=fallback-server" \
+        "temporary_active=true" \
+        "expiry_stop_scheduled=true" \
+        "public_routing=not_managed"
 }
 
 activate_release() {
@@ -416,6 +574,7 @@ stop_release() {
 
     current_tag="$(read_state current-image-tag)" || die "No current Fallback Server release is recorded."
     compose "$current_tag" stop api >/dev/null
+    clear_temporary_expiry_timer
     printf '%s\n' \
         "environment=fallback-server" \
         "runtime=stopped" \
@@ -439,6 +598,10 @@ main() {
         deploy)
             [[ "$#" -eq 3 ]] || { usage; exit 1; }
             deploy_release "$2" "$3"
+            ;;
+        temporary-active)
+            [[ "$#" -eq 3 ]] || { usage; exit 1; }
+            temporary_activate_release "$2" "$3"
             ;;
         rollback)
             [[ "$#" -eq 1 ]] || { usage; exit 1; }
