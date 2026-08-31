@@ -1,7 +1,7 @@
 # 통화요약 (Call Inbox) — API Sheet
 
 **Status:** Phase 1 + 변경 적용 (BJJ-232) 구현 완료. This file is the **source of truth** for the UI-facing API; implementation must conform or update this sheet in the same PR.
-**Spec:** `docs/superpowers/specs/2026-06-10-call-inbox-design.md` · **Wireframe:** `docs/mockups/call-inbox-wireframe.html`
+**Spec:** `docs/superpowers/specs/2026-09-01-call-inbox-productionization-design.md` (supersedes `2026-06-10-call-inbox-design.md`) · **Wireframe:** `docs/mockups/call-inbox-wireframe.html`
 
 ## Conventions
 
@@ -21,8 +21,8 @@ type DraftStatus      = "PENDING" | "CONFIRMED" | "DISCARDED";
 type Confidence       = "high" | "low";
 
 interface TranscriptTurn {
-  speaker: "아이미래로" | "고객" | "산모" | "남편";
-  text: string;
+  speaker: "아이미래로" | "상담원" | "고객" | "산모" | "남편" | "화자";
+  text: string;                     // "화자" = neutral label when diarization was unavailable
 }
 
 interface CallSummary {            // produced server-side by the extract stage (nullable as a whole)
