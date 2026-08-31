@@ -5,9 +5,10 @@ set -euo pipefail
 readonly SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export PATH="$SAFE_PATH"
 
-readonly ARTIFACT_ROOT="/usr/local/libexec/babyjamjam-fallback-server"
-readonly INSTALLED_OPERATOR="/usr/local/sbin/babyjamjam-fallback-server"
-readonly STATE_ROOT="/opt/babyjamjam-fallback-server"
+readonly ARTIFACT_ROOT="${FALLBACK_INSTALL_ARTIFACT_ROOT:-/usr/local/libexec/babyjamjam-fallback-server}"
+readonly INSTALLED_OPERATOR="${FALLBACK_INSTALL_OPERATOR_PATH:-/usr/local/sbin/babyjamjam-fallback-server}"
+readonly STATE_ROOT="${FALLBACK_INSTALL_STATE_ROOT:-/opt/babyjamjam-fallback-server}"
+readonly SYSTEMD_DIR="${FALLBACK_INSTALL_SYSTEMD_DIR:-/etc/systemd/system}"
 readonly SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly IDENTITY_HELPER_SOURCE="$SCRIPT_ROOT/production-db-identity.sh"
 readonly IDENTITY_HELPER_ARTIFACT="$ARTIFACT_ROOT/production-db-identity.sh"
@@ -16,6 +17,8 @@ readonly ACTIVE_COMPOSE_ARTIFACT="$ARTIFACT_ROOT/compose.temporary-active.yml"
 readonly APPROVED_DB_REF_HASH_FILE="$STATE_ROOT/approved-production-db-ref.sha256"
 readonly GUARD_SERVICE_SOURCE="$SCRIPT_ROOT/systemd/babyjamjam-fallback-temporary-active-guard.service"
 readonly GUARD_TIMER_SOURCE="$SCRIPT_ROOT/systemd/babyjamjam-fallback-temporary-active-guard.timer"
+readonly GUARD_SERVICE_ARTIFACT="$SYSTEMD_DIR/babyjamjam-fallback-temporary-active-guard.service"
+readonly GUARD_TIMER_ARTIFACT="$SYSTEMD_DIR/babyjamjam-fallback-temporary-active-guard.timer"
 
 die() {
     echo "$*" >&2
@@ -67,29 +70,45 @@ for protected_path in "$ARTIFACT_ROOT" "$INSTALLED_OPERATOR" "$STATE_ROOT" "$IDE
 done
 validate_existing_approval
 
-install -d -o root -g root -m 700 "$ARTIFACT_ROOT"
+install -d -o root -g root -m 700 "$ARTIFACT_ROOT" "$SYSTEMD_DIR"
 install -d -o root -g root -m 700 "$STATE_ROOT"
 install -d -o root -g root -m 700 "$STATE_ROOT/state"
-install -o root -g root -m 750 "$SCRIPT_ROOT/operator.sh" "$INSTALLED_OPERATOR"
-install -o root -g root -m 640 "$SCRIPT_ROOT/compose.yml" "$ARTIFACT_ROOT/compose.yml"
-install -o root -g root -m 640 "$ACTIVE_COMPOSE_SOURCE" "$ACTIVE_COMPOSE_ARTIFACT"
-install -o root -g root -m 750 "$IDENTITY_HELPER_SOURCE" "$IDENTITY_HELPER_ARTIFACT"
-install -o root -g root -m 640 "$GUARD_SERVICE_SOURCE" /etc/systemd/system/babyjamjam-fallback-temporary-active-guard.service
-install -o root -g root -m 640 "$GUARD_TIMER_SOURCE" /etc/systemd/system/babyjamjam-fallback-temporary-active-guard.timer
-/usr/bin/systemctl daemon-reload
-
-manifest="$(mktemp "$ARTIFACT_ROOT/.bundle.manifest.XXXXXX")"
+stage="$(mktemp -d "$ARTIFACT_ROOT/.stage.XXXXXX")"
+backup="$(mktemp -d "$ARTIFACT_ROOT/.backup.XXXXXX")"
+cleanup(){ rm -rf "$stage" "$backup"; }
+trap cleanup EXIT
+install -o root -g root -m 750 "$SCRIPT_ROOT/operator.sh" "$stage/operator.sh"
+install -o root -g root -m 640 "$SCRIPT_ROOT/compose.yml" "$stage/compose.yml"
+install -o root -g root -m 640 "$ACTIVE_COMPOSE_SOURCE" "$stage/compose.temporary-active.yml"
+install -o root -g root -m 750 "$IDENTITY_HELPER_SOURCE" "$stage/production-db-identity.sh"
+install -o root -g root -m 640 "$GUARD_SERVICE_SOURCE" "$stage/guard.service"
+install -o root -g root -m 640 "$GUARD_TIMER_SOURCE" "$stage/guard.timer"
+bash -n "$stage/operator.sh" "$stage/production-db-identity.sh"
+manifest="$stage/bundle.manifest"
 printf '%s\n' \
-    "operator.sh=$(sha256_file "$INSTALLED_OPERATOR")" \
-    "compose.yml=$(sha256_file "$ARTIFACT_ROOT/compose.yml")" \
-    "compose.temporary-active.yml=$(sha256_file "$ACTIVE_COMPOSE_ARTIFACT")" \
-    "production-db-identity.sh=$(sha256_file "$IDENTITY_HELPER_ARTIFACT")" \
-    "systemd/babyjamjam-fallback-temporary-active-guard.service=$(sha256_file /etc/systemd/system/babyjamjam-fallback-temporary-active-guard.service)" \
-    "systemd/babyjamjam-fallback-temporary-active-guard.timer=$(sha256_file /etc/systemd/system/babyjamjam-fallback-temporary-active-guard.timer)" \
+    "operator.sh=$(sha256_file "$stage/operator.sh")" \
+    "compose.yml=$(sha256_file "$stage/compose.yml")" \
+    "compose.temporary-active.yml=$(sha256_file "$stage/compose.temporary-active.yml")" \
+    "production-db-identity.sh=$(sha256_file "$stage/production-db-identity.sh")" \
+    "systemd/babyjamjam-fallback-temporary-active-guard.service=$(sha256_file "$stage/guard.service")" \
+    "systemd/babyjamjam-fallback-temporary-active-guard.timer=$(sha256_file "$stage/guard.timer")" \
     >"$manifest"
 chown root:root "$manifest"
 chmod 640 "$manifest"
-mv -f "$manifest" "$ARTIFACT_ROOT/bundle.manifest"
+for live in "$INSTALLED_OPERATOR" "$ARTIFACT_ROOT/compose.yml" "$ACTIVE_COMPOSE_ARTIFACT" "$IDENTITY_HELPER_ARTIFACT" "$GUARD_SERVICE_ARTIFACT" "$GUARD_TIMER_ARTIFACT" "$ARTIFACT_ROOT/bundle.manifest"; do
+    [[ -e "$live" ]] && cp -p "$live" "$backup/$(basename "$live")"
+done
+rollback(){ for saved in "$backup"/*; do [[ -e "$saved" ]] || continue; case "$(basename "$saved")" in operator.sh) cp -p "$saved" "$INSTALLED_OPERATOR";; compose.yml) cp -p "$saved" "$ARTIFACT_ROOT/compose.yml";; compose.temporary-active.yml) cp -p "$saved" "$ACTIVE_COMPOSE_ARTIFACT";; production-db-identity.sh) cp -p "$saved" "$IDENTITY_HELPER_ARTIFACT";; guard.service) cp -p "$saved" "$GUARD_SERVICE_ARTIFACT";; guard.timer) cp -p "$saved" "$GUARD_TIMER_ARTIFACT";; bundle.manifest) cp -p "$saved" "$ARTIFACT_ROOT/bundle.manifest";; esac; done; }
+trap 'rollback; cleanup' ERR
+install -o root -g root -m 750 "$stage/operator.sh" "$INSTALLED_OPERATOR"
+install -o root -g root -m 640 "$stage/compose.yml" "$ARTIFACT_ROOT/compose.yml"
+install -o root -g root -m 640 "$stage/compose.temporary-active.yml" "$ACTIVE_COMPOSE_ARTIFACT"
+install -o root -g root -m 750 "$stage/production-db-identity.sh" "$IDENTITY_HELPER_ARTIFACT"
+install -o root -g root -m 640 "$stage/guard.service" "$GUARD_SERVICE_ARTIFACT"
+install -o root -g root -m 640 "$stage/guard.timer" "$GUARD_TIMER_ARTIFACT"
+install -o root -g root -m 640 "$manifest" "$ARTIFACT_ROOT/bundle.manifest"
+[[ "$(wc -l <"$ARTIFACT_ROOT/bundle.manifest")" -eq 6 ]] || die "Generated Fallback Server manifest is invalid."
+[[ "${FALLBACK_INSTALL_SKIP_DAEMON_RELOAD:-false}" == true ]] || /usr/bin/systemctl daemon-reload
 
 printf '%s\n' \
     "Fallback Server operator installed." \
