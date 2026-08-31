@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { TenantContextStore } from '../../../infrastructure/tenant/tenant-context.store';
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -7,6 +8,10 @@ describe('TenantContextStore', () => {
 
     beforeEach(() => {
         store = new TenantContextStore();
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
     });
 
     describe('given a value set via setBranchId inside run', () => {
@@ -61,6 +66,54 @@ describe('TenantContextStore', () => {
             // #when / #then
             expect(() => store.setBranchId('branch-x')).not.toThrow();
             expect(store.get()).toBeUndefined();
+        });
+    });
+
+    describe('given a RAW run() call entering system scope (bypassing runSystemScope entirely)', () => {
+        it('should still emit a tenant_system_scope_used audit log — the raw capability must not be audit-blind', () => {
+            // #given
+            const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+
+            // #when
+            store.run({ origin: 'system', systemScope: true }, () => undefined);
+
+            // #then
+            expect(logSpy).toHaveBeenCalledTimes(1);
+            const [payload] = logSpy.mock.calls[0] as [string];
+            const parsed = JSON.parse(payload);
+            expect(parsed.event).toBe('tenant_system_scope_used');
+            expect(typeof parsed.callSite).toBe('string');
+            expect(parsed.callSite.length).toBeGreaterThan(0);
+        });
+
+        it('should use the provided options.callSite override instead of deriving one from its own stack', () => {
+            // #given
+            const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+
+            // #when
+            store.run(
+                { origin: 'system', systemScope: true },
+                () => undefined,
+                { callSite: 'custom-call-site-marker' },
+            );
+
+            // #then
+            const [payload] = logSpy.mock.calls[0] as [string];
+            const parsed = JSON.parse(payload);
+            expect(parsed.callSite).toBe('custom-call-site-marker');
+        });
+    });
+
+    describe('given a run() call NOT entering system scope', () => {
+        it('should not emit any audit log', () => {
+            // #given
+            const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+
+            // #when
+            store.run({ origin: 'http' }, () => undefined);
+
+            // #then
+            expect(logSpy).not.toHaveBeenCalled();
         });
     });
 });

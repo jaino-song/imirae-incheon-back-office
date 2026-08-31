@@ -13,12 +13,30 @@ export interface TenantStoreState {
     systemScope?: boolean;
 }
 
+export interface TenantStoreRunOptions {
+    /**
+     * Overrides the call site recorded on the `tenant_system_scope_used`
+     * audit log (see `run()`). `runSystemScope` passes its OWN caller's call
+     * site here so the log points at the real bypass site rather than at
+     * `runSystemScope` itself (which is otherwise what `run()`'s own stack
+     * capture would report, since `runSystemScope` is the direct caller of
+     * `run()` in that path).
+     */
+    callSite?: string;
+}
+
 /**
  * Plain (non-injectable) singleton wrapping `AsyncLocalStorage`. Every HTTP
  * request enters a store via `TenantAlsMiddleware`; `TenantGuard` then
  * write-throughs the resolved branchId onto the active store via
  * `setBranchId`. System-scope entry (bypassing tenant isolation) is a
- * separate, audited concern — see `run-system-scope.ts`.
+ * separate, audited concern: `run-system-scope.ts` is the sanctioned,
+ * lint-gated front door for it, but ANY caller can enter system scope by
+ * calling `run({ systemScope: true, ... }, fn)` directly on this store (it
+ * must stay freely importable for the Prisma extension task,
+ * `TenantAlsMiddleware`, and `TenantGuard`). So the audit log lives HERE,
+ * not in the wrapper, ensuring every system-scope entry is logged
+ * regardless of which path was used to reach it.
  */
 export class TenantContextStore {
     private readonly logger = new Logger(TenantContextStore.name);
@@ -28,8 +46,30 @@ export class TenantContextStore {
      * Runs `fn` with `state` as the active store for the lifetime of `fn`
      * (including everything awaited within it). Nested/concurrent calls each
      * get their own isolated state.
+     *
+     * When `state.systemScope` is true, emits a structured
+     * `tenant_system_scope_used` audit log recording the call site (either
+     * `options.callSite`, or derived from this call's own stack when
+     * omitted) — so a bypass entered via the raw capability is audited
+     * exactly like one entered through `runSystemScope`.
      */
-    run<T>(state: TenantStoreState, fn: () => T): T {
+    run<T>(state: TenantStoreState, fn: () => T, options?: TenantStoreRunOptions): T {
+        if (state.systemScope) {
+            // `new Error().stack` frames, after dropping the "Error" header line:
+            //   [0] this frame (inside run(), where the Error was built)
+            //   [1] the frame that called run() — the actual call site
+            const stack = new Error().stack ?? "";
+            const frames = stack.split("\n").slice(1);
+            const callSite = options?.callSite ?? frames[1]?.trim() ?? "unknown";
+
+            this.logger.log(
+                JSON.stringify({
+                    event: "tenant_system_scope_used",
+                    callSite,
+                }),
+            );
+        }
+
         return this.als.run(state, fn);
     }
 

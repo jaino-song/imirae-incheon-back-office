@@ -1,7 +1,4 @@
-import { Logger } from "@nestjs/common";
 import { tenantContextStore } from "./tenant-context.store";
-
-const logger = new Logger("TenantSystemScope");
 
 /**
  * Enters system scope: `{ origin: "system", systemScope: true }` on the
@@ -12,9 +9,14 @@ const logger = new Logger("TenantSystemScope");
  * independent of the store itself (which must stay freely importable for the
  * Prisma extension task and for `TenantAlsMiddleware`/`TenantGuard`).
  *
- * Every invocation is audited: a structured `tenant_system_scope_used` log
- * event records the call site, so any bypass of tenant isolation is
- * traceable after the fact.
+ * Every invocation is audited: `TenantContextStore.run` emits a structured
+ * `tenant_system_scope_used` log event whenever the entered store has
+ * `systemScope: true` — that's true for ANY caller of `store.run(...)`
+ * directly, not just calls that go through this wrapper. This function's
+ * only remaining job is to compute ITS OWN caller's call site (rather than
+ * reporting itself as the call site, which is what the store's own stack
+ * capture would otherwise see, since this function is the direct caller of
+ * `store.run`) and pass it through so the audit log stays precise.
  */
 export function runSystemScope<T>(fn: () => T): T {
     // `new Error().stack` frames, after dropping the "Error" header line:
@@ -24,12 +26,5 @@ export function runSystemScope<T>(fn: () => T): T {
     const frames = stack.split("\n").slice(1);
     const callSite = frames[1]?.trim() ?? "unknown";
 
-    logger.log(
-        JSON.stringify({
-            event: "tenant_system_scope_used",
-            callSite,
-        }),
-    );
-
-    return tenantContextStore.run({ origin: "system", systemScope: true }, fn);
+    return tenantContextStore.run({ origin: "system", systemScope: true }, fn, { callSite });
 }
