@@ -364,6 +364,15 @@ clear_temporary_active_state() {
     /usr/bin/systemctl stop "$TEMPORARY_GUARD_TIMER" >/dev/null 2>&1 || true
 }
 
+cleanup_active_after_failure() {
+    local tag="$1"
+    active_compose "$tag" stop api >/dev/null 2>&1 || return 1
+    if container_id_for "$tag" >/dev/null 2>&1; then return 1; fi
+    clear_temporary_expiry_timer
+    clear_temporary_active_state
+    return 0
+}
+
 guard_expiry() {
     local expiry now tag
     [[ -f "$RUNTIME_MODE_FILE" && "$(<"$RUNTIME_MODE_FILE")" == "temporary-active" ]] || return 0
@@ -522,18 +531,16 @@ temporary_activate_release() {
     /usr/bin/systemctl enable --now "$TEMPORARY_GUARD_TIMER" >/dev/null \
         || { clear_temporary_active_state; die "The temporary-active reboot-safe expiry guard could not be enabled."; }
     if ! active_compose "$commit_sha" up -d --no-build; then
-        compose "$commit_sha" stop api >/dev/null 2>&1 || true
-        clear_temporary_active_state
+        cleanup_active_after_failure "$commit_sha" || die "The temporary-active cleanup could not confirm API stop."
         die "The temporary-active Fallback Server startup failed."
     fi
     if ! wait_until_ready "$commit_sha" || ! verify_temporary_active_runtime "$commit_sha"; then
-        compose "$commit_sha" stop api >/dev/null 2>&1 || true
-        clear_temporary_active_state
+        cleanup_active_after_failure "$commit_sha" || die "The temporary-active cleanup could not confirm API stop."
         die "The temporary-active Fallback Server runtime verification failed."
     fi
     container_id="$(container_id_for "$commit_sha")" || die "The temporary-active API container is unavailable."
     verify_image_identity "$commit_sha" "$image_digest" "$(/usr/bin/docker inspect --format '{{.Image}}' "$container_id")"
-    (( $(/usr/bin/date +%s) < expiry )) || { compose "$commit_sha" stop api >/dev/null 2>&1 || true; clear_temporary_active_state; die "The temporary-active approval expired during startup."; }
+    (( $(/usr/bin/date +%s) < expiry )) || { cleanup_active_after_failure "$commit_sha" || die "The temporary-active cleanup could not confirm API stop."; die "The temporary-active approval expired during startup."; }
     printf '%s\n' \
         "environment=fallback-server" \
         "temporary_active=true" \
