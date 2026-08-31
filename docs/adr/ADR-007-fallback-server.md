@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted — local implementation only; not installed or activated
 
 ## Context
 
@@ -42,6 +42,13 @@ The Fallback Server:
 
 This role name is logical; the physical Covenant server remains the host. The
 deployment implementation is tracked under `backend/deploy/fallback-server/`.
+
+The Fallback API/operator and controller source are implemented and tested in
+the repository. The Covenant host has not received the controller service,
+Production DB environment, ingress/TLS configuration, or DNS/Vercel
+credentials. Automatic failover therefore remains disarmed pending the
+network, Sentry payload, Node.js 20+, Vercel rehearsal, and arm/disarm gates in
+[CONTROLLER_OPERATIONS.md](../../backend/deploy/fallback-server/CONTROLLER_OPERATIONS.md).
 
 ## Alternatives considered
 

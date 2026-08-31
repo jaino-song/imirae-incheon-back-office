@@ -1,6 +1,6 @@
-# Sentry host-failover webhook contract (Phase 1)
+# Sentry host-failover webhook contract
 
-Status: **spike complete; live Sentry configuration blocked**
+Status: **contract implemented locally; live Sentry configuration and activation blocked**
 
 Reviewed: 2026-08-31
 Scope: read-only Sentry documentation/API research and repository evidence. No
@@ -25,6 +25,34 @@ Uptime Monitor (source)
 Sentry is therefore a signed wake-up signal. It must not be treated as proof
 that AWS is down or as a route command. A separate metric-alert webhook is a
 different contract and must not be silently substituted for the Uptime path.
+
+## Local implementation status
+
+The dependency-free controller implementation now provides the receiver,
+configuration parser, and loopback server at:
+
+- `controller/config.mjs`
+- `controller/security.mjs`
+- `controller/receiver.mjs`
+- `controller/server.mjs`
+
+The listener is fixed to `127.0.0.1:3102` and `POST /sentry/uptime-alert`.
+Construction and startup leave state disarmed; the worker callback must
+durably accept or recognize a duplicate before the receiver returns `202`.
+No controller systemd unit, TLS ingress, Sentry integration, or DNS mutation
+has been installed or activated on the Fallback Server.
+
+For installation, arm/disarm, cutover, failback, and evidence gates, see
+[CONTROLLER_OPERATIONS.md](./CONTROLLER_OPERATIONS.md).
+
+The controller runtime uses only failover-scoped variables, including
+`FAILOVER_CONTROLLER_ENABLED`,
+`FAILOVER_LIVE_SENTRY_PAYLOAD_CONTRACT_VERIFIED`,
+`FAILOVER_SENTRY_CLIENT_SECRET`, `FAILOVER_SENTRY_INSTALLATION_ID`,
+`FAILOVER_SENTRY_ORGANIZATION_ID`, `FAILOVER_SENTRY_PROJECT_ID`,
+`FAILOVER_SENTRY_ALERT_ID`, and the fixed Vercel/health allowlists. The live
+payload-verification flag must remain false until the sanitized delivery
+fixture and Alert/Workflow binding are captured at action time.
 
 ## Confirmed provider contract
 
@@ -153,18 +181,22 @@ a metric alert, which would no longer be Uptime monitoring).
 
 No live Sentry project or alert configuration could be read in this worktree:
 
-- There is no local `SENTRY_API_TOKEN` or project-specific identifier set. The
-  read-only audit script fails closed with `SENTRY_API_TOKEN is required`.
-- The committed workflow names the required protected values
+- There is no local Sentry API token or project-specific identifier set. The
+  existing Lightsail read-only audit script fails closed with
+  `SENTRY_API_TOKEN is required`; that audit is separate from the Fallback
+  controller runtime.
+- The committed Lightsail workflow names its protected audit values
   (`SENTRY_API_TOKEN`, `SENTRY_INSTALLATION_ID`,
   `SENTRY_ORGANIZATION_ID`, `SENTRY_PROJECT_ID`, `SENTRY_PROJECT_SLUG`, and
   `SENTRY_RULE_IDS`) but contains no values. See
   [db-failover-infra.yml](../../../.github/workflows/db-failover-infra.yml#L175-L202)
   and [the production job](../../../.github/workflows/db-failover-infra.yml#L256-L283).
-- `backend/env.example` contains only placeholders for the runtime DSN/org/
-  project settings ([lines 27-33](../../env.example#L27-L33)); no live
-  monitor ID, Alert/workflow ID, Internal Integration UUID, or webhook delivery
-  has been captured.
+- `backend/env.example` contains only placeholders for the application DSN/
+  org/project settings ([lines 27-33](../../env.example#L27-L33)); no live
+  monitor ID, Alert/Workflow ID, Internal Integration UUID, or webhook delivery
+  has been captured. Controller values belong only in the failover-scoped
+  `controller.env` described in
+  [CONTROLLER_OPERATIONS.md](./CONTROLLER_OPERATIONS.md).
 
 Because an official documentation example is not a delivery from this project,
 no `fixtures/sentry-uptime-alert.json` was added. Creating one from guessed
@@ -175,8 +207,8 @@ IDs, timestamps, or signatures would turn synthetic data into false authority.
 Run the existing read-only Sentry audit in a protected environment with the
 real values, then capture a **sanitized** test Alert delivery (body shape and
 header names only; remove IDs that identify the account, signatures, URLs with
-tenant data, and all secrets). Confirm all of the following before coding the
-controller:
+tenant data, and all secrets). Confirm all of the following before installing
+or arming the controller:
 
 1. The Uptime monitor exists, is enabled, and has the intended URL, project,
    environment, failure tolerance, and recovery tolerance.
@@ -188,3 +220,11 @@ controller:
    within one second.
 5. A duplicate delivery has the same body fingerprint or is otherwise safely
    treated as a no-op; no DNS change occurs during the capture.
+
+Before setting `FAILOVER_CONTROLLER_ENABLED=true`, also clear the Fallback
+host blockers in [NETWORK_PREFLIGHT.md](./NETWORK_PREFLIGHT.md): authoritative
+inbound routing/TLS (the observed private/CGNAT path is not sufficient), fixed
+outbound egress, Node.js 20+, and an installed controller service. Then prove a
+non-production Vercel DNS write/read-back with the exact record allowlist. A
+synthetic unit payload, local loopback health response, or passing CI test is
+not activation evidence.

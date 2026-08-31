@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — local implementation merged; not installed or activated
 
 ## Date
 
@@ -20,7 +20,15 @@ API-only while AWS owns production traffic.
 This decision extends [ADR-007](ADR-007-fallback-server.md), which
 defines the Fallback Server's passive runtime and physical-host boundary.
 
-The provider-source and payload boundary in the Phase 1
+The dependency-free controller, receiver, worker, state store, probes, policy,
+and Vercel client are implemented and unit-tested under
+`backend/deploy/fallback-server/controller/`. This ADR does not claim that the
+controller service is installed, that the Covenant host is reachable, or that
+production Sentry/Vercel mutations have been exercised. The action-time
+installation, dark-rehearsal, arm/disarm, and failback gates live in
+[CONTROLLER_OPERATIONS.md](../../backend/deploy/fallback-server/CONTROLLER_OPERATIONS.md).
+
+The provider-source and payload boundary in the Sentry contract
 [Sentry host-failover webhook contract](../../backend/deploy/fallback-server/SENTRY_HOST_FAILOVER.md)
 is authoritative for this ADR.
 
@@ -274,12 +282,14 @@ Automatic failover must remain disarmed until each blocker is cleared:
 1. Capture and verify the Uptime -> Monitor-sourced Alert/Workflow -> Internal
    Integration issue-alert payload, Fallback network/TLS, Production DB
    identity, release digest, and Vercel record contract.
-2. Install the Controller in dark mode with `FAILOVER_ENABLED=false`; exercise
+2. Install the Controller in dark mode with `FAILOVER_CONTROLLER_ENABLED=false`;
+   exercise
    signed delivery, replay, blockers, state recovery, and log redaction.
 3. Rehearse on a test DNS record, including AWS-to-Fallback, duplicate delivery,
    ambiguous Vercel response, manual failback, and immutable-image rollback.
 4. After all acceptance criteria pass, obtain action-time approval to arm the
-   production record with `AWS_ACTIVE` and `FAILOVER_ENABLED=true`.
+   production record with `AWS_ACTIVE` and
+   `FAILOVER_CONTROLLER_ENABLED=true`.
 5. To disable the feature, disarm the Controller without changing the current
    route. To roll back traffic, perform the documented manual AWS restoration;
    to roll back code, redeploy the previous verified Controller image.

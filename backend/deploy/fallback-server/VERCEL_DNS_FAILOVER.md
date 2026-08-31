@@ -1,14 +1,17 @@
 # Vercel DNS failover contract
 
-Status: **preflight captured; production mutation remains action-time gated**
+Status: **client implemented locally; production mutation remains action-time gated**
 Captured: 2026-08-31 (Asia/Seoul)
 Scope: the team-owned `babyjamjam.com` Vercel DNS zone and the single
 `api.babyjamjam.com` record used by the Fallback Server controller.
 
-This document records the read-only provider checks and the narrow API
-contract that a future controller may use. It does not create, update, delete,
-or rehearse a DNS record, and it does not retain a Vercel token, team ID,
-record ID, or origin IP address.
+This document records the read-only provider checks and the narrow API contract
+implemented by `controller/vercel-dns-client.mjs`. It does not create, update,
+delete, or rehearse a DNS record, and it does not retain a Vercel token, team
+ID, record ID, or origin IP address.
+
+The end-to-end install, arm/disarm, cutover, and manual failback procedure is
+in [CONTROLLER_OPERATIONS.md](./CONTROLLER_OPERATIONS.md).
 
 ## Live provider state (read-only)
 
@@ -207,7 +210,7 @@ team IDs, or IP addresses.
 ## Controller allowlist and mutation boundary
 
 The production controller may be configured with only the following fixed
-values, supplied through a root-owned mode-0600 environment file:
+values, supplied through the root-owned mode-0600 `controller.env` file:
 
 - domain: `babyjamjam.com`;
 - record name: `api`;
@@ -217,6 +220,14 @@ values, supplied through a root-owned mode-0600 environment file:
 - the approved AWS origin IPv4;
 - the approved Fallback Server IPv4;
 - the expected TTL: `60` seconds.
+
+The corresponding failover-scoped variables are
+`FAILOVER_VERCEL_API_TOKEN`, `FAILOVER_VERCEL_TEAM_ID`,
+`FAILOVER_VERCEL_DNS_RECORD_ID`, `FAILOVER_PRIMARY_IPV4`, and
+`FAILOVER_FALLBACK_IPV4`. The token and record scope are never accepted from
+Sentry payloads or operator arguments. The controller configuration parser
+rejects generic `VERCEL_*` names and rejects a missing or malformed value even
+when enabled mode is requested.
 
 The client is not allowed to create or delete records, alter nameservers,
 change TTL, mutate unrelated records, update a frontend deployment, or accept
@@ -229,6 +240,21 @@ records can take minutes (and in some cases up to 24 hours) to propagate. The
 180-second incident objective therefore applies to the controller's bounded
 provider decision and verification, not to a guarantee that every recursive
 resolver has refreshed.
+
+## Cutover, manual check, and failback
+
+The controller may issue exactly one restricted update from the allowlisted AWS
+IPv4 to the allowlisted Fallback IPv4 after the Sentry event, health, DB,
+release, passive-gate, and current-DNS checks pass. It then performs a fresh
+list read and persists `FALLBACK_ACTIVE` only after read-after-write confirms
+the same record identity and TTL.
+
+There is no automatic Fallback → AWS update. An operator must disarm the
+controller, verify AWS readiness and eFormsign/document reconciliation, read
+the current record, manually approve the reverse PATCH, and verify public DNS
+and authenticated smoke tests. A Vercel timeout, 429/5xx, record drift, or
+ambiguous response is a `MANUAL_CHECK`/`BLOCKED` condition; do not issue a
+second PATCH until the live record is reconciled.
 
 ## Safe non-production rehearsal design
 
@@ -247,9 +273,11 @@ The rehearsal must satisfy all of the following:
 3. Use a separately scoped token/team when Vercel access controls permit. If
    the provider cannot express record-level scope, isolate the rehearsal in a
    dedicated team/domain and obtain explicit approval for that token's scope.
-4. Run the controller with `REHEARSAL_ONLY=true` and a dry-run health/policy
-   adapter. Prove read-before-write, one update, read-after-write, state
-   persistence, and restoration of the original test value.
+4. Run the controller with injected test adapters and an isolated test record.
+   The production configuration has no rehearsal-only override; unknown
+   failover environment names are rejected. Prove read-before-write, one
+   update, read-after-write, state persistence, and restoration of the original
+   test value.
 5. Exercise duplicate delivery, concurrent delivery, record drift, 429/5xx,
    an ambiguous timeout, and manual restoration. Each case must prove that no
    second update is issued and that the terminal state is safe.
@@ -270,6 +298,22 @@ The rehearsal must satisfy all of the following:
 | Blocked | Production DNS-write permission and least-privilege token scope were not exercised because PATCH mutation is action-time gated. | Verify only in the approved isolated test-record rehearsal. |
 | Blocked | The production record ID, team ID/slug, AWS IPv4, and Fallback IPv4 are intentionally absent from Git. | Inject them through root-only runtime configuration after live preflight. |
 | Blocked | No test record was created or changed, and no production record was mutated. | Do not arm automatic failover until the rehearsal evidence is attached. |
+
+## Edge activation blockers
+
+The Vercel record contract does not establish that the Fallback origin is
+reachable. The [Fallback network preflight](./NETWORK_PREFLIGHT.md) observed no
+public Covenant IPv4, no TCP 443 listener, no TLS terminator, and a likely
+private/CGNAT path. Before using this client, clear those blockers with an
+authoritative static origin or an approved tunnel/reverse proxy and pre-stage
+TLS for `api.babyjamjam.com` and the separate Sentry endpoint. Fixed outbound
+egress is a separate gate for Aligo and remains disabled until independently
+verified.
+
+The client and controller are implemented in the repository, but no Vercel
+write permission, production PATCH, or test-record rehearsal has been
+exercised. A passing unit test or a successful read does not authorize a
+production update.
 
 ## Repository evidence
 

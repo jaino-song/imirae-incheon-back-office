@@ -1,118 +1,112 @@
 # Fallback Server backend
 
-The Covenant server is the physical host for the BabyJamJam **Fallback
-Server**, an API-only warm standby for production. It runs the same immutable
-backend image as Lightsail but does not own public routing, schedulers,
-auto-finalizers, eFormsign job intake, or document workers while AWS is
-healthy.
+The physical Covenant server hosts the BabyJamJam **Fallback Server** role.
+It is an API-only warm standby for the production backend and is not the
+frontend deployment. The frontend keeps the stable
+`https://api.babyjamjam.com` hostname while traffic ownership is changed by
+the separately controlled Vercel DNS client.
+
+Current status: **controller code is implemented locally; the host is not
+installed, armed, or serving production traffic**.
 
 ## Safety boundary
 
-- The API binds to `127.0.0.1:3101`; a separately approved tunnel or reverse
-  proxy is required for inbound traffic.
-- The Compose model hard-disables all singleton and provider-mutating workers.
-  Values in `backend.env` cannot override those passive settings.
-- Aligo credentials are blanked at the Compose layer until the Covenant fixed
-  egress address has been registered and verified separately.
-- Deployments pull an image by digest, verify its embedded Git revision, and
-  tag it locally only after verification.
-- The operator never changes AWS, DNS, Cloudflare, Vercel, Aligo, database
-  migrations, or firewall rules.
-- The production database and external-provider credentials are required for
-  parity. Provision them before an incident; never copy or print them from an
-  outage transcript.
+- The Fallback API binds to `127.0.0.1:3101`.
+- The controller binds to `127.0.0.1:3102`, receives only
+  `POST /sentry/uptime-alert`, and exposes a generic `GET /health`.
+- Sentry Uptime creates an outage issue; a Monitor-sourced Alert/Workflow then
+  invokes an Internal Integration webhook with `event_alert.triggered`.
+- There is no cron, timer, Vercel Function, hosted Redis lease, or automatic
+  Fallback → AWS failback. A service restart only resumes a persisted pending
+  incident; it cannot promote a route on startup.
+- Scheduler, auto-finalizer, eFormsign document-job intake/workers, unlocked
+  reconciliation, and Aligo are hard-disabled in Compose.
+- The Fallback runtime connects to the Production DB only and must pass the
+  Production DB identity hash gate before status or release activation.
+- Vercel DNS changes are limited to one preflight-captured `api`/`A` record and
+  one-way AWS → Fallback mutation. Ambiguous responses require manual
+  reconciliation.
+
+See the complete operator procedure in
+[CONTROLLER_OPERATIONS.md](./CONTROLLER_OPERATIONS.md).
 
 ## Host layout
 
 ```text
 /usr/local/sbin/babyjamjam-fallback-server
+/usr/local/sbin/babyjamjam-failover-controller
 /usr/local/libexec/babyjamjam-fallback-server/
 ├── bundle.manifest
 ├── compose.yml
-└── production-db-identity.sh
+├── production-db-identity.sh
+└── controller/
+/etc/systemd/system/babyjamjam-failover-controller.service
 /opt/babyjamjam-fallback-server/
 ├── backend.env
+├── controller.env
 └── state/
-    ├── current-image-digest
-    ├── current-image-tag
-    ├── previous-image-digest
-    └── previous-image-tag
+    └── failover-controller-state.json
 ```
 
-The operator and artifact bundle are root-owned. `backend.env` must be a
-regular, non-symlink file owned by `root:root` with mode `0600`.
+All protected files are root-owned and mode `0600`; protected directories are
+mode `0700`. The current repository does not install the controller unit or
+service automatically. Installation remains a separately approved host
+operation.
 
 ## Production DB identity gate
 
-Before an image is pulled, a release is activated, or status is reported, the
-protected `production-db-identity.sh` helper validates the host environment:
-
-- `SUPABASE_URL` must be an HTTPS URL for a strict 20-character Supabase
-  project ref; localhost and non-HTTPS values are rejected.
-- `DATABASE_URL` and `DIRECT_URL` must be PostgreSQL URLs whose authority
-  contains that same project ref.
-- `FALLBACK_PRODUCTION_DB_REF_SHA256` must be a 64-character lowercase
-  SHA-256 digest of the exact project ref. The helper hashes only the ref and
-  never prints any URL, credential, or digest value.
-- Required assignments must be unique, non-empty, and syntactically valid;
-  the environment file must remain a non-symlink `root:root` mode `0600` file.
-
-The helper emits only `production_db_identity=ok` on success and the generic
-`production_db_identity=failed` marker on failure. The operator captures the
-success marker and includes it in safe status output. Provision the real
-production values directly in `/opt/babyjamjam-fallback-server/backend.env`;
-do not commit that file or its values. The repository's application manifest
-remains the source for the shared backend keys, so no second checkout `.env`
-manifest is created for this host-only file.
-
-## Install and stage
-
-Installation and deployment are live host changes and require separate
-approval. From a reviewed checkout on the Covenant server:
+Provision the real Production DB values directly in
+`/opt/babyjamjam-fallback-server/backend.env`; never commit or print them.
+Run the fixed helper and require the generic success marker:
 
 ```bash
-sudo backend/deploy/fallback-server/install.sh
-sudo install -o root -g root -m 0600 /approved/path/backend.env \
+sudo /usr/local/libexec/babyjamjam-fallback-server/production-db-identity.sh \
   /opt/babyjamjam-fallback-server/backend.env
-sudo /usr/local/sbin/babyjamjam-fallback-server deploy \
-  <40-character-main-commit-sha> <sha256-image-digest>
 ```
 
-The operator emits only non-secret status fields. A healthy staged runtime must
-report `public_routing=not_managed`, `schedulers_enabled=false`, and both document
-job gates as `false`.
+Expected output is exactly `production_db_identity=ok`. Any other result blocks
+deployment, status approval, and automatic failover.
 
-## Incident cutover
+## Network prerequisites
 
-1. Confirm the AWS production origin is unavailable or fenced.
-2. Run `babyjamjam-fallback-server status`; require healthy container, zero
-   restarts, database readiness, and every passive gate disabled.
-3. Reconcile ambiguous eformsign submissions before retrying a document.
-4. Cut `api.babyjamjam.com` to the preconfigured Fallback Server origin through the
-   separately approved DNS or load-balancer control plane.
-5. Keep the Fallback Server API-only. Enabling schedulers or document workers
-   requires a separate ownership design and is outside this operator.
-6. Verify the public readiness route, authenticated login, and one authorized
-   document-confirmation smoke test.
+The [network preflight](./NETWORK_PREFLIGHT.md) is a read-only observation,
+not activation proof. Before installation, clear all of these blockers:
 
-## Recovery and rollback
+- an authoritative public inbound route or approved tunnel/reverse proxy with
+  TLS for both the API origin and the dedicated Sentry endpoint;
+- an authoritative fixed outbound IPv4 (the host currently shows a likely
+  private/CGNAT path); and
+- verified Node.js 20+, systemd, Docker, and Compose at the service paths.
 
-Switch public traffic away before stopping or rolling back the Fallback Server.
+Do not infer static IP ownership from a short-lived `ipify` observation. Keep
+Aligo credentials and SMS-producing paths disabled until fixed egress is
+registered and no-send authentication is proven.
 
-```bash
-sudo /usr/local/sbin/babyjamjam-fallback-server rollback
-sudo /usr/local/sbin/babyjamjam-fallback-server stop
-```
+## Runtime status and incident flow
 
-Returning to AWS requires AWS readiness proof, public health, current release
-identity, and eformsign/job reconciliation. Because the Fallback runtime never
-owns schedulers, no scheduler transfer is needed for this API-only profile.
+The safe operator flow is:
 
-## Static outbound IP
+1. Install/stage the immutable API and controller artifacts; keep
+   `FAILOVER_CONTROLLER_ENABLED=false` and state disarmed.
+2. Pass the Production DB hash, image digest, passive-gate, public TLS, and
+   Sentry live-payload gates.
+3. Run the [test-hostname rehearsal](./CONTROLLER_OPERATIONS.md#test-hostname-rehearsal)
+   with a separately scoped Vercel record and token.
+4. Obtain action-time approval and arm the controller. Automatic failover may
+   only move AWS → Fallback after three AWS readiness failures, three Fallback
+   successes, matching Production DB/image/passive gates, and current AWS DNS.
+5. For recovery, disarm first and restore AWS manually using the
+   [manual failback procedure](./CONTROLLER_OPERATIONS.md#manual-failback-and-rollback).
 
-The tunnel or reverse proxy solves inbound routing only. Aligo observes the
-Covenant server's real outbound IPv4. Before allowing any SMS-producing path,
-verify that this egress address is fixed, register it alongside the AWS address,
-and run a no-send authentication check. Enabling Aligo then requires a reviewed
-Compose change; do not rely on values in `backend.env`, because the passive
-profile deliberately overrides them with empty values.
+The current source has no dedicated arm/disarm CLI. Do not edit the state JSON
+by hand; production arming remains blocked until that protected interface is
+installed.
+
+## Related contracts
+
+- [Controller operations](./CONTROLLER_OPERATIONS.md)
+- [Sentry webhook contract](./SENTRY_HOST_FAILOVER.md)
+- [Vercel DNS failover](./VERCEL_DNS_FAILOVER.md)
+- [Network preflight](./NETWORK_PREFLIGHT.md)
+- [Production DB helper](./production-db-identity.sh)
+- [Fallback operator](./operator.sh)
