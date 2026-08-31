@@ -293,10 +293,11 @@ describe("MessageTriggerService", () => {
         };
         const jobRepository = {
             cancelOrphanedPending: jest.fn().mockResolvedValue(0),
-            findDuePending: jest.fn().mockResolvedValue([]),
-            findById: jest.fn().mockResolvedValue(null),
-            findStaleProcessing: jest.fn().mockResolvedValue([]),
-            claimPending: jest.fn().mockResolvedValue(true),
+            findDuePendingSystemScope: jest.fn().mockResolvedValue([]),
+            findByIdSystemScope: jest.fn().mockResolvedValue(null),
+            findByIdInBranch: jest.fn().mockResolvedValue(null),
+            findStaleProcessingSystemScope: jest.fn().mockResolvedValue([]),
+            claimPendingSystemScope: jest.fn().mockResolvedValue(true),
             claimPendingWithRuleFence: jest.fn().mockResolvedValue("claim-a"),
             update: jest.fn().mockResolvedValue(undefined),
             cancelPendingByRuleId: jest.fn().mockResolvedValue(0),
@@ -331,7 +332,7 @@ describe("MessageTriggerService", () => {
             $queryRaw: jest.fn().mockResolvedValue([{ status: "processing", claim_token: "claim-a" }]),
             message_trigger_job: {
                 findUnique: jest.fn().mockImplementation(async ({ where }: { where: { id: string } }) =>
-                    jobRepository.findById(where.id)),
+                    jobRepository.findByIdSystemScope(where.id)),
             },
             employee_schedule: {
                 findFirst: employeeScheduleFindFirst,
@@ -393,9 +394,9 @@ describe("MessageTriggerService", () => {
         await service.dispatchDueJobs();
 
         expect(rebuildSpy).toHaveBeenCalledTimes(1);
-        expect(jobRepository.findDuePending).toHaveBeenCalledTimes(1);
+        expect(jobRepository.findDuePendingSystemScope).toHaveBeenCalledTimes(1);
         expect(rebuildSpy.mock.invocationCallOrder[0]!).toBeLessThan(
-            jobRepository.findDuePending.mock.invocationCallOrder[0]!,
+            jobRepository.findDuePendingSystemScope.mock.invocationCallOrder[0]!,
         );
     });
 
@@ -747,6 +748,7 @@ describe("MessageTriggerService", () => {
             undefined,
         );
         expect(ruleRepository.markJobsStale).toHaveBeenCalledWith(
+            branchId,
             createdRule.id,
             expect.any(Object),
         );
@@ -1073,6 +1075,7 @@ describe("MessageTriggerService", () => {
             "Rule updated",
         );
         expect(ruleRepository.markJobsStale).toHaveBeenCalledWith(
+            branchId,
             existingRule.id,
             expect.any(Object),
         );
@@ -1157,7 +1160,7 @@ describe("MessageTriggerService", () => {
         };
         const targetVersion = (mutation.service as unknown as { ruleTargetVersion(rule: MessageTriggerRuleEntity): string }).ruleTargetVersion(existingRule);
         const job = createJob({ id: "job-interleaving", ruleId: existingRule.id });
-        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.jobRepository.findByIdSystemScope.mockResolvedValue(job);
         let mutationWon = false;
         const mutationEntered = new Promise<void>((resolve) => {
             mutation.ruleRepository.updateIfTargetMatchesAndFenceJobs.mockImplementation(async () => {
@@ -1208,6 +1211,7 @@ describe("MessageTriggerService", () => {
             expect.any(Object),
         );
         expect(ruleRepository.markJobsStale).toHaveBeenCalledWith(
+            inactiveDefault.branchId,
             inactiveDefault.id,
             expect.any(Object),
         );
@@ -1361,7 +1365,7 @@ describe("MessageTriggerService", () => {
     it("skips a job whose claim was lost to another instance", async () => {
         const { service, deliveryService, jobRepository } = createDispatchService();
         const job = createJob();
-        jobRepository.findDuePending.mockResolvedValue([job]);
+        jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
         jobRepository.claimPendingWithRuleFence.mockResolvedValue(false);
 
         await service.dispatchDueJobs();
@@ -1375,7 +1379,7 @@ describe("MessageTriggerService", () => {
         const { service, deliveryService, jobRepository, messageLogRepository } =
             createDispatchService();
         const job = createJob();
-        jobRepository.findDuePending.mockResolvedValue([job]);
+        jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
         messageLogRepository.findSentTriggerJobIdsSystemScope.mockResolvedValue(new Set([job.id]));
 
         await service.dispatchDueJobs();
@@ -1389,7 +1393,7 @@ describe("MessageTriggerService", () => {
         const { service, deliveryService, jobRepository, messageSenderApprovalService } =
             createDispatchService();
         const job = createJob();
-        jobRepository.findDuePending.mockResolvedValue([job]);
+        jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
         messageSenderApprovalService.getApprovedBranchIds.mockResolvedValue(new Set());
 
         await service.dispatchDueJobs();
@@ -1406,7 +1410,7 @@ describe("MessageTriggerService", () => {
         const { service, deliveryService, jobRepository, messageSenderApprovalService } =
             createDispatchService();
         const job = createJob();
-        jobRepository.findDuePending.mockResolvedValue([job]);
+        jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
         messageSenderApprovalService.getApprovedBranchIds.mockResolvedValue(new Set([branchId]));
 
         await service.dispatchDueJobs();
@@ -1420,7 +1424,7 @@ describe("MessageTriggerService", () => {
     it("does not call the provider when cancellation invalidates a claim before the fence", async () => {
         const { service, deliveryService, jobRepository, transaction } = createDispatchService();
         const job = createJob();
-        jobRepository.findDuePending.mockResolvedValue([job]);
+        jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
         jobRepository.claimPendingWithRuleFence.mockResolvedValue("claim-a");
         transaction.$queryRaw.mockResolvedValueOnce([{
             status: "canceled",
@@ -1436,7 +1440,7 @@ describe("MessageTriggerService", () => {
     it("does not call the provider when a newer claim token replaced the active attempt", async () => {
         const { service, deliveryService, jobRepository, transaction } = createDispatchService();
         const job = createJob();
-        jobRepository.findDuePending.mockResolvedValue([job]);
+        jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
         jobRepository.claimPendingWithRuleFence.mockResolvedValue("claim-a");
         transaction.$queryRaw.mockResolvedValueOnce([{
             status: "processing",
@@ -1452,7 +1456,7 @@ describe("MessageTriggerService", () => {
     it("does not call the provider when cancellation wins the authorization CAS", async () => {
         const { service, deliveryService, jobRepository, transaction } = createDispatchService();
         const job = createJob();
-        jobRepository.findDuePending.mockResolvedValue([job]);
+        jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
         jobRepository.claimPendingWithRuleFence.mockResolvedValue("claim-a");
         let authorizationReadStarted!: () => void;
         const authorizationRead = new Promise<void>((resolve) => {
@@ -1491,16 +1495,43 @@ describe("MessageTriggerService", () => {
         const { service, deliveryService, jobRepository, messageSenderApprovalService } =
             createDispatchService();
         const job = createJob({ id: "manual-job" });
-        jobRepository.findById.mockResolvedValue(job);
+        jobRepository.findByIdSystemScope.mockResolvedValue(job);
         messageSenderApprovalService.getApprovedBranchIds.mockResolvedValue(new Set([branchId]));
 
         const result = await service.dispatchPendingJobNow(job.id);
 
-        expect(jobRepository.findDuePending).not.toHaveBeenCalled();
+        expect(jobRepository.findDuePendingSystemScope).not.toHaveBeenCalled();
         expect(jobRepository.claimPendingWithRuleFence).toHaveBeenCalledWith(job.id, job.branchId);
         expect(deliveryService.sendJob).toHaveBeenCalledWith(job);
         expect(job.status).toBe("sent");
         expect(result.status).toBe("sent");
+    });
+
+    it("dispatchPendingJobNow with an expectedBranchId fetches through the branch-scoped read", async () => {
+        const { service, deliveryService, jobRepository, messageSenderApprovalService } =
+            createDispatchService();
+        const job = createJob({ id: "manual-job" });
+        jobRepository.findByIdInBranch.mockResolvedValue(job);
+        messageSenderApprovalService.getApprovedBranchIds.mockResolvedValue(new Set([branchId]));
+
+        const result = await service.dispatchPendingJobNow(job.id, { expectedBranchId: job.branchId! });
+
+        expect(jobRepository.findByIdInBranch).toHaveBeenCalledWith(job.branchId, job.id);
+        expect(jobRepository.findByIdSystemScope).not.toHaveBeenCalled();
+        expect(deliveryService.sendJob).toHaveBeenCalledWith(job);
+        expect(result.status).toBe("sent");
+    });
+
+    it("dispatchPendingJobNow fails not-found when the job does not belong to the expected branch", async () => {
+        const { service, deliveryService, jobRepository } = createDispatchService();
+        jobRepository.findByIdInBranch.mockResolvedValue(null);
+
+        await expect(
+            service.dispatchPendingJobNow("manual-job", { expectedBranchId: "some-other-branch" }),
+        ).rejects.toThrow("Message trigger job not found");
+
+        expect(jobRepository.findByIdInBranch).toHaveBeenCalledWith("some-other-branch", "manual-job");
+        expect(deliveryService.sendJob).not.toHaveBeenCalled();
     });
 
     it("binds employee-assignment jobs to the schedule source generation", () => {
@@ -1531,8 +1562,8 @@ describe("MessageTriggerService", () => {
         const job = builder.internals.buildEmployeeAssignmentJob(employeeRule, schedule)!;
         const dispatcher = createDispatchService();
         const events: string[] = [];
-        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
-        dispatcher.jobRepository.findById.mockImplementation(async () => {
+        dispatcher.jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
+        dispatcher.jobRepository.findByIdSystemScope.mockImplementation(async () => {
             events.push("job-read");
             return job;
         });
@@ -1580,8 +1611,8 @@ describe("MessageTriggerService", () => {
         const schedule = createEmployeeSchedule();
         const job = builder.internals.buildEmployeeAssignmentJob(employeeRule, schedule)!;
         const dispatcher = createDispatchService();
-        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
-        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
+        dispatcher.jobRepository.findByIdSystemScope.mockResolvedValue(job);
         dispatcher.prisma.employee_schedule.findFirst.mockResolvedValue(schedule);
 
         let transactionOpen = false;
@@ -1623,8 +1654,8 @@ describe("MessageTriggerService", () => {
         const schedule = createEmployeeSchedule();
         const job = builder.internals.buildEmployeeAssignmentJob(employeeRule, schedule)!;
         const dispatcher = createDispatchService();
-        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
-        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
+        dispatcher.jobRepository.findByIdSystemScope.mockResolvedValue(job);
         dispatcher.prisma.employee_schedule.findFirst.mockResolvedValue(schedule);
 
         let lockWaitStarted!: () => void;
@@ -1685,8 +1716,8 @@ describe("MessageTriggerService", () => {
         const job = builder.internals.buildEmployeeAssignmentJob(employeeRule, originalSchedule)!;
         const dispatcher = createDispatchService();
         const events: string[] = [];
-        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
-        dispatcher.jobRepository.findById.mockImplementation(async () => {
+        dispatcher.jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
+        dispatcher.jobRepository.findByIdSystemScope.mockImplementation(async () => {
             events.push("job-read");
             return job;
         });
@@ -1735,8 +1766,8 @@ describe("MessageTriggerService", () => {
                 },
             },
         });
-        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
-        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
+        dispatcher.jobRepository.findByIdSystemScope.mockResolvedValue(job);
         dispatcher.prisma.employee_schedule.findFirst.mockResolvedValue(
             createEmployeeSchedule({ replaced: true }),
         );
@@ -1772,8 +1803,8 @@ describe("MessageTriggerService", () => {
                 },
             },
         });
-        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
-        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
+        dispatcher.jobRepository.findByIdSystemScope.mockResolvedValue(job);
         dispatcher.prisma.employee_schedule.findFirst.mockResolvedValue(createEmployeeSchedule());
 
         await dispatcher.service.dispatchDueJobs();
@@ -1807,8 +1838,8 @@ describe("MessageTriggerService", () => {
                 },
             },
         });
-        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
-        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
+        dispatcher.jobRepository.findByIdSystemScope.mockResolvedValue(job);
         dispatcher.prisma.employee_schedule.findFirst.mockResolvedValue(createEmployeeSchedule());
 
         await dispatcher.service.dispatchDueJobs();
@@ -1829,8 +1860,8 @@ describe("MessageTriggerService", () => {
         });
         const job = builder.internals.buildEmployeeAssignmentJob(employeeRule, createEmployeeSchedule())!;
         const dispatcher = createDispatchService();
-        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
-        dispatcher.jobRepository.findById.mockResolvedValue({
+        dispatcher.jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
+        dispatcher.jobRepository.findByIdSystemScope.mockResolvedValue({
             ...job,
             status: "canceled",
             canceledAt: new Date("2026-08-01T00:00:00.000Z"),
@@ -1855,8 +1886,8 @@ describe("MessageTriggerService", () => {
         });
         const job = builder.internals.buildEmployeeAssignmentJob(employeeRule, createEmployeeSchedule())!;
         const dispatcher = createDispatchService();
-        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
-        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
+        dispatcher.jobRepository.findByIdSystemScope.mockResolvedValue(job);
         dispatcher.prisma.employee_schedule.findFirst.mockRejectedValue(new Error("schedule read failed"));
 
         await dispatcher.service.dispatchDueJobs();
@@ -1877,8 +1908,8 @@ describe("MessageTriggerService", () => {
         });
         const job = builder.internals.buildEmployeeAssignmentJob(employeeRule, createEmployeeSchedule())!;
         const dispatcher = createDispatchService();
-        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
-        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
+        dispatcher.jobRepository.findByIdSystemScope.mockResolvedValue(job);
         dispatcher.prisma.employee_schedule.findFirst.mockResolvedValue(null);
 
         await dispatcher.service.dispatchDueJobs();
@@ -1896,7 +1927,7 @@ describe("MessageTriggerService", () => {
             const job = createJob({
                 scheduledFor: new Date("2026-07-08T12:00:00.000Z"),
             });
-            jobRepository.findDuePending.mockResolvedValue([job]);
+            jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
 
             await service.dispatchDueJobs();
 
@@ -1930,7 +1961,7 @@ describe("MessageTriggerService", () => {
                     },
                 },
             });
-            jobRepository.findDuePending.mockResolvedValue([job]);
+            jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
             prisma.message_trigger_job.findUnique.mockResolvedValue({
                 status: "sent",
                 sentAt: new Date("2026-07-09T12:10:00.000Z"),
@@ -1964,7 +1995,7 @@ describe("MessageTriggerService", () => {
     it("defers with kind config without incrementing attempts", async () => {
         const { service, deliveryService, jobRepository } = createDispatchService();
         const job = createJob({ attempts: 2 });
-        jobRepository.findDuePending.mockResolvedValue([job]);
+        jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
         deliveryService.sendJob.mockRejectedValue(
             new TriggerJobDeferredError("config", "Missing sender approval"),
         );
@@ -1979,7 +2010,7 @@ describe("MessageTriggerService", () => {
     it("terminal-fails after TRIGGER_JOB_MAX_ATTEMPTS transient defers", async () => {
         const { service, deliveryService, jobRepository } = createDispatchService();
         const job = createJob({ attempts: TRIGGER_JOB_MAX_ATTEMPTS - 1 });
-        jobRepository.findDuePending.mockResolvedValue([job]);
+        jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
         deliveryService.sendJob.mockRejectedValue(
             new TriggerJobDeferredError("transient", "Provider timeout"),
         );
@@ -1998,7 +2029,7 @@ describe("MessageTriggerService", () => {
             code: "P1001",
             clientVersion: "test",
         });
-        jobRepository.findDuePending.mockResolvedValue([job]);
+        jobRepository.findDuePendingSystemScope.mockResolvedValue([job]);
         deliveryService.sendJob.mockRejectedValue(prismaError);
 
         await service.dispatchDueJobs();
@@ -2014,7 +2045,7 @@ describe("MessageTriggerService", () => {
         const { service, jobRepository, messageLogRepository } = createDispatchService();
         const deliveredJob = createJob({ id: "job-delivered", status: "processing" });
         const unsentJob = createJob({ id: "job-unsent", status: "processing" });
-        jobRepository.findStaleProcessing.mockResolvedValue([deliveredJob, unsentJob]);
+        jobRepository.findStaleProcessingSystemScope.mockResolvedValue([deliveredJob, unsentJob]);
         messageLogRepository.findSentTriggerJobIdsSystemScope.mockResolvedValue(new Set([deliveredJob.id]));
 
         await service.dispatchDueJobs();
@@ -2029,7 +2060,7 @@ describe("MessageTriggerService", () => {
     it("does not requeue a stale dispatch-authorized job after a worker crash", async () => {
         const { service, jobRepository, messageLogRepository } = createDispatchService();
         const dispatchingJob = createJob({ id: "job-dispatching", status: "dispatching" });
-        jobRepository.findStaleProcessing.mockResolvedValue([dispatchingJob]);
+        jobRepository.findStaleProcessingSystemScope.mockResolvedValue([dispatchingJob]);
         messageLogRepository.findSentTriggerJobIdsSystemScope.mockResolvedValue(new Set());
 
         await service.dispatchDueJobs();
@@ -2055,11 +2086,11 @@ describe("MessageTriggerService", () => {
             updatedAt: new Date("2026-07-08T00:00:00.000Z"),
         });
         const order: string[] = [];
-        jobRepository.findStaleProcessing.mockImplementation(async () => {
+        jobRepository.findStaleProcessingSystemScope.mockImplementation(async () => {
             order.push("reclaim");
             return [];
         });
-        jobRepository.findDuePending.mockImplementation(async () => {
+        jobRepository.findDuePendingSystemScope.mockImplementation(async () => {
             order.push("due");
             return [];
         });
@@ -2087,6 +2118,7 @@ describe("MessageTriggerService", () => {
             expect.any(Object),
         );
         expect(ruleRepository.markJobsStale).toHaveBeenCalledWith(
+            inactiveDefault.branchId,
             inactiveDefault.id,
             expect.any(Object),
         );
@@ -2101,7 +2133,7 @@ describe("MessageTriggerService", () => {
             logger: { error: (message: string, stack?: string) => void };
         }).logger;
         jest.spyOn(logger, "error").mockImplementation(() => undefined);
-        jobRepository.findDuePending.mockResolvedValue([firstJob, secondJob]);
+        jobRepository.findDuePendingSystemScope.mockResolvedValue([firstJob, secondJob]);
         jobRepository.update.mockRejectedValueOnce(new Error("write failed"));
 
         await service.dispatchDueJobs();

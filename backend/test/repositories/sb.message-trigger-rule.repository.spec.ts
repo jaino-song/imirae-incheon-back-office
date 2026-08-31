@@ -132,13 +132,38 @@ describe("SbMessageTriggerRuleRepository", () => {
         expect(result).toEqual([MessageTriggerTemplateKey.SERVICE_INFO]);
     });
 
-    it("markJobsStale sets jobsStale true for the rule id", async () => {
+    it("update pins the where clause to the branch-scoped rule id", async () => {
+        const rule = MessageTriggerRuleEntity.reconstitute(
+            "rule-1",
+            "branch-1",
+            "서비스 시작 7일 전 서비스 안내",
+            true,
+            MessageTriggerEventType.SERVICE_START,
+            MessageTriggerOffsetType.BEFORE_DAYS,
+            7,
+            MessageTriggerRecipientType.CLIENT,
+            MessageTriggerTemplateKey.SERVICE_INFO,
+            new Date("2026-07-08T00:00:00.000Z"),
+            new Date("2026-07-08T01:00:00.000Z"),
+            false,
+            false,
+        );
+        messageTriggerRuleModel.update.mockResolvedValue(createRow());
+
+        await repository.update("branch-1", rule);
+
+        expect(messageTriggerRuleModel.update).toHaveBeenCalledWith(
+            expect.objectContaining({ where: { id: "rule-1", branchId: "branch-1" } }),
+        );
+    });
+
+    it("markJobsStale sets jobsStale true for the branch-scoped rule id", async () => {
         messageTriggerRuleModel.updateMany.mockResolvedValue({ count: 1 });
 
-        await repository.markJobsStale("rule-1");
+        await repository.markJobsStale("branch-1", "rule-1");
 
         expect(messageTriggerRuleModel.updateMany).toHaveBeenCalledWith({
-            where: { id: "rule-1" },
+            where: { id: "rule-1", branchId: "branch-1" },
             data: { jobsStale: true },
         });
     });

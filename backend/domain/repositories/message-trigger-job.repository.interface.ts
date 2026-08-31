@@ -9,16 +9,20 @@ export interface MessageTriggerJobCancellationScope {
 export interface IMessageTriggerJobRepository {
     create(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity>;
     update(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity>;
-    findById(id: string): Promise<MessageTriggerJobEntity | null>;
-    claimPending(id: string): Promise<boolean>;
+    /** Unscoped read used only by system/scheduler callers with no caller branch to fence on. */
+    findByIdSystemScope(id: string): Promise<MessageTriggerJobEntity | null>;
+    /** Branch-fenced read for request-path callers; a branch mismatch resolves to null, not another branch's row. */
+    findByIdInBranch(branchId: string, id: string): Promise<MessageTriggerJobEntity | null>;
+    /** Unscoped claim used only by system/scheduler callers; request-path callers must use claimPendingWithRuleFence. */
+    claimPendingSystemScope(id: string): Promise<boolean>;
     /**
      * Claim only while the branch-scoped rule is not fenced as stale. The
      * returned token is unique to this processing attempt and must be supplied
      * to every terminal update/fence before a provider call.
      */
     claimPendingWithRuleFence(id: string, branchId: string | null): Promise<string | null>;
-    findDuePending(limit?: number): Promise<MessageTriggerJobEntity[]>;
-    findStaleProcessing(cutoff: Date, limit?: number): Promise<MessageTriggerJobEntity[]>;
+    findDuePendingSystemScope(limit?: number): Promise<MessageTriggerJobEntity[]>;
+    findStaleProcessingSystemScope(cutoff: Date, limit?: number): Promise<MessageTriggerJobEntity[]>;
     findUpcomingPendingByBranch(
         branchId: string,
         limit?: number,

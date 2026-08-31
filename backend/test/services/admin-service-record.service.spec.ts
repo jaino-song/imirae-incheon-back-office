@@ -361,7 +361,9 @@ describe("AdminServiceRecordService", () => {
         });
 
         expect(linkService.sendNow).toHaveBeenCalledWith(10, "efl_prepared", "01066211878");
-        expect(triggerService.dispatchPendingJobNow).toHaveBeenCalledWith("job-manual");
+        expect(triggerService.dispatchPendingJobNow).toHaveBeenCalledWith("job-manual", {
+            expectedBranchId: "branch-1",
+        });
     });
 
     it("resets a link after tenant validation without dispatching a message", async () => {
