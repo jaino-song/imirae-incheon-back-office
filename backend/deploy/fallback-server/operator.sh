@@ -356,11 +356,13 @@ guard_expiry() {
     local expiry now tag
     [[ -f "$RUNTIME_MODE_FILE" && "$(<"$RUNTIME_MODE_FILE")" == "temporary-active" ]] || return 0
     expiry="$(read_state temporary-active-expiry || true)"
-    [[ "$expiry" =~ ^[0-9]{10,}$ ]] || { clear_temporary_active_state; return 0; }
+    [[ "$expiry" =~ ^[0-9]{10,}$ ]] || expiry=0
     now="$(/usr/bin/date +%s)"
     (( now < expiry )) && return 0
     tag="$(read_state current-image-tag || true)"
-    [[ "$tag" =~ $SHA_PATTERN ]] && compose "$tag" stop api >/dev/null 2>&1 || true
+    [[ "$tag" =~ $SHA_PATTERN ]] || return 1
+    compose "$tag" stop api >/dev/null 2>&1 || return 1
+    if container_id_for "$tag" >/dev/null 2>&1; then return 1; fi
     # Do not stop this service from itself; disable prevents a future tick.
     /usr/bin/systemctl disable "$TEMPORARY_GUARD_TIMER" >/dev/null 2>&1 || true
     /usr/bin/rm -f "$RUNTIME_MODE_FILE" "$ACTIVE_EXPIRY_FILE"
@@ -483,6 +485,9 @@ temporary_activate_release() {
     local commit_sha="$1" image_digest="$2" approval_data approval_egress_hash approval_nonce expiry current_tag current_digest container_id
 
     validate_release "$commit_sha" "$image_digest"
+    if [[ "$(read_state runtime-mode || true)" == "temporary-active" ]]; then
+        die "An existing temporary-active runtime must be stopped before replacement."
+    fi
     clear_temporary_expiry_timer
     clear_temporary_active_state
     validate_env_file

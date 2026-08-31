@@ -166,10 +166,13 @@ separate root-owned mode-`0400` approval artifact at
 ```text
 schema_version=1
 incident_id=<operator supplied>
+primary_scheduler_condition_ref_sha256=<operator supplied evidence hash>
 image_tag=<approved immutable tag>
 image_digest=<approved immutable digest>
 production_db_ref_sha256=<approved production DB reference hash>
 aligo_egress_ipv4_sha256=<approved egress hash>
+issued_at_unix=<operator supplied issue time>
+approval_nonce=<operator supplied lowercase nonce>
 expires_at_unix=<operator supplied expiry>
 ```
 
@@ -178,6 +181,8 @@ file is not evidence of a separate identity. The operator validates ownership, e
 identity, future expiry, and two independent current egress observations without
 printing an address. It schedules a persistent root systemd expiry stop before
 starting. If scheduling or any runtime check fails, it does not remain active.
+It requires a minimum five-minute lead time, a maximum 48-hour approval window,
+bounded clock skew, and a nonce that remains claimed after stop/restart.
 Only the five explicitly named scheduler/document-job gates become `true`; the
 reconciliation-unlocked and unused message-trigger-worker gates remain `false`.
 `SCHEDULERS_ENABLED=true` still enables the message-trigger scheduler: duplicate
