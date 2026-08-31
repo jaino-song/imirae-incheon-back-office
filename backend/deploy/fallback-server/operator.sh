@@ -430,8 +430,12 @@ guard_expiry() {
         [[ -z "$container_id" ]] && return 0
         gates="$(/usr/bin/docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container_id" 2>/dev/null || true)"
         if [[ "$gates" == *$'SCHEDULERS_ENABLED=true'* ]] || [[ -z "$gates" ]]; then
-            active_compose "$tag" stop api >/dev/null 2>&1 || return 1
-            container_id_for "$tag" >/dev/null 2>&1 && return 1
+            if [[ "$tag" =~ $SHA_PATTERN ]]; then
+                active_compose "$tag" stop api >/dev/null 2>&1 || return 1
+                container_id_for "$tag" >/dev/null 2>&1 && return 1
+            else
+                stop_discovered_api_container || return 1
+            fi
             clear_temporary_expiry_timer
             clear_temporary_active_state
         fi
