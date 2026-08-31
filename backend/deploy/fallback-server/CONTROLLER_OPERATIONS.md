@@ -23,8 +23,9 @@ The physical Covenant server has two separate loopback services:
 The controller receives `POST /sentry/uptime-alert` and exposes a generic
 `GET /health`. It has no cron job, systemd timer, Vercel Cron, polling loop, or
 automatic failback. `systemd` may restart the process after a crash, but a
-restart only calls the worker's `resumePending()` hook for a persisted incident;
-startup never arms state or promotes a route.
+restart only calls the worker's `resumePending()` hook for a persisted incident
+and reconciles any `DNS_COMMITTING` reservation against live DNS; startup never
+arms state or promotes a route from state alone.
 
 The public frontend continues to use `https://api.babyjamjam.com`. The
 controller is not the public API and never changes DNS directly from the HTTP
@@ -42,20 +43,26 @@ the service account or an untrusted group:
 /usr/local/sbin/babyjamjam-failover-controller
 /usr/local/libexec/babyjamjam-fallback-server/
 ├── compose.yml
-├── production-db-identity.sh
-└── controller/
-    ├── config.mjs
-    ├── main.mjs
-    ├── receiver.mjs
-    ├── security.mjs
-    ├── server.mjs
-    ├── state-store.mjs
-    ├── probes.mjs
-    ├── policy.mjs
-    ├── worker.mjs
-    ├── fallback-status.mjs
-    └── vercel-dns-client.mjs
+└── production-db-identity.sh
+/usr/local/libexec/babyjamjam-failover-controller/
+├── bundle.manifest
+├── config.mjs
+├── fallback-status.mjs
+├── main.mjs
+├── operator.mjs
+├── operator.sh
+├── policy.mjs
+├── probes.mjs
+├── receiver.mjs
+├── security.mjs
+├── server.mjs
+├── state-store.mjs
+├── vercel-dns-client.mjs
+├── worker.mjs
+├── controller.env.tpl
+└── systemd/babyjamjam-failover-controller.service
 /etc/systemd/system/babyjamjam-failover-controller.service
+/opt/babyjamjam-fallback-server/approved-production-db-ref.sha256
 /opt/babyjamjam-fallback-server/backend.env
 /opt/babyjamjam-fallback-server/controller.env
 /opt/babyjamjam-fallback-server/state/
@@ -68,13 +75,19 @@ mode `0600`. `controller.env` contains the controller's provider credentials
 and allowlists and must also be `root:root` mode `0600`. The state directory is
 root-owned mode `0700`; the state file and lock are mode `0600`. Executables and
 source files under `/usr/local` must be root-owned and non-writable by the
-service account. Never place either environment file, the state file, a Sentry
+service account. The approved Production DB reference digest is a separate
+`root:root` mode `0400` file at
+`/opt/babyjamjam-fallback-server/approved-production-db-ref.sha256`; it must not
+be copied into `backend.env`, `controller.env`, state, or logs. Never place
+either environment file, the approved hash file, the state file, a Sentry
 signature, or a Vercel token in Git, logs, a ticket, or an incident transcript.
 
-The repository currently contains the controller source and tests but no live
-controller installer or systemd unit. Treat the paths above as the required
-installation contract, not evidence that the service is installed. The
-network preflight observed no controller unit and no listener.
+The repository ships the controller installer, systemd unit source, bundle
+sources, and CLI wrapper; the installer generates the protected bundle manifest
+at installation time. None of these artifacts is installed or activated on the
+Covenant host yet. Treat the paths above as the required installation contract,
+not evidence that the service is installed. The network preflight observed no
+controller unit and no listener.
 
 ## Controller environment contract
 
@@ -99,12 +112,17 @@ code and must not be added as environment overrides.
 | `FAILOVER_VERCEL_DNS_RECORD_ID` | Yes | Preflight-captured `api`/`A` record ID. |
 | `FAILOVER_PRIMARY_IPV4` | Yes | Approved AWS origin IPv4. |
 | `FAILOVER_FALLBACK_IPV4` | Yes | Approved Fallback origin IPv4. |
+| `FAILOVER_EXPECTED_IMAGE_TAG` | Yes | Exact approved production image commit tag (40-character SHA). |
+| `FAILOVER_EXPECTED_IMAGE_DIGEST` | Yes | Exact approved production image digest (`sha256:<64-hex>`). |
 
 The parser rejects unknown `FAILOVER_*` names, credentials or query strings in
 health URLs, non-public/equal IPs, malformed IDs, incomplete enabled
-configuration, and an enabled controller without the explicit live-payload
-verification flag. Do not introduce generic `SENTRY_*` or `VERCEL_*` runtime
-names; the existing application variables are not the controller contract.
+configuration, missing expected image identity, and an enabled controller
+without the explicit live-payload verification flag. Keep the expected image
+tag and digest in this root-owned environment file; never put them in durable
+incident state, webhook responses, or logs. Do not introduce generic `SENTRY_*`
+or `VERCEL_*` runtime names; the existing application variables are not the
+controller contract.
 
 ## Production DB and passive-runtime gates
 
@@ -113,21 +131,28 @@ staging or arming:
 
 1. Provision `/opt/babyjamjam-fallback-server/backend.env` directly on the
    host as `root:root` mode `0600`.
-2. Run the protected identity helper against that file and require exactly
-   `production_db_identity=ok`:
+2. Provision the approved Production DB project-reference digest separately
+   at `/opt/babyjamjam-fallback-server/approved-production-db-ref.sha256` as a
+   single lowercase SHA-256 digest, owned by `root:root` with mode `0400`.
+   This file is an external approval artifact; it is not a value copied from
+   `backend.env` and must never be writable by the service.
+3. Run the protected identity helper against `backend.env`. It reads the fixed
+   approved-hash file and requires exactly `production_db_identity=ok`:
 
    ```bash
    sudo /usr/local/libexec/babyjamjam-fallback-server/production-db-identity.sh \
      /opt/babyjamjam-fallback-server/backend.env
    ```
 
-3. Run `sudo /usr/local/sbin/babyjamjam-fallback-server status` and require:
+4. Run `sudo /usr/local/sbin/babyjamjam-fallback-server status` and require:
    `container_health=healthy`, `restart_count=0`, `db_readiness=ok`,
    `production_db_identity=ok`, `public_routing=not_managed`,
    `schedulers_enabled=false`, `document_jobs_accepting=false`, and
    `document_jobs_worker=false`.
-4. Verify the image commit and digest against the approved release. Do not
-   use `latest` or a mutable tag.
+5. Verify the running image commit and digest against
+   `FAILOVER_EXPECTED_IMAGE_TAG` and `FAILOVER_EXPECTED_IMAGE_DIGEST` from the
+   controller environment. Do not use `latest` or a mutable tag, and do not
+   persist the expected values in controller state or logs.
 
 The Compose file hard-disables schedulers, auto-finalizers, document-job
 intake/workers, unlocked eFormsign reconciliation, and Aligo credentials.
@@ -211,14 +236,25 @@ protected bundle and service are installed, do not edit the JSON state file by
 hand and do not claim production arming. This is an explicit activation
 blocker.
 
+Once the protected bundle is installed, the action commands are:
+
+```bash
+sudo /usr/local/sbin/babyjamjam-failover-controller arm
+sudo /usr/local/sbin/babyjamjam-failover-controller disarm
+```
+
 ### Disarm
 
 - Stop new failover work through the approved controller operator interface
   (once installed) and record `armed=false` without changing the current DNS
   route.
 - If a verification is already in progress, the worker re-reads durable state
-  immediately before DNS mutation. A disarm is treated as a terminal
-  `AWS_ACTIVE` reset with the pending incident cleared and no DNS mutation.
+  immediately before reserving the DNS mutation. A disarm before that
+  reservation is accepted as a terminal `AWS_ACTIVE` reset with the pending
+  incident cleared and no DNS mutation.
+- Once durable phase `DNS_COMMITTING` is reserved, disarm is refused until the
+  provider record is reconciled. Do not force `armed=false` or edit the state
+  file by hand while a commit is in progress.
 - Disarm does not restore AWS traffic automatically.
 
 ### Status
@@ -249,15 +285,30 @@ sequence:
    seconds. Readiness includes a Production DB `SELECT 1` and returns no
    connection details.
 4. Evaluate the one-way policy with state `AWS_ACTIVE` and controller armed.
-5. Issue one restricted Vercel PATCH from the approved AWS IPv4 to the
+5. Re-read durable state and require the same pending fingerprint/generation
+   lineage and `armed=true`; atomically reserve the provider mutation by
+   persisting phase `DNS_COMMITTING`.
+6. Treat `DNS_COMMITTING` as the DNS point-of-no-return: a disarm requested
+   before the reservation prevents the PATCH, while a disarm during the phase
+   is refused pending reconciliation.
+7. Issue one restricted Vercel PATCH from the approved AWS IPv4 to the
    approved Fallback IPv4, then perform a fresh read-after-write.
-6. Persist `FALLBACK_ACTIVE` only after the provider response and read-after-
+8. Persist `FALLBACK_ACTIVE` only after the provider response and read-after-
    write identity are confirmed.
 
 Any both-down result, DB/image/passive-gate mismatch, DNS drift, timeout,
 unexpected response, or unknown identity persists `BLOCKED` and performs no
 DNS mutation. A Vercel timeout or ambiguous response is a **manual check**;
 never retry the PATCH indefinitely.
+
+### Restart reconciliation
+
+Startup never promotes a route from the state file alone. A persisted
+`VERIFYING` incident may resume only its bounded verification. A persisted
+`DNS_COMMITTING` incident must first read the live Vercel record and reconcile
+the exact record identity/value. Only a provider-observed, allowlisted result
+may finalize the route; an AWS, unknown, or ambiguous result must not be
+promoted from state and remains a safe manual-reconciliation outcome.
 
 ## Test-hostname rehearsal
 

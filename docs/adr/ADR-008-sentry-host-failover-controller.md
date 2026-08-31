@@ -21,11 +21,11 @@ This decision extends [ADR-007](ADR-007-fallback-server.md), which
 defines the Fallback Server's passive runtime and physical-host boundary.
 
 The dependency-free controller, receiver, worker, state store, probes, policy,
-and Vercel client are implemented and unit-tested under
-`backend/deploy/fallback-server/controller/`. This ADR does not claim that the
-controller service is installed, that the Covenant host is reachable, or that
-production Sentry/Vercel mutations have been exercised. The action-time
-installation, dark-rehearsal, arm/disarm, and failback gates live in
+Vercel client, installer, systemd unit source, and CLI are implemented and
+unit-tested under `backend/deploy/fallback-server/controller/`. This ADR does
+not claim that those artifacts are installed, that the Covenant host is
+reachable, or that production Sentry/Vercel mutations have been exercised. The
+action-time installation, dark-rehearsal, arm/disarm, and failback gates live in
 [CONTROLLER_OPERATIONS.md](../../backend/deploy/fallback-server/CONTROLLER_OPERATIONS.md).
 
 The provider-source and payload boundary in the Sentry contract
@@ -55,11 +55,17 @@ and runs on the Fallback Server itself.
    probes and DNS decision. Sentry never selects, writes, or commands a route.
 3. The listener has no cron job, systemd timer, or background health poll. It
    wakes only for a webhook and can resume a persisted in-progress incident
-   after a process restart.
+   after a process restart. A restart in `DNS_COMMITTING` reconciles the live
+   DNS record before finalizing any route; it never promotes from durable state
+   alone.
 4. Production arming and disarming are explicit operator actions. Once armed
    with `AWS_ACTIVE`, an eligible incident may automatically move traffic from
    AWS to the Fallback Server. The Controller never performs an automatic
    Fallback-to-AWS failback.
+
+5. The DNS mutation has a durable `DNS_COMMITTING` reservation phase. A
+   disarm before that reservation prevents the PATCH; a disarm after the
+   reservation is refused until the provider record is reconciled.
 
 The legacy project Service Hook `event.alert` contract is not the source for
 this flow and must not be substituted for the Internal Integration delivery.
@@ -115,7 +121,8 @@ replace and an exclusive lock. The record contains only safe operational data:
 - the current route (`AWS_ACTIVE` or `FALLBACK_ACTIVE`) and current/last event
   fingerprints;
 - a pending transition fingerprint and start/generation lineage while a
-  verification is in progress;
+  verification is in progress, plus the durable `DNS_COMMITTING` reservation
+  phase at the DNS point-of-no-return;
 - a bounded replay-fingerprint history, terminal reason, and safe timestamps.
 
 The state file contains no URL, token, password, raw request, or arbitrary shell
@@ -132,12 +139,17 @@ verification from the Fallback Server:
 2. The Fallback Server public `/health/ready` probe succeeds three consecutive
    times. Readiness includes a `SELECT 1` against the Production DB and returns
    no connection details.
-3. The Fallback Server release identity matches the approved production commit
-   and immutable image digest, and every passive gate is still disabled:
+3. The Fallback Server release identity matches the expected production tag and
+   immutable digest in the root-owned controller environment
+   (`FAILOVER_EXPECTED_IMAGE_TAG` and `FAILOVER_EXPECTED_IMAGE_DIGEST`), and
+   every passive gate is still disabled:
    schedulers, auto-finalizers, document-job intake/workers,
    eformsign reconciliation, and Aligo.
 4. The configured Production DB identity marker/hash matches the approved
-   Production DB. A URL or credential comparison is never logged.
+   Production DB reference digest in the separate root-owned mode-0400 file
+   `/opt/babyjamjam-fallback-server/approved-production-db-ref.sha256`. A URL,
+   credential, or expected image value is never logged or written to controller
+   state.
 5. The current public DNS record still points to the allowlisted AWS origin.
 
 The three-failure/three-success sequence and all identity checks must complete
@@ -160,10 +172,14 @@ The DNS client is constrained to one preconfigured Vercel record:
 It may issue one update from the approved AWS value to the approved Fallback
 value. It cannot create or delete records, change the record type or name,
 change unrelated records, change the frontend deployment, or alter TTL. The
-client reads the record before and after the update. Any DNS drift, record-ID
-mismatch, unexpected response, or ambiguous timeout leaves the incident
-`BLOCKED` for operator reconciliation; it does not retry indefinitely. The
-Vercel token is a root-owned, mode-0600 secret available only to this client.
+client reads the record before and after the update. Immediately before the
+PATCH it must atomically reserve durable phase `DNS_COMMITTING` with the same
+pending fingerprint/generation lineage and `armed=true`. A disarm before that
+reservation prevents the PATCH; a disarm during `DNS_COMMITTING` is refused
+until the provider record is reconciled. Any DNS drift, record-ID mismatch,
+unexpected response, or ambiguous timeout leaves the incident `BLOCKED` for
+operator reconciliation; it does not retry indefinitely. The Vercel token is a
+root-owned, mode-0600 secret available only to this client.
 
 ### Failback and rollback
 
@@ -177,7 +193,9 @@ reconciles the live DNS value and either completes the one allowed update or
 restores AWS manually; the Controller does not oscillate between origins. A
 Controller deployment can be rolled back to its previous verified immutable
 image, provided the state schema remains compatible. Image rollback is
-separate from traffic failback.
+separate from traffic failback. A restart in `DNS_COMMITTING` reconciles the
+live record before finalizing state and never promotes from the state file
+alone.
 
 ### Fallback runtime safety
 
@@ -201,9 +219,12 @@ Automatic failover must remain disarmed until each blocker is cleared:
   (Phase 5 blocker);
 - no preflight-captured Vercel record ID, exact record shape, two-value IP
   allowlist, and root-only token storage;
-- no approved Production DB identity marker/hash or matching readiness proof;
-- no immutable Fallback release identity or proof that passive gates are
-  enforced at runtime;
+- no separate approved Production DB reference digest at
+  `/opt/babyjamjam-fallback-server/approved-production-db-ref.sha256` with
+  `root:root` mode `0400`, or matching readiness proof;
+- no immutable Fallback release identity in
+  `FAILOVER_EXPECTED_IMAGE_TAG`/`FAILOVER_EXPECTED_IMAGE_DIGEST`, or proof that
+  passive gates are enforced at runtime;
 - any failed dark-deploy, test-hostname transition, manual failback, or
   rollback rehearsal;
 - a missing fixed outbound IPv4 blocks Aligo enablement (the API-only
@@ -217,7 +238,9 @@ Automatic failover must remain disarmed until each blocker is cleared:
       body, disallowed monitor, replay, resolved event, `metric_alert`, or
       legacy project Service Hook event causes no DNS mutation.
 - [ ] No cron, systemd timer, Vercel Function, or periodic polling is required;
-      a service restart resumes only a persisted pending incident.
+      a service restart resumes only a persisted `VERIFYING` incident or
+      reconciles a persisted `DNS_COMMITTING` reservation against live DNS; it
+      never promotes from durable state alone.
 - [ ] With `AWS_ACTIVE`, three AWS readiness failures, three Fallback readiness
       successes, matching Production DB identity, approved image digest,
       disabled passive gates, and current AWS DNS, exactly one restricted A
@@ -228,6 +251,8 @@ Automatic failover must remain disarmed until each blocker is cleared:
       drift persists `BLOCKED` and performs no update.
 - [ ] Duplicate deliveries, concurrent deliveries, and process restarts do not
       claim the same fingerprint twice or issue a second DNS update.
+- [ ] A disarm before `DNS_COMMITTING` prevents the PATCH; a disarm during
+      `DNS_COMMITTING` is refused until live DNS reconciliation.
 - [ ] Vercel API timeout or ambiguous response requires live record
       reconciliation and bounded operator action; it never starts an
       unbounded retry loop.
