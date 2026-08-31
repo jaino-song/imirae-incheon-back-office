@@ -13,9 +13,12 @@ describe("CallTranscriptWebhookController (Integration)", () => {
     let tokenService: jest.Mocked<Pick<CallIngestTokenService, "resolveBranchId">>;
 
     const payload = {
-        fileId: "drive-1",
+        driveFileId: "drive-1",
         fileName: "통화 녹음 김서연_010-4821-7763.m4a",
-        transcript: [{ speaker: "고객", text: "산후도우미 문의요" }],
+        sttModel: "gemini-3.5-transcribe",
+        diarized: true,
+        vocabularyVersion: "v1",
+        transcriptRaw: [{ speaker: "1", text: "산후도우미 문의요" }],
     };
 
     beforeEach(async () => {
@@ -49,7 +52,10 @@ describe("CallTranscriptWebhookController (Integration)", () => {
 
         expect(response.status).toBe(202);
         expect(response.body).toEqual({ accepted: true, duplicate: false, callRecordId: "rec-1" });
-        expect(ingestionService.ingest).toHaveBeenCalledWith("branch-1", expect.objectContaining({ fileId: "drive-1" }));
+        expect(ingestionService.ingest).toHaveBeenCalledWith(
+            "branch-1",
+            expect.objectContaining({ driveFileId: "drive-1" }),
+        );
     });
 
     it("200 no-op on duplicate", async () => {
@@ -75,12 +81,12 @@ describe("CallTranscriptWebhookController (Integration)", () => {
         expect(ingestionService.ingest).not.toHaveBeenCalled();
     });
 
-    it("400 on invalid payload (missing transcript)", async () => {
+    it("400 on invalid payload (missing required v2 fields)", async () => {
         tokenService.resolveBranchId.mockResolvedValue("branch-1");
         const response = await request(app.getHttpServer())
             .post("/webhooks/call-transcripts")
             .set({ Authorization: "Bearer cit_valid" })
-            .send({ fileId: "drive-1", fileName: "x.m4a" });
+            .send({ driveFileId: "drive-1", fileName: "x.m4a" });
         expect(response.status).toBe(400);
     });
 

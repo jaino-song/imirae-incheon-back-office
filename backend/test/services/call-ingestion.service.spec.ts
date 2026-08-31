@@ -8,11 +8,13 @@ describe("CallIngestionService", () => {
     let service: CallIngestionService;
 
     const payload = {
-        fileId: "drive-1",
+        driveFileId: "drive-1",
         fileName: "통화 녹음 김서연_010-4821-7763.m4a",
         recordedAt: "2026-06-10T05:02:11.000Z",
-        transcript: [{ speaker: "고객", text: "산후도우미 문의요" }],
-        summary: { inquiry_type: "예약 문의", key_content: "..." },
+        sttModel: "gemini-3.5-transcribe",
+        diarized: true,
+        vocabularyVersion: "v1",
+        transcriptRaw: [{ speaker: "1", text: "산후도우미 문의요" }],
     };
 
     beforeEach(() => {
@@ -34,11 +36,20 @@ describe("CallIngestionService", () => {
                 driveFileId: "drive-1",
                 fileName: payload.fileName,
                 recordedAt: new Date(payload.recordedAt),
-                transcript: payload.transcript,
-                summary: payload.summary,
+                transcript: payload.transcriptRaw,
+                transcriptRaw: payload.transcriptRaw,
+                sttMeta: {
+                    sttModel: payload.sttModel,
+                    diarized: payload.diarized,
+                    vocabularyVersion: payload.vocabularyVersion,
+                },
                 processingStatus: "RECEIVED",
             }),
         });
+        // summary is no longer received on the webhook — ingestion must not
+        // touch the column at all (it stays null until extraction writes it).
+        const createArgs = prisma.call_record.create.mock.calls[0][0];
+        expect("summary" in createArgs.data).toBe(false);
         expect(processingService.processCallRecord).toHaveBeenCalledWith("rec-1");
     });
 

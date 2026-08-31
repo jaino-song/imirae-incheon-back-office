@@ -234,9 +234,35 @@ Body `{ reason?: string }` → `200 { id, status: "DISCARDED" }` · `409` not PE
 
 ## 4. Operator-side (not called by the mobile UI)
 
+### `POST /webhooks/call-transcripts` — webhook body v2 (Gemini 3.5 Transcribe)
+
+**Breaking change from Phase 1.** Nothing has ever gone live, so this is a clean contract
+break — the v1 shape (role-named `transcript` + n8n-produced `summary`) is deleted outright,
+no compatibility shim. n8n now sends a **raw diarized transcript**; role-mapping and the
+structured summary are produced server-side by the refine → extract pipeline instead.
+
+```jsonc
+{
+  "driveFileId": "1a2b3c...",             // unchanged — idempotency key
+  "fileName": "통화 녹음 ....m4a",         // unchanged
+  "recordedAt": "2026-09-01T05:02:11Z",   // optional, strict ISO 8601
+  "sttModel": "gemini-3.5-transcribe",
+  "diarized": true,                        // false when n8n's >30-min diarization fallback fired —
+                                            // transcriptRaw speakers are then unattributed/omitted
+  "vocabularyVersion": "v3",               // echoed from GET /webhooks/call-transcripts/vocabulary
+  "transcriptRaw": [                       // raw diarized turns; speaker is a free string ("1"/"2"),
+    { "speaker": "1", "text": "..." }      // never enumerated — the fallback may omit it entirely
+  ]
+}
+```
+
+`summary` no longer appears on the webhook body at all. `driveFileId`, `fileName` and the 1 mb
+body limit are unchanged from v1. `transcriptRaw` caps: ≤ 500 turns, each turn text ≤ 2000
+chars.
+
 | Endpoint | Auth | Notes |
 |---|---|---|
-| `POST /webhooks/call-transcripts` | `Authorization: Bearer <cit_… ingest token>` | n8n only. Body: `{ fileId, fileName, recordedAt?, transcript[], summary? }`. Body limit: **1 mb** (express-level). Transcript caps: ≤ 500 turns, each turn text ≤ 2000 chars. `recordedAt` must be a strict ISO 8601 calendar-validated date-time string. **202** `{ accepted: true, duplicate: false, callRecordId }` fresh accepted · **200** `{ accepted: true, duplicate: true, callRecordId }` duplicate (idempotent re-delivery) · **401** bad token · **400** invalid payload (including validation cap violations or malformed `recordedAt`) |
+| `POST /webhooks/call-transcripts` | `Authorization: Bearer <cit_… ingest token>` | n8n only. Body: see v2 shape above. `recordedAt` must be a strict ISO 8601 calendar-validated date-time string when present. **202** `{ accepted: true, duplicate: false, callRecordId }` fresh accepted · **200** `{ accepted: true, duplicate: true, callRecordId }` duplicate (idempotent re-delivery) · **401** bad token · **400** invalid payload (including validation cap violations or malformed `recordedAt`) |
 | `POST /branches/:branchId/call-ingest-tokens` | admin JWT | `{ label }` → `{ token }` — plaintext shown once |
 | `POST /call-ingest-tokens/:id/revoke` | admin JWT | kills exactly one ingest source |
 
