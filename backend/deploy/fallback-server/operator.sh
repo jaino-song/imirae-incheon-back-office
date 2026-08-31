@@ -20,6 +20,7 @@ readonly TEMPORARY_STOP_UNIT="babyjamjam-fallback-temporary-active-stop"
 readonly TEMPORARY_GUARD_TIMER="babyjamjam-fallback-temporary-active-guard.timer"
 readonly RUNTIME_MODE_FILE="$STATE_DIRECTORY/runtime-mode"
 readonly ACTIVE_EXPIRY_FILE="$STATE_DIRECTORY/temporary-active-expiry"
+readonly APPROVAL_NONCES_FILE="$STATE_DIRECTORY/used-temporary-active-nonces"
 readonly LOCK_FILE="$STATE_DIRECTORY/operator.lock"
 readonly IMAGE_REPOSITORY="ghcr.io/jaino-song/babyjamjam-admin-backend"
 readonly LOCAL_IMAGE_REPOSITORY="babyjamjam-backend"
@@ -256,33 +257,67 @@ approval_value() {
 }
 
 validate_temporary_active_approval() {
-    local schema incident_id approval_tag approval_digest approval_db_hash approval_egress_hash expiry now line_count
+    local schema incident_id condition_hash approval_tag approval_digest approval_db_hash approval_egress_hash issued nonce expiry now line_count
 
     [[ -f "$TEMPORARY_ACTIVE_APPROVAL_FILE" && ! -L "$TEMPORARY_ACTIVE_APPROVAL_FILE" ]] \
         || die "The temporary-active approval artifact is missing or unsafe."
     [[ "$(/usr/bin/stat -c '%U:%G:%a' "$TEMPORARY_ACTIVE_APPROVAL_FILE")" == "root:root:400" ]] \
         || die "The temporary-active approval artifact must be root:root mode 400."
     line_count="$(/usr/bin/wc -l <"$TEMPORARY_ACTIVE_APPROVAL_FILE")"
-    [[ "$line_count" == "7" ]] || die "The temporary-active approval artifact schema is invalid."
+    [[ "$line_count" == "10" ]] || die "The temporary-active approval artifact schema is invalid."
     schema="$(approval_value schema_version || true)"
     incident_id="$(approval_value incident_id || true)"
+    condition_hash="$(approval_value primary_scheduler_condition_ref_sha256 || true)"
     approval_tag="$(approval_value image_tag || true)"
     approval_digest="$(approval_value image_digest || true)"
     approval_db_hash="$(approval_value production_db_ref_sha256 || true)"
     approval_egress_hash="$(approval_value aligo_egress_ipv4_sha256 || true)"
+    issued="$(approval_value issued_at_unix || true)"
+    nonce="$(approval_value approval_nonce || true)"
     expiry="$(approval_value expires_at_unix || true)"
     [[ "$schema" == "1" && "$incident_id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$ ]] \
         || die "The temporary-active approval artifact schema is invalid."
     [[ "$approval_tag" =~ $SHA_PATTERN && "$approval_digest" =~ $DIGEST_PATTERN \
         && "$approval_db_hash" =~ ^[0-9a-f]{64}$ && "$approval_egress_hash" =~ ^[0-9a-f]{64}$ \
-        && "$expiry" =~ ^[0-9]{10,}$ ]] || die "The temporary-active approval artifact schema is invalid."
+        && "$condition_hash" =~ ^[0-9a-f]{64}$ && "$issued" =~ ^[0-9]{10,}$ \
+        && "$nonce" =~ ^[a-f0-9]{32,128}$ && "$expiry" =~ ^[0-9]{10,}$ ]] || die "The temporary-active approval artifact schema is invalid."
     now="$(/usr/bin/date +%s)"
-    (( expiry > now )) || die "The temporary-active approval artifact has expired."
+    (( issued <= now + 60 && issued <= expiry && expiry > now + 300 && expiry - issued <= 172800 )) \
+        || die "The temporary-active approval timing is invalid."
+    [[ ! -f "$APPROVAL_NONCES_FILE" ]] || ! /usr/bin/grep -Fqx "$nonce" "$APPROVAL_NONCES_FILE" \
+        || die "The temporary-active approval nonce was already used."
     [[ "$approval_tag" == "$1" && "$approval_digest" == "$2" ]] \
         || die "The temporary-active approval does not match the requested immutable release."
     /usr/bin/grep -Fqx "$approval_db_hash" "$APPROVED_DB_REF_HASH_FILE" \
         || die "The temporary-active approval does not match the approved Production DB reference."
-    printf '%s\n' "$approval_egress_hash"
+    printf '%s %s\n' "$approval_egress_hash" "$nonce"
+}
+
+claim_approval_nonce() {
+    local nonce="$1" temporary
+    [[ ! -f "$APPROVAL_NONCES_FILE" ]] || ! /usr/bin/grep -Fqx "$nonce" "$APPROVAL_NONCES_FILE" \
+        || die "The temporary-active approval nonce was already used."
+    temporary="$(/usr/bin/mktemp "$STATE_DIRECTORY/.used-temporary-active-nonces.XXXXXX")"
+    [[ -f "$APPROVAL_NONCES_FILE" ]] && /usr/bin/cat "$APPROVAL_NONCES_FILE" >"$temporary"
+    printf '%s\n' "$nonce" >>"$temporary"
+    /usr/bin/chown root:root "$temporary" && /usr/bin/chmod 600 "$temporary" && /usr/bin/mv -f "$temporary" "$APPROVAL_NONCES_FILE"
+}
+
+validate_active_aligo_env() {
+    local key
+    for key in ALIGO_API_KEY ALIGO_USER_ID ALIGO_SENDER_PHONE; do
+        /usr/bin/awk -F= -v wanted="$key" '$1 == wanted {v=substr($0,index($0,"=")+1); if(v!="") c++} END{exit c==1?0:1}' "$ENV_FILE" \
+            || die "Temporary-active requires a nonempty Aligo credential."
+    done
+}
+
+verify_image_identity() {
+    local tag="$1" digest="$2" local_id immutable_id revision running_id="${3:-}"
+    local_id="$(/usr/bin/docker image inspect --format '{{.Id}}' "$LOCAL_IMAGE_REPOSITORY:$tag")" || die "The local approved image is unavailable."
+    immutable_id="$(/usr/bin/docker image inspect --format '{{.Id}}' "$IMAGE_REPOSITORY@$digest")" || die "The immutable approved image is unavailable."
+    revision="$(/usr/bin/docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$LOCAL_IMAGE_REPOSITORY:$tag")" || die "The approved image revision is unavailable."
+    [[ "$local_id" == "$immutable_id" && "$revision" == "$tag" ]] || die "The approved image identity does not match."
+    if [[ -n "$running_id" ]]; then [[ "$running_id" == "$local_id" ]] || die "The running image identity does not match."; fi
 }
 
 egress_hash() {
@@ -445,21 +480,20 @@ verify_temporary_active_runtime() {
 }
 
 temporary_activate_release() {
-    local commit_sha="$1" image_digest="$2" approval_egress_hash expiry current_tag current_digest
+    local commit_sha="$1" image_digest="$2" approval_data approval_egress_hash approval_nonce expiry current_tag current_digest container_id
 
     validate_release "$commit_sha" "$image_digest"
     validate_env_file
     validate_production_db_identity
-    approval_egress_hash="$(validate_temporary_active_approval "$commit_sha" "$image_digest")"
-    verify_approved_egress "$approval_egress_hash"
+    approval_data="$(validate_temporary_active_approval "$commit_sha" "$image_digest")"
+    approval_egress_hash="${approval_data%% *}"; approval_nonce="${approval_data##* }"
+    validate_active_aligo_env
     current_tag="$(read_state current-image-tag)" || die "No passive Fallback Server release is recorded."
     current_digest="$(read_state current-image-digest)" || die "No passive Fallback Server image digest is recorded."
     [[ "$current_tag" == "$commit_sha" && "$current_digest" == "$image_digest" ]] \
         || die "The temporary-active release must match the recorded passive release."
-    /usr/bin/docker image inspect "$LOCAL_IMAGE_REPOSITORY:$commit_sha" >/dev/null 2>&1 \
-        || die "The approved temporary-active image is not already present locally."
-    /usr/bin/docker image inspect "$IMAGE_REPOSITORY@$image_digest" >/dev/null 2>&1 \
-        || die "The approved immutable temporary-active image is not already present locally."
+    verify_image_identity "$commit_sha" "$image_digest"
+    claim_approval_nonce "$approval_nonce"
     expiry="$(approval_value expires_at_unix)"
     schedule_temporary_expiry_stop "$expiry"
     write_state runtime-mode temporary-active
@@ -476,6 +510,9 @@ temporary_activate_release() {
         clear_temporary_active_state
         die "The temporary-active Fallback Server runtime verification failed."
     fi
+    container_id="$(container_id_for "$commit_sha")" || die "The temporary-active API container is unavailable."
+    verify_image_identity "$commit_sha" "$image_digest" "$(/usr/bin/docker inspect --format '{{.Image}}' "$container_id")"
+    (( $(/usr/bin/date +%s) < expiry )) || { compose "$commit_sha" stop api >/dev/null 2>&1 || true; clear_temporary_active_state; die "The temporary-active approval expired during startup."; }
     printf '%s\n' \
         "environment=fallback-server" \
         "temporary_active=true" \
