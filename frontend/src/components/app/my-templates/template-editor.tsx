@@ -49,7 +49,7 @@ export const TemplateEditor = ({ initialData }: TemplateEditorProps) => {
                     .filter(key => !existingKeys.has(key))
                     .map(key => ({
                         key,
-                        label: key,
+                        label: PRESET_VARIABLES.find(p => p.key === key)?.label ?? key,
                         type: "text" as const,
                         required: true
                     }));
@@ -168,6 +168,8 @@ export const TemplateEditor = ({ initialData }: TemplateEditorProps) => {
                                     sideOffset={8}
                                     avoidCollisions
                                     className="w-80"
+                                    onOpenAutoFocus={(e) => e.preventDefault()}
+                                    onFocusOutside={(e) => e.preventDefault()}
                                 >
                                     <VariableConfigurator
                                         variant="popover"

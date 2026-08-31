@@ -253,6 +253,17 @@ export const VariableChipEditor = forwardRef<VariableChipEditorHandle, VariableC
                             "focus-visible:border-v3-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-v3-primary/10 focus-visible:ring-offset-0 focus-visible:shadow-none"
                         ),
                     },
+                    // A real mouse click selects the atom node between mousedown and
+                    // mouseup, re-rendering the NodeView, so the browser dispatches the
+                    // click on an ancestor and the pill's own onClick never fires.
+                    // ProseMirror's position-based click handling is immune to that.
+                    handleClickOn: (_view, _pos, node, _nodePos, _event, direct) => {
+                        if (direct && node.type.name === "variable") {
+                            onVariableClickRef.current?.(node.attrs.key as string);
+                            return true;
+                        }
+                        return false;
+                    },
                     handlePaste: (view, event) => {
                         const text = event.clipboardData?.getData("text/plain");
                         if (!text) return false;
