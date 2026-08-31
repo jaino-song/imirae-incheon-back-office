@@ -522,8 +522,6 @@ temporary_activate_release() {
     if [[ "$(read_state runtime-mode || true)" == "temporary-active" ]]; then
         die "An existing temporary-active runtime must be stopped before replacement."
     fi
-    clear_temporary_expiry_timer
-    clear_temporary_active_state
     validate_env_file
     validate_production_db_identity
     approval_data="$(validate_temporary_active_approval "$commit_sha" "$image_digest")"
@@ -542,7 +540,7 @@ temporary_activate_release() {
     write_state temporary-active-expiry "$expiry"
     write_state temporary-active-linkage "$incident_id $evidence_hash $approval_nonce"
     /usr/bin/systemctl enable --now "$TEMPORARY_GUARD_TIMER" >/dev/null \
-        || { clear_temporary_active_state; die "The temporary-active reboot-safe expiry guard could not be enabled."; }
+        || { clear_temporary_expiry_timer; clear_temporary_active_state; die "The temporary-active reboot-safe expiry guard could not be enabled."; }
     if ! active_compose "$commit_sha" up -d --no-build; then
         cleanup_active_after_failure "$commit_sha" || die "The temporary-active cleanup could not confirm API stop."
         die "The temporary-active Fallback Server startup failed."
@@ -551,8 +549,14 @@ temporary_activate_release() {
         cleanup_active_after_failure "$commit_sha" || die "The temporary-active cleanup could not confirm API stop."
         die "The temporary-active Fallback Server runtime verification failed."
     fi
-    container_id="$(container_id_for "$commit_sha")" || die "The temporary-active API container is unavailable."
-    verify_image_identity "$commit_sha" "$image_digest" "$(/usr/bin/docker inspect --format '{{.Image}}' "$container_id")"
+    if ! container_id="$(container_id_for "$commit_sha")"; then
+        cleanup_active_after_failure "$commit_sha" || die "The temporary-active cleanup could not confirm API stop."
+        die "The temporary-active API container is unavailable."
+    fi
+    if ! verify_image_identity "$commit_sha" "$image_digest" "$(/usr/bin/docker inspect --format '{{.Image}}' "$container_id")"; then
+        cleanup_active_after_failure "$commit_sha" || die "The temporary-active cleanup could not confirm API stop."
+        die "The temporary-active running image identity is invalid."
+    fi
     (( $(/usr/bin/date +%s) < expiry )) || { cleanup_active_after_failure "$commit_sha" || die "The temporary-active cleanup could not confirm API stop."; die "The temporary-active approval expired during startup."; }
     printf '%s\n' \
         "environment=fallback-server" \
@@ -691,8 +695,6 @@ rollback_release() {
     local previous_digest
     local previous_tag
 
-    clear_temporary_expiry_timer
-    clear_temporary_active_state
     [[ "$(read_state runtime-mode || true)" != "temporary-active" ]] \
         || die "Stop the temporary-active runtime before passive rollback."
     current_tag="$(read_state current-image-tag)" || die "No current Fallback Server release is recorded."
