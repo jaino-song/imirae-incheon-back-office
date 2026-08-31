@@ -16,6 +16,8 @@ type CallRecordState = {
     branchId: string;
     fileName: string;
     transcript: unknown;
+    transcriptRaw: unknown;
+    sttMeta: unknown;
     summary: unknown;
     processingStatus: ProcessingStatus;
     processingClaimedAt: Date | null;
@@ -45,6 +47,8 @@ function createState(overrides: Partial<CallRecordState> = {}) {
         branchId: "branch-1",
         fileName: "call.m4a",
         transcript: [],
+        transcriptRaw: null,
+        sttMeta: null,
         summary: null,
         processingStatus: "RECEIVED",
         processingClaimedAt: null,
@@ -367,6 +371,47 @@ describe("CallProcessingService processing claim", () => {
             }),
             data: expect.objectContaining({ processingStatus: "FAILED", processingClaimedAt: null }),
         }));
+    });
+
+    it("does not let a lease-lost owner's late refine result overwrite the transcript (refine-persist fence)", async () => {
+        const originalTranscript = [{ speaker: "1", text: "원본" }];
+        const { record, prisma } = createState({
+            transcript: originalTranscript,
+            transcriptRaw: [
+                { speaker: "1", text: "산우도우미 문의요" },
+                { speaker: "2", text: "네" },
+            ],
+            sttMeta: { sttModel: "gemini-3.5-transcribe", diarized: true, vocabularyVersion: "v1" },
+        });
+        const staleRefine = jest.fn();
+        let resolveRefine!: (result: { transcript: { speaker: string; text: string }[] }) => void;
+        staleRefine.mockReturnValue(new Promise((resolve) => {
+            resolveRefine = resolve;
+        }));
+        const staleExtraction = jest.fn();
+        const stale = new CallProcessingService(
+            prisma as never,
+            { extract: staleExtraction } as never,
+            { refine: staleRefine } as never,
+            { get: jest.fn() } as never,
+        );
+
+        const staleOwner = stale.processCallRecord("rec-1");
+        await waitForExtraction(staleRefine);
+
+        // The retry cron reclaims the record to generation 1 while the stale
+        // owner's refine call is still in flight.
+        record.extractionRetryCount = 1;
+        record.processingClaimedAt = new Date("2026-09-01T00:10:00.000Z");
+
+        resolveRefine({ transcript: [{ speaker: "고객", text: "지연 도착한 정제 결과" }] });
+        expect(await staleOwner).toBe("in_progress");
+
+        // The fence (id + PROCESSING + generation + claimedAt) must reject the
+        // write: the transcript stays whatever the current owner controls, and
+        // the stale owner never proceeds to extraction on a claim it lost.
+        expect(record.transcript).toEqual(originalTranscript);
+        expect(staleExtraction).not.toHaveBeenCalled();
     });
 
     it("marks a genuine extraction failure and permits the bounded retry to succeed", async () => {

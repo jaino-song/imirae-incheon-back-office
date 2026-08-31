@@ -61,6 +61,37 @@ describe("CallLogSheet — transcript speaker rendering", () => {
     expect(customerTurn.className).toMatch(/bg-blue-100/);
   });
 
+  // The closed speaker vocabulary is a cross-surface contract (backend
+  // call-refinement.port.ts REFINED_SPEAKERS ↔ mobile types.ts/TranscriptView) —
+  // every literal is pinned here ON PURPOSE, hardcoded rather than imported,
+  // so a drift in the component's speaker sets fails this test instead of
+  // silently reclassifying a role as unattributed.
+  it.each([
+    ["아이미래로", "staff"],
+    ["상담원", "staff"],
+    ["고객", "customer"],
+    ["산모", "customer"],
+    ["남편", "customer"],
+  ] as const)("classifies the %s role on the %s side (closed-vocabulary contract)", (speaker, side) => {
+    mockUseCallRecord.mockReturnValue({
+      data: {
+        ...baseRecord,
+        transcript: [{ speaker, text: `${speaker} 역할 발화입니다` }],
+      },
+      isLoading: false,
+    });
+    render(<CallLogSheet recordId="rec-1" />);
+
+    const turn = screen.getByText(`${speaker} 역할 발화입니다`);
+    if (side === "staff") {
+      expect(turn.className).toMatch(/self-start/);
+      expect(turn.className).toMatch(/bg-gray-200/);
+    } else {
+      expect(turn.className).toMatch(/self-end/);
+      expect(turn.className).toMatch(/bg-blue-100/);
+    }
+  });
+
   it("renders a neutral-speaker (화자) transcript as unattributed, not customer-side", () => {
     mockUseCallRecord.mockReturnValue({
       data: {

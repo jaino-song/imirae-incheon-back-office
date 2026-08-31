@@ -12,6 +12,7 @@ import {
     CallRefinementResult,
     NEUTRAL_SPEAKER,
 } from "domain/ports/call-refinement.port";
+import { CALL_TERM_CORRECTIONS } from "domain/constants/call-vocabulary";
 import { GeminiCallRefinementAdapter } from "infrastructure/api/gemini-call-refinement.adapter";
 import {
     AligoSendSmsParams,
@@ -792,10 +793,21 @@ export class StubCallRefinementAdapter implements CallRefinementPort {
                 speaker: input.diarized
                     ? (STUB_DIARIZED_SPEAKER_MAP[turn.speaker] ?? NEUTRAL_SPEAKER)
                     : NEUTRAL_SPEAKER,
-                text: turn.text,
+                // Apply the real correction dictionary mechanically so the e2e
+                // can assert the refine stage actually corrects terminology —
+                // without this, e2e green would only prove speaker mapping.
+                text: applyStubTermCorrections(turn.text),
             })),
         };
     }
+}
+
+function applyStubTermCorrections(text: string): string {
+    let corrected = text;
+    for (const [wrong, right] of Object.entries(CALL_TERM_CORRECTIONS)) {
+        corrected = corrected.split(wrong).join(right);
+    }
+    return corrected;
 }
 
 export function createCallRefinementAdapter(configService: ConfigService): CallRefinementPort {

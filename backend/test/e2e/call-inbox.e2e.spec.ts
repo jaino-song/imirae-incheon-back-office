@@ -16,14 +16,15 @@ import { CALL_VOCABULARY } from "domain/constants/call-vocabulary";
  * Call Inbox E2E — real DB, real call-inbox slice, vendor stubs.
  *
  * SAFETY: this suite mutates the database (creates an ingest token, a
- * call_record, a client_draft and a client). It must ONLY run against the
- * disposable e2e stack — the throwaway Postgres container the mobile-ci e2e
- * job stands up (migrate deploy + db:seed:e2e + E2E_VENDOR_STUBS=1). To make
- * that non-negotiable it self-skips unless E2E_VENDOR_STUBS=1, so an
- * accidental `npm test` against a developer's live DATABASE_URL can never
- * reach these mutations. (jest.config.ts also ignores test/e2e/, so the
- * default unit run never even collects this file — this guard is the second
- * belt.)
+ * call_record, a client_draft and a client). It must ONLY run through
+ * scripts/run-call-inbox-e2e.mjs (`pnpm --filter ./backend run e2e:call-inbox`),
+ * which creates and drops a uniquely-named disposable database per run —
+ * locally against a throwaway Postgres, and in CI via the `call-inbox` job in
+ * .github/workflows/backend-full-flow-ci.yml. To make that non-negotiable it
+ * self-skips unless E2E_VENDOR_STUBS=1, so an accidental `npm test` against a
+ * developer's live DATABASE_URL can never reach these mutations.
+ * (jest.config.ts also ignores test/e2e/, so the default unit run never even
+ * collects this file — this guard is the second belt.)
  *
  * Slice choice: we import CallInboxModule (+ ClientModule, TenantModule)
  * rather than the whole AppModule. AppModule transitively pulls in the
@@ -69,9 +70,13 @@ const webhookPayload = {
     vocabularyVersion: "v1",
     // Two raw speakers so the post-processing assertion (case 4b) can prove
     // the refine stub maps BOTH sides of the diarized:true vocabulary
-    // ("1"→"아이미래로", "2"→"고객"), not just one.
+    // ("1"→"아이미래로", "2"→"고객"), not just one. The first turn carries a
+    // deliberate STT misrecognition (산우도우미) so 4b can also prove the
+    // refine stage applies the CALL_TERM_CORRECTIONS dictionary — the stub
+    // applies it mechanically, so a green 4b pins terminology correction
+    // end-to-end, not just speaker mapping.
     transcriptRaw: [
-        { speaker: "1", text: "산후도우미 문의요" },
+        { speaker: "1", text: "산우도우미 문의요" },
         { speaker: "2", text: "네 알겠습니다" },
     ],
 };
@@ -276,6 +281,9 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
         const record = await prisma.call_record.findUnique({ where: { id: callRecordId } });
 
         expect(record?.processingStatus).toBe("EXTRACTED");
+        // 산우도우미 (raw misrecognition) → 산후도우미: the refine stage applied
+        // the correction dictionary; transcriptRaw below still holds the
+        // uncorrected original.
         expect(record?.transcript).toEqual([
             { speaker: "아이미래로", text: "산후도우미 문의요" },
             { speaker: "고객", text: "네 알겠습니다" },

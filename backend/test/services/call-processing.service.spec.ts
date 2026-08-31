@@ -299,22 +299,58 @@ describe("CallProcessingService", () => {
         prisma.call_record.findUnique.mockResolvedValue({
             ...record,
             transcript: [{ speaker: "1", text: "stale raw text still sitting in transcript" }],
-            transcriptRaw: [{ speaker: "1", text: "raw text" }],
+            transcriptRaw: [
+                { speaker: "1", text: "raw text" },
+                { speaker: "2", text: "reply" },
+            ],
             sttMeta: { sttModel: "gemini-3.5-transcribe", diarized: true, vocabularyVersion: "v1" },
         });
-        const refinedTranscript = [{ speaker: "아이미래로", text: "정제된 텍스트" }];
+        const refinedTranscript = [
+            { speaker: "아이미래로", text: "정제된 텍스트" },
+            { speaker: "고객", text: "정제된 답변" },
+        ];
         refinementPort.refine.mockResolvedValue({ transcript: refinedTranscript });
         extractionPort.extract.mockResolvedValue(extraction({ category: "OTHER" }));
 
         await service.processCallRecord("rec-1");
 
         expect(refinementPort.refine).toHaveBeenCalledWith({
-            segments: [{ speaker: "1", text: "raw text" }],
+            segments: [
+                { speaker: "1", text: "raw text" },
+                { speaker: "2", text: "reply" },
+            ],
             diarized: true,
             fileName: record.fileName,
         });
         expect(extractionPort.extract).toHaveBeenCalledWith(expect.objectContaining({
             transcript: refinedTranscript,
+        }));
+    });
+
+    it("refine: a diarized:true claim over a single-speaker transcript is downgraded to diarized:false (cross-check)", async () => {
+        // diarized is caller-supplied (n8n computes it, and its fallback wiring
+        // can mislabel a non-diarized retry as diarized) — the service must
+        // derive the fact from the transcript instead of trusting the flag.
+        prisma.call_record.findUnique.mockResolvedValue({
+            ...record,
+            transcriptRaw: [
+                { speaker: "", text: "첫 발화" },
+                { speaker: "", text: "둘째 발화" },
+            ],
+            sttMeta: { sttModel: "gemini-3.5-transcribe", diarized: true, vocabularyVersion: "v1" },
+        });
+        refinementPort.refine.mockResolvedValue({
+            transcript: [
+                { speaker: "화자", text: "첫 발화" },
+                { speaker: "화자", text: "둘째 발화" },
+            ],
+        });
+        extractionPort.extract.mockResolvedValue(extraction({ category: "OTHER" }));
+
+        await service.processCallRecord("rec-1");
+
+        expect(refinementPort.refine).toHaveBeenCalledWith(expect.objectContaining({
+            diarized: false,
         }));
     });
 

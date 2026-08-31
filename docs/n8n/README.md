@@ -22,7 +22,7 @@ Google Drive Trigger (지점 폴더 1/min 감시)
   → Send to Backend              (POST api.babyjamjam.com/webhooks/call-transcripts, retry 10s)
 ```
 
-전사는 **1회 호출**입니다. `Get Vocabulary`가 Download file 직후 병렬로 실행되어 백엔드 어휘 사전을 버전과 함께 미리 받아두고, `Gemini Transcribe Audio`가 diarization(화자분리) 활성 상태로 gemini-3.5-transcribe를 1회 호출합니다. 오디오가 diarization 한도(30분)를 초과해 이 호출이 실패하면, n8n이 diarization 없이 **정확히 1회만** 재시도합니다 — `Build Non-Diarized Retry Request → Gemini Transcribe Audio (Non-Diarized Retry)` — 이때 웹훅 payload는 `diarized: false`로 표시됩니다. 두 경로 모두 `Build Webhook Payload`로 수렴해 raw diarized transcript(`transcriptRaw`, 역할 매핑 없음)를 만듭니다 — 용어 교정과 화자→역할 매핑, 통화 요약은 이제 백엔드 refine → extract 단계에서 처리합니다(n8n은 순수 plumbing). 마지막 노드가 idempotent webhook(`driveFileId` = 멱등 키)으로 백엔드에 보냅니다.
+전사는 **1회 호출**입니다. `Get Vocabulary`가 Download file 직후 병렬로 실행되어 백엔드 어휘 사전을 버전과 함께 미리 받아두고, `Gemini Transcribe Audio`가 diarization(화자분리) 활성 상태로 gemini-3.5-transcribe를 1회 호출합니다. **이 호출이 어떤 이유로든 실패하면** — 설계상 의도된 사유는 diarization 한도(30분) 초과지만, 현재 폴백은 오류 종류를 구분하지 않으므로 일시적 429/503도 포함됩니다 — n8n이 diarization 없이 **정확히 1회만** 재시도합니다: `Build Non-Diarized Retry Request → Gemini Transcribe Audio (Non-Diarized Retry)`. 이때 웹훅 payload는 `diarized: false`로 표시됩니다. 짧은 통화가 `diarized: false`로 도착했다면 30분 한도가 아니라 일시 오류가 원인이므로, n8n 실행 로그에서 primary 노드의 오류를 확인하세요(실 API 오류 형태 확인 후 IF 노드로 diarization-한도 오류만 폴백하도록 좁히는 것이 launch checklist 항목입니다). 두 경로 모두 `Build Webhook Payload`로 수렴해 raw diarized transcript(`transcriptRaw`, 역할 매핑 없음)를 만듭니다 — 용어 교정과 화자→역할 매핑, 통화 요약은 이제 백엔드 refine → extract 단계에서 처리합니다(n8n은 순수 plumbing). 마지막 노드가 idempotent webhook(`driveFileId` = 멱등 키)으로 백엔드에 보냅니다.
 
 ## 지점 연결 절차
 
@@ -77,7 +77,7 @@ Body: { "label": "인천본점 n8n" }
 | Send to Backend **400** — 스키마 불일치 | payload 필드 누락 (필수: `driveFileId`, `fileName`, `sttModel`, `diarized`, `vocabularyVersion`, `transcriptRaw`) 또는 cap 초과 — `transcriptRaw` 최대 500 turn, `speaker` 최대 50자, `text` 최대 2,000자 (`backend/interface/dto/call-inbox.dto.ts:60,:64,:261`, 문서화: `docs/api/call-inbox-api.md:259-260`) | Build Webhook Payload 노드의 출력을 실행 로그에서 확인 — Gemini 응답 파싱이 정상인지, cap을 넘는 통화인지 점검 |
 | Send to Backend **400** — body 크기 초과 | webhook body가 **1MB** 제한을 초과 (매우 긴 통화의 `transcriptRaw`) | 매우 긴 통화. diarization 폴백(§ 아래)이 이미 발동했는지, 캡 정책을 조정해야 하는지 확인 |
 | 같은 파일이 **중복** 인박스 진입 우려 | — | `driveFileId`가 멱등 키. 동일 `driveFileId` 재전송 시 백엔드는 **200 no-op**으로 응답함 (n8n retry 상황에서 정상). 중복 레코드는 생기지 않음 |
-| 통화 화자가 모두 `화자`로만 표시됨 (역할명 없음) | n8n의 **>30분 diarization 폴백**이 발동 — 오디오가 diarization 한도를 초과해 diarization 없이 재시도됨 | 정상 동작입니다. n8n 실행 로그의 Build Webhook Payload 출력에서 `diarized: false`를 확인하세요. 백엔드가 화자 귀속 없이 정제하며, 모바일은 중립 라벨 `화자`로 표시합니다 |
+| 통화 화자가 모두 `화자`로만 표시됨 (역할명 없음) | n8n의 **diarization 폴백**이 발동 — primary 전사 호출이 실패해 diarization 없이 재시도됨. 의도된 사유는 >30분 한도 초과지만, 현재 폴백은 오류 종류를 구분하지 않으므로 일시적 429/503도 여기에 해당됨 | n8n 실행 로그에서 primary `Gemini Transcribe Audio` 노드의 **오류 내용**을 확인하세요. 30분 한도 초과면 정상 동작(백엔드가 화자 귀속 없이 정제, 모바일은 중립 라벨 `화자` 표시). 짧은 통화인데 폴백이 발동했다면 일시 오류가 원인 — 원본 녹음이 Drive에 남아 있으므로 파일을 복제 업로드(새 `driveFileId`)하면 재처리됩니다 |
 | 통화가 영영 안 나타남 | 폴더 ID/자격증명 오설정, 또는 워크플로 비활성 | Drive Trigger 노드의 폴더 ID·자격증명, 워크플로 Active 상태, 그리고 폴더에 실제로 파일이 올라왔는지 순서대로 확인 |
 
 ## Phase 3 메모

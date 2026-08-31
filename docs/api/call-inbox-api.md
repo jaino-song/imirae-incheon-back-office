@@ -33,7 +33,7 @@ interface CallSummary {            // produced server-side by the extract stage 
 }
 
 type ProposalField =
-  | "name" | "phone" | "address" | "dueDate" | "birthday"
+  | "name" | "phone" | "address" | "dueDate" | "birthDate" | "birthday"
   | "startDate" | "endDate" | "duration" | "type"
   | "careCenter" | "voucherClient" | "breastPump"
   | "serviceStatus" | "fullPrice" | "grant" | "actualPrice";
@@ -247,12 +247,12 @@ structured summary are produced server-side by the refine → extract pipeline i
   "fileName": "통화 녹음 ....m4a",         // unchanged
   "recordedAt": "2026-09-01T05:02:11Z",   // optional, strict ISO 8601
   "sttModel": "gemini-3.5-transcribe",
-  "diarized": true,                        // false when n8n's >30-min diarization fallback fired —
-                                            // transcriptRaw speakers are then unattributed/omitted
-  "vocabularyVersion": "v3",               // echoed from GET /webhooks/call-transcripts/vocabulary
+  "diarized": true,                        // false when n8n's non-diarized fallback fired —
+                                            // transcriptRaw speakers are then "" (unattributed)
+  "vocabularyVersion": "2026-09-01",       // echoed from GET /webhooks/call-transcripts/vocabulary
   "transcriptRaw": [                       // raw diarized turns; speaker is a free string ("1"/"2"),
-    { "speaker": "1", "text": "..." }      // never enumerated — the fallback may omit it entirely
-  ]
+    { "speaker": "1", "text": "..." }      // never enumerated — the fallback sends it as "" (the key
+  ]                                        // itself is required; a turn without `speaker` is a 400)
 }
 ```
 

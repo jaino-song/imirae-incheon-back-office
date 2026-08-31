@@ -96,4 +96,55 @@ describe("GeminiCallExtractionAdapter", () => {
         const adapter = new GeminiCallExtractionAdapter(configService as never);
         await expect(adapter.extract(input)).rejects.toThrow(/unparseable JSON/);
     });
+
+    const mockResult = (result: unknown) =>
+        jest.spyOn(global, "fetch" as never).mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                candidates: [{ content: { parts: [{ text: JSON.stringify(result) }] } }],
+            }),
+        } as never);
+
+    it("rejects a response with no structured summary (would otherwise land terminal EXTRACTED with NULL summary)", async () => {
+        const withoutSummary: Record<string, unknown> = { ...geminiResult };
+        delete withoutSummary["summary"];
+        mockResult(withoutSummary);
+
+        const adapter = new GeminiCallExtractionAdapter(configService as never);
+        await expect(adapter.extract(input)).rejects.toThrow(/no structured summary/);
+    });
+
+    it("rejects a partial summary missing required keys", async () => {
+        mockResult({ ...geminiResult, summary: { inquiry_type: "주차 문의" } });
+
+        const adapter = new GeminiCallExtractionAdapter(configService as never);
+        await expect(adapter.extract(input)).rejects.toThrow(/missing string key "customer_info"/);
+    });
+
+    it("rejects a category outside the closed union", async () => {
+        mockResult({ ...geminiResult, category: "탈옥됨" });
+
+        const adapter = new GeminiCallExtractionAdapter(configService as never);
+        await expect(adapter.extract(input)).rejects.toThrow(/unrecognized category: "탈옥됨"/);
+    });
+
+    it("rejects non-array proposals", async () => {
+        mockResult({ ...geminiResult, proposals: null });
+
+        const adapter = new GeminiCallExtractionAdapter(configService as never);
+        await expect(adapter.extract(input)).rejects.toThrow(/non-array proposals/);
+    });
+
+    it("accepts a summary whose values are empty strings (sparse call, not a validation failure)", async () => {
+        const sparse = {
+            ...geminiResult,
+            category: "OTHER",
+            proposals: [],
+            summary: { inquiry_type: "", customer_info: "", key_content: "", result_action: "" },
+        };
+        mockResult(sparse);
+
+        const adapter = new GeminiCallExtractionAdapter(configService as never);
+        await expect(adapter.extract(input)).resolves.toEqual(sparse);
+    });
 });

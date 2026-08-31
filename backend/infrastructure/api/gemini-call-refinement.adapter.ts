@@ -65,28 +65,42 @@ export class GeminiCallRefinementAdapter implements CallRefinementPort {
             throw new Error(`Gemini refinement returned unparseable JSON (length=${text.length})`);
         }
 
-        this.assertValidRefinement(parsed);
+        this.assertValidRefinement(parsed, input);
         return parsed;
     }
 
     /**
-     * Validation beyond the extraction sibling (which has none): the response
-     * schema's enum already constrains speaker at the model layer, but a model
-     * can still deviate (e.g. emitting "상담사" instead of "상담원"). Catching
-     * that here — rather than trusting the schema alone — throws so the
-     * record goes FAILED and the retry cron re-runs, instead of letting an
+     * Validation beyond the extraction sibling: the response schema's enum
+     * already constrains speaker at the model layer, but a model can still
+     * deviate (e.g. emitting "상담사" instead of "상담원"). Catching that here —
+     * rather than trusting the schema alone — throws so the record goes
+     * FAILED and the retry cron re-runs, instead of letting an
      * out-of-vocabulary speaker poison the mobile UI's speaker-set
      * classification (TranscriptView.tsx renders anything outside the six
      * literals as unattributed, but a near-miss like "상담사" is a silent
      * misclassification rather than a loud failure).
+     *
+     * Turn count and text are checked for the same reason: the port contract
+     * (call-refinement.port.ts) requires same-count/same-order output, and a
+     * model that summarises 120 turns into 15 — or drops a turn's text —
+     * would otherwise persist silently; a missing text also crashes the
+     * mobile review sheet's evidence lookup at render time.
      */
-    private assertValidRefinement(parsed: CallRefinementResult): void {
+    private assertValidRefinement(parsed: CallRefinementResult, input: CallRefinementInput): void {
         if (!Array.isArray(parsed.transcript) || parsed.transcript.length === 0) {
             throw new Error("Gemini refinement returned an empty or non-array transcript");
+        }
+        if (parsed.transcript.length !== input.segments.length) {
+            throw new Error(
+                `Gemini refinement changed the turn count (in=${input.segments.length}, out=${parsed.transcript.length})`,
+            );
         }
         for (const turn of parsed.transcript) {
             if (!ALLOWED_SPEAKERS.has(turn.speaker)) {
                 throw new Error(`Gemini refinement returned an unrecognized speaker: "${turn.speaker}"`);
+            }
+            if (typeof turn.text !== "string") {
+                throw new Error("Gemini refinement returned a turn without string text");
             }
         }
     }

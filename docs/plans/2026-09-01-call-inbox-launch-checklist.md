@@ -38,6 +38,7 @@
 - [ ] 테스트 녹음 1건으로 첫 실행 → n8n 실행 로그에서 Transcribe 노드의 **실제 응답 JSON** 확인
 - [ ] 응답이 가정과 다르면: Build Webhook Payload 노드의 파싱 분기와 Build Transcribe Request의 봉투 키를 실제 스키마에 맞게 수정 (수정 후 `docs/n8n/` 템플릿에도 반영)
 - [ ] 30분 초과 녹음의 화자분리 폴백(재시도 경로, `diarized:false`)도 한 번 통과 확인 가능하면 확인
+- [ ] **폴백 조건 좁히기**: 현재 non-diarized 재시도는 primary 오류 종류를 구분하지 않고 발동한다 (일시적 429/503 포함 — README 트러블슈팅 표 참고). 실 API에서 >30분 diarization 한도 초과 오류의 형태(status/message)를 확인한 뒤, error 출력과 재시도 노드 사이에 IF 노드를 넣어 그 오류만 폴백하고 나머지는 빨간 실행으로 실패하게 좁힐 것 (수정 후 템플릿 JSON에도 반영)
 
 ## 4. 스모크 테스트 (인천점)
 

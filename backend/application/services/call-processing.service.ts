@@ -19,6 +19,8 @@ import {
     CallRefinementPort,
     CallRefinementResult,
 } from "domain/ports/call-refinement.port";
+import { CALL_REFINEMENT_PROMPT_VERSION } from "application/services/call-refinement.prompt";
+import { CALL_VOCABULARY } from "domain/constants/call-vocabulary";
 import { assertValidPhone, extractPhoneCandidates, normalizePhone } from "application/utils/normalize-phone";
 
 const BOOLEAN_FIELDS = new Set(["careCenter", "voucherClient", "breastPump"]);
@@ -103,7 +105,14 @@ export class CallProcessingService {
         if (record.transcriptRaw) {
             const rawSegments = record.transcriptRaw as unknown as TranscriptTurn[];
             const sttMeta = record.sttMeta as unknown as { diarized?: unknown } | null;
-            const diarized = sttMeta?.diarized === true;
+            // diarized is a caller-supplied flag (n8n computes it), and the
+            // "never guess speakers" guarantee rests on it — so cross-check it
+            // against the transcript itself: a payload claiming diarization
+            // but carrying fewer than two distinct speaker labels gets the
+            // neutral-speaker treatment instead of invented role attribution.
+            const diarized =
+                sttMeta?.diarized === true &&
+                new Set(rawSegments.map((segment) => segment.speaker)).size >= 2;
 
             let refinement: CallRefinementResult;
             try {
@@ -228,6 +237,18 @@ export class CallProcessingService {
                             extractionMeta: {
                                 model: resolveCallExtractionModel(this.configService),
                                 promptVersion: CALL_EXTRACTION_PROMPT_VERSION,
+                                // Refine provenance (v2 records only): the model is the
+                                // same resolveCallExtractionModel value; what can drift
+                                // independently is the refine prompt and the correction
+                                // dictionary the refine pass actually read at runtime —
+                                // sttMeta.vocabularyVersion only records what n8n fed
+                                // the recognizer, which can lag this constant.
+                                ...(record.transcriptRaw
+                                    ? {
+                                          refinePromptVersion: CALL_REFINEMENT_PROMPT_VERSION,
+                                          vocabularyVersion: CALL_VOCABULARY.version,
+                                      }
+                                    : {}),
                             } as unknown as Prisma.InputJsonValue,
                         },
                         skipDuplicates: true,

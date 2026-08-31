@@ -1,6 +1,9 @@
 import { CALL_TERM_CORRECTIONS, CALL_VOCABULARY } from "domain/constants/call-vocabulary";
 import { NEUTRAL_SPEAKER, REFINED_SPEAKERS } from "domain/ports/call-refinement.port";
 
+/** Bump whenever the refine prompt semantics change — stamped into client_draft.extractionMeta for provenance. */
+export const CALL_REFINEMENT_PROMPT_VERSION = "v1";
+
 export function buildCallRefinementPrompt(input: {
     segments: { speaker: string; text: string }[];
     diarized: boolean;
