@@ -221,6 +221,16 @@ reconciliation-unlocked and unused message-trigger-worker gates remain `false`.
 `SCHEDULERS_ENABLED=true` still enables the message-trigger scheduler: duplicate
 delivery is bounded by the existing DB lease/claim/provider-acceptance paths,
 and the approval artifact must record the primary-scheduler incident condition.
+
+While an approved temporary-active runtime is healthy, renew its bounded window
+with `babyjamjam-fallback-server extend-temporary-active <tag> <digest>`. The
+command requires a fresh approval, nonce, DB reference, release, scheduler
+evidence, and egress verification. It moves the expiry forward by at most the
+same 48-hour approval bound without invoking Compose or changing the running
+container ID. If timer, state, guard, runtime, or image verification fails, it
+restores the previous expiry timer and protected state; it never uses a
+stop/restart cycle as renewal.
+
 Aligo
 values are never interpolated by Compose: Docker reads them only from the
 root-owned `backend.env` at active container runtime.
@@ -234,47 +244,39 @@ preflight records. First perform the exact synthetic no-send authentication
 smoke. A real provider-acceptance SMS is a separate action that needs its own
 explicit approval and recipient.
 
-For the temporary ingress operation, publish only the loopback API listener
-through Tailscale Funnel; do not publish the controller. Coordinate both Vercel
-projects' production `NEXT_PUBLIC_API_BASE_URL` change with fresh production
-redeploys, because it is build-time client configuration. Roll back both
-deployments together, then turn Funnel off and run the Fallback operator `stop`.
-Sentry/controller automation, DNS changes, and any cloud-control-plane action
-remain outside this runbook and require their own approval.
+For stable ingress, preserve the existing public contract
+`https://api.babyjamjam.com`. Caddy terminates TLS on the VPS public interface
+and reverse-proxies only to loopback `127.0.0.1:3101`; the controller remains
+unpublished. Both Vercel Production projects keep
+`NEXT_PUBLIC_API_BASE_URL=https://api.babyjamjam.com`, so AWS failback does not
+require a frontend rebuild. Tailscale Funnel is optional only for pre-cutover
+validation and must be disabled after the stable hostname is healthy.
 
-### Action-time Tailscale Funnel procedure
+### Action-time stable API procedure
 
-Do not run these commands until the temporary-active approval, release, DB,
-egress, and rollback deadline are recorded. Publish only the API listener, not
-the controller:
+Do not change DNS until passive release, Production DB identity, Caddy config,
+external egress, Aligo no-send authentication, and a protected rollback record
+are all verified. Capture exactly one `api` A record with its provider ID,
+current AWS value, and TTL. Require TTL 60 and current value equal the captured
+AWS origin, then PATCH only that record to the approved VPS IPv4. A successful
+response is insufficient: perform a fresh record list and require the current
+record identity, value, type, and TTL. Vercel may replace the record ID during
+the PATCH, so capture the read-after-write ID for failback while retaining the
+original AWS value.
 
-```bash
-tailscale funnel --bg 3101
-tailscale funnel status
-```
+Start Caddy with a validated configuration bound only to the VPS public
+interface, wait for automatic certificate issuance, and require external HTTPS,
+`/health/ready`, both Production CORS origins, and a no-data service-record
+route smoke before temporary-active. If any cutover check fails, reconcile live
+DNS once and use the protected rollback artifact; do not issue a blind second
+PATCH.
 
-Capture the URL returned by Tailscale in the incident record; never substitute
-or invent one. From an external approved observer, verify HTTPS, `/health/ready`,
-and an authenticated smoke flow. Update production `NEXT_PUBLIC_API_BASE_URL`
-for both linked Vercel projects, redeploy both, and verify both frontends before
-the approval expiry. If either fails, restore both prior Vercel deployments
-first and verify both restored origins. In every teardown, restore both Vercel
-deployments first, then revoke the temporary Aligo registration and Tailscale
-authorization, turn Funnel off, stop the API, and Release the LightNode host:
-
-```bash
-tailscale funnel off
-sudo /usr/local/sbin/babyjamjam-fallback-server stop
-```
-
-The rollback deadline must precede approval expiry. Controller/Sentry automatic
-failover is explicitly out of scope for this temporary procedure.
-
-`tailscale funnel --bg` may resume after reboot, while this API is deliberately
-configured with `restart: "no"`. After any reboot, immediately run
-`tailscale funnel off`, verify Funnel is unavailable, and do not re-point or
-redeploy either frontend until a full new temporary-active approval and status
-proof have been completed.
+For AWS failback, verify AWS readiness and document reconciliation first, then
+PATCH the current captured `api` record back to the protected original AWS
+value and perform a fresh read-after-write. Only after public DNS and HTTPS are
+confirmed on AWS may the operator stop Fallback, Caddy be disabled, the Aligo
+VPS allow-list entry be removed, and the LightNode instance be released.
+Controller/Sentry automatic failback remains out of scope.
 
 The backend environment is root-owned, but Docker daemon/root users can inspect
 container environment metadata. This mode does not claim Docker `env_file` is a
