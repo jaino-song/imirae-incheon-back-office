@@ -25,6 +25,10 @@ assert_contains "$WORKFLOW" 'LIGHTSAIL_DNS_SHA256' \
     "backend CI must compare the current route with the protected Lightsail identity"
 assert_contains "$WORKFLOW" '^  deploy-lightnode:' \
     "backend CI must define the LightNode replacement job"
+assert_contains "$WORKFLOW" '^  lightnode-connection-smoke:' \
+    "backend CI must expose a read-only LightNode connection smoke"
+assert_contains "$WORKFLOW" "inputs.operation == 'lightnode-status'" \
+    "LightNode connection smoke must require an explicit manual operation"
 assert_contains "$WORKFLOW" "needs\.resolve-backend-deploy-target\.outputs\.target == 'lightnode'" \
     "LightNode deployment must require the resolved LightNode target"
 assert_contains "$WORKFLOW" "needs\.resolve-backend-deploy-target\.outputs\.target == 'lightsail'" \
