@@ -62,7 +62,9 @@ check_host() {
 }
 check_tailscale() {
   require_success tailscale status --json
-  parse_node 'try { const s=JSON.parse(require("fs").readFileSync(0,"utf8")),d=s.Self; if(s.BackendState!=="Running"||!d||typeof d.ID!=="string"||!d.ID||d.Online!==true||!Array.isArray(d.TailscaleIPs)||typeof d.TailscaleIPs[0]!=="string"||!d.TailscaleIPs[0])process.exit(1); process.stdout.write("ok") } catch { process.exit(1) }' "$RUN_OUTPUT"
+  local node; node="$(command_path node)"
+  TAILSCALE_IPS_JSON="$(printf '%s' "$RUN_OUTPUT" | "$node" -e 'try { const s=JSON.parse(require("fs").readFileSync(0,"utf8")),d=s.Self,net=require("net"); if(s.BackendState!=="Running"||!d||typeof d.ID!=="string"||!d.ID||d.Online!==true||!Array.isArray(d.TailscaleIPs)||d.TailscaleIPs.length===0||d.TailscaleIPs.some(x=>typeof x!=="string"||net.isIP(x)===0))process.exit(1); process.stdout.write(JSON.stringify(d.TailscaleIPs)) } catch { process.exit(1) }')" || fail parser
+  [[ "$TAILSCALE_IPS_JSON" == \[*\] ]] || fail parser
 }
 check_egress() {
   local one two digest hashcmd
@@ -73,10 +75,10 @@ check_egress() {
   [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || fail egress_hash; printf 'egress_sha256=%s\n' "$digest"
 }
 check_listeners() {
-  require_success ss -H -lntu
+  require_success ss -H -lntupe
   local mode="$1"
   local node result; node="$(command_path node)"
-  result="$(PREFLIGHT_LISTENER_MODE="$mode" printf '%s' "$RUN_OUTPUT" | PREFLIGHT_LISTENER_MODE="$mode" "$node" -e 'const lines=require("fs").readFileSync(0,"utf8").trim().split("\n").filter(Boolean);for(const l of lines){const c=l.trim().split(/\s+/),m=c[4]?.match(/^(\[[^\]]+\]|[^:]+):(\*|[0-9]+)$/);if(c.length<5||!["tcp","udp"].includes(c[0])||!m)process.exit(1);const h=m[1].replace(/^\[|\]$/g,""),p=m[2]==="*"?-1:Number(m[2]),loop=h==="127.0.0.1"||h==="::1",publicOK=(c[0]==="tcp"&&p===22)||(c[0]==="udp"&&p===41641);if((p===3101||p===3102)||(!loop&&!publicOK))process.exit(1)}process.stdout.write("ok")')" || fail listeners
+  result="$(PREFLIGHT_LISTENER_MODE="$mode" PREFLIGHT_TAILSCALE_IPS="$TAILSCALE_IPS_JSON" printf '%s' "$RUN_OUTPUT" | PREFLIGHT_LISTENER_MODE="$mode" PREFLIGHT_TAILSCALE_IPS="$TAILSCALE_IPS_JSON" "$node" -e 'let tails;try{tails=new Set(JSON.parse(process.env.PREFLIGHT_TAILSCALE_IPS||"[]"))}catch{process.exit(1)}const lines=require("fs").readFileSync(0,"utf8").trim().split("\n").filter(Boolean);for(const l of lines){const c=l.trim().split(/\s+/),m=c[4]?.match(/^(\[[^\]]+\]|[^:]+):(\*|[0-9]+)$/);if(c.length<5||!["tcp","udp"].includes(c[0])||!m)process.exit(1);const h=m[1].replace(/^\[|\]$/g,""),p=m[2]==="*"?-1:Number(m[2]),loop=h==="127.0.0.1"||h==="::1",tailscaled=l.includes("users:((\"tailscaled\",")&&l.includes("cgroup:/system.slice/tailscaled.service");const publicOK=(c[0]==="tcp"&&p===22)||(c[0]==="udp"&&p===41641&&tailscaled)||(c[0]==="tcp"&&tails.has(h)&&tailscaled);if((p===3101||p===3102)||(!loop&&!publicOK))process.exit(1)}process.stdout.write("ok")')" || fail listeners
   [[ "$result" == ok ]] || fail listeners
 }
 check_docker_empty() {
