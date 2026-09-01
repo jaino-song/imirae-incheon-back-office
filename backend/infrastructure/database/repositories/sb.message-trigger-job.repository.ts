@@ -154,45 +154,43 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
 
     async claimPendingWithRuleFence(id: string, branchId: string | null): Promise<boolean> {
         const jobBranchPredicate = branchId === null
-            ? Prisma.sql`branch_id IS NULL`
-            : Prisma.sql`branch_id = ${branchId}::uuid`;
+            ? Prisma.sql`job.branch_id IS NULL`
+            : Prisma.sql`job.branch_id = ${branchId}::uuid`;
         const ruleBranchPredicate = branchId === null
-            ? Prisma.sql`branch_id IS NULL`
-            : Prisma.sql`(branch_id = ${branchId}::uuid OR branch_id IS NULL)`;
+            ? Prisma.sql`rule.branch_id IS NULL`
+            : Prisma.sql`(rule.branch_id = ${branchId}::uuid OR rule.branch_id IS NULL)`;
 
-        return this.prisma.$transaction(async (transaction) => {
-            // This read intentionally does not lock the job. Every lock that
-            // can win this race is acquired in rule-then-job order below.
-            const jobs = await transaction.$queryRaw<Array<{ rule_id: string; branch_id: string | null }>>(Prisma.sql`
-                SELECT rule_id, branch_id
-                FROM "message_trigger_job"
-                WHERE id = ${id}
-                  AND status = 'pending'
-            `);
-            const job = jobs[0];
-            if (!job || job.branch_id !== branchId) return false;
-
-            const rules = await transaction.$queryRaw<Array<{ id: string; jobs_stale: boolean }>>(Prisma.sql`
-                SELECT id, jobs_stale
-                FROM "message_trigger_rule"
-                WHERE id = ${job.rule_id}
-                  AND ${ruleBranchPredicate}
-                FOR UPDATE
-            `);
-            const rule = rules[0];
-            if (!rule || rule.jobs_stale) return false;
-
-            const claimed = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-                UPDATE "message_trigger_job"
-                SET status = 'processing', updated_at = now()
-                WHERE id = ${id}
-                  AND rule_id = ${job.rule_id}
+        // Keep the rule-then-job lock order while avoiding a long-lived Prisma
+        // interactive transaction on the shared production pool. The data-
+        // modifying CTE depends on locked_rule, so PostgreSQL acquires the rule
+        // lock before it can claim the pending job.
+        const claimed = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+            WITH candidate_job AS MATERIALIZED (
+                SELECT job.rule_id
+                FROM "message_trigger_job" AS job
+                WHERE job.id = ${id}
                   AND ${jobBranchPredicate}
-                  AND status = 'pending'
-                RETURNING id
-            `);
-            return claimed.length === 1;
-        });
+                  AND job.status = 'pending'
+            ),
+            locked_rule AS MATERIALIZED (
+                SELECT rule.id
+                FROM "message_trigger_rule" AS rule
+                INNER JOIN candidate_job AS candidate
+                    ON candidate.rule_id = rule.id
+                WHERE ${ruleBranchPredicate}
+                  AND rule.jobs_stale = false
+                FOR UPDATE OF rule
+            )
+            UPDATE "message_trigger_job" AS job
+            SET status = 'processing', updated_at = now()
+            FROM locked_rule AS rule
+            WHERE job.id = ${id}
+              AND job.rule_id = rule.id
+              AND ${jobBranchPredicate}
+              AND job.status = 'pending'
+            RETURNING job.id
+        `);
+        return claimed.length === 1;
     }
 
     async findDuePending(limit = 100): Promise<MessageTriggerJobEntity[]> {
