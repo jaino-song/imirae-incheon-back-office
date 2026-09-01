@@ -31,6 +31,7 @@ hash_ref() {
 readonly PROJECT_REF='abcdefghijklmnopqrst'
 readonly PROJECT_HASH="$(hash_ref "$PROJECT_REF")"
 readonly OTHER_HASH='0000000000000000000000000000000000000000000000000000000000000000'
+readonly TEST_DB_PASSWORD='test-only-password'
 
 write_env() {
     local path="$1"
@@ -54,8 +55,8 @@ valid_fixture() {
     write_env "$path" \
         '# fake values only; this fixture never reaches a provider' \
         "SUPABASE_URL=\"https://${PROJECT_REF}.supabase.co\"" \
-        "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:fake@aws-0.pooler.supabase.com:6543/postgres\"" \
-        "DIRECT_URL=\"postgresql://postgres:fake@db.${PROJECT_REF}.supabase.co:5432/postgres\"" \
+        "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:${TEST_DB_PASSWORD}@aws-0.pooler.supabase.com:6543/postgres\"" \
+        "DIRECT_URL=\"postgresql://postgres:${TEST_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres\"" \
         'NODE_ENV=production'
 }
 
@@ -136,8 +137,8 @@ expect_fail "$duplicate_env" "$approval"
 empty_env="$TEST_ROOT/empty-env.env"
 write_env "$empty_env" \
     'SUPABASE_URL=' \
-    "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:fake@pooler.supabase.com:6543/postgres\"" \
-    "DIRECT_URL=\"postgresql://postgres:fake@db.${PROJECT_REF}.supabase.co:5432/postgres\""
+    "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:${TEST_DB_PASSWORD}@pooler.supabase.com:6543/postgres\"" \
+    "DIRECT_URL=\"postgresql://postgres:${TEST_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres\""
 expect_fail "$empty_env" "$approval"
 
 malformed_env="$TEST_ROOT/malformed-env.env"
@@ -148,29 +149,29 @@ expect_fail "$malformed_env" "$approval"
 non_https="$TEST_ROOT/non-https.env"
 write_env "$non_https" \
     "SUPABASE_URL=\"http://${PROJECT_REF}.supabase.co\"" \
-    "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:fake@pooler.supabase.com:6543/postgres\"" \
-    "DIRECT_URL=\"postgresql://postgres:fake@db.${PROJECT_REF}.supabase.co:5432/postgres\""
+    "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:${TEST_DB_PASSWORD}@pooler.supabase.com:6543/postgres\"" \
+    "DIRECT_URL=\"postgresql://postgres:${TEST_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres\""
 expect_fail "$non_https" "$approval"
 
 localhost_supabase="$TEST_ROOT/localhost-supabase.env"
 write_env "$localhost_supabase" \
     'SUPABASE_URL="https://localhost"' \
-    "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:fake@pooler.supabase.com:6543/postgres\"" \
-    "DIRECT_URL=\"postgresql://postgres:fake@db.${PROJECT_REF}.supabase.co:5432/postgres\""
+    "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:${TEST_DB_PASSWORD}@pooler.supabase.com:6543/postgres\"" \
+    "DIRECT_URL=\"postgresql://postgres:${TEST_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres\""
 expect_fail "$localhost_supabase" "$approval"
 
 invalid_ref="$TEST_ROOT/invalid-ref.env"
 write_env "$invalid_ref" \
     'SUPABASE_URL="https://ABCDEFGHIJKLMNOPQRST.supabase.co"' \
-    "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:fake@pooler.supabase.com:6543/postgres\"" \
-    "DIRECT_URL=\"postgresql://postgres:fake@db.${PROJECT_REF}.supabase.co:5432/postgres\""
+    "DATABASE_URL=\"postgresql://postgres.${PROJECT_REF}:${TEST_DB_PASSWORD}@pooler.supabase.com:6543/postgres\"" \
+    "DIRECT_URL=\"postgresql://postgres:${TEST_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres\""
 expect_fail "$invalid_ref" "$approval"
 
 inconsistent_ref="$TEST_ROOT/inconsistent-ref.env"
 write_env "$inconsistent_ref" \
     "SUPABASE_URL=\"https://${PROJECT_REF}.supabase.co\"" \
-    'DATABASE_URL="postgresql://postgres.zyxwvutsrqponmlkjihg:fake@aws-0.pooler.supabase.com:6543/postgres"' \
-    "DIRECT_URL=\"postgresql://postgres:fake@db.${PROJECT_REF}.supabase.co:5432/postgres\""
+    "DATABASE_URL=\"postgresql://postgres.zyxwvutsrqponmlkjihg:${TEST_DB_PASSWORD}@aws-0.pooler.supabase.com:6543/postgres\"" \
+    "DIRECT_URL=\"postgresql://postgres:${TEST_DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres\""
 expect_fail "$inconsistent_ref" "$approval"
 
 wrong_mode_env="$TEST_ROOT/wrong-mode.env"

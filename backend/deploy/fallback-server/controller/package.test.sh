@@ -35,6 +35,12 @@ assert_contains "$INSTALLER" '/opt/babyjamjam-fallback-server/controller.env' \
     'installer must use the fixed controller environment path'
 assert_contains "$INSTALLER" 'Node.js 20 or newer' \
     'installer must require Node.js 20 or newer'
+for module in config.mjs fallback-status.mjs main.mjs policy.mjs probes.mjs receiver.mjs security.mjs server.mjs state-store.mjs vercel-dns-client.mjs worker.mjs; do
+    assert_contains "$INSTALLER" "$module" "installer manifest source must include $module"
+done
+for artifact in operator.mjs operator.sh controller.env.tpl 'systemd/babyjamjam-failover-controller.service'; do
+    assert_contains "$INSTALLER" "$artifact" "installer manifest source must include $artifact"
+done
 assert_not_contains "$INSTALLER" 'systemctl[[:space:]]+(enable|start)' \
     'installer must not enable or start the service'
 assert_contains "$OPERATOR" 'OPERATOR_ACTIONS = Object\.freeze' \

@@ -4,10 +4,15 @@ set -euo pipefail
 
 readonly SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly COMPOSE_FILE="$SCRIPT_ROOT/compose.yml"
+readonly ACTIVE_COMPOSE_FILE="$SCRIPT_ROOT/compose.temporary-active.yml"
 readonly INSTALLER="$SCRIPT_ROOT/install.sh"
 readonly OPERATOR="$SCRIPT_ROOT/operator.sh"
 readonly IDENTITY_HELPER="$SCRIPT_ROOT/production-db-identity.sh"
 readonly IDENTITY_TEST="$SCRIPT_ROOT/production-db-identity.test.sh"
+readonly BEHAVIOR_TEST="$SCRIPT_ROOT/operator.behavior.test.sh"
+readonly INSTALL_BEHAVIOR_TEST="$SCRIPT_ROOT/install.behavior.test.sh"
+readonly BACKUP_MAP_TEST="$SCRIPT_ROOT/install-backup-map.test.sh"
+readonly LIGHTNODE_TEST="$SCRIPT_ROOT/lightnode-preflight.test.sh"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -25,10 +30,13 @@ assert_not_contains() {
 }
 
 [[ -r "$COMPOSE_FILE" ]] || fail "missing Fallback Server Compose file"
+[[ -r "$ACTIVE_COMPOSE_FILE" ]] || fail "missing temporary-active Fallback Server Compose file"
 [[ -r "$INSTALLER" ]] || fail "missing Fallback Server installer"
 [[ -r "$OPERATOR" ]] || fail "missing Fallback Server operator"
 [[ -r "$IDENTITY_HELPER" ]] || fail "missing Production DB identity helper"
 [[ -r "$IDENTITY_TEST" ]] || fail "missing Production DB identity tests"
+[[ -r "$BEHAVIOR_TEST" ]] || fail "missing temporary-active behavioral tests"
+[[ -r "$INSTALL_BEHAVIOR_TEST" ]] || fail "missing installer behavioral tests"
 assert_contains "$IDENTITY_HELPER" 'FALLBACK_PRODUCTION_DB_REF_SHA256' \
     "identity helper must reject the legacy in-environment digest"
 assert_contains "$IDENTITY_HELPER" 'PROJECT_REF_PATTERN' \
@@ -54,7 +62,8 @@ for key in \
     CONTRACT_AUTO_FINALIZE_ENABLED \
     EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED \
     EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED \
-    EFORMSIGN_RECONCILE_ALLOW_UNLOCKED; do
+    EFORMSIGN_RECONCILE_ALLOW_UNLOCKED \
+    MESSAGE_TRIGGER_JOBS_WORKER_ENABLED; do
     assert_contains "$COMPOSE_FILE" "$key:[[:space:]]+\"false\"" \
         "$key must be hard-disabled in the Fallback Server runtime"
 done
@@ -62,6 +71,21 @@ for key in ALIGO_API_KEY ALIGO_USER_ID ALIGO_SENDER_PHONE; do
     assert_contains "$COMPOSE_FILE" "$key:[[:space:]]+\"\"" \
         "$key must be blank until Covenant fixed egress is authorized"
 done
+for key in \
+    SCHEDULERS_ENABLED \
+    SERVICE_RECORD_AUTO_FINALIZE_ENABLED \
+    CONTRACT_AUTO_FINALIZE_ENABLED \
+    EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED \
+    EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED; do
+    assert_contains "$ACTIVE_COMPOSE_FILE" "$key:[[:space:]]+\"true\"" \
+        "$key must be enabled only in the temporary-active runtime"
+done
+for key in EFORMSIGN_RECONCILE_ALLOW_UNLOCKED MESSAGE_TRIGGER_JOBS_WORKER_ENABLED; do
+    assert_contains "$ACTIVE_COMPOSE_FILE" "$key:[[:space:]]+\"false\"" \
+        "$key must remain disabled in the temporary-active runtime"
+done
+assert_not_contains "$ACTIVE_COMPOSE_FILE" 'ALIGO_(API_KEY|USER_ID|SENDER_PHONE)' \
+    "temporary-active Compose must receive Aligo credentials only through backend.env"
 assert_contains "$COMPOSE_FILE" 'pull_policy:[[:space:]]+never' \
     "Compose must not resolve a mutable image during activation"
 
@@ -87,8 +111,34 @@ assert_contains "$INSTALLER" 'production-db-identity\.sh=\$\(sha256_file' \
     "installer must record the Production DB identity helper digest"
 assert_contains "$OPERATOR" 'production-db-identity\.sh=\$identity_digest' \
     "operator must verify the Production DB identity helper digest"
-assert_contains "$OPERATOR" 'wc -l <"\$BUNDLE_MANIFEST"\)" -eq 3' \
-    "bundle manifest must include the Production DB identity helper"
+assert_contains "$INSTALLER" 'compose\.temporary-active\.yml=\$\(sha256_file' \
+    "installer must record the temporary-active Compose digest"
+assert_contains "$OPERATOR" 'compose\.temporary-active\.yml=\$active_compose_digest' \
+    "operator must verify the temporary-active Compose digest"
+assert_contains "$OPERATOR" 'TEMPORARY_ACTIVE_APPROVAL_FILE' \
+    "operator must require a separate temporary-active approval artifact"
+assert_contains "$OPERATOR" 'aligo_egress_ipv4_sha256' \
+    "operator must verify the approved Aligo egress hash without printing an address"
+assert_contains "$OPERATOR" 'api\.ipify\.org' \
+    "operator must collect a first independent egress observation"
+assert_contains "$OPERATOR" 'ifconfig\.me/ip' \
+    "operator must collect a second independent egress observation"
+assert_contains "$OPERATOR" 'systemd-run' \
+    "operator must schedule the temporary-active expiry stop through systemd"
+assert_contains "$OPERATOR" 'temporary-active' \
+    "operator must expose the explicit temporary-active deployment mode"
+assert_contains "$OPERATOR" 'replace-temporary-active' \
+    "operator must expose the Lightsail-style minimal-downtime active replacement mode"
+assert_contains "$OPERATOR" 'image_preloaded=true' \
+    "active replacement must report that the immutable image was preloaded"
+assert_contains "$OPERATOR" 'force-recreate api' \
+    "active replacement must limit the interruption window to the final API recreate"
+assert_contains "$INSTALLER" 'babyjamjam-fallback-temporary-active-guard\.service' \
+    "installer must stage the reboot-safe active guard service"
+assert_contains "$INSTALLER" 'babyjamjam-fallback-temporary-active-guard\.timer' \
+    "installer must stage the reboot-safe active guard timer"
+assert_contains "$OPERATOR" 'wc -l <"\$BUNDLE_MANIFEST"\)" -eq 6' \
+    "bundle manifest must include active guard artifacts"
 assert_contains "$OPERATOR" 'public_routing=not_managed' \
     "operator status must keep DNS outside its authority"
 assert_contains "$OPERATOR" 'exec 9>"\$LOCK_FILE"' \
@@ -128,5 +178,9 @@ bash -n "$INSTALLER"
 bash -n "$IDENTITY_HELPER"
 bash -n "$IDENTITY_TEST"
 bash "$IDENTITY_TEST"
+bash "$BEHAVIOR_TEST"
+bash "$INSTALL_BEHAVIOR_TEST"
+bash "$BACKUP_MAP_TEST"
+bash "$LIGHTNODE_TEST"
 
 echo "Fallback Server contract tests passed"
