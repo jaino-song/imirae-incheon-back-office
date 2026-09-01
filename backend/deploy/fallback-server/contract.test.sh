@@ -127,6 +127,12 @@ assert_contains "$OPERATOR" 'systemd-run' \
     "operator must schedule the temporary-active expiry stop through systemd"
 assert_contains "$OPERATOR" 'temporary-active' \
     "operator must expose the explicit temporary-active deployment mode"
+assert_contains "$OPERATOR" 'replace-temporary-active' \
+    "operator must expose the Lightsail-style minimal-downtime active replacement mode"
+assert_contains "$OPERATOR" 'image_preloaded=true' \
+    "active replacement must report that the immutable image was preloaded"
+assert_contains "$OPERATOR" 'force-recreate api' \
+    "active replacement must limit the interruption window to the final API recreate"
 assert_contains "$INSTALLER" 'babyjamjam-fallback-temporary-active-guard\.service' \
     "installer must stage the reboot-safe active guard service"
 assert_contains "$INSTALLER" 'babyjamjam-fallback-temporary-active-guard\.timer' \
