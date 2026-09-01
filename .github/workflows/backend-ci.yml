@@ -634,28 +634,45 @@ jobs:
             -i "$RUNNER_TEMP/lightnode-ssh/id"
             "babyjamjam-ci-deployer@$LIGHTNODE_CI_HOST"
           )
-          status_output="$("${ssh_base[@]}" 'status')"
+          # Each status key must appear exactly once; a missing or duplicated
+          # key is a contract violation and must fail with a visible reason.
           read_status_value() {
             local wanted_key="$1"
-            awk -F= -v wanted_key="$wanted_key" '$1 == wanted_key { print substr($0, length($1) + 2) }' \
+            awk -F= -v wanted_key="$wanted_key" '
+              $1 == wanted_key { count += 1; value = substr($0, length($1) + 2) }
+              END { if (count == 1 && value != "") print value; else exit 1 }' \
               <<<"$status_output"
           }
-          [[ "$(read_status_value environment)" == "fallback-server" ]]
-          [[ "$(read_status_value runtime_mode)" == "temporary-active" ]]
-          [[ "$(read_status_value container_health)" == "healthy" ]]
-          [[ "$(read_status_value restart_count)" == "0" ]]
-          [[ "$(read_status_value production_db_identity)" == "ok" ]]
-          [[ "$(read_status_value public_routing)" == "fallback" ]]
-          [[ "$(read_status_value schedulers_enabled)" == "true" ]]
-          [[ "$(read_status_value document_jobs_accepting)" == "true" ]]
-          [[ "$(read_status_value document_jobs_worker)" == "true" ]]
+          expect_status() {
+            local wanted_key="$1" expected="$2" actual
+            if ! actual="$(read_status_value "$wanted_key")"; then
+              echo "::error::LightNode status key '$wanted_key' is missing or duplicated"
+              printf '%s\n' "$status_output"
+              exit 1
+            fi
+            if [[ "$actual" != "$expected" ]]; then
+              echo "::error::LightNode status '$wanted_key' is '$actual' (expected '$expected')"
+              exit 1
+            fi
+          }
+
+          status_output="$("${ssh_base[@]}" 'status')"
+          expect_status environment fallback-server
+          expect_status runtime_mode temporary-active
+          expect_status container_health healthy
+          expect_status restart_count 0
+          expect_status production_db_identity ok
+          expect_status public_routing fallback
+          expect_status schedulers_enabled true
+          expect_status document_jobs_accepting true
+          expect_status document_jobs_worker true
 
           status_output="$("${ssh_base[@]}" "replace $GITHUB_SHA $IMAGE_DIGEST")"
-          [[ "$(read_status_value current_tag)" == "$GITHUB_SHA" ]]
-          [[ "$(read_status_value current_digest)" == "$IMAGE_DIGEST" ]]
-          [[ "$(read_status_value container_health)" == "healthy" ]]
-          [[ "$(read_status_value restart_count)" == "0" ]]
-          [[ "$(read_status_value public_routing)" == "fallback" ]]
+          expect_status current_tag "$GITHUB_SHA"
+          expect_status current_digest "$IMAGE_DIGEST"
+          expect_status container_health healthy
+          expect_status restart_count 0
+          expect_status public_routing fallback
           curl --fail --silent --show-error --connect-timeout 3 --max-time 10 \
             https://api.babyjamjam.com/health/ready >/dev/null
           printf '%s\n' \

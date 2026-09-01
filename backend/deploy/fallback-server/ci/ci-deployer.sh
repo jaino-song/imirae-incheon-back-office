@@ -169,8 +169,11 @@ replace_release() {
     validate_protected_file "$APPROVAL_FILE" 400
     backup="$(mktemp "$STATE_ROOT/.approval-backup.XXXXXX")"
     cp -p "$APPROVAL_FILE" "$backup"
+    # The operator prints its own replacement summary (including a
+    # public_routing=not_managed marker). Keep it on stderr so the caller's
+    # stdout carries exactly one status block with unique keys.
     if ! write_automatic_approval "$commit_sha" "$image_digest" \
-        || ! "$OPERATOR" replace-temporary-active "$commit_sha" "$image_digest"; then
+        || ! "$OPERATOR" replace-temporary-active "$commit_sha" "$image_digest" >&2; then
         cp -p "$backup" "$APPROVAL_FILE"
         rm -f "$backup"
         die "The automatic Fallback replacement failed; the previous approval was restored."

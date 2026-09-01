@@ -39,5 +39,9 @@ assert_contains "$WORKFLOW" '"replace \$GITHUB_SHA \$IMAGE_DIGEST"' \
     "LightNode deployment must invoke only the forced replacement command"
 assert_contains "$WORKFLOW" 'StrictHostKeyChecking=yes' \
     "LightNode SSH must fail closed on host-key mismatch"
+assert_contains "$WORKFLOW" 'count == 1 && value != ""' \
+    "LightNode status reader must reject missing or duplicated status keys"
+assert_contains "$WORKFLOW" '::error::LightNode status' \
+    "LightNode status assertions must fail with a visible reason"
 
 echo "Fallback deployment workflow contract tests passed"
