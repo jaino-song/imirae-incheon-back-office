@@ -9,8 +9,8 @@
 
 - [ ] `call-inbox-productionization` → `dev` 머지 (머지 전 `git merge dev`로 최신 dev 반영·체크 재실행)
 - [ ] CI green 확인 — 특히 **auth-e2e enforce leg** (`.github/workflows/backend-ci.yml:128-142`). 로컬에 docker가 없어 transitive-tenant-isolation 스펙의 런타임 실행은 CI가 유일한 검증 지점이다.
-  - 2026-09-02 현황 (PR #597, `15bdc5177`): `observe` leg 통과, `enforce` leg **빨간불** — 실패는 이 브랜치가 건드리지 않은 **AI 에이전트 런타임**(`test/agent-e2e/runtime/agent-runtime.e2e.spec.ts`)이고, 통화 인박스·tenant 격리 스펙("Run real auth and tenant E2E" 스텝)은 두 leg 모두 통과. 원인·수정 위치는 **BJJ-301**. 이 이슈가 닫히기 전에는 enforce leg를 required check로 걸지 말 것.
-- [ ] ⚠️ **GitHub branch protection의 required status check 이름 갱신**: auth-e2e job이 matrix로 바뀌면서 표시 이름이 `auth e2e · postgres · valkey · mailpit` → `auth e2e · observe · …` / `auth e2e · enforce · …` 두 개로 변경됐다. 기존 이름을 required로 걸어두었다면 PR이 "Expected — waiting for status"에서 영구 대기한다 (fail-closed이므로 위험하진 않지만 머지가 막힘). 새 leg 이름 2개로 교체할 것.
+  - 2026-09-02 결과 (PR #597): 첫 실행(`15bdc5177`)에서 `enforce` leg가 이 브랜치와 무관한 **AI 에이전트 런타임**의 기존 결함(BJJ-301: e2e 가드 mock의 `setBranchId` 누락 + `agent_session`/`agent_action` 미고정 쓰기 5곳)을 잡아냈고, 같은 PR의 `b892c3aab`에서 수정 → **observe·enforce 두 leg 모두 green**. 통화 인박스·tenant 격리 스펙은 두 실행 모두 통과.
+- [ ] **GitHub branch protection required check에 auth-e2e leg 추가 검토**: auth-e2e job이 matrix로 바뀌어 표시 이름이 `auth e2e · observe · …` / `auth e2e · enforce · …` 두 개가 됐다. 2026-09-02 확인 결과 dev의 required check는 `backend · type-check · lint · test`, `frontend · type-check · lint · test · build`, `type-check · lint · test · build` 세 개뿐이라 옛 auth-e2e 이름은 걸려 있지 않다(머지 막힘 없음). 두 leg가 이제 green이므로 required에 추가할지 결정할 것.
 - [ ] 새 `backend call-inbox e2e · local stubs` job도 required check에 추가 검토 (`.github/workflows/backend-full-flow-ci.yml`)
 - [ ] release train으로 `preview` → `main` 승격 (열려 있는 #591 트레인 합류 또는 후속 트레인)
 - [ ] Lightsail 배포 완료 확인 (api.babyjamjam.com 헬스체크)
@@ -60,7 +60,7 @@
 >
 > ⚠️ **미해결 — enforce 전환 전 반드시 처리**: 직원용 통화 인박스 서비스(`backend/application/services/call-inbox.service.ts`)의 draft confirm/discard/patch 경로에는 branchId를 못 박지 않은 tenant 모델 쓰기가 **10곳** 남아 있다(`client_draft` 9곳 + `call_record` 1곳). 이들은 `TenantGuard`가 이미 branchId를 심어 둔 상태에서 실행되므로 enforce에서 `unpinned_write`로 던진다 — 이번 작업 이전부터 있던 문제이고, 유입 경로와 달리 아직 수정되지 않았다. 이 상태로 프로덕션을 enforce로 올리면 **직원이 통화 초안을 확정·삭제·수정하는 동작이 전부 실패한다.** §4 번인 이전에 별도 작업으로 처리할 것.
 >
-> ⚠️ **미해결 2 — AI 에이전트 런타임 (BJJ-301)**: `prisma-agent-session.repository.ts:205, 211`과 `action-coordinator.service.ts:299, 335, 765`의 tenant 모델 쓰기 5곳이 branchId 미고정이라 enforce에서 `unpinned_write`로 던진다 — 채팅 응답 persist와 액션 승인 경로가 실패한다. 게다가 `agent-runtime.e2e.spec.ts:74-85`의 가드 mock이 `setBranchId`를 호출하지 않아 CI enforce leg에서는 이보다 앞서 `http_no_tenant`로 멈춘다(그래서 여태 안 보였음). BJJ-300과 함께 enforce 전환 전 선결.
+> ✅ **AI 에이전트 런타임 (BJJ-301) — PR #597 `b892c3aab`에서 수정 완료**: `prisma-agent-session.repository.ts`(appendMessages 2곳)와 `action-coordinator.service.ts`(supersedeProposedAction·rotateRequestDedupeKey·advanceUncertainAction)의 tenant 모델 쓰기 5곳을 branch-pinned로, `agent-runtime.e2e.spec.ts`의 가드 mock에 `setBranchId` 추가. CI enforce leg가 처음 잡아낸 결함이며 이제 green. 남은 enforce 선결 과제는 위 BJJ-300 하나.
 
 - [ ] preview에서 tenant 위반 로그 번인 (observe 모드 로그 모니터링)
 - [ ] staging `TENANT_ISOLATION_MODE=enforce` 전환
