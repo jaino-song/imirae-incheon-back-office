@@ -733,7 +733,9 @@ function MessageHistorySection() {
             recipientListLabelFallback: matchedClientName,
           });
 
-          if (!matchedClientName) return normalizedRecord;
+          const shouldUseMatchedClientName = record.recipientType === null
+            || record.recipientType === "CLIENT";
+          if (!matchedClientName || !shouldUseMatchedClientName) return normalizedRecord;
 
           return {
             ...normalizedRecord,

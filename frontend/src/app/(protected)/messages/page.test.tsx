@@ -62,6 +62,7 @@ const mockRetryMutateAsync = jest.fn();
 // so a single test can flip approval status via mockReturnValue and prove
 // the render-level gate itself reacts, not just the nav's disabled flag.
 const mockUseMessageSenderApproval = jest.fn();
+const mockUseAllClients = jest.fn();
 
 jest.mock("@/providers/LocaleProvider", () => ({
   useLocale: () => "ko",
@@ -99,7 +100,7 @@ jest.mock("@/features/message-templates/hooks/use-message-templates", () => ({
 }));
 
 jest.mock("@/features/clients/hooks/use-clients", () => ({
-  useAllClients: () => ({ data: [], isLoading: false }),
+  useAllClients: () => mockUseAllClients(),
 }));
 
 jest.mock("@/features/system-templates/hooks", () => ({
@@ -359,6 +360,7 @@ beforeEach(() => {
     },
     isLoading: false,
   });
+  mockUseAllClients.mockReturnValue({ data: [], isLoading: false });
 
   mockedUseRetryMessageHistory.mockReturnValue({
     mutateAsync: mockRetryMutateAsync,
@@ -572,6 +574,31 @@ describe("messages page — merged 발송 기록 section", () => {
     expect(pastZone).not.toBeNull();
     expect(within(upcomingZone as HTMLElement).getByText("김담당")).toBeInTheDocument();
     expect(within(pastZone as HTMLElement).getByText("이담당")).toBeInTheDocument();
+  });
+
+  it("does not replace an employee recipient with the related client name", () => {
+    mockUseAllClients.mockReturnValue({
+      data: [{ id: 2, name: "이보배", phone: "010-5555-6666" }],
+      isLoading: false,
+    });
+    mockData({
+      history: [
+        buildHistoryRecord({
+          templateKey: "SERVICE_RECORD_LINK",
+          recipientType: "PRIMARY_EMPLOYEE",
+          recipientName: "고원경",
+          clientName: "이보배",
+          employeeName: "고원경",
+        }),
+      ],
+    });
+
+    render(<MessagesPage />);
+    goToHistorySection();
+
+    const pastZone = getZoneContainer("past");
+    expect(within(pastZone as HTMLElement).getByText("고원경")).toBeInTheDocument();
+    expect(within(pastZone as HTMLElement).queryByText("이보배")).not.toBeInTheDocument();
   });
 
   it("gates the merged history section behind sender approval, matching its sibling sections", () => {
