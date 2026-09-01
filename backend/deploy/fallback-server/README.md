@@ -134,6 +134,15 @@ Do not infer static IP ownership from a short-lived `ipify` observation. Keep
 Aligo credentials and SMS-producing paths disabled until fixed egress is
 registered and no-send authentication is proven.
 
+`lightnode-preflight.sh` is an admission check, not a provisioning script. Run
+`sudo ./lightnode-preflight.sh fresh` before approved root-only provisioning;
+run `sudo ./lightnode-preflight.sh installed` after it. The former rejects all
+Fallback/guard/controller files, state, Compose labels, containers, networks,
+and volumes; the latter verifies exact protected ownership, modes, manifest
+hashes, units, and state without printing secret material. Both report only an
+egress SHA-256, never an address. Rerun the appropriate mode after every
+installation, activation, routing, or recovery boundary.
+
 ## Runtime status and incident flow
 
 The safe operator flow is:
@@ -214,6 +223,15 @@ Aligo
 values are never interpolated by Compose: Docker reads them only from the
 root-owned `backend.env` at active container runtime.
 
+The runbook consumer only validates and consumes the approval; it must never
+create it, provision secrets, or invent evidence. A separately approved,
+root-only provisioning step creates the bundle, protected files, and approval
+inputs. The approved raw IPv4 is disclosed only through the confidential Aligo
+registration channel and is not placed in tickets, shell output, source, or
+preflight records. First perform the exact synthetic no-send authentication
+smoke. A real provider-acceptance SMS is a separate action that needs its own
+explicit approval and recipient.
+
 For the temporary ingress operation, publish only the loopback API listener
 through Tailscale Funnel; do not publish the controller. Coordinate both Vercel
 projects' production `NEXT_PUBLIC_API_BASE_URL` change with fresh production
@@ -237,8 +255,10 @@ Capture the URL returned by Tailscale in the incident record; never substitute
 or invent one. From an external approved observer, verify HTTPS, `/health/ready`,
 and an authenticated smoke flow. Update production `NEXT_PUBLIC_API_BASE_URL`
 for both linked Vercel projects, redeploy both, and verify both frontends before
-the approval expiry. If either fails, restore both prior deployments, verify
-both restored origins, then disable Funnel and stop the active runtime:
+the approval expiry. If either fails, restore both prior Vercel deployments
+first and verify both restored origins. In every teardown, restore both Vercel
+deployments first, then revoke the temporary Aligo registration and Tailscale
+authorization, turn Funnel off, stop the API, and Release the LightNode host:
 
 ```bash
 tailscale funnel off
