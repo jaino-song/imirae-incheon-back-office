@@ -254,11 +254,14 @@ fails closed before either deployment job starts. Preview remains on Lightsail.
 
 When LightNode owns the public route, the workflow joins the tailnet as an
 ephemeral `tag:ci` node and connects only as `babyjamjam-ci-deployer`. That user
-must not belong to the Docker group and may run only the fixed root wrapper:
+must not belong to the Docker group. Its single authorized key must use
+`restrict,command="/usr/local/sbin/babyjamjam-fallback-ci-ssh-dispatch"` so it
+cannot open a shell, allocate a TTY, forward connections, or choose another
+sudo command. The dispatcher permits only:
 
 ```text
-/usr/local/sbin/babyjamjam-fallback-ci-deployer status
-/usr/local/sbin/babyjamjam-fallback-ci-deployer replace <tag> <digest>
+status
+replace <tag> <digest>
 ```
 
 The wrapper rechecks public routing, active runtime health, Production DB

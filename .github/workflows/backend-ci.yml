@@ -563,7 +563,7 @@ jobs:
             -i "$RUNNER_TEMP/lightnode-ssh/id"
             "babyjamjam-ci-deployer@$LIGHTNODE_CI_HOST"
           )
-          status_output="$("${ssh_base[@]}" 'sudo -n /usr/local/sbin/babyjamjam-fallback-ci-deployer status')"
+          status_output="$("${ssh_base[@]}" 'status')"
           read_status_value() {
             local wanted_key="$1"
             awk -F= -v wanted_key="$wanted_key" '$1 == wanted_key { print substr($0, length($1) + 2) }' \
@@ -579,8 +579,7 @@ jobs:
           [[ "$(read_status_value document_jobs_accepting)" == "true" ]]
           [[ "$(read_status_value document_jobs_worker)" == "true" ]]
 
-          status_output="$("${ssh_base[@]}" \
-            "sudo -n /usr/local/sbin/babyjamjam-fallback-ci-deployer replace '$GITHUB_SHA' '$IMAGE_DIGEST'")"
+          status_output="$("${ssh_base[@]}" "replace $GITHUB_SHA $IMAGE_DIGEST")"
           [[ "$(read_status_value current_tag)" == "$GITHUB_SHA" ]]
           [[ "$(read_status_value current_digest)" == "$IMAGE_DIGEST" ]]
           [[ "$(read_status_value container_health)" == "healthy" ]]

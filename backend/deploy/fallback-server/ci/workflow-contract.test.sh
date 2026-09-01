@@ -29,10 +29,10 @@ assert_contains "$WORKFLOW" "needs\.resolve-backend-deploy-target\.outputs\.targ
     "LightNode deployment must require the resolved LightNode target"
 assert_contains "$WORKFLOW" "needs\.resolve-backend-deploy-target\.outputs\.target == 'lightsail'" \
     "Lightsail deployment must require the resolved Lightsail target"
-assert_contains "$WORKFLOW" 'babyjamjam-fallback-ci-deployer status' \
-    "LightNode deployment must verify the restricted remote status before replacement"
-assert_contains "$WORKFLOW" 'babyjamjam-fallback-ci-deployer replace' \
-    "LightNode deployment must use the restricted replacement wrapper"
+assert_contains "$WORKFLOW" "'status'" \
+    "LightNode deployment must invoke only the forced status command"
+assert_contains "$WORKFLOW" '"replace \$GITHUB_SHA \$IMAGE_DIGEST"' \
+    "LightNode deployment must invoke only the forced replacement command"
 assert_contains "$WORKFLOW" 'StrictHostKeyChecking=yes' \
     "LightNode SSH must fail closed on host-key mismatch"
 

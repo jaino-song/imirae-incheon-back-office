@@ -5,6 +5,7 @@ set -euo pipefail
 readonly SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly DEPLOYER="$SCRIPT_ROOT/ci-deployer.sh"
 readonly INSTALLER="$SCRIPT_ROOT/install-ci-deployer.sh"
+readonly DISPATCHER="$SCRIPT_ROOT/ssh-dispatch.sh"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -21,6 +22,7 @@ assert_not_contains() {
 
 [[ -r "$DEPLOYER" ]] || fail "missing restricted LightNode CI deployer"
 [[ -r "$INSTALLER" ]] || fail "missing restricted LightNode CI deployer installer"
+[[ -r "$DISPATCHER" ]] || fail "missing forced-command SSH dispatcher"
 
 assert_contains "$DEPLOYER" 'SUDO_USER' \
     "deployer must bind authority to the dedicated SSH user"
@@ -51,8 +53,18 @@ assert_contains "$INSTALLER" 'visudo -cf' \
     "installer must validate the sudoers rule before activation"
 assert_not_contains "$INSTALLER" '(authorized_keys|ssh-rsa|BEGIN .*PRIVATE KEY)' \
     "installer must not provision or embed SSH credentials"
+assert_contains "$DISPATCHER" 'SSH_ORIGINAL_COMMAND' \
+    "dispatcher must ignore the login shell and parse only the forced original command"
+assert_contains "$DISPATCHER" '^    status\)' \
+    "dispatcher must allow the fixed status command"
+assert_contains "$DISPATCHER" '\[0-9a-f\]\{40\}' \
+    "dispatcher must strictly validate replacement identity"
+assert_contains "$DISPATCHER" 'sha256:\[0-9a-f\]\{64\}' \
+    "dispatcher must strictly validate the immutable digest"
+assert_not_contains "$DISPATCHER" '(eval|bash -c|sh -c)' \
+    "dispatcher must not evaluate the original SSH command"
 
-bash -n "$DEPLOYER" "$INSTALLER"
+bash -n "$DEPLOYER" "$INSTALLER" "$DISPATCHER"
 if [[ "$EUID" -ne 0 ]]; then
     if "$DEPLOYER" status >/dev/null 2>&1; then
         fail "deployer must reject direct non-root execution"
