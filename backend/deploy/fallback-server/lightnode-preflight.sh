@@ -76,7 +76,7 @@ check_listeners() {
   require_success ss -H -lntu
   local mode="$1"
   local node result; node="$(command_path node)"
-  result="$(PREFLIGHT_LISTENER_MODE="$mode" printf '%s' "$RUN_OUTPUT" | PREFLIGHT_LISTENER_MODE="$mode" "$node" -e 'const mode=process.env.PREFLIGHT_LISTENER_MODE,lines=require("fs").readFileSync(0,"utf8").trim().split("\n").filter(Boolean);for(const l of lines){const c=l.trim().split(/\s+/),m=c[4]?.match(/^(\[[^\]]+\]|[^:]+):(\*|[0-9]+)$/);if(c.length<5||!["tcp","udp"].includes(c[0])||!m)process.exit(1);const h=m[1].replace(/^\[|\]$/g,""),p=m[2]==="*"?-1:Number(m[2]),loop=h==="127.0.0.1"||h==="::1",publicOK=(c[0]==="tcp"&&p===22)||(c[0]==="udp"&&p===41641),stageLoop=mode==="installed"&&loop&&c[0]==="tcp"&&(p===3101||p===3102);if(!loop&&!publicOK)process.exit(1);if(loop&&(p===3101||p===3102)&&!stageLoop)process.exit(1)}process.stdout.write("ok")')" || fail listeners
+  result="$(PREFLIGHT_LISTENER_MODE="$mode" printf '%s' "$RUN_OUTPUT" | PREFLIGHT_LISTENER_MODE="$mode" "$node" -e 'const lines=require("fs").readFileSync(0,"utf8").trim().split("\n").filter(Boolean);for(const l of lines){const c=l.trim().split(/\s+/),m=c[4]?.match(/^(\[[^\]]+\]|[^:]+):(\*|[0-9]+)$/);if(c.length<5||!["tcp","udp"].includes(c[0])||!m)process.exit(1);const h=m[1].replace(/^\[|\]$/g,""),p=m[2]==="*"?-1:Number(m[2]),loop=h==="127.0.0.1"||h==="::1",publicOK=(c[0]==="tcp"&&p===22)||(c[0]==="udp"&&p===41641);if((p===3101||p===3102)||(!loop&&!publicOK))process.exit(1)}process.stdout.write("ok")')" || fail listeners
   [[ "$result" == ok ]] || fail listeners
 }
 check_docker_empty() {
@@ -91,7 +91,7 @@ check_docker_empty() {
 check_fresh() {
   local p; for p in "$OPERATOR_PATH" "$ARTIFACT_ROOT" "$STATE_ROOT" "$SYSTEMD_DIR/$GUARD_SERVICE" "$SYSTEMD_DIR/$GUARD_TIMER" "$CONTROLLER_BUNDLE" "$CONTROLLER_CLI" "$SYSTEMD_DIR/$CONTROLLER_UNIT"; do absent "$p" || fail residue; done; check_docker_empty
 }
-digest() { local cmd; cmd="$(command_path sha256sum)"; "$cmd" "$1" | awk '{print $1}'; }
+digest() { run_capture sha256sum "$1"; [[ "$RUN_STATUS" == 0 && "$RUN_OUTPUT" =~ ^([0-9a-f]{64})[[:space:]] ]] || fail manifest; printf '%s\n' "${BASH_REMATCH[1]}"; }
 check_manifest() {
   local m="$ARTIFACT_ROOT/bundle.manifest" e; safe_file "$m" 640 && [[ "$(wc -l <"$m")" -eq 6 ]] || fail manifest
   local expected=("operator.sh=$(digest "$OPERATOR_PATH")" "compose.yml=$(digest "$ARTIFACT_ROOT/compose.yml")" "compose.temporary-active.yml=$(digest "$ARTIFACT_ROOT/compose.temporary-active.yml")" "production-db-identity.sh=$(digest "$ARTIFACT_ROOT/production-db-identity.sh")" "systemd/$GUARD_SERVICE=$(digest "$SYSTEMD_DIR/$GUARD_SERVICE")" "systemd/$GUARD_TIMER=$(digest "$SYSTEMD_DIR/$GUARD_TIMER")")
@@ -100,17 +100,19 @@ check_manifest() {
 check_staged_state() {
   local p entry; safe_dir "$STATE_ROOT" 700 && safe_dir "$STATE_ROOT/state" 700 || fail state
   for p in "$STATE_ROOT/backend.env" "$STATE_ROOT/approved-production-db-ref.sha256" "$STATE_ROOT/temporary-active-approval" "$STATE_ROOT/temporary-active-scheduler-evidence" "$STATE_ROOT/state/runtime-mode" "$STATE_ROOT/state/temporary-active-expiry" "$STATE_ROOT/state/temporary-active-linkage" "$STATE_ROOT/state/used-temporary-active-nonces"; do absent "$p" || fail state; done
-  while IFS= read -r entry; do [[ -z "$entry" || "$entry" == "$STATE_ROOT/state/operator.lock" ]] || fail state; done < <(find "$STATE_ROOT/state" -mindepth 1 -maxdepth 1 -print)
+  run_capture find "$STATE_ROOT/state" -mindepth 1 -maxdepth 1 -print; [[ "$RUN_STATUS" == 0 ]] || fail state
+  while IFS= read -r entry; do [[ -z "$entry" || "$entry" == "$STATE_ROOT/state/operator.lock" ]] || fail state; done <<<"$RUN_OUTPUT"
   if [[ -e "$STATE_ROOT/state/operator.lock" || -L "$STATE_ROOT/state/operator.lock" ]]; then safe_file "$STATE_ROOT/state/operator.lock" 600 || fail state; fi
 }
 check_timer() {
   run_capture systemctl is-enabled "$GUARD_TIMER"
-  { [[ "$RUN_STATUS" == 0 && "$RUN_OUTPUT" == enabled ]] || [[ "$RUN_STATUS" == 1 && "$RUN_OUTPUT" == disabled ]]; } || fail guard_timer
+  [[ "$RUN_STATUS" == 1 && "$RUN_OUTPUT" == disabled ]] || fail guard_timer
 }
 check_installed() {
   safe_file "$OPERATOR_PATH" 750 || fail operator; safe_dir "$ARTIFACT_ROOT" 700 || fail artifact_root
   safe_file "$ARTIFACT_ROOT/compose.yml" 640 || fail compose; safe_file "$ARTIFACT_ROOT/compose.temporary-active.yml" 640 || fail active_compose; safe_file "$ARTIFACT_ROOT/production-db-identity.sh" 750 || fail identity_helper
   safe_file "$SYSTEMD_DIR/$GUARD_SERVICE" 640 || fail guard_service; safe_file "$SYSTEMD_DIR/$GUARD_TIMER" 640 || fail guard_timer
+  for p in "$CONTROLLER_BUNDLE" "$CONTROLLER_CLI" "$SYSTEMD_DIR/$CONTROLLER_UNIT"; do absent "$p" || fail controller_residue; done
   check_manifest; check_staged_state; check_timer; check_docker_empty
 }
 [[ $# == 1 && ( "$1" == fresh || "$1" == installed ) ]] || fail mode
