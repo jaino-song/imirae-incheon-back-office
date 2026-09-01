@@ -9,6 +9,7 @@
 
 - [ ] `call-inbox-productionization` → `dev` 머지 (머지 전 `git merge dev`로 최신 dev 반영·체크 재실행)
 - [ ] CI green 확인 — 특히 **auth-e2e enforce leg** (`.github/workflows/backend-ci.yml:128-142`). 로컬에 docker가 없어 transitive-tenant-isolation 스펙의 런타임 실행은 CI가 유일한 검증 지점이다.
+  - 2026-09-02 현황 (PR #597, `15bdc5177`): `observe` leg 통과, `enforce` leg **빨간불** — 실패는 이 브랜치가 건드리지 않은 **AI 에이전트 런타임**(`test/agent-e2e/runtime/agent-runtime.e2e.spec.ts`)이고, 통화 인박스·tenant 격리 스펙("Run real auth and tenant E2E" 스텝)은 두 leg 모두 통과. 원인·수정 위치는 **BJJ-301**. 이 이슈가 닫히기 전에는 enforce leg를 required check로 걸지 말 것.
 - [ ] ⚠️ **GitHub branch protection의 required status check 이름 갱신**: auth-e2e job이 matrix로 바뀌면서 표시 이름이 `auth e2e · postgres · valkey · mailpit` → `auth e2e · observe · …` / `auth e2e · enforce · …` 두 개로 변경됐다. 기존 이름을 required로 걸어두었다면 PR이 "Expected — waiting for status"에서 영구 대기한다 (fail-closed이므로 위험하진 않지만 머지가 막힘). 새 leg 이름 2개로 교체할 것.
 - [ ] 새 `backend call-inbox e2e · local stubs` job도 required check에 추가 검토 (`.github/workflows/backend-full-flow-ci.yml`)
 - [ ] release train으로 `preview` → `main` 승격 (열려 있는 #591 트레인 합류 또는 후속 트레인)
@@ -58,6 +59,8 @@
 > `call_ingest_token`은 tenant 모델이고 웹훅 요청은 branchId가 없는 상태로 guard에 도달하므로, 예전 코드는 enforce에서 **모든 n8n 웹훅이 500**이 됐다. 지금은 `CallIngestGuard`가 토큰 조회를 system scope로 감싸고(TenantGuard와 동일한 패턴) 조회된 branchId를 tenant store에 심는다. 그리고 그렇게 branchId가 심어지면 격리 익스텐션이 `http_no_tenant`에서 멈추는 대신 **쓰기 인자 검사**를 시작하므로, 그 요청에서 도달 가능한 tenant 모델 쓰기는 전부 `where`에 branchId를 못 박아야 한다 — `CallProcessingService`의 claim/refine/finalize/fail 쓰기 4곳이 그래서 branch-pinned로 바뀌었다. 회귀 테스트: `backend/test/infrastructure/auth/call-ingest.guard.enforce.spec.ts` (enforce가 실제로 켜져 있음을 증명하는 CONTROL 케이스 포함 — call-inbox e2e는 `CallInboxModule`로 앱을 구성해 `TenantAlsMiddleware`가 설치되지 않으므로 이 부류의 결함을 **전혀 볼 수 없다**. enforce로 e2e를 돌려 22/22 green이 나와도 그것은 근거가 되지 않는다).
 >
 > ⚠️ **미해결 — enforce 전환 전 반드시 처리**: 직원용 통화 인박스 서비스(`backend/application/services/call-inbox.service.ts`)의 draft confirm/discard/patch 경로에는 branchId를 못 박지 않은 tenant 모델 쓰기가 **10곳** 남아 있다(`client_draft` 9곳 + `call_record` 1곳). 이들은 `TenantGuard`가 이미 branchId를 심어 둔 상태에서 실행되므로 enforce에서 `unpinned_write`로 던진다 — 이번 작업 이전부터 있던 문제이고, 유입 경로와 달리 아직 수정되지 않았다. 이 상태로 프로덕션을 enforce로 올리면 **직원이 통화 초안을 확정·삭제·수정하는 동작이 전부 실패한다.** §4 번인 이전에 별도 작업으로 처리할 것.
+>
+> ⚠️ **미해결 2 — AI 에이전트 런타임 (BJJ-301)**: `prisma-agent-session.repository.ts:205, 211`과 `action-coordinator.service.ts:299, 335, 765`의 tenant 모델 쓰기 5곳이 branchId 미고정이라 enforce에서 `unpinned_write`로 던진다 — 채팅 응답 persist와 액션 승인 경로가 실패한다. 게다가 `agent-runtime.e2e.spec.ts:74-85`의 가드 mock이 `setBranchId`를 호출하지 않아 CI enforce leg에서는 이보다 앞서 `http_no_tenant`로 멈춘다(그래서 여태 안 보였음). BJJ-300과 함께 enforce 전환 전 선결.
 
 - [ ] preview에서 tenant 위반 로그 번인 (observe 모드 로그 모니터링)
 - [ ] staging `TENANT_ISOLATION_MODE=enforce` 전환
