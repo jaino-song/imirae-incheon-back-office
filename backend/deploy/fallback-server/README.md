@@ -140,8 +140,10 @@ run `sudo ./lightnode-preflight.sh installed` after it. The former rejects all
 Fallback/guard/controller files, state, Compose labels, containers, networks,
 and volumes; the latter verifies exact protected ownership, modes, manifest
 hashes, units, and state without printing secret material. Both report only an
-egress SHA-256, never an address. Rerun the appropriate mode after every
-installation, activation, routing, or recovery boundary.
+egress SHA-256, never an address. `installed` is only for the staged bundle:
+before `backend.env`, approvals, evidence, passive deployment, or activation.
+After deployment or activation, use the Fallback operator `status` instead of
+preflight.
 
 ## Runtime status and incident flow
 
