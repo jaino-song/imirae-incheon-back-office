@@ -1,5 +1,9 @@
 name: babyjamjam-fallback-server
 
+# This is selected only by the root-owned operator after every temporary-active
+# gate passes. It intentionally has no ALIGO_* interpolation or override: the
+# credentials, if approved, are read only from the root-owned backend.env by
+# Docker at container runtime.
 services:
   api:
     image: ${BACKEND_IMAGE:-babyjamjam-backend}:${BACKEND_IMAGE_TAG:?BACKEND_IMAGE_TAG is required}
@@ -12,29 +16,22 @@ services:
       NODE_ENV: production
       DATABASE_CONNECTION_MODE: ${DATABASE_CONNECTION_MODE:-shared}
       VALKEY_URL: redis://valkey:6379
-      # The Fallback Server runtime is API-only and passive. These fixed overrides take
-      # precedence over the supplied environment file and prevent split-brain
-      # schedulers, retries, and provider mutations while AWS owns production.
-      SCHEDULERS_ENABLED: "false"
-      SERVICE_RECORD_AUTO_FINALIZE_ENABLED: "false"
-      CONTRACT_AUTO_FINALIZE_ENABLED: "false"
-      EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED: "false"
-      EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED: "false"
+      SCHEDULERS_ENABLED: "true"
+      SERVICE_RECORD_AUTO_FINALIZE_ENABLED: "true"
+      CONTRACT_AUTO_FINALIZE_ENABLED: "true"
+      EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED: "true"
+      EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED: "true"
       EFORMSIGN_RECONCILE_ALLOW_UNLOCKED: "false"
       MESSAGE_TRIGGER_JOBS_WORKER_ENABLED: "false"
-      # The Fallback egress address is not yet registered with Aligo. Blank the
-      # provider credentials even when the source environment file contains
-      # them, so synchronous API calls cannot bypass the outbound-IP gate.
-      ALIGO_API_KEY: ""
-      ALIGO_USER_ID: ""
-      ALIGO_SENDER_PHONE: ""
     depends_on:
       valkey:
         condition: service_healthy
     ports:
       - "127.0.0.1:3101:3001"
     init: true
-    restart: unless-stopped
+    # A boot must not restart active work before the installed expiry guard
+    # has revalidated the protected approval state.
+    restart: "no"
     cpus: 2.0
     mem_limit: 3g
     security_opt:

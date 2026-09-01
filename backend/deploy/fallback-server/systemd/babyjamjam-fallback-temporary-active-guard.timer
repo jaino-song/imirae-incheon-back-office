@@ -1,0 +1,11 @@
+[Unit]
+Description=BabyJamJam temporary-active expiry guard timer
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+Persistent=true
+Unit=babyjamjam-fallback-temporary-active-guard.service
+
+[Install]
+WantedBy=timers.target
