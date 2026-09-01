@@ -44,6 +44,8 @@ assert_contains "$DEPLOYER" 'temporary-active' \
     "deployer must pin the active fallback mode"
 assert_contains "$DEPLOYER" 'replace-temporary-active' \
     "deployer must delegate replacement to the rollback-capable operator"
+assert_contains "$DEPLOYER" 'replace-temporary-active "\$commit_sha" "\$image_digest" >&2' \
+    "deployer must keep the operator replacement summary out of the status stream"
 assert_contains "$DEPLOYER" 'current_tag' \
     "deployer must verify the final immutable release identity"
 assert_not_contains "$DEPLOYER" '(AWS_ACCESS_KEY|AWS_SECRET|docker[[:space:]]+build|git[[:space:]]+checkout)' \
