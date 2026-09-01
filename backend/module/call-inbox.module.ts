@@ -2,7 +2,11 @@ import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { DatabaseModule } from "infrastructure/database/database.module";
 import { CALL_EXTRACTION_PORT } from "domain/ports/call-extraction.port";
-import { createCallExtractionAdapter } from "infrastructure/vendor-stubs/e2e-vendor-stubs";
+import { CALL_REFINEMENT_PORT } from "domain/ports/call-refinement.port";
+import {
+    createCallExtractionAdapter,
+    createCallRefinementAdapter,
+} from "infrastructure/vendor-stubs/e2e-vendor-stubs";
 import { CallIngestGuard } from "infrastructure/auth/call-ingest.guard";
 import { CallIngestTokenService } from "application/services/call-ingest-token.service";
 import { CallIngestionService } from "application/services/call-ingestion.service";
@@ -34,6 +38,11 @@ import { ClientModule } from "./client.module";
             provide: CALL_EXTRACTION_PORT,
             inject: [ConfigService],
             useFactory: createCallExtractionAdapter,
+        },
+        {
+            provide: CALL_REFINEMENT_PORT,
+            inject: [ConfigService],
+            useFactory: createCallRefinementAdapter,
         },
     ],
     exports: [CallInboxService],

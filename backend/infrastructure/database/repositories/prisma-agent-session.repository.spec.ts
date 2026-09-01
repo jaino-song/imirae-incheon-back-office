@@ -65,11 +65,14 @@ describe("PrismaAgentSessionRepository", () => {
         const [first, second] = data;
         if (!first || !second) throw new Error("Expected both messages to be persisted");
         expect(second.createdAt.getTime()).toBeGreaterThan(first.createdAt.getTime());
-        expect(prisma.agent_session.updateMany).not.toHaveBeenCalled();
-        expect(prisma.agent_session.update).toHaveBeenCalledWith({
-            where: { id: "session-a" },
+        // Exactly one session write: the branch-pinned updatedAt touch. An
+        // explicit title must never be overwritten, so no write carries `title`.
+        expect(prisma.agent_session.updateMany).toHaveBeenCalledTimes(1);
+        expect(prisma.agent_session.updateMany).toHaveBeenCalledWith({
+            where: { id: "session-a", ...owner },
             data: { updatedAt: expect.any(Date) },
         });
+        expect(prisma.agent_session.update).not.toHaveBeenCalled();
     });
 
     it.each(["proposed", "approved"])("does not block deletion for an expired %s action", async () => {

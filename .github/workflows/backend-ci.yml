@@ -126,14 +126,20 @@ jobs:
           --exit-code
 
   auth-e2e:
-    name: auth e2e · postgres · valkey · mailpit
+    name: auth e2e · ${{ matrix.tenant_isolation_mode }} · postgres · valkey · mailpit
     needs: verify
     timeout-minutes: 30
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # observe mirrors production today; enforce is the pre-flip regression gate
+        # (spec: docs/superpowers/specs/2026-09-01-call-inbox-productionization-design.md §5.1)
+        tenant_isolation_mode: [observe, enforce]
     env:
       CI: true
       NODE_ENV: test
-      TENANT_ISOLATION_MODE: observe
+      TENANT_ISOLATION_MODE: ${{ matrix.tenant_isolation_mode }}
       DATABASE_URL: postgresql://postgres@localhost:5432/postgres
       DIRECT_URL: postgresql://postgres@localhost:5432/postgres
       VALKEY_URL: redis://localhost:6379

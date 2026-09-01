@@ -1,5 +1,13 @@
 import { CallProcessingService } from "application/services/call-processing.service";
 import { CallExtractionResult } from "domain/ports/call-extraction.port";
+import { DEFAULT_CALL_EXTRACTION_MODEL } from "infrastructure/api/gemini-call-extraction.adapter";
+
+const STUB_SUMMARY = {
+    inquiry_type: "신규상담",
+    customer_info: "확인되지 않음",
+    key_content: "요약 테스트",
+    result_action: "확인되지 않음",
+};
 
 type ProcessingStatus = "RECEIVED" | "FAILED" | "PROCESSING" | "EXTRACTED";
 
@@ -8,6 +16,8 @@ type CallRecordState = {
     branchId: string;
     fileName: string;
     transcript: unknown;
+    transcriptRaw: unknown;
+    sttMeta: unknown;
     summary: unknown;
     processingStatus: ProcessingStatus;
     processingClaimedAt: Date | null;
@@ -26,6 +36,7 @@ function extraction(partial: Partial<CallExtractionResult> = {}): CallExtraction
         callerPhoneCandidates: ["010-4821-7763"],
         requestSummary: "신규 문의",
         proposals: [{ field: "name", value: "김서연", evidence: "e", confidence: "high" }],
+        summary: STUB_SUMMARY,
         ...partial,
     };
 }
@@ -36,6 +47,8 @@ function createState(overrides: Partial<CallRecordState> = {}) {
         branchId: "branch-1",
         fileName: "call.m4a",
         transcript: [],
+        transcriptRaw: null,
+        sttMeta: null,
         summary: null,
         processingStatus: "RECEIVED",
         processingClaimedAt: null,
@@ -47,7 +60,7 @@ function createState(overrides: Partial<CallRecordState> = {}) {
         failureReason: null,
         ...overrides,
     };
-    const drafts: Array<{ callRecordId: string; type: string; proposals: unknown }> = [];
+    const drafts: Array<{ callRecordId: string; type: string; proposals: unknown; extractionMeta: unknown }> = [];
 
     const prisma = {
         call_record: {
@@ -76,7 +89,7 @@ function createState(overrides: Partial<CallRecordState> = {}) {
             findMany: jest.fn().mockResolvedValue([]),
         },
         client_draft: {
-            createMany: jest.fn(async ({ data }: { data: { callRecordId: string; type: string; proposals: unknown } }) => {
+            createMany: jest.fn(async ({ data }: { data: { callRecordId: string; type: string; proposals: unknown; extractionMeta: unknown } }) => {
                 if (drafts.some((draft) => draft.callRecordId === data.callRecordId)) return { count: 0 };
                 drafts.push(data);
                 return { count: 1 };
@@ -107,7 +120,12 @@ describe("CallProcessingService processing claim", () => {
             processingClaimedAt: new Date("2026-08-27T12:00:00.000Z"),
         });
         const extractionPort = { extract: jest.fn() };
-        const service = new CallProcessingService(prisma as never, extractionPort as never);
+        const service = new CallProcessingService(
+            prisma as never,
+            extractionPort as never,
+            { refine: jest.fn() } as never,
+            { get: jest.fn() } as never,
+        );
 
         await expect(service.processCallRecord("rec-1")).resolves.toBe("in_progress");
 
@@ -123,7 +141,12 @@ describe("CallProcessingService processing claim", () => {
         extractionPort.extract.mockReturnValue(new Promise<CallExtractionResult>((resolve) => {
             resolveExtraction = resolve;
         }));
-        const service = new CallProcessingService(prisma as never, extractionPort as never);
+        const service = new CallProcessingService(
+            prisma as never,
+            extractionPort as never,
+            { refine: jest.fn() } as never,
+            { get: jest.fn() } as never,
+        );
 
         const winner = service.processCallRecord("rec-1");
         await waitForExtraction(extractionPort.extract);
@@ -147,8 +170,10 @@ describe("CallProcessingService processing claim", () => {
             data: expect.objectContaining({
                 processingStatus: "EXTRACTED",
                 processingClaimedAt: null,
+                summary: STUB_SUMMARY,
             }),
         }));
+        expect(drafts[0]?.extractionMeta).toEqual(expect.objectContaining({ model: DEFAULT_CALL_EXTRACTION_MODEL }));
     });
 
     it("reuses an existing draft when a unique-draft race has already published the winner", async () => {
@@ -157,9 +182,15 @@ describe("CallProcessingService processing claim", () => {
             callRecordId: "rec-1",
             type: "NEW_CLIENT",
             proposals: [{ field: "name", value: "winner" }],
+            extractionMeta: null,
         });
         const extractionPort = { extract: jest.fn().mockResolvedValue(extraction()) };
-        const service = new CallProcessingService(prisma as never, extractionPort as never);
+        const service = new CallProcessingService(
+            prisma as never,
+            extractionPort as never,
+            { refine: jest.fn() } as never,
+            { get: jest.fn() } as never,
+        );
 
         await expect(service.processCallRecord("rec-1")).resolves.toBe("processed");
 
@@ -186,8 +217,18 @@ describe("CallProcessingService processing claim", () => {
         secondExtraction.mockReturnValue(new Promise<CallExtractionResult>((resolve) => {
             resolveSecond = resolve;
         }));
-        const first = new CallProcessingService(prisma as never, { extract: firstExtraction } as never);
-        const second = new CallProcessingService(prisma as never, { extract: secondExtraction } as never);
+        const first = new CallProcessingService(
+            prisma as never,
+            { extract: firstExtraction } as never,
+            { refine: jest.fn() } as never,
+            { get: jest.fn() } as never,
+        );
+        const second = new CallProcessingService(
+            prisma as never,
+            { extract: secondExtraction } as never,
+            { refine: jest.fn() } as never,
+            { get: jest.fn() } as never,
+        );
 
         const staleOwner = first.processCallRecord("rec-1");
         await waitForExtraction(firstExtraction);
@@ -226,8 +267,18 @@ describe("CallProcessingService processing claim", () => {
         const nowSpy = jest.spyOn(Date, "now")
             .mockReturnValueOnce(1_000)
             .mockReturnValue(2_000);
-        const stale = new CallProcessingService(prisma as never, { extract: firstExtraction } as never);
-        const current = new CallProcessingService(prisma as never, { extract: secondExtraction } as never);
+        const stale = new CallProcessingService(
+            prisma as never,
+            { extract: firstExtraction } as never,
+            { refine: jest.fn() } as never,
+            { get: jest.fn() } as never,
+        );
+        const current = new CallProcessingService(
+            prisma as never,
+            { extract: secondExtraction } as never,
+            { refine: jest.fn() } as never,
+            { get: jest.fn() } as never,
+        );
 
         const staleOwner = stale.processCallRecord("rec-1");
         await waitForExtraction(firstExtraction);
@@ -260,7 +311,12 @@ describe("CallProcessingService processing claim", () => {
     it("does not let a losing invocation turn a successful winner into FAILED", async () => {
         const { record, prisma } = createState();
         const extractionPort = { extract: jest.fn().mockResolvedValue(extraction()) };
-        const service = new CallProcessingService(prisma as never, extractionPort as never);
+        const service = new CallProcessingService(
+            prisma as never,
+            extractionPort as never,
+            { refine: jest.fn() } as never,
+            { get: jest.fn() } as never,
+        );
 
         const winner = await service.processCallRecord("rec-1");
         const loser = await service.processCallRecord("rec-1");
@@ -281,7 +337,12 @@ describe("CallProcessingService processing claim", () => {
         staleExtraction.mockReturnValue(new Promise<CallExtractionResult>((_resolve, reject) => {
             rejectStale = reject;
         }));
-        const stale = new CallProcessingService(prisma as never, { extract: staleExtraction } as never);
+        const stale = new CallProcessingService(
+            prisma as never,
+            { extract: staleExtraction } as never,
+            { refine: jest.fn() } as never,
+            { get: jest.fn() } as never,
+        );
 
         const staleOwner = stale.processCallRecord("rec-1");
         await waitForExtraction(staleExtraction);
@@ -292,6 +353,8 @@ describe("CallProcessingService processing claim", () => {
         const winner = new CallProcessingService(
             prisma as never,
             { extract: jest.fn().mockResolvedValue(extraction({ requestSummary: "winner" })) } as never,
+            { refine: jest.fn() } as never,
+            { get: jest.fn() } as never,
         );
         expect(await winner.processCallRecord("rec-1")).toBe("processed");
 
@@ -310,12 +373,58 @@ describe("CallProcessingService processing claim", () => {
         }));
     });
 
+    it("does not let a lease-lost owner's late refine result overwrite the transcript (refine-persist fence)", async () => {
+        const originalTranscript = [{ speaker: "1", text: "원본" }];
+        const { record, prisma } = createState({
+            transcript: originalTranscript,
+            transcriptRaw: [
+                { speaker: "1", text: "산우도우미 문의요" },
+                { speaker: "2", text: "네" },
+            ],
+            sttMeta: { sttModel: "gemini-3.5-transcribe", diarized: true, vocabularyVersion: "v1" },
+        });
+        const staleRefine = jest.fn();
+        let resolveRefine!: (result: { transcript: { speaker: string; text: string }[] }) => void;
+        staleRefine.mockReturnValue(new Promise((resolve) => {
+            resolveRefine = resolve;
+        }));
+        const staleExtraction = jest.fn();
+        const stale = new CallProcessingService(
+            prisma as never,
+            { extract: staleExtraction } as never,
+            { refine: staleRefine } as never,
+            { get: jest.fn() } as never,
+        );
+
+        const staleOwner = stale.processCallRecord("rec-1");
+        await waitForExtraction(staleRefine);
+
+        // The retry cron reclaims the record to generation 1 while the stale
+        // owner's refine call is still in flight.
+        record.extractionRetryCount = 1;
+        record.processingClaimedAt = new Date("2026-09-01T00:10:00.000Z");
+
+        resolveRefine({ transcript: [{ speaker: "고객", text: "지연 도착한 정제 결과" }] });
+        expect(await staleOwner).toBe("in_progress");
+
+        // The fence (id + PROCESSING + generation + claimedAt) must reject the
+        // write: the transcript stays whatever the current owner controls, and
+        // the stale owner never proceeds to extraction on a claim it lost.
+        expect(record.transcript).toEqual(originalTranscript);
+        expect(staleExtraction).not.toHaveBeenCalled();
+    });
+
     it("marks a genuine extraction failure and permits the bounded retry to succeed", async () => {
         const { record, drafts, prisma } = createState();
         const extractionPort = { extract: jest.fn()
             .mockRejectedValueOnce(new Error("provider unavailable"))
             .mockResolvedValueOnce(extraction()) };
-        const service = new CallProcessingService(prisma as never, extractionPort as never);
+        const service = new CallProcessingService(
+            prisma as never,
+            extractionPort as never,
+            { refine: jest.fn() } as never,
+            { get: jest.fn() } as never,
+        );
 
         await expect(service.processCallRecord("rec-1")).resolves.toBe("failed");
         expect(record.processingStatus).toBe("FAILED");

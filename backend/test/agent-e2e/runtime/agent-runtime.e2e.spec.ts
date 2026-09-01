@@ -6,6 +6,7 @@ import request from "supertest";
 import { AppModule } from "../../../app.module";
 import { JwtGuard } from "../../../infrastructure/auth/jwt.guard";
 import { TenantGuard } from "../../../infrastructure/tenant/tenant.guard";
+import { tenantContextStore } from "../../../infrastructure/tenant/tenant-context.store";
 import { PrismaService } from "../../../infrastructure/database/prisma.service";
 import { GlobalValidationPipe } from "../../../infrastructure/pipes/global-validation.pipe";
 import { MessageTriggerService } from "../../../application/services/message-trigger.service";
@@ -76,11 +77,18 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                 const request = context.switchToHttp().getRequest();
                 const mode = request.headers["x-agent-e2e-principal"];
                 if (mode === "missing") return true;
-                request.tenant = mode === "other-user"
+                const tenant = mode === "other-user"
                     ? { ...principal, userId: OTHER_USER_ID }
                     : mode === "other-branch"
                         ? { ...principal, branchId: OTHER_BRANCH_ID }
                         : principal;
+                request.tenant = tenant;
+                // Mirror the real guard (TenantGuard.assignPrincipal): the request
+                // principal alone is not enough. TenantAlsMiddleware has already
+                // opened an `origin: "http"` store, and until the branch is pinned
+                // on it every tenant-model query under TENANT_ISOLATION_MODE=enforce
+                // fails with http_no_tenant, which hid the unpinned writes behind it.
+                tenantContextStore.setBranchId(tenant.branchId);
                 return true;
             },
         };

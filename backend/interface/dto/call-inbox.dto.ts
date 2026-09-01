@@ -65,20 +65,6 @@ export class TranscriptTurnDto {
     text!: string;
 }
 
-export class CallSummaryDto {
-    @IsOptional() @IsString() @MaxLength(2_000)
-    inquiry_type?: string;
-
-    @IsOptional() @IsString() @MaxLength(2_000)
-    customer_info?: string;
-
-    @IsOptional() @IsString() @MaxLength(5_000)
-    key_content?: string;
-
-    @IsOptional() @IsString() @MaxLength(2_000)
-    result_action?: string;
-}
-
 export class ProposalDto {
     @IsIn([...PROPOSAL_FIELDS])
     field!: string;
@@ -237,10 +223,17 @@ export class DiscardClientDraftDto {
     reason?: string;
 }
 
+/**
+ * Webhook contract v2 (Gemini 3.5 Transcribe). n8n sends a RAW diarized
+ * transcript — no role mapping, no summary. Both are produced server-side
+ * by the refine → extract pipeline. v1 (role-named transcript + n8n
+ * summary) is deleted outright: nothing is live in production, so this is
+ * a clean contract break with no compatibility shim.
+ */
 export class CallTranscriptWebhookDto {
     @IsString()
     @MaxLength(200)
-    fileId!: string;
+    driveFileId!: string;
 
     @IsString()
     @MaxLength(500)
@@ -250,16 +243,23 @@ export class CallTranscriptWebhookDto {
     @IsDateString({ strict: true })
     recordedAt?: string;
 
+    @IsString()
+    @MaxLength(100)
+    sttModel!: string;
+
+    @IsBoolean()
+    diarized!: boolean;
+
+    @IsString()
+    @MaxLength(100)
+    vocabularyVersion!: string;
+
+    // speaker is a free string ("1"/"2" from diarization; the >30min
+    // fallback may omit meaningful values) — intentionally not enum'd.
     @IsArray()
     @ArrayMinSize(1)
     @ArrayMaxSize(500)
     @ValidateNested({ each: true })
     @Type(() => TranscriptTurnDto)
-    transcript!: TranscriptTurnDto[];
-
-    @IsOptional()
-    @IsObject()
-    @ValidateNested()
-    @Type(() => CallSummaryDto)
-    summary?: CallSummaryDto;
+    transcriptRaw!: TranscriptTurnDto[];
 }

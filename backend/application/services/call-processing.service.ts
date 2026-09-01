@@ -1,6 +1,8 @@
 import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { resolveCallExtractionModel } from "infrastructure/api/gemini-call-extraction.adapter";
 import {
     CALL_EXTRACTION_PORT,
     CallExtractionPort,
@@ -12,6 +14,13 @@ import {
     CALL_EXTRACTION_PROMPT_VERSION,
     PROPOSAL_FIELDS,
 } from "application/services/call-extraction.prompt";
+import {
+    CALL_REFINEMENT_PORT,
+    CallRefinementPort,
+    CallRefinementResult,
+} from "domain/ports/call-refinement.port";
+import { CALL_REFINEMENT_PROMPT_VERSION } from "application/services/call-refinement.prompt";
+import { CALL_VOCABULARY } from "domain/constants/call-vocabulary";
 import { assertValidPhone, extractPhoneCandidates, normalizePhone } from "application/utils/normalize-phone";
 
 const BOOLEAN_FIELDS = new Set(["careCenter", "voucherClient", "breastPump"]);
@@ -42,6 +51,9 @@ export class CallProcessingService {
         private readonly prismaService: PrismaService,
         @Inject(CALL_EXTRACTION_PORT)
         private readonly extractionPort: CallExtractionPort,
+        @Inject(CALL_REFINEMENT_PORT)
+        private readonly refinementPort: CallRefinementPort,
+        private readonly configService: ConfigService,
     ) {}
 
     async processCallRecord(callRecordId: string): Promise<CallProcessingResult> {
@@ -66,9 +78,17 @@ export class CallProcessingService {
         // update would allow two providers to extract and publish for the same recording.
         const claimGeneration = record.extractionRetryCount;
         const claimAt = new Date(Date.now());
+        // Every call_record write below also pins branchId. It is redundant for
+        // correctness (id is unique) but load-bearing for tenancy: the ingest
+        // guard now establishes the token's branch on the HTTP store, so this
+        // pipeline runs inside a branch-scoped context when invoked inline from
+        // the webhook. Under TENANT_ISOLATION_MODE=enforce the isolation
+        // extension rejects an unpinned write to a tenant model, which would
+        // abort the inline pipeline at this first claim.
         const claimed = await this.prismaService.call_record.updateMany({
             where: {
                 id: callRecordId,
+                branchId: record.branchId,
                 processingStatus: record.processingStatus,
                 extractionRetryCount: claimGeneration,
             },
@@ -82,10 +102,72 @@ export class CallProcessingService {
             return this.observeCurrentState(callRecordId);
         }
 
+        // Refine v2 records (transcriptRaw present) before extraction; v1/legacy
+        // records (no transcriptRaw) skip refine and extraction reads
+        // record.transcript directly, as before this stage existed. Always
+        // refine from transcriptRaw — never from the (possibly already
+        // refined) record.transcript — so a retried record re-refines
+        // cleanly instead of compounding corrections across attempts.
+        // transcriptRaw and sttMeta are never mutated by this stage.
+        let transcriptForExtraction = record.transcript as unknown as TranscriptTurn[];
+        if (record.transcriptRaw) {
+            const rawSegments = record.transcriptRaw as unknown as TranscriptTurn[];
+            const sttMeta = record.sttMeta as unknown as { diarized?: unknown } | null;
+            // diarized is a caller-supplied flag (n8n computes it), and the
+            // "never guess speakers" guarantee rests on it — so cross-check it
+            // against the transcript itself: a payload claiming diarization
+            // but carrying fewer than two distinct speaker labels gets the
+            // neutral-speaker treatment instead of invented role attribution.
+            const diarized =
+                sttMeta?.diarized === true &&
+                new Set(rawSegments.map((segment) => segment.speaker)).size >= 2;
+
+            let refinement: CallRefinementResult;
+            try {
+                refinement = await this.refinementPort.refine({
+                    segments: rawSegments,
+                    diarized,
+                    fileName: record.fileName,
+                });
+            } catch (error) {
+                this.logger.error(`Refinement failed for ${callRecordId}: ${error}`);
+                return this.markClaimFailed(
+                    callRecordId,
+                    record.branchId,
+                    claimGeneration,
+                    claimAt,
+                    `refine: ${String(error).slice(0, 950)}`,
+                );
+            }
+
+            // Same fence as the finalize write below: id + processingStatus +
+            // extractionRetryCount (generation) + processingClaimedAt. A miss
+            // means the retry cron reclaimed this record while refine was in
+            // flight — stop here and report the current state; never extract
+            // on a claim we no longer own.
+            const persisted = await this.prismaService.call_record.updateMany({
+                where: {
+                    id: callRecordId,
+                    branchId: record.branchId,
+                    processingStatus: "PROCESSING",
+                    extractionRetryCount: claimGeneration,
+                    processingClaimedAt: claimAt,
+                },
+                data: {
+                    transcript: refinement.transcript as unknown as Prisma.InputJsonValue,
+                },
+            });
+            if (persisted.count !== 1) {
+                return this.observeCurrentState(callRecordId);
+            }
+
+            transcriptForExtraction = refinement.transcript;
+        }
+
         let extraction: CallExtractionResult;
         try {
             extraction = await this.extractionPort.extract({
-                transcript: record.transcript as unknown as TranscriptTurn[],
+                transcript: transcriptForExtraction,
                 summary: record.summary as Record<string, unknown> | null,
                 fileName: record.fileName,
             });
@@ -93,6 +175,7 @@ export class CallProcessingService {
             this.logger.error(`Extraction failed for ${callRecordId}: ${error}`);
             return this.markClaimFailed(
                 callRecordId,
+                record.branchId,
                 claimGeneration,
                 claimAt,
                 String(error).slice(0, 1_000),
@@ -106,6 +189,7 @@ export class CallProcessingService {
             this.logger.warn(`Extraction result normalization failed for ${callRecordId}: ${error}`);
             return this.markClaimFailed(
                 callRecordId,
+                record.branchId,
                 claimGeneration,
                 claimAt,
                 `extraction normalization: ${String(error).slice(0, 950)}`,
@@ -118,6 +202,7 @@ export class CallProcessingService {
             this.logger.warn(`Extraction validation failed for ${callRecordId}: ${error}`);
             return this.markClaimFailed(
                 callRecordId,
+                record.branchId,
                 claimGeneration,
                 claimAt,
                 `extraction validation: ${String(error).slice(0, 950)}`,
@@ -130,6 +215,7 @@ export class CallProcessingService {
                 const finalized = await tx.call_record.updateMany({
                     where: {
                         id: callRecordId,
+                        branchId: record.branchId,
                         processingStatus: "PROCESSING",
                         extractionRetryCount: claimGeneration,
                         processingClaimedAt: claimAt,
@@ -142,6 +228,7 @@ export class CallProcessingService {
                         processingStatus: "EXTRACTED",
                         processingClaimedAt: null,
                         failureReason: null,
+                        summary: extraction.summary as unknown as Prisma.InputJsonValue,
                     },
                 });
 
@@ -162,8 +249,20 @@ export class CallProcessingService {
                             proposals: proposals as unknown as Prisma.InputJsonValue,
                             requestSummary: extraction.requestSummary,
                             extractionMeta: {
-                                model: "gemini-2.5-flash",
+                                model: resolveCallExtractionModel(this.configService),
                                 promptVersion: CALL_EXTRACTION_PROMPT_VERSION,
+                                // Refine provenance (v2 records only): the model is the
+                                // same resolveCallExtractionModel value; what can drift
+                                // independently is the refine prompt and the correction
+                                // dictionary the refine pass actually read at runtime —
+                                // sttMeta.vocabularyVersion only records what n8n fed
+                                // the recognizer, which can lag this constant.
+                                ...(record.transcriptRaw
+                                    ? {
+                                          refinePromptVersion: CALL_REFINEMENT_PROMPT_VERSION,
+                                          vocabularyVersion: CALL_VOCABULARY.version,
+                                      }
+                                    : {}),
                             } as unknown as Prisma.InputJsonValue,
                         },
                         skipDuplicates: true,
@@ -178,6 +277,7 @@ export class CallProcessingService {
             this.logger.error(`Persistence failed for ${callRecordId}: ${error}`);
             return this.markClaimFailed(
                 callRecordId,
+                record.branchId,
                 claimGeneration,
                 claimAt,
                 `persistence: ${String(error).slice(0, 950)}`,
@@ -197,6 +297,7 @@ export class CallProcessingService {
 
     private async markClaimFailed(
         callRecordId: string,
+        branchId: string,
         claimGeneration: number,
         claimAt: Date,
         failureReason: string,
@@ -205,6 +306,7 @@ export class CallProcessingService {
             const failed = await this.prismaService.call_record.updateMany({
                 where: {
                     id: callRecordId,
+                    branchId,
                     processingStatus: "PROCESSING",
                     extractionRetryCount: claimGeneration,
                     processingClaimedAt: claimAt,

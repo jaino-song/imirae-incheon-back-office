@@ -30,6 +30,7 @@
     "start:prod": "node dist/main",
     "test": "jest",
     "e2e:full-flow": "node scripts/run-full-flow-e2e.mjs",
+    "e2e:call-inbox": "node scripts/run-call-inbox-e2e.mjs",
     "e2e:canonical-phone-identity": "node scripts/run-canonical-phone-identity-e2e.mjs",
     "e2e:retention-delete-guards": "node scripts/run-retention-delete-guards-e2e.mjs",
     "test:auth-e2e": "jest --config jest.auth-e2e.config.ts",
