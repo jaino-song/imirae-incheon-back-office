@@ -12,6 +12,7 @@ readonly IDENTITY_TEST="$SCRIPT_ROOT/production-db-identity.test.sh"
 readonly BEHAVIOR_TEST="$SCRIPT_ROOT/operator.behavior.test.sh"
 readonly INSTALL_BEHAVIOR_TEST="$SCRIPT_ROOT/install.behavior.test.sh"
 readonly BACKUP_MAP_TEST="$SCRIPT_ROOT/install-backup-map.test.sh"
+readonly LIGHTNODE_TEST="$SCRIPT_ROOT/lightnode-preflight.test.sh"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -174,5 +175,6 @@ bash "$IDENTITY_TEST"
 bash "$BEHAVIOR_TEST"
 bash "$INSTALL_BEHAVIOR_TEST"
 bash "$BACKUP_MAP_TEST"
+bash "$LIGHTNODE_TEST"
 
 echo "Fallback Server contract tests passed"

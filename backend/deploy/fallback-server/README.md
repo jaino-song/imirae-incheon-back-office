@@ -1,6 +1,7 @@
 # Fallback Server backend
 
-The physical Covenant server hosts the BabyJamJam **Fallback Server** role.
+The BabyJamJam **Fallback Server** role is portable. Covenant host observations
+are historical; the manual temporary LightNode path is separately documented.
 It is an API-only warm standby for the production backend and is not the
 frontend deployment. The frontend keeps the stable
 `https://api.babyjamjam.com` hostname while traffic ownership is changed by
@@ -37,6 +38,8 @@ is not serving production traffic**.
 
 See the complete operator procedure in
 [CONTROLLER_OPERATIONS.md](./CONTROLLER_OPERATIONS.md).
+
+For manual temporary hosting, see [LightNode lifecycle](./LIGHTNODE_TEMPORARY_FALLBACK.md).
 
 ## Host layout
 
