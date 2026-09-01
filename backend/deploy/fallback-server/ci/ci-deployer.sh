@@ -67,7 +67,9 @@ status_value() {
 
 canonical_public_route_hash() {
     local records
-    records="$(dig +short A "$PUBLIC_API_HOST" | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ { print }' | sort -u)"
+    records="$(getent ahostsv4 "$PUBLIC_API_HOST" \
+        | awk '$2 == "STREAM" && $1 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ { print $1 }' \
+        | sort -u)"
     [[ -n "$records" ]] || die "The public API route could not be resolved."
     printf '%s\n' "$records" | sha256sum | awk '{ print $1 }'
 }

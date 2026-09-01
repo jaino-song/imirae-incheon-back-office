@@ -32,6 +32,10 @@ assert_contains "$DEPLOYER" 'automatic-deploy-authority' \
     "deployer must require an explicit root-owned automation authority artifact"
 assert_contains "$DEPLOYER" 'approved-public-routing\.sha256' \
     "deployer must verify the protected public routing identity"
+assert_contains "$DEPLOYER" 'getent ahostsv4' \
+    "deployer must resolve routing through the base host resolver without extra packages"
+assert_not_contains "$DEPLOYER" '(^|[[:space:]])dig([[:space:]]|$)' \
+    "deployer must not depend on an optional DNS package"
 assert_contains "$DEPLOYER" 'status_value runtime_mode' \
     "deployer must require an active fallback runtime"
 assert_contains "$DEPLOYER" 'temporary-active' \
