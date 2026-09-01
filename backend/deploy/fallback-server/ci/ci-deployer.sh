@@ -112,7 +112,8 @@ emit_status() {
     local output
     require_fallback_route
     output="$(validated_status)"
-    printf '%s\n' "$output" "public_routing=fallback"
+    printf '%s\n' "$output" | awk -F= '$1 != "public_routing" { print }'
+    printf '%s\n' "public_routing=fallback"
 }
 
 write_automatic_approval() {
@@ -159,7 +160,11 @@ replace_release() {
     before_status="$(validated_status)"
     [[ "$(status_value current_tag "$before_status")" != "$commit_sha" \
         || "$(status_value current_digest "$before_status")" != "$image_digest" ]] \
-        || { printf '%s\n' "$before_status" "public_routing=fallback" "deployment_changed=false"; return 0; }
+        || {
+            printf '%s\n' "$before_status" | awk -F= '$1 != "public_routing" { print }'
+            printf '%s\n' "public_routing=fallback" "deployment_changed=false"
+            return 0
+        }
 
     validate_protected_file "$APPROVAL_FILE" 400
     backup="$(mktemp "$STATE_ROOT/.approval-backup.XXXXXX")"
@@ -175,7 +180,8 @@ replace_release() {
     [[ "$(status_value current_tag "$after_status")" == "$commit_sha" \
         && "$(status_value current_digest "$after_status")" == "$image_digest" ]] \
         || die "The automatic Fallback replacement did not publish the requested immutable release."
-    printf '%s\n' "$after_status" "public_routing=fallback" "deployment_changed=true"
+    printf '%s\n' "$after_status" | awk -F= '$1 != "public_routing" { print }'
+    printf '%s\n' "public_routing=fallback" "deployment_changed=true"
 }
 
 main() {

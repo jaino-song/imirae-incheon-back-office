@@ -32,6 +32,8 @@ assert_contains "$DEPLOYER" 'automatic-deploy-authority' \
     "deployer must require an explicit root-owned automation authority artifact"
 assert_contains "$DEPLOYER" 'approved-public-routing\.sha256' \
     "deployer must verify the protected public routing identity"
+assert_contains "$DEPLOYER" '\$1 != "public_routing"' \
+    "deployer must replace the operator routing marker instead of duplicating it"
 assert_contains "$DEPLOYER" 'getent ahostsv4' \
     "deployer must resolve routing through the base host resolver without extra packages"
 assert_not_contains "$DEPLOYER" '(^|[[:space:]])dig([[:space:]]|$)' \
