@@ -54,6 +54,12 @@ const AREA_1_ID = "40000000-0000-4000-8000-000000000001"; // branch-1-owned area
 // schema.prisma `model area`: branchId is nullable (`branchId String? @map("branch_id")`) — the
 // "specific hole to probe" named in the unit brief.
 const AREA_NULL_ID = "40000000-0000-4000-8000-000000000002";
+// The branch-2 area exists so the branch-2 caller's own reads and writes have
+// something legitimate to succeed on. Without it every branch-2 assertion is
+// satisfied by an empty database, and a gate that denied *everything* would
+// pass the exclusion cases below just as well as a correct one.
+const AREA_2_ID = "40000000-0000-4000-8000-000000000003"; // branch-2-owned area
+const AREA_2_SPARE_ID = "40000000-0000-4000-8000-000000000004"; // branch-2, no bank row yet
 const EFORMSIGN_DOC_1_DOCUMENT_ID = "transitive-spec-branch1-doc";
 
 describe("transitively-scoped model tenant isolation (parent-path only, no branch_id column)", () => {
@@ -101,6 +107,15 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
         });
         await verifyPrisma.bank_account_info.create({
             data: { areaId: AREA_NULL_ID, bankName: "Null Area Bank", accNum: "999-999-999" },
+        });
+        await verifyPrisma.area.create({
+            data: { id: AREA_2_ID, name: "Transitive Spec Area 2", koreanName: "이전스펙지역2", branchId: BRANCH_2 },
+        });
+        await verifyPrisma.area.create({
+            data: { id: AREA_2_SPARE_ID, name: "Transitive Spec Area 2b", koreanName: "이전스펙지역2b", branchId: BRANCH_2 },
+        });
+        await verifyPrisma.bank_account_info.create({
+            data: { areaId: AREA_2_ID, bankName: "Branch2 Bank", accNum: "222-222-222" },
         });
 
         // --- chat_session -> chat_message -> chat_feedback (branch-1, owned by user-a) ------
@@ -215,7 +230,9 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
         await verifyPrisma.eformsign_doc.deleteMany({ where: { id: eformsignDoc1Id } });
         await verifyPrisma.agent_session.deleteMany({ where: { id: agentSession1Id } });
         await verifyPrisma.chat_session.deleteMany({ where: { id: { in: [chatSession1Id, chatSession2Id] } } });
-        await verifyPrisma.area.deleteMany({ where: { id: { in: [AREA_1_ID, AREA_NULL_ID] } } });
+        await verifyPrisma.area.deleteMany({
+            where: { id: { in: [AREA_1_ID, AREA_NULL_ID, AREA_2_ID, AREA_2_SPARE_ID] } },
+        });
         await verifyPrisma.$disconnect();
         await app.close();
     });
@@ -415,8 +432,74 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
                 .expect(200);
 
             const areas = (response.body as Array<{ area: string }>).map((row) => row.area);
+            // The branch's OWN row must be present. Without this the whole case is
+            // satisfied by an empty list, and a list endpoint that returned nothing
+            // to anyone would pass the two exclusions below.
+            expect(areas).toContain(AREA_2_ID);
             expect(areas).not.toContain(AREA_1_ID);
             expect(areas).not.toContain(AREA_NULL_ID);
+        });
+
+        // Positive controls for the three denials above. A gate that rejects every
+        // caller in every branch — an inverted `areaBelongsToBranch`, a broken
+        // relation filter — satisfies every denial case in this file and would ship
+        // as "isolation verified" while bank-account management was dead for
+        // everyone. These are the cases that fail when that happens.
+        it("lets a branch-2 admin create, read, update and delete within its OWN branch", async () => {
+            const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
+            const auth = `Bearer ${session.accessToken}`;
+
+            await request(app.getHttpServer())
+                .post("/bank-account-infos")
+                .set("Authorization", auth)
+                .send({ area: AREA_2_SPARE_ID, bankName: "Branch2 Spare Bank", accNum: "333-333-333" })
+                .expect(201);
+            const created = await verifyPrisma.bank_account_info.findUnique({
+                where: { areaId: AREA_2_SPARE_ID },
+            });
+            expect(created?.bankName).toBe("Branch2 Spare Bank");
+
+            const readResponse = await request(app.getHttpServer())
+                .get("/bank-account-infos/area")
+                .query({ area: AREA_2_ID })
+                .set("Authorization", auth)
+                .expect(200);
+            expect(readResponse.body?.area).toBe(AREA_2_ID);
+
+            await request(app.getHttpServer())
+                .patch("/bank-account-infos")
+                .query({ area: AREA_2_ID })
+                .set("Authorization", auth)
+                .send({ bankName: "Branch2 Bank Renamed" })
+                .expect(200);
+            const updated = await verifyPrisma.bank_account_info.findUnique({ where: { areaId: AREA_2_ID } });
+            expect(updated?.bankName).toBe("Branch2 Bank Renamed");
+
+            await request(app.getHttpServer())
+                .delete("/bank-account-infos")
+                .query({ area: AREA_2_SPARE_ID })
+                .set("Authorization", auth)
+                .expect(200);
+            const deleted = await verifyPrisma.bank_account_info.findUnique({
+                where: { areaId: AREA_2_SPARE_ID },
+            });
+            expect(deleted).toBeNull();
+        });
+
+        // The `undefined` filter key hazard, at the HTTP boundary. Prisma drops
+        // `undefined` where-keys, so an absent ?area= on DELETE once meant "delete
+        // every row in the caller's branch" — answered with a 404, so the operator
+        // saw nothing happen. The branch's own rows must survive.
+        it("refuses an area-less DELETE instead of wiping the branch's rows", async () => {
+            const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
+
+            await request(app.getHttpServer())
+                .delete("/bank-account-infos")
+                .set("Authorization", `Bearer ${session.accessToken}`)
+                .expect(400);
+
+            const survivor = await verifyPrisma.bank_account_info.findUnique({ where: { areaId: AREA_2_ID } });
+            expect(survivor).not.toBeNull();
         });
 
         // Same fix as above, the brief's specific hypothesis: a bank_account_info row hanging

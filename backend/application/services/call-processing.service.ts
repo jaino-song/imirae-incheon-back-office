@@ -78,9 +78,17 @@ export class CallProcessingService {
         // update would allow two providers to extract and publish for the same recording.
         const claimGeneration = record.extractionRetryCount;
         const claimAt = new Date(Date.now());
+        // Every call_record write below also pins branchId. It is redundant for
+        // correctness (id is unique) but load-bearing for tenancy: the ingest
+        // guard now establishes the token's branch on the HTTP store, so this
+        // pipeline runs inside a branch-scoped context when invoked inline from
+        // the webhook. Under TENANT_ISOLATION_MODE=enforce the isolation
+        // extension rejects an unpinned write to a tenant model, which would
+        // abort the inline pipeline at this first claim.
         const claimed = await this.prismaService.call_record.updateMany({
             where: {
                 id: callRecordId,
+                branchId: record.branchId,
                 processingStatus: record.processingStatus,
                 extractionRetryCount: claimGeneration,
             },
@@ -125,6 +133,7 @@ export class CallProcessingService {
                 this.logger.error(`Refinement failed for ${callRecordId}: ${error}`);
                 return this.markClaimFailed(
                     callRecordId,
+                    record.branchId,
                     claimGeneration,
                     claimAt,
                     `refine: ${String(error).slice(0, 950)}`,
@@ -139,6 +148,7 @@ export class CallProcessingService {
             const persisted = await this.prismaService.call_record.updateMany({
                 where: {
                     id: callRecordId,
+                    branchId: record.branchId,
                     processingStatus: "PROCESSING",
                     extractionRetryCount: claimGeneration,
                     processingClaimedAt: claimAt,
@@ -165,6 +175,7 @@ export class CallProcessingService {
             this.logger.error(`Extraction failed for ${callRecordId}: ${error}`);
             return this.markClaimFailed(
                 callRecordId,
+                record.branchId,
                 claimGeneration,
                 claimAt,
                 String(error).slice(0, 1_000),
@@ -178,6 +189,7 @@ export class CallProcessingService {
             this.logger.warn(`Extraction result normalization failed for ${callRecordId}: ${error}`);
             return this.markClaimFailed(
                 callRecordId,
+                record.branchId,
                 claimGeneration,
                 claimAt,
                 `extraction normalization: ${String(error).slice(0, 950)}`,
@@ -190,6 +202,7 @@ export class CallProcessingService {
             this.logger.warn(`Extraction validation failed for ${callRecordId}: ${error}`);
             return this.markClaimFailed(
                 callRecordId,
+                record.branchId,
                 claimGeneration,
                 claimAt,
                 `extraction validation: ${String(error).slice(0, 950)}`,
@@ -202,6 +215,7 @@ export class CallProcessingService {
                 const finalized = await tx.call_record.updateMany({
                     where: {
                         id: callRecordId,
+                        branchId: record.branchId,
                         processingStatus: "PROCESSING",
                         extractionRetryCount: claimGeneration,
                         processingClaimedAt: claimAt,
@@ -263,6 +277,7 @@ export class CallProcessingService {
             this.logger.error(`Persistence failed for ${callRecordId}: ${error}`);
             return this.markClaimFailed(
                 callRecordId,
+                record.branchId,
                 claimGeneration,
                 claimAt,
                 `persistence: ${String(error).slice(0, 950)}`,
@@ -282,6 +297,7 @@ export class CallProcessingService {
 
     private async markClaimFailed(
         callRecordId: string,
+        branchId: string,
         claimGeneration: number,
         claimAt: Date,
         failureReason: string,
@@ -290,6 +306,7 @@ export class CallProcessingService {
             const failed = await this.prismaService.call_record.updateMany({
                 where: {
                     id: callRecordId,
+                    branchId,
                     processingStatus: "PROCESSING",
                     extractionRetryCount: claimGeneration,
                     processingClaimedAt: claimAt,

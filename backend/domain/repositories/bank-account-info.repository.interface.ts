@@ -9,7 +9,8 @@ export interface IBankAccountInfoRepository {
     /** Ownership check for create: does this area belong to this branch? */
     areaBelongsToBranch(area: string, branchId: string): Promise<boolean>;
     create(bankAccountInfo: BankAccountInfoEntity): Promise<BankAccountInfoEntity>;
-    update(bankAccountInfo: BankAccountInfoEntity): Promise<BankAccountInfoEntity>;
+    /** Branch-pinned update; null when no row in this branch matched. */
+    update(bankAccountInfo: BankAccountInfoEntity, branchId: string): Promise<BankAccountInfoEntity | null>;
     /** Branch-pinned delete; returns the number of rows removed (0 or 1). */
     delete(area: string, branchId: string): Promise<number>;
 }

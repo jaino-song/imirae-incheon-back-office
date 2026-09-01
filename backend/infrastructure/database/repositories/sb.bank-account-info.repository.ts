@@ -29,6 +29,10 @@ export class SbBankAccountInfoRepository implements IBankAccountInfoRepository {
     }
 
     async areaBelongsToBranch(area: string, branchId: string): Promise<boolean> {
+        // Fail closed on a non-string area: `some: { id: undefined }` collapses to
+        // "has ANY area", which is true for every real branch — the ownership gate
+        // would answer yes for a caller that supplied no area at all.
+        if (typeof area !== "string" || area.length === 0) return false;
         // Rooted at `branch` (not a tenant model) so it is safe from
         // non-TenantGuard HTTP routes under enforce; a top-level `area` query
         // here would be blocked as http_no_tenant.
@@ -46,15 +50,24 @@ export class SbBankAccountInfoRepository implements IBankAccountInfoRepository {
         return BankAccountInfoMapper.toDomain(created);
     }
 
-    async update(bankAccountInfo: BankAccountInfoEntity): Promise<BankAccountInfoEntity> {
-        const updated = await this.prismaService.bank_account_info.update({
-            where: { areaId: bankAccountInfo.area },
+    async update(bankAccountInfo: BankAccountInfoEntity, branchId: string): Promise<BankAccountInfoEntity | null> {
+        if (typeof bankAccountInfo.area !== "string" || bankAccountInfo.area.length === 0) return null;
+        // Branch-pinned in the update statement itself (not only in the caller's
+        // prior findByArea) so a TOCTOU between check and write cannot rewrite
+        // another branch's row. updateMany rather than update because only the
+        // many-form accepts the `area: { branchId }` relation filter.
+        const result = await this.prismaService.bank_account_info.updateMany({
+            where: { areaId: bankAccountInfo.area, area: { branchId } },
             data: BankAccountInfoMapper.toPrismaUpdate(bankAccountInfo),
         });
-        return BankAccountInfoMapper.toDomain(updated);
+        if (result.count !== 1) return null;
+        return this.findByArea(bankAccountInfo.area, branchId);
     }
 
     async delete(area: string, branchId: string): Promise<number> {
+        // An `undefined` areaId would be dropped from the filter and turn this
+        // into "delete every row in the branch" — fail closed before Prisma sees it.
+        if (typeof area !== "string" || area.length === 0) return 0;
         // Branch-pinned in the delete statement itself (not only in a prior
         // ownership read) so a TOCTOU between check and delete cannot remove
         // another branch's row.

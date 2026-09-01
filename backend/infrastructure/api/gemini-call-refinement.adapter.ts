@@ -15,6 +15,8 @@ import { resolveCallExtractionModel } from "infrastructure/api/gemini-call-extra
 const GEMINI_URL_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const TIMEOUT_MS = 60_000;
 const ALLOWED_SPEAKERS = new Set<string>(REFINED_SPEAKERS);
+/** Floor on retained turns; below this the model summarised rather than refined. */
+const MIN_RETAINED_TURN_RATIO = 0.8;
 
 @Injectable()
 export class GeminiCallRefinementAdapter implements CallRefinementPort {
@@ -85,14 +87,22 @@ export class GeminiCallRefinementAdapter implements CallRefinementPort {
      * model that summarises 120 turns into 15 — or drops a turn's text —
      * would otherwise persist silently; a missing text also crashes the
      * mobile review sheet's evidence lookup at render time.
+     *
+     * The count check is deliberately a floor, not equality. Refinement failure
+     * is not free: it marks the record FAILED, and the retry cron re-runs the
+     * same prompt over the same input at most MAX_ATTEMPTS times, so a check
+     * that a well-behaved model trips reproducibly strands the call in terminal
+     * FAILED — no draft, no inbox entry. Merging or splitting a couple of
+     * adjacent turns is ordinary model behaviour and costs nothing; wholesale
+     * summarisation is the actual hazard, and it is what the floor catches.
      */
     private assertValidRefinement(parsed: CallRefinementResult, input: CallRefinementInput): void {
         if (!Array.isArray(parsed.transcript) || parsed.transcript.length === 0) {
             throw new Error("Gemini refinement returned an empty or non-array transcript");
         }
-        if (parsed.transcript.length !== input.segments.length) {
+        if (parsed.transcript.length < input.segments.length * MIN_RETAINED_TURN_RATIO) {
             throw new Error(
-                `Gemini refinement changed the turn count (in=${input.segments.length}, out=${parsed.transcript.length})`,
+                `Gemini refinement dropped turns (in=${input.segments.length}, out=${parsed.transcript.length})`,
             );
         }
         for (const turn of parsed.transcript) {

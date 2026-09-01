@@ -43,6 +43,12 @@ export function IssueCallIngestTokenDialog({
   const [copied, setCopied] = useState(false);
 
   const createMutation = useMutation({
+    // The response carries the plaintext token, so the cached mutation result is
+    // a copy of a secret. gcTime defaults to five minutes: detaching the observer
+    // (see resetAndClose) only *schedules* collection, so without this the
+    // plaintext outlives the closed dialog in memory. Zero collects it on the
+    // tick after the observer detaches.
+    gcTime: 0,
     mutationFn: () => callIngestTokenApi.create(branchId, label.trim()),
     onSuccess: (data) => {
       setIssued(data);
@@ -59,8 +65,9 @@ export function IssueCallIngestTokenDialog({
     setCopied(false);
     // Clearing local state is not enough: the mutation's result (which holds
     // the plaintext) also sits in the React Query mutation cache, and this
-    // dialog is rendered unconditionally by its parent — so the observer
-    // never unmounts and gcTime never starts. Reset it explicitly.
+    // dialog is rendered unconditionally by its parent — so the observer never
+    // unmounts on its own and collection is never scheduled. reset() detaches
+    // the observer; the gcTime: 0 above is what then actually drops the entry.
     createMutation.reset();
     onOpenChange(false);
   };

@@ -566,4 +566,48 @@ describe("BankAccountInfoController (Integration)", () => {
             });
         });
     });
+
+    // ============================================
+    // Absent ?area= — the query parameter arrives as `undefined`, and Prisma
+    // drops `undefined` where-keys. Unguarded, DELETE becomes "delete every row
+    // in this branch" and PATCH becomes "rewrite an arbitrary row in it". The
+    // request must be refused at the controller, before any service call.
+    // ============================================
+    describe("routes that filter by ?area= reject an absent area", () => {
+        it.each([
+            ["delete", "delete"],
+            ["patch", "update"],
+        ] as const)("%s /bank-account-infos with no area -> 400, service untouched", async (method, serviceMethod) => {
+            // Act
+            const response = await request(app.getHttpServer())[method]("/bank-account-infos").send({
+                bankName: "K-Bank",
+            });
+
+            // Assert
+            expect(response.status).toBe(400);
+            expect(bankAccountInfoService[serviceMethod]).not.toHaveBeenCalled();
+        });
+
+        it("GET /bank-account-infos/area with no area -> 400, service untouched", async () => {
+            // Act
+            const response = await request(app.getHttpServer()).get("/bank-account-infos/area");
+
+            // Assert
+            expect(response.status).toBe(400);
+            expect(bankAccountInfoService.findByArea).not.toHaveBeenCalled();
+        });
+
+        it("still serves the same routes when the area is present", async () => {
+            // The guard must reject only the absent case — a positive control so a
+            // gate that refuses everything cannot pass this describe block.
+            bankAccountInfoService.delete.mockResolvedValue(undefined);
+
+            const response = await request(app.getHttpServer())
+                .delete("/bank-account-infos")
+                .query({ area: "Seoul" });
+
+            expect(response.status).toBe(200);
+            expect(bankAccountInfoService.delete).toHaveBeenCalledWith("Seoul", BRANCH_A);
+        });
+    });
 });

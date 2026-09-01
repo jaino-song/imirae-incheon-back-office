@@ -27,7 +27,14 @@ export class UpdateBankAccountInfoUsecase {
             bankAccountInfo.accNum = updates.accNum;
         }
 
-        return this.bankAccountInfoRepository.update(bankAccountInfo);
+        const updated = await this.bankAccountInfoRepository.update(bankAccountInfo, branchId);
+        if (!updated) {
+            // The branch-pinned write matched nothing even though findByArea just
+            // saw the row: it was deleted or re-parented in between. Report the
+            // same 404 rather than reporting a success that did not happen.
+            throw new NotFoundException(`Bank account info with area ${area} not found`);
+        }
+        return updated;
     }
 }
 

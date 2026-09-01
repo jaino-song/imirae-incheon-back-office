@@ -36,5 +36,16 @@ describe("SettingsPage call-ingest-token section gating", () => {
     // An owner with no selected branch reaches the section (the nav entry is
     // owner-gated, not branch-gated) and must get an explanation, not a blank panel.
     expect(source).toContain("지점을 먼저 선택해 주세요");
+
+    // Pin which arm is which. Every assertion above still holds if the ternary's
+    // arms are swapped — i.e. if the section renders when branchId is ABSENT and
+    // the "select a branch first" copy shows when it is present. Assert the order
+    // the arms actually appear in, so an inversion fails here.
+    const gate = source.slice(source.indexOf('activeSection === "call-ingest-tokens" && isOwner'));
+    const truthyArm = gate.indexOf("<CallIngestTokenSection branchId={branchId} />");
+    const falsyArm = gate.indexOf("지점을 먼저 선택해 주세요");
+    expect(gate).toContain("branchId ? (");
+    expect(truthyArm).toBeGreaterThan(-1);
+    expect(falsyArm).toBeGreaterThan(truthyArm);
   });
 });

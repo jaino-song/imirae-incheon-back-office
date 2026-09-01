@@ -57,9 +57,13 @@ export class ChatFeedbackRepository {
         });
     }
 
-    async findBySession(sessionId: string) {
+    // branchId is required for the same reason as findById: chat_feedback has no
+    // branch_id column, so its tenancy is the parent session's and must be
+    // asserted through the relation. This method has no caller today; the scope
+    // is here so the first one cannot inherit an unscoped cross-branch read.
+    async findBySession(sessionId: string, branchId: string) {
         return this.prisma.chat_feedback.findMany({
-            where: { sessionId: sessionId },
+            where: { sessionId: sessionId, chatSession: { branchId } },
             include: { chatMessage: true },
             orderBy: { createdAt: 'desc' },
         });

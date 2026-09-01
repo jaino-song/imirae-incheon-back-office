@@ -13,7 +13,7 @@ describe("SbBankAccountInfoRepository", () => {
         findMany: jest.fn(),
         findFirst: jest.fn(),
         create: jest.fn(),
-        update: jest.fn(),
+        updateMany: jest.fn(),
         deleteMany: jest.fn(),
     });
 
@@ -135,6 +135,18 @@ describe("SbBankAccountInfoRepository", () => {
 
             await expect(repository.areaBelongsToBranch("other-branch-area", BRANCH_ID)).resolves.toBe(false);
         });
+
+        // `some: { id: undefined }` collapses to "this branch has ANY area",
+        // which is true for every real branch — the ownership gate would answer
+        // yes for a caller that supplied no area at all.
+        it.each([undefined, "", null])("fails closed when area is %p", async (area) => {
+            branchModel.findFirst.mockResolvedValue({ id: BRANCH_ID });
+
+            await expect(
+                repository.areaBelongsToBranch(area as unknown as string, BRANCH_ID),
+            ).resolves.toBe(false);
+            expect(branchModel.findFirst).not.toHaveBeenCalled();
+        });
     });
 
     // ============================================
@@ -202,21 +214,25 @@ describe("SbBankAccountInfoRepository", () => {
     // ============================================
     // update
     // ============================================
+    // update — branch-pinned in the statement itself (updateMany), so a TOCTOU
+    // between the caller's ownership read and this write cannot rewrite another
+    // branch's row
     describe("update", () => {
         describe("given an existing BankAccountInfoEntity with changes", () => {
-            it("should update bank account with correct data", async () => {
+            it("should update through a branch-pinned updateMany, then read the row back", async () => {
                 const entity = new BankAccountInfoEntity("Daegu", "Shinhan", "444-555-6666");
                 const updatedRow = createBankAccountRow({
                     areaId: "Daegu",
                     bankName: "Shinhan",
                     accNum: "444-555-6666",
                 });
-                bankAccountModel.update.mockResolvedValue(updatedRow);
+                bankAccountModel.updateMany.mockResolvedValue({ count: 1 });
+                bankAccountModel.findFirst.mockResolvedValue(updatedRow);
 
-                const result = await repository.update(entity);
+                const result = await repository.update(entity, BRANCH_ID);
 
-                expect(bankAccountModel.update).toHaveBeenCalledWith({
-                    where: { areaId: "Daegu" },
+                expect(bankAccountModel.updateMany).toHaveBeenCalledWith({
+                    where: { areaId: "Daegu", area: { branchId: BRANCH_ID } },
                     data: {
                         bankName: "Shinhan",
                         accNum: "444-555-6666",
@@ -231,35 +247,26 @@ describe("SbBankAccountInfoRepository", () => {
             });
         });
 
-        describe("given only bankName is changed", () => {
-            it("should update with new bank name", async () => {
+        describe("given the row belongs to another branch", () => {
+            it("should match nothing and return null without reading the row back", async () => {
                 const entity = new BankAccountInfoEntity("Seoul", "Woori", "123-456-7890");
-                const updatedRow = createBankAccountRow({
-                    areaId: "Seoul",
-                    bankName: "Woori",
-                    accNum: "123-456-7890",
-                });
-                bankAccountModel.update.mockResolvedValue(updatedRow);
+                bankAccountModel.updateMany.mockResolvedValue({ count: 0 });
 
-                const result = await repository.update(entity);
+                const result = await repository.update(entity, "branch-2");
 
-                expect(result.bankName).toBe("Woori");
+                expect(result).toBeNull();
+                expect(bankAccountModel.findFirst).not.toHaveBeenCalled();
             });
         });
 
-        describe("given only accNum is changed", () => {
-            it("should update with new account number", async () => {
-                const entity = new BankAccountInfoEntity("Seoul", "K-Bank", "999-888-7777");
-                const updatedRow = createBankAccountRow({
-                    areaId: "Seoul",
-                    bankName: "K-Bank",
-                    accNum: "999-888-7777",
-                });
-                bankAccountModel.update.mockResolvedValue(updatedRow);
+        describe("given an absent area (an undefined query parameter)", () => {
+            it("should refuse before Prisma sees a filter with a dropped key", async () => {
+                const entity = new BankAccountInfoEntity(undefined as unknown as string, "Woori", "1");
 
-                const result = await repository.update(entity);
+                const result = await repository.update(entity, BRANCH_ID);
 
-                expect(result.accNum).toBe("999-888-7777");
+                expect(result).toBeNull();
+                expect(bankAccountModel.updateMany).not.toHaveBeenCalled();
             });
         });
     });
@@ -287,6 +294,19 @@ describe("SbBankAccountInfoRepository", () => {
 
             expect(deleted).toBe(0);
         });
+
+        // Prisma drops `undefined` where-keys, so an absent ?area= would turn
+        // this statement into "delete every row in the branch". The repository
+        // must refuse before the query is built, not rely on the caller.
+        it.each([undefined, "", null])(
+            "should delete nothing when area is %p",
+            async (area) => {
+                const deleted = await repository.delete(area as unknown as string, BRANCH_ID);
+
+                expect(deleted).toBe(0);
+                expect(bankAccountModel.deleteMany).not.toHaveBeenCalled();
+            },
+        );
 
         describe("given different areas", () => {
             it.each(["Seoul", "Incheon", "Busan", "Daegu"])(

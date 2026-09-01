@@ -40,6 +40,7 @@
 - [ ] 테스트 녹음 1건으로 첫 실행 → n8n 실행 로그에서 Transcribe 노드의 **실제 응답 JSON** 확인
 - [ ] 응답이 가정과 다르면: Build Webhook Payload 노드의 파싱 분기와 Build Transcribe Request의 봉투 키를 실제 스키마에 맞게 수정 (수정 후 `docs/n8n/` 템플릿에도 반영)
 - [ ] 30분 초과 녹음의 화자분리 폴백(재시도 경로, `diarized:false`)도 한 번 통과 확인 가능하면 확인
+- [ ] **`isExecuted` 지원 여부 확인 (첫 실행에서 같이 볼 것)**: Build Webhook Payload 노드는 `isExecuted`가 boolean이 아니면 조용히 `diarized:true`로 넘어가는 대신 **throw** 하도록 되어 있다(고의). 대신 이 n8n 버전이 `isExecuted`를 제공하지 않거나 노드 이름이 바뀌면 **모든 유입이 실패**한다. 첫 실행 로그에서 이 분기가 정상 동작하는지 반드시 확인할 것 — 템플릿은 아직 실제 n8n에서 한 번도 돌아간 적이 없다
 - [ ] **폴백 조건 좁히기**: 현재 non-diarized 재시도는 primary 오류 종류를 구분하지 않고 발동한다 (일시적 429/503 포함 — README 트러블슈팅 표 참고). 실 API에서 >30분 diarization 한도 초과 오류의 형태(status/message)를 확인한 뒤, error 출력과 재시도 노드 사이에 IF 노드를 넣어 그 오류만 폴백하고 나머지는 빨간 실행으로 실패하게 좁힐 것 (수정 후 템플릿 JSON에도 반영)
 
 ## 4. 스모크 테스트 (인천점)
@@ -53,7 +54,10 @@
 
 `backend/README.md:390-432` 런북을 따른다. 요약:
 
-> **통화 인박스 경로는 enforce 안전 확인 완료 (2026-09-01).** `call_ingest_token`은 tenant 모델이고 웹훅 요청은 branchId가 없는 상태로 guard에 도달하므로, 예전 코드는 enforce에서 **모든 n8n 웹훅이 500**이 됐다. 지금은 `CallIngestGuard`가 토큰 조회만 system scope로 감싸고(TenantGuard와 동일한 패턴) 조회된 branchId를 tenant store에 심어서, 이후 ingestion 쓰기는 우회가 아니라 **정상 branch-scoped**로 실행된다. 회귀 테스트: `backend/test/infrastructure/auth/call-ingest.guard.enforce.spec.ts` (enforce가 실제로 켜져 있음을 증명하는 CONTROL 케이스 포함 — call-inbox e2e는 TenantAlsMiddleware를 설치하지 않아 이 결함을 볼 수 없다).
+> **웹훅 유입(ingestion) 경로는 enforce 안전 확인 완료 (2026-09-01). 단, 아래 ⚠️ 미해결 항목을 먼저 읽을 것.**
+> `call_ingest_token`은 tenant 모델이고 웹훅 요청은 branchId가 없는 상태로 guard에 도달하므로, 예전 코드는 enforce에서 **모든 n8n 웹훅이 500**이 됐다. 지금은 `CallIngestGuard`가 토큰 조회를 system scope로 감싸고(TenantGuard와 동일한 패턴) 조회된 branchId를 tenant store에 심는다. 그리고 그렇게 branchId가 심어지면 격리 익스텐션이 `http_no_tenant`에서 멈추는 대신 **쓰기 인자 검사**를 시작하므로, 그 요청에서 도달 가능한 tenant 모델 쓰기는 전부 `where`에 branchId를 못 박아야 한다 — `CallProcessingService`의 claim/refine/finalize/fail 쓰기 4곳이 그래서 branch-pinned로 바뀌었다. 회귀 테스트: `backend/test/infrastructure/auth/call-ingest.guard.enforce.spec.ts` (enforce가 실제로 켜져 있음을 증명하는 CONTROL 케이스 포함 — call-inbox e2e는 `CallInboxModule`로 앱을 구성해 `TenantAlsMiddleware`가 설치되지 않으므로 이 부류의 결함을 **전혀 볼 수 없다**. enforce로 e2e를 돌려 22/22 green이 나와도 그것은 근거가 되지 않는다).
+>
+> ⚠️ **미해결 — enforce 전환 전 반드시 처리**: 직원용 통화 인박스 서비스(`backend/application/services/call-inbox.service.ts`)의 draft confirm/discard/patch 경로에는 branchId를 못 박지 않은 tenant 모델 쓰기가 **10곳** 남아 있다(`client_draft` 9곳 + `call_record` 1곳). 이들은 `TenantGuard`가 이미 branchId를 심어 둔 상태에서 실행되므로 enforce에서 `unpinned_write`로 던진다 — 이번 작업 이전부터 있던 문제이고, 유입 경로와 달리 아직 수정되지 않았다. 이 상태로 프로덕션을 enforce로 올리면 **직원이 통화 초안을 확정·삭제·수정하는 동작이 전부 실패한다.** §4 번인 이전에 별도 작업으로 처리할 것.
 
 - [ ] preview에서 tenant 위반 로그 번인 (observe 모드 로그 모니터링)
 - [ ] staging `TENANT_ISOLATION_MODE=enforce` 전환

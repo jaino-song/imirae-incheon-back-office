@@ -48,6 +48,14 @@ export class CallIngestGuard implements CanActivate {
         // tenant-isolation extension raises `http_no_tenant`, which under
         // TENANT_ISOLATION_MODE=enforce throws and 500s every n8n webhook
         // delivery. The query is pinned to the presented token's hash.
+        //
+        // Two operations run inside this scope, not one: resolveBranchId also
+        // fires an un-awaited `lastUsedAt` touch, and a Prisma promise executes
+        // even when only `.catch()` is attached, so that write lands here too.
+        // It is keyed on the primary key the lookup just returned and never
+        // touches branchId, so it cannot cross a tenant boundary — but the one
+        // `tenant_system_scope_used` audit entry does cover a write as well as
+        // a read.
         const branchId = await runSystemScope(() => this.tokenService.resolveBranchId(token));
         if (!branchId) {
             this.logger.warn("Call ingest rejected: Unknown or revoked token");
@@ -55,10 +63,16 @@ export class CallIngestGuard implements CanActivate {
         }
 
         request.callIngestBranchId = branchId;
-        // Establish the tenant identity the token just proved, so the
-        // ingestion writes downstream (call_record, client_draft — both
-        // tenant models) are branch-SCOPED rather than bypassed. Mirrors
+        // Establish the tenant identity the token just proved, so the ingestion
+        // writes downstream (call_record, client_draft — both tenant models)
+        // are branch-SCOPED rather than bypassed. Mirrors
         // TenantGuard.assignPrincipal's store write.
+        //
+        // Note what this arms: with a branchId on the store, the isolation
+        // extension stops short-circuiting at http_no_tenant and starts
+        // checking write args, so every tenant-model write reachable from this
+        // request must pin branchId in its `where`. CallProcessingService's
+        // claim/refine/finalize/fail writes are pinned for exactly that reason.
         tenantContextStore.setBranchId(branchId);
         return true;
     }

@@ -28,8 +28,10 @@ export const systemScopeImportAllowlist = [
     // its branch. The lookup is on `call_ingest_token` (a tenant model)
     // BEFORE any branchId exists on the request store — resolving it is the
     // point of the query — so it self-trips `http_no_tenant` unwrapped, which
-    // under enforce 500s every n8n delivery. The bypass covers ONLY the
-    // token→branch lookup (pinned to the presented token's hash); the guard
-    // then calls setBranchId so everything downstream is branch-scoped.
+    // under enforce 500s every n8n delivery. The bypass covers the
+    // token→branch lookup (pinned to the presented token's hash) and the
+    // un-awaited `lastUsedAt` touch that lookup fires, which is keyed on the
+    // row's primary key and never touches branchId; the guard then calls
+    // setBranchId so everything downstream is branch-scoped.
     "infrastructure/auth/call-ingest.guard.ts",
 ];

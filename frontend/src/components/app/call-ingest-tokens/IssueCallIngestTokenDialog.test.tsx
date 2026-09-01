@@ -5,8 +5,9 @@ import { callIngestTokenApi } from "@/services/api";
 
 import { IssueCallIngestTokenDialog } from "./IssueCallIngestTokenDialog";
 
+const mockToast = jest.fn();
 jest.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: jest.fn() }),
+  useToast: () => ({ toast: mockToast }),
 }));
 
 jest.mock("@/services/api", () => ({
@@ -23,17 +24,37 @@ const PLAINTEXT_TOKEN = "cit_test-plaintext-token-value";
 
 function renderDialog(onOpenChange: (open: boolean) => void = jest.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <IssueCallIngestTokenDialog
-        open
-        onOpenChange={onOpenChange}
-        branchId="branch-1"
-        onIssued={jest.fn()}
-      />
-    </QueryClientProvider>,
-  );
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <IssueCallIngestTokenDialog
+          open
+          onOpenChange={onOpenChange}
+          branchId="branch-1"
+          onIssued={jest.fn()}
+        />
+      </QueryClientProvider>,
+    ),
+  };
 }
+
+/** The mutation cache is the other place the plaintext lives, besides component state. */
+function mutationCacheHasToken(queryClient: QueryClient): boolean {
+  return queryClient
+    .getMutationCache()
+    .getAll()
+    .some((mutation) => JSON.stringify(mutation.state.data ?? null).includes(PLAINTEXT_TOKEN));
+}
+
+const ISSUED_TOKEN = {
+  id: "tok-1",
+  branchId: "branch-1",
+  label: "인천본점 n8n",
+  active: true,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  token: PLAINTEXT_TOKEN,
+};
 
 function storageHasToken(): boolean {
   for (const store of [window.localStorage, window.sessionStorage]) {
@@ -131,5 +152,76 @@ describe("IssueCallIngestTokenDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "확인" }));
     expect(storageHasToken()).toBe(false);
+  });
+
+  // The dialog is rendered unconditionally by its parent, so its observer never
+  // unmounts and React Query's gcTime never starts — without an explicit reset
+  // the plaintext outlives the dialog inside the mutation cache.
+  it("clears the plaintext from the mutation cache when the dialog closes", async () => {
+    mockedCreate.mockResolvedValue(ISSUED_TOKEN);
+
+    const { queryClient } = renderDialog();
+
+    fireEvent.change(screen.getByLabelText("이름"), { target: { value: "인천본점 n8n" } });
+    fireEvent.click(screen.getByRole("button", { name: "발급" }));
+    expect(await screen.findByText(PLAINTEXT_TOKEN)).toBeInTheDocument();
+
+    // Positive control: the cache really does hold it while the dialog is open,
+    // so the assertion after closing is about the reset and not about an
+    // always-empty cache.
+    expect(mutationCacheHasToken(queryClient)).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "확인" }));
+
+    await waitFor(() => {
+      expect(mutationCacheHasToken(queryClient)).toBe(false);
+    });
+  });
+
+  // This is the one screen where the value is never shown again, so a copy that
+  // fails silently loses the token outright.
+  it("tells the user to copy manually when clipboard access is refused", async () => {
+    mockedCreate.mockResolvedValue(ISSUED_TOKEN);
+    Object.assign(navigator, {
+      clipboard: { writeText: jest.fn().mockRejectedValue(new Error("denied")) },
+    });
+
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText("이름"), { target: { value: "인천본점 n8n" } });
+    fireEvent.click(screen.getByRole("button", { name: "발급" }));
+    expect(await screen.findByText(PLAINTEXT_TOKEN)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "토큰 복사" }));
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variant: "destructive",
+          description: "복사에 실패했어요. 토큰을 직접 선택해 복사해 주세요",
+        }),
+      );
+    });
+    // The token stays on screen — the failure must not also dismiss it.
+    expect(screen.getByText(PLAINTEXT_TOKEN)).toBeInTheDocument();
+  });
+
+  it("shows the copied confirmation when the clipboard accepts the token", async () => {
+    mockedCreate.mockResolvedValue(ISSUED_TOKEN);
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText("이름"), { target: { value: "인천본점 n8n" } });
+    fireEvent.click(screen.getByRole("button", { name: "발급" }));
+    expect(await screen.findByText(PLAINTEXT_TOKEN)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "토큰 복사" }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(PLAINTEXT_TOKEN);
+    });
+    expect(mockToast).not.toHaveBeenCalled();
   });
 });

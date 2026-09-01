@@ -55,11 +55,38 @@ describe("GeminiCallRefinementAdapter", () => {
         await expect(adapter.refine(input)).rejects.toThrow(/empty or non-array transcript/);
     });
 
-    it("rejects a response that changed the turn count (summarisation guard)", async () => {
+    it("rejects a response that summarised the transcript away (turn-retention floor)", async () => {
         mockGeminiResponse([{ speaker: "고객", text: "요약된 한 턴" }]);
 
         const adapter = new GeminiCallRefinementAdapter(configService as never);
-        await expect(adapter.refine(input)).rejects.toThrow(/changed the turn count \(in=2, out=1\)/);
+        await expect(adapter.refine(input)).rejects.toThrow(/dropped turns \(in=2, out=1\)/);
+    });
+
+    // The floor is not equality on purpose: a rejection here marks the record
+    // FAILED, and the retry cron re-runs the same prompt over the same input, so
+    // a check a well-behaved model trips reproducibly strands the call in
+    // terminal FAILED. Merging or splitting a few adjacent turns must pass.
+    it("accepts a response that merged one adjacent pair on a long call", async () => {
+        const segments = Array.from({ length: 20 }, (_, index) => ({ speaker: "1", text: `raw${index}` }));
+        const transcript = Array.from({ length: 19 }, (_, index) => ({ speaker: "고객", text: `t${index}` }));
+        mockGeminiResponse(transcript);
+
+        const adapter = new GeminiCallRefinementAdapter(configService as never);
+
+        await expect(adapter.refine({ ...input, segments })).resolves.toEqual({ transcript });
+    });
+
+    it("accepts a response that split a turn in two", async () => {
+        const transcript = [
+            { speaker: "고객", text: "산후도우미 문의요" },
+            { speaker: "고객", text: "비용이 궁금해요" },
+            { speaker: "아이미래로", text: "네 안녕하세요" },
+        ];
+        mockGeminiResponse(transcript);
+
+        const adapter = new GeminiCallRefinementAdapter(configService as never);
+
+        await expect(adapter.refine(input)).resolves.toEqual({ transcript });
     });
 
     it("rejects a turn without string text", async () => {
