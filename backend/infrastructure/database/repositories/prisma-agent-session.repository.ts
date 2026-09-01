@@ -202,14 +202,17 @@ export class PrismaAgentSessionRepository implements IAgentSessionRepository {
                 })),
                 skipDuplicates: true,
             }),
-            this.prisma.agent_session.update({
-                where: { id },
+            // Branch-pinned like every other session write here: under
+            // TENANT_ISOLATION_MODE=enforce an update whose `where` lacks
+            // branchId is rejected as unpinned_write before it runs.
+            this.prisma.agent_session.updateMany({
+                where: { id, ...owner },
                 data: { updatedAt: new Date() },
             }),
         ];
         if (title && !session.title) {
             operations.push(this.prisma.agent_session.updateMany({
-                where: { id, title: null },
+                where: { id, ...owner, title: null },
                 data: { title },
             }));
         }
