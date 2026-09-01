@@ -74,6 +74,7 @@ Usage:
   babyjamjam-fallback-server status
   babyjamjam-fallback-server deploy <40-character-commit-sha> <sha256-image-digest>
   babyjamjam-fallback-server temporary-active <40-character-commit-sha> <sha256-image-digest>
+  babyjamjam-fallback-server extend-temporary-active <40-character-commit-sha> <sha256-image-digest>
   babyjamjam-fallback-server rollback
   babyjamjam-fallback-server stop
 
@@ -456,14 +457,19 @@ guard_expiry() {
     clear_temporary_active_state
 }
 
-schedule_temporary_expiry_stop() {
+try_schedule_temporary_expiry_stop() {
     local expiry="$1"
     clear_temporary_expiry_timer
     /usr/bin/systemd-run --unit="$TEMPORARY_STOP_UNIT" --on-calendar="@$expiry" \
         --timer-property=Persistent=true --service-type=oneshot "$INSTALLED_OPERATOR" stop >/dev/null \
-        || die "The temporary-active expiry stop could not be scheduled."
+        || return 1
     /usr/bin/systemctl is-active --quiet "$TEMPORARY_STOP_UNIT.timer" \
-        || { clear_temporary_expiry_timer; die "The temporary-active expiry timer is not active."; }
+        || { clear_temporary_expiry_timer; return 1; }
+}
+
+schedule_temporary_expiry_stop() {
+    try_schedule_temporary_expiry_stop "$1" \
+        || die "The temporary-active expiry stop could not be scheduled."
 }
 
 read_state() {
@@ -487,6 +493,10 @@ write_state() {
     /usr/bin/chown root:root "$temporary"
     /usr/bin/chmod 600 "$temporary"
     /usr/bin/mv -f "$temporary" "$STATE_DIRECTORY/$name"
+}
+
+current_unix_time() {
+    /usr/bin/date +%s
 }
 
 pull_release_image() {
@@ -567,6 +577,98 @@ verify_temporary_active_runtime() {
             || die "A temporary-active disabled runtime gate is missing or duplicated."
         [[ "$value" == "false" ]] || die "A temporary-active disabled runtime gate is not disabled."
     done
+}
+
+verify_temporary_guard() {
+    /usr/bin/systemctl is-enabled --quiet "$TEMPORARY_GUARD_TIMER" \
+        && /usr/bin/systemctl is-active --quiet "$TEMPORARY_GUARD_TIMER"
+}
+
+running_image_id_for() {
+    /usr/bin/docker inspect --format '{{.Image}}' "$1"
+}
+
+verify_active_container_health() {
+    local container_id="$1" health restart_count
+
+    health="$(/usr/bin/docker inspect --format '{{.State.Health.Status}}' "$container_id")" \
+        || return 1
+    restart_count="$(/usr/bin/docker inspect --format '{{.RestartCount}}' "$container_id")" \
+        || return 1
+    [[ "$health" == "healthy" && "$restart_count" == "0" ]] \
+        && /usr/bin/curl --fail --silent --show-error --connect-timeout 2 --max-time 5 \
+            "$LOOPBACK_READY_URL" >/dev/null
+}
+
+restore_temporary_extension() {
+    local expiry="$1" linkage="$2"
+
+    try_schedule_temporary_expiry_stop "$expiry" \
+        && write_state temporary-active-expiry "$expiry" \
+        && write_state temporary-active-linkage "$linkage"
+}
+
+extend_temporary_active_release() {
+    local commit_sha="$1" image_digest="$2" approval_data approval_egress_hash approval_nonce incident_id evidence_hash
+    local old_expiry old_linkage new_expiry new_linkage current_tag current_digest container_before container_after now
+
+    validate_release "$commit_sha" "$image_digest"
+    [[ "$(read_state runtime-mode || true)" == "temporary-active" ]] \
+        || die "A temporary-active runtime is required for extension."
+    validate_env_file
+    validate_production_db_identity
+    approval_data="$(validate_temporary_active_approval "$commit_sha" "$image_digest")"
+    read -r approval_egress_hash approval_nonce incident_id evidence_hash <<<"$approval_data"
+    validate_active_aligo_env
+    current_tag="$(read_state current-image-tag)" || die "No active Fallback Server release is recorded."
+    current_digest="$(read_state current-image-digest)" || die "No active Fallback Server image digest is recorded."
+    [[ "$current_tag" == "$commit_sha" && "$current_digest" == "$image_digest" ]] \
+        || die "The extension release must match the running active release."
+    old_expiry="$(read_state temporary-active-expiry)" || die "The current temporary-active expiry is missing."
+    old_linkage="$(read_state temporary-active-linkage)" || die "The current temporary-active linkage is missing."
+    new_expiry="$(approval_value expires_at_unix)"
+    now="$(current_unix_time)"
+    [[ "$old_expiry" =~ ^[0-9]{10,}$ && "$new_expiry" =~ ^[0-9]{10,}$ \
+        && "$now" -lt "$old_expiry" && "$old_expiry" -lt "$new_expiry" ]] \
+        || die "The temporary-active extension must move a live expiry forward."
+    container_before="$(container_id_for "$commit_sha")" \
+        || die "The temporary-active Fallback Server API container is not running."
+    verify_active_container_health "$container_before" \
+        || die "The temporary-active Fallback Server API container is not healthy and stable."
+    verify_temporary_active_runtime "$commit_sha"
+    verify_image_identity "$commit_sha" "$image_digest" "$(running_image_id_for "$container_before")"
+    verify_approved_egress "$approval_egress_hash" "$commit_sha"
+    claim_approval_nonce "$approval_nonce"
+    if ! try_schedule_temporary_expiry_stop "$new_expiry"; then
+        restore_temporary_extension "$old_expiry" "$old_linkage" \
+            || die "The extension failed and the previous expiry could not be restored."
+        die "The temporary-active extension timer could not be scheduled."
+    fi
+    new_linkage="$incident_id $evidence_hash $approval_nonce"
+    if ! write_state temporary-active-expiry "$new_expiry" \
+        || ! write_state temporary-active-linkage "$new_linkage"; then
+        restore_temporary_extension "$old_expiry" "$old_linkage" \
+            || die "The extension failed and the previous state could not be restored."
+        die "The temporary-active extension state could not be recorded."
+    fi
+    container_after="$(container_id_for "$commit_sha" || true)"
+    if [[ "$container_after" != "$container_before" ]] \
+        || ! verify_temporary_guard \
+        || ! verify_active_container_health "$container_after" \
+        || ! ( verify_temporary_active_runtime "$commit_sha" \
+            && verify_image_identity "$commit_sha" "$image_digest" "$(running_image_id_for "$container_after")" ); then
+        restore_temporary_extension "$old_expiry" "$old_linkage" \
+            || die "The extension verification failed and the previous state could not be restored."
+        die "The temporary-active extension verification failed."
+    fi
+    (( $(current_unix_time) < new_expiry )) \
+        || { restore_temporary_extension "$old_expiry" "$old_linkage" || true; die "The temporary-active extension expired during verification."; }
+    printf '%s\n' \
+        "environment=fallback-server" \
+        "temporary_active_extended=true" \
+        "container_restarted=false" \
+        "expiry_stop_scheduled=true" \
+        "public_routing=not_managed"
 }
 
 temporary_activate_release() {
@@ -720,8 +822,7 @@ status_release() {
             || die "Temporary-active approval linkage is missing or invalid."
         now="$(/usr/bin/date +%s)"
         [[ "$expiry" =~ ^[0-9]{10,}$ && "$now" -lt "$expiry" ]] || die "Temporary-active approval is expired."
-        /usr/bin/systemctl is-enabled --quiet "$TEMPORARY_GUARD_TIMER" || die "Temporary-active guard is not enabled."
-        /usr/bin/systemctl is-active --quiet "$TEMPORARY_GUARD_TIMER" || die "Temporary-active guard is not active."
+        verify_temporary_guard || die "Temporary-active guard is not enabled and active."
         verify_temporary_active_runtime "$commit_sha"
     elif [[ "$runtime_mode" == "passive" ]]; then
         [[ ! -e "$ACTIVE_EXPIRY_FILE" ]] || die "Fallback runtime state is inconsistent."
@@ -804,6 +905,10 @@ main() {
         temporary-active)
             [[ "$#" -eq 3 ]] || { usage; exit 1; }
             temporary_activate_release "$2" "$3"
+            ;;
+        extend-temporary-active)
+            [[ "$#" -eq 3 ]] || { usage; exit 1; }
+            extend_temporary_active_release "$2" "$3"
             ;;
         guard-expiry)
             [[ "$#" -eq 1 ]] || { usage; exit 1; }
