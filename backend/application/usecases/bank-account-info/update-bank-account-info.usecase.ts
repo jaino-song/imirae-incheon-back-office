@@ -14,7 +14,7 @@ export class UpdateBankAccountInfoUsecase {
         private readonly bankAccountInfoRepository: IBankAccountInfoRepository,
     ) {}
 
-    async execute(area: string, updates: UpdateBankAccountInfoParams, branchId?: string): Promise<BankAccountInfoEntity> {
+    async execute(area: string, updates: UpdateBankAccountInfoParams, branchId: string): Promise<BankAccountInfoEntity> {
         const bankAccountInfo = await this.bankAccountInfoRepository.findByArea(area, branchId);
         if (!bankAccountInfo) {
             throw new NotFoundException(`Bank account info with area ${area} not found`);

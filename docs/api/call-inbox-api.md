@@ -264,8 +264,9 @@ chars.
 |---|---|---|
 | `POST /webhooks/call-transcripts` | `Authorization: Bearer <cit_… ingest token>` | n8n only. Body: see v2 shape above. `recordedAt` must be a strict ISO 8601 calendar-validated date-time string when present. **202** `{ accepted: true, duplicate: false, callRecordId }` fresh accepted · **200** `{ accepted: true, duplicate: true, callRecordId }` duplicate (idempotent re-delivery) · **401** bad token · **400** invalid payload (including validation cap violations or malformed `recordedAt`) |
 | `GET /webhooks/call-transcripts/vocabulary` | `Authorization: Bearer <cit_… ingest token>` | n8n only. **200** `{ version, phrases }` — the repo-versioned vocabulary the workflow passes to Gemini 3.5 Transcribe as `custom_vocabulary`, echoing `version` back as the webhook's `vocabularyVersion`. Branch-agnostic (one global list) · **401** bad token |
-| `POST /branches/:branchId/call-ingest-tokens` | admin JWT | `{ label }` → `{ token }` — plaintext shown once |
-| `POST /call-ingest-tokens/:id/revoke` | admin JWT | kills exactly one ingest source |
+| `GET /branches/:branchId/call-ingest-tokens` | **owner** JWT | `{ id, label, active, createdAt }[]`, newest first. Hash-safe: the response is reshaped field-by-field, so the token hash can never leak even if the query's `select` is widened. Cross-branch → **403** |
+| `POST /branches/:branchId/call-ingest-tokens` | **owner** JWT | `{ label }` → `{ id, branchId, label, token }` — plaintext shown once, never stored or returned again. Cross-branch → **403** |
+| `POST /call-ingest-tokens/:id/revoke` | **owner** JWT | kills exactly one ingest source; scoped by `{ id, branchId }` so another branch's token id is a no-op |
 
 ## 5. Draft status reference
 

@@ -450,8 +450,20 @@ export default function SettingsPage() {
           </section>
           )}
 
-          {activeSection === "call-ingest-tokens" && isOwner && branchId && (
-            <CallIngestTokenSection branchId={branchId} />
+          {activeSection === "call-ingest-tokens" && isOwner && (
+            branchId ? (
+              <CallIngestTokenSection branchId={branchId} />
+            ) : (
+              // The nav entry is owner-gated, not branch-gated, so an owner
+              // whose session has no selected branch can reach this section.
+              // Explain that rather than rendering an empty panel.
+              <section className="space-y-2">
+                <h2 className="text-lg font-semibold">통화 수집 토큰</h2>
+                <p className="text-sm text-muted-foreground">
+                  토큰은 지점별로 발급됩니다. 상단에서 지점을 먼저 선택해 주세요.
+                </p>
+              </section>
+            )
           )}
 
         </div>

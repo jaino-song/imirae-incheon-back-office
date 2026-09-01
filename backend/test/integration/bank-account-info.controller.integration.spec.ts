@@ -114,6 +114,39 @@ describe("BankAccountInfoController (Integration)", () => {
                         bankName: "국민은행",
                         accNum: "123-456-789012",
                     }),
+                    BRANCH_A,
+                );
+            });
+        });
+
+        describe("given the caller's session has no selected branch", () => {
+            it("should fail closed with 403 and never reach the service", async () => {
+                currentUser = { userId: "owner-user-id", role: "owner" };
+
+                const response = await request(app.getHttpServer())
+                    .post("/bank-account-infos")
+                    .send({ area: "Incheon", bankName: "국민은행", accNum: "123-456-789012" });
+
+                expect(response.status).toBe(403);
+                expect(bankAccountInfoService.create).not.toHaveBeenCalled();
+            });
+        });
+
+        describe("given a caller from a different branch", () => {
+            it("should pass the CALLER's branch, never a client-supplied one — the usecase rejects a foreign area", async () => {
+                // The area id in the body is client-supplied and is NOT authorization:
+                // the controller forwards only the session branch, so a branch-B admin
+                // writing against a branch-A area id is rejected downstream.
+                currentUser = { userId: "admin-user-id", role: "admin", branchId: BRANCH_B };
+                bankAccountInfoService.create.mockResolvedValue(createMockBankAccountInfo());
+
+                await request(app.getHttpServer())
+                    .post("/bank-account-infos")
+                    .send({ area: "branch-a-area", bankName: "국민은행", accNum: "123-456-789012" });
+
+                expect(bankAccountInfoService.create).toHaveBeenCalledWith(
+                    expect.objectContaining({ area: "branch-a-area" }),
+                    BRANCH_B,
                 );
             });
         });
@@ -144,6 +177,7 @@ describe("BankAccountInfoController (Integration)", () => {
                 expect(response.status).toBe(201);
                 expect(bankAccountInfoService.create).toHaveBeenCalledWith(
                     expect.objectContaining({ bankName }),
+                    BRANCH_A,
                 );
             });
         });

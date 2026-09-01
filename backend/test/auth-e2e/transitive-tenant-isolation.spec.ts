@@ -315,8 +315,18 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
         });
 
         // FIXED, closed at every layer (was HOLE, confirmed at every layer):
-        //   - interface/controllers/bank-account-info.controller.ts's `findByArea`, `update`,
-        //     `delete` handlers now resolve `request.user.branchId` themselves and fail closed
+        //   - `create` (POST) initially escaped this pass — it resolved no branch at all, so a
+        //     branch-2 admin could plant a payment-routing row on a branch-1 area (found by the
+        //     Phase 3+4 audit, 2026-09-01). It now resolves the caller's branch like its
+        //     siblings, and CreateBankAccountInfoUsecase verifies the target area belongs to
+        //     that branch (via `areaBelongsToBranch`, rooted at the non-tenant `branch` model so
+        //     it is enforce-safe) before writing — 404, not 403, so the response never confirms
+        //     another branch's area id exists. Covered by the create-denial case below.
+        //   - `delete` is now branch-pinned in the DELETE statement itself (repository
+        //     `deleteMany` on `{ areaId, area: { branchId } }`), not merely preceded by an
+        //     ownership read, so no TOCTOU window remains between check and delete.
+        //   - interface/controllers/bank-account-info.controller.ts's `findAll`, `findByArea`,
+        //     `update`, `delete` handlers resolve `request.user.branchId` themselves and fail closed
         //     with 403 if it is missing — no `@CurrentTenant()`, no `TenantGuard` (both would be
         //     silently `undefined`/require touching the frozen guard contract); the only guard
         //     remains `OwnerOrAdminGuard` (infrastructure/auth/owner-or-admin.guard.ts), which
@@ -341,7 +351,7 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
         // bank_account_info row whose area DOES have a real branch_id (AREA_1_ID, owned by
         // BRANCH_1) is no longer readable or updatable by an admin from a different branch — the
         // null-area case is not a special case, just one more instance of the same fixed check.
-        it("HOLE: should deny a branch-2 admin from reading and updating a branch-1 area's bank_account_info", async () => {
+        it("denies a branch-2 admin from reading and updating a branch-1 area's bank_account_info", async () => {
             const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
 
             const readResponse = await request(app.getHttpServer())
@@ -355,10 +365,58 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
                 .patch("/bank-account-infos")
                 .query({ area: AREA_1_ID })
                 .set("Authorization", `Bearer ${session.accessToken}`)
-                .send({ bankName: "hacked-by-branch-2" });
+                .send({ bankName: "hacked-by-branch-2" })
+                // Asserted explicitly: without it, a route that started
+                // 500ing — or 200ing while silently no-opping — would still
+                // satisfy the row-unchanged check below.
+                .expect(404);
 
             const stillThere = await verifyPrisma.bank_account_info.findUnique({ where: { areaId: AREA_1_ID } });
             expect(stillThere?.bankName).toBe("Branch1 Bank");
+        });
+
+        // The write surfaces. POST was the one route on this controller that
+        // never resolved a branch at all: a branch-2 admin could plant a
+        // payment-routing row on a branch-1 area, which branch-1 staff would
+        // then read back as their own (and the AI chat's `bank.accounts`
+        // capability would surface). DELETE was scoped but untested.
+        it("denies a branch-2 admin from creating a bank_account_info on a branch-1 area", async () => {
+            const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
+
+            await request(app.getHttpServer())
+                .post("/bank-account-infos")
+                .set("Authorization", `Bearer ${session.accessToken}`)
+                .send({ area: AREA_1_ID, bankName: "hacked-by-branch-2", accNum: "999-999-999" })
+                .expect(404);
+
+            const untouched = await verifyPrisma.bank_account_info.findUnique({ where: { areaId: AREA_1_ID } });
+            expect(untouched?.bankName).toBe("Branch1 Bank");
+            expect(untouched?.accNum).toBe("111-111-111");
+        });
+
+        it("denies a branch-2 admin from deleting a branch-1 area's bank_account_info", async () => {
+            const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
+
+            await request(app.getHttpServer())
+                .delete("/bank-account-infos")
+                .query({ area: AREA_1_ID })
+                .set("Authorization", `Bearer ${session.accessToken}`)
+                .expect(404);
+
+            const stillThere = await verifyPrisma.bank_account_info.findUnique({ where: { areaId: AREA_1_ID } });
+            expect(stillThere).not.toBeNull();
+        });
+
+        it("excludes other branches' rows from the bank_account_info list (GET /bank-account-infos)", async () => {
+            const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
+            const response = await request(app.getHttpServer())
+                .get("/bank-account-infos")
+                .set("Authorization", `Bearer ${session.accessToken}`)
+                .expect(200);
+
+            const areas = (response.body as Array<{ area: string }>).map((row) => row.area);
+            expect(areas).not.toContain(AREA_1_ID);
+            expect(areas).not.toContain(AREA_NULL_ID);
         });
 
         // Same fix as above, the brief's specific hypothesis: a bank_account_info row hanging
@@ -367,7 +425,7 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
         // and Postgres never matches `branch_id IS NULL` against `branch_id = <uuid>` — not a
         // distinct code path from the one exercised above, included for direct traceability to
         // the brief's named hypothesis.
-        it("HOLE: should deny (but currently allows) reading a null-branch area's bank_account_info from any branch", async () => {
+        it("denies reading a null-branch area's bank_account_info from any branch", async () => {
             const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
             const response = await request(app.getHttpServer())
                 .get("/bank-account-infos/area")
@@ -460,7 +518,7 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
         // nested message/session content; a null-branch session's feedback is unreachable by any
         // branch admin, fail-closed (chat_session.branchId is nullable, and a nested
         // `chatSession: { branchId: <uuid> }` filter never matches a NULL branch_id).
-        it("HOLE: should deny a branch-2 admin from reading a branch-1 user's chat_feedback via admin/feedback detail", async () => {
+        it("denies a branch-2 admin from reading a branch-1 user's chat_feedback via admin/feedback detail", async () => {
             const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
             await request(app.getHttpServer())
                 .get(`/admin/feedback/${chatFeedback1Id}`)
@@ -468,7 +526,7 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
                 .expect(404);
         });
 
-        it("HOLE: should exclude branch-1 rows from a branch-2 admin's admin/feedback list", async () => {
+        it("excludes branch-1 rows from a branch-2 admin's admin/feedback list", async () => {
             const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
             const response = await request(app.getHttpServer())
                 .get("/admin/feedback")
@@ -501,6 +559,40 @@ describe("transitively-scoped model tenant isolation (parent-path only, no branc
                 .expect(200);
             const ids = (response.body.data as Array<{ id: string }>).map((item) => item.id);
             expect(ids).toContain(chatFeedback2Id);
+        });
+
+        // GET /admin/feedback/stats is the third branch-scoped query on this
+        // repository (getStats), and until these two cases it was the only one
+        // whose filter no test anywhere exercised — removing it left every
+        // suite green while branch admins saw repo-wide counts.
+        it("counts only the caller's branch in admin/feedback/stats", async () => {
+            const branch1Total = await verifyPrisma.chat_feedback.count({
+                where: { chatSession: { branchId: BRANCH_1 } },
+            });
+            expect(branch1Total).toBeGreaterThan(0); // fixture sanity: there IS branch-1 data to leak
+
+            const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
+            const response = await request(app.getHttpServer())
+                .get("/admin/feedback/stats")
+                .set("Authorization", `Bearer ${session.accessToken}`)
+                .expect(200);
+
+            const branch2Total = await verifyPrisma.chat_feedback.count({
+                where: { chatSession: { branchId: BRANCH_2 } },
+            });
+            expect(response.body.total).toBe(branch2Total);
+            expect(response.body.total).toBeLessThan(branch1Total + branch2Total);
+        });
+
+        it("still reports the caller's own non-zero counts in admin/feedback/stats (positive control)", async () => {
+            const session = await sessionFor(ADMIN_2_EMAIL, BRANCH_2);
+            const response = await request(app.getHttpServer())
+                .get("/admin/feedback/stats")
+                .set("Authorization", `Bearer ${session.accessToken}`)
+                .expect(200);
+
+            // Guards against a total-denial fake fix (counting nothing for everyone).
+            expect(response.body.total).toBeGreaterThan(0);
         });
     });
 

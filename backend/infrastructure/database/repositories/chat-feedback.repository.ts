@@ -41,9 +41,12 @@ export class ChatFeedbackRepository {
     // `chat_session.branchId` is nullable: feedback hanging off a null-branch session can never
     // satisfy `chatSession: { branchId }` for any concrete branch, so it is invisible to every
     // branch admin — fail closed, the same semantic applied to null-branch areas elsewhere.
-    async findById(id: string, branchId?: string) {
+    // branchId is required: an optional parameter would make the scoping fail
+    // open by signature — a caller that forgets the argument silently gets an
+    // unscoped lookup.
+    async findById(id: string, branchId: string) {
         return this.prisma.chat_feedback.findFirst({
-            where: branchId ? { id, chatSession: { branchId } } : { id },
+            where: { id, chatSession: { branchId } },
             include: {
                 chatSession: {
                     include: { messages: { orderBy: { timestamp: 'asc' } } },

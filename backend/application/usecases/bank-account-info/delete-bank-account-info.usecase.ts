@@ -8,15 +8,15 @@ export class DeleteBankAccountInfoUsecase {
         private readonly bankAccountInfoRepository: IBankAccountInfoRepository,
     ) {}
 
-    async execute(area: string, branchId?: string): Promise<void> {
-        // Verify the row belongs to the caller's branch before deleting it — the repository's
-        // `delete` keys only on areaId, so ownership must be confirmed first via the same
-        // branch-scoped nested-relation lookup used for reads.
-        const existing = await this.bankAccountInfoRepository.findByArea(area, branchId);
-        if (!existing) {
+    async execute(area: string, branchId: string): Promise<void> {
+        // The delete statement itself is branch-pinned in the repository
+        // (deleteMany keyed on areaId + area.branchId), so ownership is
+        // enforced atomically — no TOCTOU between a lookup and the delete.
+        // count 0 means the row does not exist in this branch: 404 either way.
+        const deleted = await this.bankAccountInfoRepository.delete(area, branchId);
+        if (deleted !== 1) {
             throw new NotFoundException(`Bank account info with area ${area} not found`);
         }
-        await this.bankAccountInfoRepository.delete(area);
     }
 }
 

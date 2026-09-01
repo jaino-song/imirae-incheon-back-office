@@ -57,14 +57,29 @@ export function IssueCallIngestTokenDialog({
     setLabel("");
     setIssued(null);
     setCopied(false);
+    // Clearing local state is not enough: the mutation's result (which holds
+    // the plaintext) also sits in the React Query mutation cache, and this
+    // dialog is rendered unconditionally by its parent — so the observer
+    // never unmounts and gcTime never starts. Reset it explicitly.
+    createMutation.reset();
     onOpenChange(false);
   };
 
   const handleCopy = async () => {
     if (!issued) return;
-    await navigator.clipboard.writeText(issued.token);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(issued.token);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access fails in a non-secure context or when the permission
+      // is denied. This is the one screen where the value is never shown
+      // again, so a silent failure would lose the token outright.
+      toast({
+        variant: "destructive",
+        description: "복사에 실패했어요. 토큰을 직접 선택해 복사해 주세요",
+      });
+    }
   };
 
   return (

@@ -9,6 +9,8 @@
 
 - [ ] `call-inbox-productionization` → `dev` 머지 (머지 전 `git merge dev`로 최신 dev 반영·체크 재실행)
 - [ ] CI green 확인 — 특히 **auth-e2e enforce leg** (`.github/workflows/backend-ci.yml:128-142`). 로컬에 docker가 없어 transitive-tenant-isolation 스펙의 런타임 실행은 CI가 유일한 검증 지점이다.
+- [ ] ⚠️ **GitHub branch protection의 required status check 이름 갱신**: auth-e2e job이 matrix로 바뀌면서 표시 이름이 `auth e2e · postgres · valkey · mailpit` → `auth e2e · observe · …` / `auth e2e · enforce · …` 두 개로 변경됐다. 기존 이름을 required로 걸어두었다면 PR이 "Expected — waiting for status"에서 영구 대기한다 (fail-closed이므로 위험하진 않지만 머지가 막힘). 새 leg 이름 2개로 교체할 것.
+- [ ] 새 `backend call-inbox e2e · local stubs` job도 required check에 추가 검토 (`.github/workflows/backend-full-flow-ci.yml`)
 - [ ] release train으로 `preview` → `main` 승격 (열려 있는 #591 트레인 합류 또는 후속 트레인)
 - [ ] Lightsail 배포 완료 확인 (api.babyjamjam.com 헬스체크)
 
@@ -50,6 +52,8 @@
 ## 5. Tenancy enforce 전환 (별도 트랙 — 런칭과 독립)
 
 `backend/README.md:390-432` 런북을 따른다. 요약:
+
+> **통화 인박스 경로는 enforce 안전 확인 완료 (2026-09-01).** `call_ingest_token`은 tenant 모델이고 웹훅 요청은 branchId가 없는 상태로 guard에 도달하므로, 예전 코드는 enforce에서 **모든 n8n 웹훅이 500**이 됐다. 지금은 `CallIngestGuard`가 토큰 조회만 system scope로 감싸고(TenantGuard와 동일한 패턴) 조회된 branchId를 tenant store에 심어서, 이후 ingestion 쓰기는 우회가 아니라 **정상 branch-scoped**로 실행된다. 회귀 테스트: `backend/test/infrastructure/auth/call-ingest.guard.enforce.spec.ts` (enforce가 실제로 켜져 있음을 증명하는 CONTROL 케이스 포함 — call-inbox e2e는 TenantAlsMiddleware를 설치하지 않아 이 결함을 볼 수 없다).
 
 - [ ] preview에서 tenant 위반 로그 번인 (observe 모드 로그 모니터링)
 - [ ] staging `TENANT_ISOLATION_MODE=enforce` 전환

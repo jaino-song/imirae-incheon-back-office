@@ -24,4 +24,12 @@ export const systemScopeImportAllowlist = [
     // membership during token refresh, before any tenant store branchId
     // exists for the request.
     "application/services/auth-session.service.ts",
+    // CallIngestGuard resolves the call-transcript webhook's bearer token to
+    // its branch. The lookup is on `call_ingest_token` (a tenant model)
+    // BEFORE any branchId exists on the request store — resolving it is the
+    // point of the query — so it self-trips `http_no_tenant` unwrapped, which
+    // under enforce 500s every n8n delivery. The bypass covers ONLY the
+    // token→branch lookup (pinned to the presented token's hash); the guard
+    // then calls setBranchId so everything downstream is branch-scoped.
+    "infrastructure/auth/call-ingest.guard.ts",
 ];

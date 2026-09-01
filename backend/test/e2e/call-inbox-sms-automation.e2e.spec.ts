@@ -28,7 +28,7 @@ import {
  * manually-created client — and that suppressGreetingSms surgically skips
  * only the CLIENT_GREETING template, not the whole automation pipeline. This
  * is verification, not new behavior: no automation-engine or confirm-flow
- * code is touched here (see design spec §6).
+ * code is touched here (see design spec §7).
  *
  * Invocation chain under test (call-inbox.service.ts:381 →
  * client.service.ts:1090-1140 → client-message-automation-intent-fulfiller.ts

@@ -17,9 +17,9 @@ import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 type ClientRow = Awaited<ReturnType<PrismaService["client"]["findUniqueOrThrow"]>>;
 
 /**
- * Contract readiness of a CALL-CREATED client — design spec §7.
+ * Contract readiness of a CALL-CREATED client — design spec §6.
  *
- * §7 asks: once call-inbox turns a phone call into a client, what does that
+ * §6 asks: once call-inbox turns a phone call into a client, what does that
  * client still need before the EXISTING contract-issuance path (eformsign)
  * will accept it? This spec answers that with a live e2e against the real
  * production usecase, not a mock. It does NOT wire call-inbox to contract
@@ -91,7 +91,7 @@ interface DraftListItem {
 }
 
 describeE2E(
-    "Call Inbox contract readiness — what a call-created client can and cannot do (design spec §7)",
+    "Call Inbox contract readiness — what a call-created client can and cannot do (design spec §6)",
     () => {
         let app: INestApplication;
         let prisma: PrismaService;
@@ -249,7 +249,7 @@ describeE2E(
                 createEformsignWorkerPrincipal(BRANCH_ID),
             );
 
-            // This is the design-spec §7 answer: a call yields everything except the
+            // This is the design-spec §6 answer: a call yields everything except the
             // caregiver assignment. This is the SAME guard manually-created clients hit
             // (contract-client-assignment-guard.service.ts:9-15, already unit-tested at
             // create-and-send-contract.usecase.spec.ts:42) — not a call-specific defect.

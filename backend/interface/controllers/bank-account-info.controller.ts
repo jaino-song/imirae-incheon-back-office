@@ -10,8 +10,9 @@ export class BankAccountInfoController {
 
     @Post()
     @UseGuards(JwtGuard, OwnerOrAdminGuard)
-    create(@Body() createBankAccountInfoDto: CreateBankAccountInfoDto) {
-        return this.bankAccountInfoService.create(createBankAccountInfoDto);
+    create(@Body() createBankAccountInfoDto: CreateBankAccountInfoDto, @Request() req: any) {
+        const branchId = this.requireBranchId(req);
+        return this.bankAccountInfoService.create(createBankAccountInfoDto, branchId);
     }
 
     @Get()

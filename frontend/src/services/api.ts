@@ -604,9 +604,17 @@ export interface CallIngestToken {
     createdAt: string;
 }
 
-/** The `token` plaintext is present only here, exactly once, at issuance. */
-export interface CreatedCallIngestToken extends CallIngestToken {
+/**
+ * The `token` plaintext is present only here, exactly once, at issuance.
+ * Deliberately NOT an extension of CallIngestToken: the create response
+ * returns only these four fields (see CallIngestTokenService.createToken), so
+ * declaring `active`/`createdAt` here would promise values that arrive as
+ * undefined at runtime with no type error.
+ */
+export interface CreatedCallIngestToken {
+    id: string;
     branchId: string;
+    label: string;
     token: string;
 }
 
