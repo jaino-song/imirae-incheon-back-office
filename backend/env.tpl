@@ -24,6 +24,7 @@ DEVELOPMENT_API_BASE_URL=http://localhost:3001
 DEVELOPMENT_FRONTEND_URL=http://localhost:3000
 DEVELOPMENT_MOBILE_FRONTEND_URL=http://localhost:3002
 PRODUCTION_FRONTEND_URL="https://imirae-incheon-back-office.vercel.app"
+PRODUCTION_MOBILE_FRONTEND_URL="https://m.admin.babyjamjam.com"
 PREVIEW_FRONTEND_URL="https://staff.babyjamjam.com"
 SUPABASE_URL="https://ebiughoiebblasxwgxbe.supabase.co"
 SUPABASE_SERVICE_KEY=
