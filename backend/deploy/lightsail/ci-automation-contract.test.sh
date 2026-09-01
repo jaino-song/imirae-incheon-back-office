@@ -110,7 +110,10 @@ assert_not_contains "$WORKFLOW" 'AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY' "workf
 deploy_job="$(sed -n '/^  deploy-lightsail:/,$p' "$WORKFLOW")"
 assert_text_contains "$deploy_job" 'id-token:[[:space:]]*write' "the deploy job must receive the AWS OIDC token"
 assert_text_not_contains "$deploy_job" 'environment:' "branch-scoped deploy credentials must not change OIDC subject to an environment"
-assert_text_contains "$deploy_job" 'needs:[[:space:]]*build-lightsail-image' "deployment must depend directly on the immutable image build"
+assert_text_contains "$deploy_job" 'needs:[[:space:]]*\[build-lightsail-image,[[:space:]]*resolve-backend-deploy-target\]' \
+    "deployment must depend on the immutable image build and exclusive target resolution"
+assert_text_contains "$deploy_job" "resolve-backend-deploy-target.outputs.target == 'lightsail'" \
+    "Lightsail deployment must be mutually exclusive with the Fallback deployment"
 assert_text_not_contains "$deploy_job" 'approve-lightsail-production' "deployment must not depend on manual production approval"
 
 assert_contains "$INFRASTRUCTURE_TEMPLATE" 'token.actions.githubusercontent.com:aud' "OIDC trust must pin the AWS audience"

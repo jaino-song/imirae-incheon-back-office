@@ -92,10 +92,15 @@ jobs:
       - name: Lint
         run: pnpm --filter ./backend run lint
 
-      - name: Verify Lightsail automation contracts
+      - name: Verify backend deployment automation contracts
         run: |
           backend/deploy/lightsail/ci-automation-contract.test.sh
           backend/deploy/lightsail/lightsail-cli.test.sh
+          backend/deploy/fallback-server/contract.test.sh
+          backend/deploy/fallback-server/controller/test-all.sh
+          backend/deploy/fallback-server/ci/workflow-contract.test.sh
+          backend/deploy/fallback-server/ci/ci-deployer-contract.test.sh
+          node --test backend/deploy/fallback-server/ci/*.test.mjs
 
       - name: Unit tests
         run: pnpm --filter ./backend test
@@ -236,14 +241,42 @@ jobs:
           provenance: true
           sbom: true
 
-  deploy-lightsail:
-    name: deploy Lightsail backend
+  resolve-backend-deploy-target:
+    name: resolve backend deployment target
     if: >-
       always() &&
       github.event_name == 'push' &&
       (github.ref_name == 'preview' || github.ref_name == 'main') &&
       needs.build-lightsail-image.result == 'success'
     needs: build-lightsail-image
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.resolve.outputs.target }}
+    env:
+      DEPLOY_REF_NAME: ${{ github.ref_name }}
+      FALLBACK_DNS_SHA256: ${{ secrets.FALLBACK_DNS_SHA256 }}
+      LIGHTSAIL_DNS_SHA256: ${{ secrets.LIGHTSAIL_DNS_SHA256 }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Resolve the exclusive backend target
+        id: resolve
+        run: node backend/deploy/fallback-server/ci/resolve-deploy-target.mjs >> "$GITHUB_OUTPUT"
+
+  deploy-lightsail:
+    name: deploy Lightsail backend
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      (github.ref_name == 'preview' || github.ref_name == 'main') &&
+      needs.build-lightsail-image.result == 'success' &&
+      needs.resolve-backend-deploy-target.result == 'success' &&
+      needs.resolve-backend-deploy-target.outputs.target == 'lightsail'
+    needs: [build-lightsail-image, resolve-backend-deploy-target]
     timeout-minutes: 40
     runs-on: ubuntu-latest
     permissions:
@@ -466,3 +499,100 @@ jobs:
             "db_route=$db_route" \
             "runtime_route=$runtime_route" \
             "db_readiness=$db_readiness"
+
+  deploy-lightnode:
+    name: deploy LightNode fallback backend
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref_name == 'main' &&
+      needs.build-lightsail-image.result == 'success' &&
+      needs.resolve-backend-deploy-target.result == 'success' &&
+      needs.resolve-backend-deploy-target.outputs.target == 'lightnode'
+    needs: [build-lightsail-image, resolve-backend-deploy-target]
+    timeout-minutes: 40
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: lightsail-deploy-main
+      cancel-in-progress: false
+    env:
+      IMAGE_DIGEST: ${{ needs.build-lightsail-image.outputs.digest }}
+      LIGHTNODE_CI_HOST: ${{ secrets.LIGHTNODE_CI_HOST }}
+      LIGHTNODE_CI_SSH_PRIVATE_KEY: ${{ secrets.LIGHTNODE_CI_SSH_PRIVATE_KEY }}
+      LIGHTNODE_CI_KNOWN_HOSTS: ${{ secrets.LIGHTNODE_CI_KNOWN_HOSTS }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Connect an ephemeral deployment node to the tailnet
+        uses: tailscale/github-action@780049a30b6ff5c378a9e7b389d15ece7a204888 # v4.1.3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          hostname: babyjamjam-backend-ci
+
+      - name: Configure restricted LightNode SSH
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$LIGHTNODE_CI_HOST" =~ ^[A-Za-z0-9.-]{1,253}$ ]]
+          [[ -n "$LIGHTNODE_CI_SSH_PRIVATE_KEY" && -n "$LIGHTNODE_CI_KNOWN_HOSTS" ]]
+          umask 077
+          install -d "$RUNNER_TEMP/lightnode-ssh"
+          printf '%s\n' "$LIGHTNODE_CI_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/lightnode-ssh/id"
+          printf '%s\n' "$LIGHTNODE_CI_KNOWN_HOSTS" > "$RUNNER_TEMP/lightnode-ssh/known_hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/lightnode-ssh/id" >/dev/null
+          ssh-keygen -F "$LIGHTNODE_CI_HOST" -f "$RUNNER_TEMP/lightnode-ssh/known_hosts" >/dev/null
+
+      - name: Replace the active LightNode release
+        run: |
+          set -euo pipefail
+          ssh_base=(
+            ssh
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$RUNNER_TEMP/lightnode-ssh/known_hosts"
+            -o ConnectTimeout=10
+            -i "$RUNNER_TEMP/lightnode-ssh/id"
+            "babyjamjam-ci-deployer@$LIGHTNODE_CI_HOST"
+          )
+          status_output="$("${ssh_base[@]}" 'sudo -n /usr/local/sbin/babyjamjam-fallback-ci-deployer status')"
+          read_status_value() {
+            local wanted_key="$1"
+            awk -F= -v wanted_key="$wanted_key" '$1 == wanted_key { print substr($0, length($1) + 2) }' \
+              <<<"$status_output"
+          }
+          [[ "$(read_status_value environment)" == "fallback-server" ]]
+          [[ "$(read_status_value runtime_mode)" == "temporary-active" ]]
+          [[ "$(read_status_value container_health)" == "healthy" ]]
+          [[ "$(read_status_value restart_count)" == "0" ]]
+          [[ "$(read_status_value production_db_identity)" == "ok" ]]
+          [[ "$(read_status_value public_routing)" == "fallback" ]]
+          [[ "$(read_status_value schedulers_enabled)" == "true" ]]
+          [[ "$(read_status_value document_jobs_accepting)" == "true" ]]
+          [[ "$(read_status_value document_jobs_worker)" == "true" ]]
+
+          status_output="$("${ssh_base[@]}" \
+            "sudo -n /usr/local/sbin/babyjamjam-fallback-ci-deployer replace '$GITHUB_SHA' '$IMAGE_DIGEST'")"
+          [[ "$(read_status_value current_tag)" == "$GITHUB_SHA" ]]
+          [[ "$(read_status_value current_digest)" == "$IMAGE_DIGEST" ]]
+          [[ "$(read_status_value container_health)" == "healthy" ]]
+          [[ "$(read_status_value restart_count)" == "0" ]]
+          [[ "$(read_status_value public_routing)" == "fallback" ]]
+          curl --fail --silent --show-error --connect-timeout 3 --max-time 10 \
+            https://api.babyjamjam.com/health/ready >/dev/null
+          printf '%s\n' \
+            "environment=fallback-server" \
+            "current_tag=$GITHUB_SHA" \
+            "current_digest=$IMAGE_DIGEST" \
+            "container_health=healthy" \
+            "restart_count=0" \
+            "public_routing=fallback" \
+            "schedulers_enabled=true"

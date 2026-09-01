@@ -1,0 +1,69 @@
+name: babyjamjam-fallback-server
+
+# This is selected only by the root-owned operator after every temporary-active
+# gate passes. It intentionally has no ALIGO_* interpolation or override: the
+# credentials, if approved, are read only from the root-owned backend.env by
+# Docker at container runtime.
+services:
+  api:
+    image: ${BACKEND_IMAGE:-babyjamjam-backend}:${BACKEND_IMAGE_TAG:?BACKEND_IMAGE_TAG is required}
+    pull_policy: never
+    env_file:
+      - ${BACKEND_ENV_FILE:-/opt/babyjamjam-fallback-server/backend.env}
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: "3001"
+      NODE_ENV: production
+      DATABASE_CONNECTION_MODE: ${DATABASE_CONNECTION_MODE:-shared}
+      VALKEY_URL: redis://valkey:6379
+      SCHEDULERS_ENABLED: "true"
+      SERVICE_RECORD_AUTO_FINALIZE_ENABLED: "true"
+      CONTRACT_AUTO_FINALIZE_ENABLED: "true"
+      EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED: "true"
+      EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED: "true"
+      EFORMSIGN_RECONCILE_ALLOW_UNLOCKED: "false"
+      MESSAGE_TRIGGER_JOBS_WORKER_ENABLED: "false"
+    depends_on:
+      valkey:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3101:3001"
+    init: true
+    # A boot must not restart active work before the installed expiry guard
+    # has revalidated the protected approval state.
+    restart: "no"
+    cpus: 2.0
+    mem_limit: 3g
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 1gb
+    networks:
+      - backend
+      - outbound
+
+  valkey:
+    image: valkey/valkey:8.1-alpine
+    command: ["valkey-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 256m
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - valkey_data:/data
+    networks:
+      - backend
+
+networks:
+  backend:
+    internal: true
+  outbound:
+
+volumes:
+  valkey_data:
+    name: babyjamjam-fallback-server-valkey-data

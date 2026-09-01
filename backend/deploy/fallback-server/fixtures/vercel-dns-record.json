@@ -1,0 +1,23 @@
+{
+  "records": [
+    {
+      "id": "rec_placeholder",
+      "slug": "team-placeholder",
+      "name": "api",
+      "type": "A",
+      "value": "198.51.100.10",
+      "creator": "placeholder-creator",
+      "created": 1700000000000,
+      "updated": 1700000000000,
+      "createdAt": 1700000000000,
+      "updatedAt": 1700000000000,
+      "ttl": 60,
+      "comment": "sanitized fixture"
+    }
+  ],
+  "pagination": {
+    "count": 1,
+    "next": null,
+    "prev": null
+  }
+}

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly REPOSITORY_ROOT="$(git -C "$SCRIPT_ROOT" rev-parse --show-toplevel)"
+readonly WORKFLOW="$REPOSITORY_ROOT/.github/workflows/backend-ci.yml"
+
+fail() {
+    echo "FAIL: $*" >&2
+    exit 1
+}
+
+assert_contains() {
+    grep -Eq -- "$2" "$1" || fail "$3"
+}
+
+assert_contains "$WORKFLOW" '^  resolve-backend-deploy-target:' \
+    "backend CI must resolve exactly one production deployment target"
+assert_contains "$WORKFLOW" 'resolve-deploy-target\.mjs' \
+    "backend CI must use the fail-closed target resolver"
+assert_contains "$WORKFLOW" 'FALLBACK_DNS_SHA256' \
+    "backend CI must compare the current route with the protected fallback identity"
+assert_contains "$WORKFLOW" 'LIGHTSAIL_DNS_SHA256' \
+    "backend CI must compare the current route with the protected Lightsail identity"
+assert_contains "$WORKFLOW" '^  deploy-lightnode:' \
+    "backend CI must define the LightNode replacement job"
+assert_contains "$WORKFLOW" "needs\.resolve-backend-deploy-target\.outputs\.target == 'lightnode'" \
+    "LightNode deployment must require the resolved LightNode target"
+assert_contains "$WORKFLOW" "needs\.resolve-backend-deploy-target\.outputs\.target == 'lightsail'" \
+    "Lightsail deployment must require the resolved Lightsail target"
+assert_contains "$WORKFLOW" 'babyjamjam-fallback-ci-deployer status' \
+    "LightNode deployment must verify the restricted remote status before replacement"
+assert_contains "$WORKFLOW" 'babyjamjam-fallback-ci-deployer replace' \
+    "LightNode deployment must use the restricted replacement wrapper"
+assert_contains "$WORKFLOW" 'StrictHostKeyChecking=yes' \
+    "LightNode SSH must fail closed on host-key mismatch"
+
+echo "Fallback deployment workflow contract tests passed"
