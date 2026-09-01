@@ -23,7 +23,7 @@ fake docker 'key="$1 ${2:-}"; [[ "${DOCKER_FAIL:-}" == "$key" ]] && exit 9; case
 fake systemctl 'case "$1" in is-system-running) echo "${SYSTEMD:-running}";; is-enabled) echo "${TIMER_OUTPUT:-disabled}"; exit "${TIMER_STATUS:-1}";; esac'
 fake tailscale '[[ "${TS_FAIL:-}" == 1 ]] && exit 9; if [[ -n "${TAIL_JSON:-}" ]]; then printf "%s" "$TAIL_JSON"; else printf "{\x22BackendState\x22:\x22Running\x22,\x22Self\x22:{\x22ID\x22:\x22id\x22,\x22Online\x22:true,\x22TailscaleIPs\x22:[\x22%s\x22]}}" "$TAIL"; fi'
 fake curl '[[ "${CURL_FAIL:-}" == 1 ]] && exit 9; case "$*" in *ipify*) printf "%s" "${E1:-$PUBLIC}";; *) printf "%s" "${E2:-$PUBLIC}";; esac'
-fake ss '[[ "${SS_FAIL:-}" == 1 ]] && exit 9; printf "%b" "${LISTENERS:-tcp LISTEN 0 1 $ANY:22 $ANY:*\nudp UNCONN 0 0 $ANY:41641 $ANY:*}"'
+fake ss '[[ "${SS_FAIL:-}" == 1 ]] && exit 9; printf "%b" "${LISTENERS:-tcp LISTEN 0 1 $ANY:22 $ANY:* users:((\x22sshd\x22,pid=1,fd=1)) cgroup:/system.slice/ssh.service\nudp UNCONN 0 0 $ANY:41641 $ANY:* users:((\x22tailscaled\x22,pid=2,fd=2)) cgroup:/system.slice/tailscaled.service}"'
 run(){ local mode="$1"; shift; env LIGHTNODE_PREFLIGHT_TEST_MODE=1 LIGHTNODE_PREFLIGHT_TEST_BIN="$BIN" REAL_NODE="$(command -v node)" PUBLIC="$PUBLIC" TAIL="$TAIL" LOOP="$LOOP" ANY="$ANY" LIGHTNODE_PREFLIGHT_TEST_OWNER="$(id -u)" LIGHTNODE_PREFLIGHT_TEST_GROUP="$(id -g)" LIGHTNODE_PREFLIGHT_ARTIFACT_ROOT="$TMP/a" LIGHTNODE_PREFLIGHT_OPERATOR_PATH="$TMP/o" LIGHTNODE_PREFLIGHT_STATE_ROOT="$TMP/s" LIGHTNODE_PREFLIGHT_SYSTEMD_DIR="$TMP/u" LIGHTNODE_PREFLIGHT_OS_RELEASE="$TMP/os" LIGHTNODE_PREFLIGHT_MEMINFO="$TMP/mem" "$@" bash "$SCRIPT" "$mode"; }
 ok(){ run "$@" >/dev/null; }; no(){ if run "$@" >/dev/null 2>&1; then echo "expected failure: $*" >&2; exit 1; fi; }
 
@@ -36,6 +36,11 @@ no fresh TS_FAIL=1
 no fresh CONTAINERS=x; no fresh VOLUMES=x; no fresh LABELS=x
 no fresh TAIL_JSON='{}'; no fresh E1="$PUBLIC" E2="$(ip 198 51 100 9)"; no fresh E1="$(ip 198 51 100 08)"
 no fresh LISTENERS="tcp LISTEN 0 1 $ANY:443 $ANY:*"; no fresh LISTENERS='bad'
+ok fresh LISTENERS="tcp LISTEN 0 4096 $TAIL:50053 $ANY:* users:((\x22tailscaled\x22,pid=2,fd=25)) cgroup:/system.slice/tailscaled.service"
+no fresh LISTENERS="tcp LISTEN 0 4096 $TAIL:50053 $ANY:* users:((\x22tailscaled\x22,pid=2,fd=25)) cgroup:/system.slice/other.service"
+no fresh LISTENERS="tcp LISTEN 0 4096 $TAIL:50053 $ANY:* users:((\x22other\x22,pid=3,fd=25)) cgroup:/system.slice/tailscaled.service"
+no fresh LISTENERS="tcp LISTEN 0 4096 $PUBLIC:50053 $ANY:* users:((\x22tailscaled\x22,pid=2,fd=25)) cgroup:/system.slice/tailscaled.service"
+no fresh LISTENERS="udp UNCONN 0 0 $ANY:41641 $ANY:* users:((\x22other\x22,pid=3,fd=2)) cgroup:/system.slice/other.service"
 privacy="$(run fresh)"; [[ "$privacy" == egress_sha256=* && "$privacy" != *"$PUBLIC"* ]] || exit 1
 touch "$TMP/o"; no fresh; rm "$TMP/o"; mkdir "$TMP/a"; no fresh; rmdir "$TMP/a"
 mkdir -p "$TMP/controller"; no fresh LIGHTNODE_PREFLIGHT_ARTIFACT_ROOT="$TMP/controller"; rmdir "$TMP/controller"
