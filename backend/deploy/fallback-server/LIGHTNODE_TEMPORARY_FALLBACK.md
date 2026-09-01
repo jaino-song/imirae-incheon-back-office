@@ -8,6 +8,16 @@ Deploy an immutable tag+digest passive first. Hash current VPS egress from two s
 
 For continued operation, issue a fresh bounded approval and run `extend-temporary-active` before expiry. Extension must preserve the running API container ID and scheduler ownership; stop/restart renewal is forbidden. Each approval remains limited to 48 hours even when successive extensions keep the incident active until manual AWS failback.
 
+For a release replacement while LightNode remains the active production owner,
+issue a fresh bounded approval for the new immutable tag and digest, then run
+`replace-temporary-active`. The operator preloads and verifies the new image
+while the old API remains healthy and limits user-visible interruption to the
+final Compose API recreate plus readiness wait, matching the Lightsail deploy
+ordering. It automatically restores the previous active image and its original
+expiry/linkage if the new runtime fails. This is a minimal-downtime single-slot
+replacement, not blue-green; scheduler and document-worker ownership must never
+be duplicated on another host during the operation.
+
 Approval checkpoints are separate: purchase; host/firewall provisioning; Aligo allow-list; active artifact; stable API DNS/TLS cutover; controlled no-send synthetic smoke; rollback; irreversible Release. None is authorized by this document.
 
 For failback, verify AWS health and reconciliation, restore the protected `api.babyjamjam.com` DNS value, and confirm public HTTPS on AWS before stopping Fallback. Then revoke the LightNode Aligo egress, disable Caddy, revoke Tailscale device/auth material, stop and confirm API absence, scrub, **Release** (not Stop), and confirm billing ended. Never image a host after runtime secrets or a production container existed: Docker Config.Env/deleted-block history can retain them. Golden images are allowed only before secret injection; otherwise Release without imaging. A recreated instance/public IP requires new Aligo registration and approval hash.

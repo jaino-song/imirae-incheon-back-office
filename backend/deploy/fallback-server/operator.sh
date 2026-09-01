@@ -75,6 +75,7 @@ Usage:
   babyjamjam-fallback-server deploy <40-character-commit-sha> <sha256-image-digest>
   babyjamjam-fallback-server temporary-active <40-character-commit-sha> <sha256-image-digest>
   babyjamjam-fallback-server extend-temporary-active <40-character-commit-sha> <sha256-image-digest>
+  babyjamjam-fallback-server replace-temporary-active <40-character-commit-sha> <sha256-image-digest>
   babyjamjam-fallback-server rollback
   babyjamjam-fallback-server stop
 
@@ -671,6 +672,106 @@ extend_temporary_active_release() {
         "public_routing=not_managed"
 }
 
+restore_replaced_active_release() {
+    local old_tag="$1" old_digest="$2" old_expiry="$3" old_linkage="$4" container_id
+
+    active_compose "$old_tag" up -d --no-build --no-deps --force-recreate api \
+        || return 1
+    wait_until_ready "$old_tag" || return 1
+    container_id="$(container_id_for "$old_tag")" || return 1
+    verify_active_container_health "$container_id" || return 1
+    ( verify_temporary_active_runtime "$old_tag" \
+        && verify_image_identity "$old_tag" "$old_digest" "$(running_image_id_for "$container_id")" ) \
+        || return 1
+    try_schedule_temporary_expiry_stop "$old_expiry" || return 1
+    write_state runtime-mode temporary-active \
+        && write_state temporary-active-expiry "$old_expiry" \
+        && write_state temporary-active-linkage "$old_linkage" \
+        && write_state current-image-tag "$old_tag" \
+        && write_state current-image-digest "$old_digest" \
+        && verify_temporary_guard
+}
+
+replace_temporary_active_release() {
+    local commit_sha="$1" image_digest="$2" approval_data approval_egress_hash approval_nonce incident_id evidence_hash
+    local old_tag old_digest old_expiry old_linkage new_expiry new_linkage old_container new_container now
+
+    validate_release "$commit_sha" "$image_digest"
+    [[ "$(read_state runtime-mode || true)" == "temporary-active" ]] \
+        || die "A temporary-active runtime is required for replacement."
+    validate_env_file
+    validate_production_db_identity
+    approval_data="$(validate_temporary_active_approval "$commit_sha" "$image_digest")"
+    read -r approval_egress_hash approval_nonce incident_id evidence_hash <<<"$approval_data"
+    validate_active_aligo_env
+    old_tag="$(read_state current-image-tag)" || die "No active Fallback Server release is recorded."
+    old_digest="$(read_state current-image-digest)" || die "No active Fallback Server image digest is recorded."
+    old_expiry="$(read_state temporary-active-expiry)" || die "The current temporary-active expiry is missing."
+    old_linkage="$(read_state temporary-active-linkage)" || die "The current temporary-active linkage is missing."
+    new_expiry="$(approval_value expires_at_unix)"
+    now="$(current_unix_time)"
+    [[ "$old_tag" =~ $SHA_PATTERN && "$old_digest" =~ $DIGEST_PATTERN \
+        && "$old_expiry" =~ ^[0-9]{10,}$ && "$new_expiry" =~ ^[0-9]{10,}$ \
+        && "$now" -lt "$old_expiry" && "$old_expiry" -lt "$new_expiry" ]] \
+        || die "The replacement approval must extend a live temporary-active window."
+    [[ "$old_tag" != "$commit_sha" || "$old_digest" != "$image_digest" ]] \
+        || die "The replacement release already matches the active runtime."
+    old_container="$(container_id_for "$old_tag")" \
+        || die "The temporary-active Fallback Server API container is not running."
+    verify_active_container_health "$old_container" \
+        || die "The temporary-active Fallback Server API container is not healthy and stable."
+    verify_temporary_active_runtime "$old_tag"
+    verify_image_identity "$old_tag" "$old_digest" "$(running_image_id_for "$old_container")"
+
+    # Mirror Lightsail deployment ordering: pull and verify the immutable image
+    # while the current API is still healthy, then keep only the final Compose
+    # recreate and readiness wait inside the user-visible interruption window.
+    pull_release_image "$commit_sha" "$image_digest" \
+        || die "The replacement image could not be preloaded; the active runtime was left unchanged."
+    verify_image_identity "$commit_sha" "$image_digest"
+    verify_approved_egress "$approval_egress_hash" "$commit_sha"
+    claim_approval_nonce "$approval_nonce"
+    if ! try_schedule_temporary_expiry_stop "$new_expiry"; then
+        restore_temporary_extension "$old_expiry" "$old_linkage" \
+            || die "The replacement failed and the previous expiry could not be restored."
+        die "The temporary-active replacement timer could not be scheduled."
+    fi
+    new_linkage="$incident_id $evidence_hash $approval_nonce"
+
+    if ! active_compose "$commit_sha" up -d --no-build --no-deps --force-recreate api \
+        || ! wait_until_ready "$commit_sha" \
+        || ! new_container="$(container_id_for "$commit_sha")" \
+        || ! verify_active_container_health "$new_container" \
+        || ! ( verify_temporary_active_runtime "$commit_sha" \
+            && verify_image_identity "$commit_sha" "$image_digest" "$(running_image_id_for "$new_container")" \
+            && verify_temporary_guard ); then
+        restore_replaced_active_release "$old_tag" "$old_digest" "$old_expiry" "$old_linkage" \
+            || die "The active replacement failed and automatic rollback also failed."
+        die "The active replacement failed and the previous release was restored."
+    fi
+
+    if ! write_state previous-image-tag "$old_tag" \
+        || ! write_state previous-image-digest "$old_digest" \
+        || ! write_state current-image-tag "$commit_sha" \
+        || ! write_state current-image-digest "$image_digest" \
+        || ! write_state runtime-mode temporary-active \
+        || ! write_state temporary-active-expiry "$new_expiry" \
+        || ! write_state temporary-active-linkage "$new_linkage"; then
+        restore_replaced_active_release "$old_tag" "$old_digest" "$old_expiry" "$old_linkage" \
+            || die "The replacement state write failed and automatic rollback also failed."
+        die "The replacement state write failed and the previous release was restored."
+    fi
+    (( $(current_unix_time) < new_expiry )) \
+        || { restore_replaced_active_release "$old_tag" "$old_digest" "$old_expiry" "$old_linkage" || true; die "The replacement approval expired during verification."; }
+    printf '%s\n' \
+        "environment=fallback-server" \
+        "temporary_active_replaced=true" \
+        "image_preloaded=true" \
+        "container_restarted=true" \
+        "expiry_stop_scheduled=true" \
+        "public_routing=not_managed"
+}
+
 temporary_activate_release() {
     local commit_sha="$1" image_digest="$2" approval_data approval_egress_hash approval_nonce incident_id evidence_hash expiry current_tag current_digest container_id
 
@@ -909,6 +1010,10 @@ main() {
         extend-temporary-active)
             [[ "$#" -eq 3 ]] || { usage; exit 1; }
             extend_temporary_active_release "$2" "$3"
+            ;;
+        replace-temporary-active)
+            [[ "$#" -eq 3 ]] || { usage; exit 1; }
+            replace_temporary_active_release "$2" "$3"
             ;;
         guard-expiry)
             [[ "$#" -eq 1 ]] || { usage; exit 1; }

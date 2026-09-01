@@ -231,6 +231,19 @@ container ID. If timer, state, guard, runtime, or image verification fails, it
 restores the previous expiry timer and protected state; it never uses a
 stop/restart cycle as renewal.
 
+Replace an active release with
+`babyjamjam-fallback-server replace-temporary-active <tag> <digest>`. This is
+the LightNode equivalent of the Lightsail ordering: while the current API stays
+healthy, the operator validates the new bounded approval, pulls the immutable
+digest, verifies its revision and approved egress, and reserves the new expiry.
+Only then does it force-recreate the API service and wait for DB-backed
+readiness. Scheduler and document-worker gates remain active in exactly one
+Compose service throughout the replacement. A failed new runtime is replaced
+immediately with the recorded previous active image and its original
+expiry/linkage. This minimizes interruption to the final container recreate and
+health wait; it is not a two-container blue-green deployment and must not be
+reported as mathematically zero downtime.
+
 Aligo
 values are never interpolated by Compose: Docker reads them only from the
 root-owned `backend.env` at active container runtime.
