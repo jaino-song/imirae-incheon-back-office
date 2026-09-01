@@ -405,6 +405,38 @@ describe("TriggerRulesManager", () => {
     });
   });
 
+  it("shows a global service-record automation as read-only", async () => {
+    mockSettingsQueries({ providerEnabled: true, senderApproved: true });
+    mockedUseMessageTriggerRules.mockReturnValue({
+      data: [
+        {
+          id: "system:service_record_link",
+          branchId: null,
+          name: "제공기록지 작성 링크",
+          isActive: true,
+          eventType: "SERVICE_START",
+          offsetType: "SAME_DAY",
+          offsetDays: 0,
+          recipientType: "PRIMARY_EMPLOYEE",
+          templateKey: "SERVICE_RECORD_LINK",
+          createdAt: "2026-09-01T00:00:00.000Z",
+          updatedAt: "2026-09-01T00:00:00.000Z",
+        },
+      ],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMessageTriggerRules>);
+
+    render(<TriggerRulesManager dataComponent="desktop_messages_sections_section-content_triggers-section_trigger-rules" />);
+
+    expect(screen.getByText("제공기록지 작성 링크")).toBeInTheDocument();
+    expect(screen.getByText("시스템 자동화 · 서비스 시작 · 시작 당일 · 주 담당 직원")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "제공기록지 작성 링크 활성화" })).toBeDisabled();
+    fireEvent.click(screen.getByText("제공기록지 작성 링크"));
+    expect(await screen.findByLabelText("규칙 이름")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "삭제" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "저장" })).not.toBeInTheDocument();
+  });
+
   it("shows every required auto-filled variable for the selected template", async () => {
     mockSettingsQueries({ providerEnabled: true, senderApproved: true });
     mockedUseMessageTriggerTemplates.mockReturnValue({
