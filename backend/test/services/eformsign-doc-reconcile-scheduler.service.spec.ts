@@ -2,6 +2,7 @@ import { ConfigService } from "@nestjs/config";
 
 import { EformsignDocReconcileSchedulerService } from "application/services/eformsign-doc-reconcile-scheduler.service";
 import { EformsignBackfillAlreadyRunningError } from "infrastructure/locking/eformsign-backfill-lock.service";
+import { createSchedulerLeaseMock } from "../utils/mocks/scheduler-lease.mock";
 
 const REQUIRED_EFORMSIGN_CONFIG = new Set([
     "EFORMSIGN_USER_EMAIL",
@@ -74,11 +75,13 @@ describe("EformsignDocReconcileSchedulerService", () => {
         enabled: string | undefined,
         withCredentials = false,
         allowUnlocked = false,
+        schedulerLease: ReturnType<typeof createSchedulerLeaseMock> = createSchedulerLeaseMock(),
     ) {
         return new EformsignDocReconcileSchedulerService(
             createConfigService(enabled, withCredentials, allowUnlocked),
             backfill as never,
             lockService as never,
+            schedulerLease,
         );
     }
 
@@ -282,6 +285,39 @@ describe("EformsignDocReconcileSchedulerService", () => {
             expect(error).toHaveBeenCalledTimes(1);
             expect(error.mock.calls[0]?.[0]).toContain("3 in a row");
             expect(error.mock.calls[0]?.[0]).toContain("audit_trail");
+        });
+
+        it("ties shouldContinue to the scheduler lease under the distributed lock", async () => {
+            let shouldContinue: (() => boolean) | undefined;
+            backfill.execute.mockImplementation((options: { shouldContinue?: () => boolean }) => {
+                shouldContinue = options.shouldContinue;
+                return Promise.resolve(createSummary());
+            });
+            const schedulerLease = createSchedulerLeaseMock(true);
+            const service = createService("true", false, false, schedulerLease);
+
+            await service.reconcileDocuments();
+
+            expect(shouldContinue?.()).toBe(true);
+            schedulerLease.holdsLease.mockReturnValue(false);
+            expect(shouldContinue?.()).toBe(false);
+        });
+
+        it("ties shouldContinue to the scheduler lease when running unlocked", async () => {
+            lockService.isAvailable.mockReturnValue(false);
+            let shouldContinue: (() => boolean) | undefined;
+            backfill.execute.mockImplementation((options: { shouldContinue?: () => boolean }) => {
+                shouldContinue = options.shouldContinue;
+                return Promise.resolve(createSummary());
+            });
+            const schedulerLease = createSchedulerLeaseMock(true);
+            const service = createService("true", false, true, schedulerLease);
+
+            await service.reconcileDocuments();
+
+            expect(shouldContinue?.()).toBe(true);
+            schedulerLease.holdsLease.mockReturnValue(false);
+            expect(shouldContinue?.()).toBe(false);
         });
     });
 });
