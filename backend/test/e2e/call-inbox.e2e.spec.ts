@@ -10,19 +10,21 @@ import { TenantModule } from "infrastructure/tenant/tenant.module";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { GlobalValidationPipe } from "infrastructure/pipes/global-validation.pipe";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { CALL_VOCABULARY } from "domain/constants/call-vocabulary";
 
 /**
  * Call Inbox E2E — real DB, real call-inbox slice, vendor stubs.
  *
  * SAFETY: this suite mutates the database (creates an ingest token, a
- * call_record, a client_draft and a client). It must ONLY run against the
- * disposable e2e stack — the throwaway Postgres container the mobile-ci e2e
- * job stands up (migrate deploy + db:seed:e2e + E2E_VENDOR_STUBS=1). To make
- * that non-negotiable it self-skips unless E2E_VENDOR_STUBS=1, so an
- * accidental `npm test` against a developer's live DATABASE_URL can never
- * reach these mutations. (jest.config.ts also ignores test/e2e/, so the
- * default unit run never even collects this file — this guard is the second
- * belt.)
+ * call_record, a client_draft and a client). It must ONLY run through
+ * scripts/run-call-inbox-e2e.mjs (`pnpm --filter ./backend run e2e:call-inbox`),
+ * which creates and drops a uniquely-named disposable database per run —
+ * locally against a throwaway Postgres, and in CI via the `call-inbox` job in
+ * .github/workflows/backend-full-flow-ci.yml. To make that non-negotiable it
+ * self-skips unless E2E_VENDOR_STUBS=1, so an accidental `npm test` against a
+ * developer's live DATABASE_URL can never reach these mutations.
+ * (jest.config.ts also ignores test/e2e/, so the default unit run never even
+ * collects this file — this guard is the second belt.)
  *
  * Slice choice: we import CallInboxModule (+ ClientModule, TenantModule)
  * rather than the whole AppModule. AppModule transitively pulls in the
@@ -33,8 +35,9 @@ import { PrismaService } from "infrastructure/database/prisma.service";
  *
  * StubCallExtractionAdapter (infrastructure/vendor-stubs/e2e-vendor-stubs.ts)
  * returns a deterministic NEW_CONSULTATION result for 김서연 (name + dueDate
- * proposals, both high-confidence, requestSummary "...(E2E stub)"). Aligo is
- * stubbed too, and confirm passes suppressGreetingSms anyway, so no SMS egress.
+ * proposals, both high-confidence, requestSummary "...(E2E stub)", plus a
+ * fixed structured summary object). Aligo is stubbed too, and confirm passes
+ * suppressGreetingSms anyway, so no SMS egress.
  *
  * Guards: CallIngestGuard and TenantGuard run REAL (token resolution + branch
  * authorization are genuinely exercised against the DB). Only JwtGuard is
@@ -60,9 +63,38 @@ const FILE_ID = `e2e-call-${Date.now()}`;
 const FILE_NAME = "통화 녹음 김서연_010-4821-7763.m4a";
 
 const webhookPayload = {
-    fileId: FILE_ID,
+    driveFileId: FILE_ID,
     fileName: FILE_NAME,
-    transcript: [{ speaker: "고객", text: "산후도우미 문의요" }],
+    sttModel: "gemini-3.5-transcribe",
+    diarized: true,
+    vocabularyVersion: "v1",
+    // Two raw speakers so the post-processing assertion (case 4b) can prove
+    // the refine stub maps BOTH sides of the diarized:true vocabulary
+    // ("1"→"아이미래로", "2"→"고객"), not just one. The first turn carries a
+    // deliberate STT misrecognition (산우도우미) so 4b can also prove the
+    // refine stage applies the CALL_TERM_CORRECTIONS dictionary — the stub
+    // applies it mechanically, so a green 4b pins terminology correction
+    // end-to-end, not just speaker mapping.
+    transcriptRaw: [
+        { speaker: "1", text: "산우도우미 문의요" },
+        { speaker: "2", text: "네 알겠습니다" },
+    ],
+};
+
+// Second, independent record for the diarized:false case (test 12). Its own
+// FILE_ID/callRecordId so it never shares state with the primary flow above.
+const FILE_ID_2 = `e2e-call-diarized-false-${Date.now()}`;
+const FILE_NAME_2 = "통화 녹음 미상_익명.m4a";
+const webhookPayload2 = {
+    driveFileId: FILE_ID_2,
+    fileName: FILE_NAME_2,
+    sttModel: "gemini-3.5-transcribe",
+    diarized: false,
+    vocabularyVersion: "v1",
+    transcriptRaw: [
+        { speaker: "0", text: "산후도우미 문의드립니다" },
+        { speaker: "0", text: "네 안내드릴게요" },
+    ],
 };
 
 interface DraftListItem {
@@ -85,6 +117,12 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
     let callRecordId: string;
     let draftId: string;
     let createdClientId: number | undefined;
+    // Second, independent record for the diarized:false case (test 12).
+    let callRecordId2: string;
+    // Second token, issued and revoked in case 9 to exercise the
+    // revoked-token path without touching the shared `ingestToken`.
+    let revokedIngestToken: string;
+    let revokedIngestTokenId: string | undefined;
 
     // Injects the seeded owner. TenantGuard (real) consumes this and verifies
     // the branch exists in the DB before allowing the request.
@@ -135,11 +173,20 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
                 .deleteMany({ where: { callRecord: { driveFileId: FILE_ID } } })
                 .catch(() => undefined);
             await prisma.call_record.deleteMany({ where: { driveFileId: FILE_ID } }).catch(() => undefined);
+            await prisma.client_draft
+                .deleteMany({ where: { callRecord: { driveFileId: FILE_ID_2 } } })
+                .catch(() => undefined);
+            await prisma.call_record.deleteMany({ where: { driveFileId: FILE_ID_2 } }).catch(() => undefined);
             if (createdClientId !== undefined) {
                 await prisma.client.deleteMany({ where: { id: createdClientId } }).catch(() => undefined);
             }
             if (ingestTokenId !== undefined) {
                 await prisma.call_ingest_token.deleteMany({ where: { id: ingestTokenId } }).catch(() => undefined);
+            }
+            if (revokedIngestTokenId !== undefined) {
+                await prisma.call_ingest_token
+                    .deleteMany({ where: { id: revokedIngestTokenId } })
+                    .catch(() => undefined);
             }
         }
         await app?.close();
@@ -171,6 +218,26 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
         expect(typeof res.body.callRecordId).toBe("string");
 
         callRecordId = res.body.callRecordId;
+    });
+
+    it("2b. the stored call_record carries transcript_raw + stt_meta", async () => {
+        const record = await prisma.call_record.findUnique({ where: { id: callRecordId } });
+
+        expect(record).not.toBeNull();
+        // NOT asserting record.transcript or record.summary here: call-ingestion.service.ts:71
+        // fires processCallRecord fire-and-forget right after the 202, and the
+        // refine/extract stages overwrite `transcript` and `summary`
+        // asynchronously — an equality check against pre-processing state here
+        // would be racy. transcriptRaw and sttMeta are the stable columns
+        // refine never mutates; `transcript` and `summary` are asserted for
+        // their POST-processing content in test 4b below instead.
+        expect(record?.transcript).toBeDefined();
+        expect(record?.transcriptRaw).toEqual(webhookPayload.transcriptRaw);
+        expect(record?.sttMeta).toEqual({
+            sttModel: webhookPayload.sttModel,
+            diarized: webhookPayload.diarized,
+            vocabularyVersion: webhookPayload.vocabularyVersion,
+        });
     });
 
     it("3. re-posting the identical payload is idempotent → 200 duplicate, same callRecordId", async () => {
@@ -206,6 +273,46 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
         expect(found.callerPhone).toBe("01048217763");
 
         draftId = found.id;
+    });
+
+    it("4b. call_record.transcript holds the stub-refined, role-mapped transcript; transcript_raw is unchanged", async () => {
+        // By test 4, processing has reached EXTRACTED (the draft was found), so
+        // the refine write has landed and this read is not racy.
+        const record = await prisma.call_record.findUnique({ where: { id: callRecordId } });
+
+        expect(record?.processingStatus).toBe("EXTRACTED");
+        // 산우도우미 (raw misrecognition) → 산후도우미: the refine stage applied
+        // the correction dictionary; transcriptRaw below still holds the
+        // uncorrected original.
+        expect(record?.transcript).toEqual([
+            { speaker: "아이미래로", text: "산후도우미 문의요" },
+            { speaker: "고객", text: "네 알겠습니다" },
+        ]);
+        expect(record?.transcriptRaw).toEqual(webhookPayload.transcriptRaw);
+        expect(record?.summary).toEqual({
+            inquiry_type: "신규상담",
+            customer_info: "김서연 / 010-4821-7763",
+            key_content: "산모가 산후도우미 서비스 문의 (E2E stub)",
+            result_action: "상담 예약 안내",
+        });
+    });
+
+    it("4c. GET /call-records/:id returns the structured summary; the drafted record's summaryLine still comes from the draft", async () => {
+        const res = await request(app.getHttpServer()).get(`/call-records/${callRecordId}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.summary).toEqual({
+            inquiry_type: "신규상담",
+            customer_info: "김서연 / 010-4821-7763",
+            key_content: "산모가 산후도우미 서비스 문의 (E2E stub)",
+            result_action: "상담 예약 안내",
+        });
+        // Precedence check: summaryLine = draft?.requestSummary ?? summary.key_content
+        // (call-inbox.service.ts:136-138). This record has a draft, so its
+        // requestSummary must keep winning over summary.key_content, which is
+        // deliberately a different string in the stub fixtures above.
+        expect(res.body.summaryLine).toBe(res.body.draft.requestSummary);
+        expect(res.body.summaryLine).not.toBe(res.body.summary.key_content);
     });
 
     it("5. staff confirms the draft → creates a client (suppressGreetingSms)", async () => {
@@ -262,8 +369,77 @@ describeE2E("Call Inbox E2E (webhook → draft → confirm)", () => {
         const res = await request(app.getHttpServer())
             .post("/webhooks/call-transcripts")
             .set("Authorization", "Bearer cit_invalid-token-e2e")
-            .send({ ...webhookPayload, fileId: `${FILE_ID}-invalid` });
+            .send({ ...webhookPayload, driveFileId: `${FILE_ID}-invalid` });
 
         expect(res.status).toBe(401);
+    });
+
+    it("9. the vocabulary endpoint rejects a request without a token → 401", async () => {
+        const res = await request(app.getHttpServer()).get("/webhooks/call-transcripts/vocabulary");
+        expect(res.status).toBe(401);
+    });
+
+    it("10. the vocabulary endpoint returns {version, phrases} for a valid ingest token", async () => {
+        const res = await request(app.getHttpServer())
+            .get("/webhooks/call-transcripts/vocabulary")
+            .set("Authorization", `Bearer ${ingestToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({
+            version: CALL_VOCABULARY.version,
+            phrases: [...CALL_VOCABULARY.phrases],
+        });
+    });
+
+    it("11. the vocabulary endpoint rejects a revoked ingest token → 401", async () => {
+        const createRes = await request(app.getHttpServer())
+            .post(`/branches/${BRANCH_ID}/call-ingest-tokens`)
+            .send({ label: "e2e-revoked" });
+        expect(createRes.status).toBe(201);
+        revokedIngestToken = createRes.body.token;
+        revokedIngestTokenId = createRes.body.id;
+
+        const revokeRes = await request(app.getHttpServer()).post(
+            `/call-ingest-tokens/${revokedIngestTokenId}/revoke`,
+        );
+        expect(revokeRes.status).toBe(200);
+
+        const res = await request(app.getHttpServer())
+            .get("/webhooks/call-transcripts/vocabulary")
+            .set("Authorization", `Bearer ${revokedIngestToken}`);
+        expect(res.status).toBe(401);
+    });
+
+    it("12. diarized:false webhook → every refined turn carries the neutral 화자 speaker", async () => {
+        const ingestRes = await request(app.getHttpServer())
+            .post("/webhooks/call-transcripts")
+            .set("Authorization", `Bearer ${ingestToken}`)
+            .send(webhookPayload2);
+
+        expect(ingestRes.status).toBe(202);
+        expect(ingestRes.body.accepted).toBe(true);
+        expect(ingestRes.body.duplicate).toBe(false);
+        callRecordId2 = ingestRes.body.callRecordId;
+
+        // Poll for EXTRACTED rather than a bare read after the 202 — a bare
+        // read here would be racy for exactly the reason fixed in test 4b.
+        const deadline = Date.now() + 10_000;
+        let record: { processingStatus: string; transcriptRaw: unknown; transcript: unknown } | null = null;
+        while (Date.now() < deadline) {
+            record = await prisma.call_record.findUnique({ where: { id: callRecordId2 } });
+            if (record?.processingStatus === "EXTRACTED") break;
+            await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+
+        expect(record?.processingStatus).toBe("EXTRACTED");
+        expect(record?.transcriptRaw).toEqual(webhookPayload2.transcriptRaw);
+        const refinedTranscript = record?.transcript as { speaker: string; text: string }[];
+        expect(refinedTranscript).toEqual([
+            { speaker: "화자", text: "산후도우미 문의드립니다" },
+            { speaker: "화자", text: "네 안내드릴게요" },
+        ]);
+        for (const turn of refinedTranscript) {
+            expect(turn.speaker).toBe("화자");
+        }
     });
 });

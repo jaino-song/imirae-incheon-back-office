@@ -13,6 +13,8 @@ DATABASE_URL=
 DIRECT_URL=
 # Database route selected at startup: shared uses DATABASE_URL; direct uses DIRECT_URL.
 DATABASE_CONNECTION_MODE="shared"
+# Tenant-isolation Prisma extension enforcement level: off | observe | enforce. Default observe.
+TENANT_ISOLATION_MODE="observe"
 JWT_SECRET=
 KAKAO_CLIENT_ID="479afcedc0c97cded2033bfbfb4472ee"
 KAKAO_CLIENT_SECRET=
@@ -21,7 +23,8 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:3001
 DEVELOPMENT_API_BASE_URL=http://localhost:3001
 DEVELOPMENT_FRONTEND_URL=http://localhost:3000
 DEVELOPMENT_MOBILE_FRONTEND_URL=http://localhost:3002
-PRODUCTION_FRONTEND_URL="https://imirae-incheon-back-office.vercel.app"
+PRODUCTION_FRONTEND_URL="https://admin.babyjamjam.com"
+PRODUCTION_MOBILE_FRONTEND_URL="https://m.admin.babyjamjam.com"
 PREVIEW_FRONTEND_URL="https://staff.babyjamjam.com"
 SUPABASE_URL="https://ebiughoiebblasxwgxbe.supabase.co"
 SUPABASE_SERVICE_KEY=
@@ -30,6 +33,7 @@ GEMINI_CHAT_MODEL=
 GEMINI_CHAT_TEMPERATURE=
 GEMINI_CHAT_MAX_OUTPUT_TOKENS=
 GEMINI_CHAT_TIMEOUT_MS=
+GEMINI_EXTRACTION_MODEL=
 EFORMSIGN_USER_EMAIL="forchildrenbysongs@gmail.com"
 EFORMSIGN_API_URL="https://api.eformsign.com"
 EFORMSIGN_DOC_API_URL="https://kr-api.eformsign.com"

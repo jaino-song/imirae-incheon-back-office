@@ -9,16 +9,16 @@ export interface MessageTriggerJobCancellationScope {
 export interface IMessageTriggerJobRepository {
     create(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity>;
     update(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity>;
-    findById(id: string): Promise<MessageTriggerJobEntity | null>;
-    claimPending(id: string): Promise<boolean>;
+    /** Branch-fenced read for request-path callers; a branch mismatch resolves to null, not another branch's row. */
+    findByIdInBranch(branchId: string, id: string): Promise<MessageTriggerJobEntity | null>;
     /**
      * Claim only while the branch-scoped rule is not fenced as stale. The
      * returned token is unique to this processing attempt and must be supplied
      * to every terminal update/fence before a provider call.
      */
     claimPendingWithRuleFence(id: string, branchId: string | null): Promise<string | null>;
-    findDuePending(limit?: number): Promise<MessageTriggerJobEntity[]>;
-    findStaleProcessing(cutoff: Date, limit?: number): Promise<MessageTriggerJobEntity[]>;
+    findDuePendingSystemScope(limit?: number): Promise<MessageTriggerJobEntity[]>;
+    findStaleProcessingSystemScope(cutoff: Date, limit?: number): Promise<MessageTriggerJobEntity[]>;
     findUpcomingPendingByBranch(
         branchId: string,
         limit?: number,
@@ -52,7 +52,6 @@ export interface IMessageTriggerJobRepository {
         limit?: number,
         beforeId?: string,
     ): Promise<MessageTriggerJobEntity[]>;
-    findPendingByRuleId(ruleId: string): Promise<MessageTriggerJobEntity[]>;
     /** Whether a rule still has active jobs persisted before its current version fence. */
     hasActiveJobsBefore(branchId: string, ruleId: string, before: Date): Promise<boolean>;
     findPendingByRuleIdsAndClientId(ruleIds: string[], clientId: number): Promise<MessageTriggerJobEntity[]>;

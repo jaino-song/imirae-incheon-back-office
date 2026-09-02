@@ -127,7 +127,7 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
         transaction?: Prisma.TransactionClient,
     ): Promise<MessageTriggerRuleEntity> {
         const row = await (transaction ?? this.prisma).message_trigger_rule.update({
-            where: { id: rule.id },
+            where: { id: rule.id, branchId },
             data: {
                 branchId,
                 name: rule.name,
@@ -283,9 +283,9 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
             : this.prisma.$transaction(update);
     }
 
-    async markJobsStale(ruleId: string, transaction?: Prisma.TransactionClient): Promise<void> {
+    async markJobsStale(branchId: string, ruleId: string, transaction?: Prisma.TransactionClient): Promise<void> {
         await (transaction ?? this.prisma).message_trigger_rule.updateMany({
-            where: { id: ruleId },
+            where: { id: ruleId, branchId },
             data: { jobsStale: true },
         });
     }

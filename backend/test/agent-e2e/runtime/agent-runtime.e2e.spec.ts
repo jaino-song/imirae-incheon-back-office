@@ -6,6 +6,7 @@ import request from "supertest";
 import { AppModule } from "../../../app.module";
 import { JwtGuard } from "../../../infrastructure/auth/jwt.guard";
 import { TenantGuard } from "../../../infrastructure/tenant/tenant.guard";
+import { tenantContextStore } from "../../../infrastructure/tenant/tenant-context.store";
 import { PrismaService } from "../../../infrastructure/database/prisma.service";
 import { GlobalValidationPipe } from "../../../infrastructure/pipes/global-validation.pipe";
 import { MessageTriggerService } from "../../../application/services/message-trigger.service";
@@ -76,11 +77,18 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                 const request = context.switchToHttp().getRequest();
                 const mode = request.headers["x-agent-e2e-principal"];
                 if (mode === "missing") return true;
-                request.tenant = mode === "other-user"
+                const tenant = mode === "other-user"
                     ? { ...principal, userId: OTHER_USER_ID }
                     : mode === "other-branch"
                         ? { ...principal, branchId: OTHER_BRANCH_ID }
                         : principal;
+                request.tenant = tenant;
+                // Mirror the real guard (TenantGuard.assignPrincipal): the request
+                // principal alone is not enough. TenantAlsMiddleware has already
+                // opened an `origin: "http"` store, and until the branch is pinned
+                // on it every tenant-model query under TENANT_ISOLATION_MODE=enforce
+                // fails with http_no_tenant, which hid the unpinned writes behind it.
+                tenantContextStore.setBranchId(tenant.branchId);
                 return true;
             },
         };
@@ -318,7 +326,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                 targetSnapshot,
             );
             await new Promise((resolve) => setTimeout(resolve, 50));
-            const dispatchPromise = triggerService.dispatchPendingJobNow(job.id);
+            const dispatchPromise = triggerService.dispatchPendingJobNow(job.id, { expectedBranchId: BRANCH_ID });
             await new Promise((resolve) => setTimeout(resolve, 50));
             releaseGate();
 
@@ -450,7 +458,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                 ruleTargetVersion(rule: typeof currentRule): string;
             }).ruleTargetVersion(currentRule);
 
-            const dispatchPromise = triggerService.dispatchPendingJobNow(job.id);
+            const dispatchPromise = triggerService.dispatchPendingJobNow(job.id, { expectedBranchId: BRANCH_ID });
             await new Promise((resolve) => setTimeout(resolve, 50));
             const updatePromise = triggerService.updateRuleApprovedTarget(
                 BRANCH_ID,
@@ -601,7 +609,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
             )).resolves.toBe(true);
             expect(sendSpy).not.toHaveBeenCalled();
 
-            await expect(triggerService.dispatchPendingJobNow(job.id)).resolves.toEqual(
+            await expect(triggerService.dispatchPendingJobNow(job.id, { expectedBranchId: BRANCH_ID })).resolves.toEqual(
                 expect.objectContaining({ id: job.id, status: "sent" }),
             );
             expect(sendSpy).toHaveBeenCalledTimes(1);
@@ -809,7 +817,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                 templateKey: r2TemplateKey,
             }));
 
-            await expect(triggerService.dispatchPendingJobNow(rebuiltJob!.id)).resolves.toEqual(
+            await expect(triggerService.dispatchPendingJobNow(rebuiltJob!.id, { expectedBranchId: BRANCH_ID })).resolves.toEqual(
                 expect.objectContaining({ id: rebuiltJob!.id, status: "sent" }),
             );
             expect(sendSpy).toHaveBeenCalledTimes(1);

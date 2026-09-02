@@ -9,7 +9,7 @@ export class FindBankAccountInfoByAreaUsecase {
         private readonly bankAccountInfoRepository: IBankAccountInfoRepository,
     ) {}
 
-    execute(area: string, branchId?: string): Promise<BankAccountInfoEntity | null> {
+    execute(area: string, branchId: string): Promise<BankAccountInfoEntity | null> {
         return this.bankAccountInfoRepository.findByArea(area, branchId);
     }
 }

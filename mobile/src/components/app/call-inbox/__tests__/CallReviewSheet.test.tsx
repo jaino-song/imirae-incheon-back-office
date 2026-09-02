@@ -2,6 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { CallReviewSheet } from "../CallReviewSheet";
+import { transcriptTurnId } from "../TranscriptView";
+import { NEUTRAL_SPEAKER } from "@/lib/call-inbox/types";
 
 // scrollIntoView is not implemented in jsdom
 beforeAll(() => {
@@ -363,5 +365,70 @@ describe("CallReviewSheet — non-PENDING (CONFIRMED)", () => {
     // No action buttons (고객 등록 / 폐기) for a CONFIRMED draft
     expect(screen.queryByRole("button", { name: /고객 등록/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^폐기$/i })).not.toBeInTheDocument();
+  });
+});
+
+// --------------------------------------------------------------------------
+// Role-less transcripts (design spec §4.3 — diarization unavailable past the
+// 30-minute limit). None of these utterances carry a known role; the renderer
+// must fall back to unattributed instead of guessing a staff/customer side,
+// and evidence citations must still resolve because they match on text, not role.
+// --------------------------------------------------------------------------
+
+describe("CallReviewSheet — role-less transcript", () => {
+  const roleLessDetail = {
+    ...baseDetail,
+    proposals: [
+      { field: "name", value: "김서연", evidence: "김서연이라고 해요", confidence: "high" as const },
+    ],
+    callRecord: {
+      ...baseDetail.callRecord,
+      transcript: [
+        { speaker: NEUTRAL_SPEAKER, text: "안녕하세요 문의드립니다" },
+        { speaker: NEUTRAL_SPEAKER, text: "김서연이라고 해요" },
+        { speaker: "화자 3", text: "네 확인해드릴게요" },
+        { speaker: "", text: "감사합니다" },
+      ],
+    },
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUseClientDraft.mockReturnValue({ data: roleLessDetail, isLoading: false });
+    mockConfirmMutateAsync.mockResolvedValue({ clientId: 42 });
+  });
+
+  it("renders every role-less utterance as unattributed — no staff/customer side or color", () => {
+    render(<CallReviewSheet draftId="draft-1" onClose={jest.fn()} />);
+
+    for (const text of [
+      "안녕하세요 문의드립니다",
+      "김서연이라고 해요",
+      "네 확인해드릴게요",
+      "감사합니다",
+    ]) {
+      const turn = screen.getByText(text);
+      expect(turn.className).toMatch(/self-center/);
+      expect(turn.className).not.toMatch(/self-start/);
+      expect(turn.className).not.toMatch(/self-end/);
+      expect(turn.className).not.toMatch(/bg-gray-200/);
+      expect(turn.className).not.toMatch(/bg-blue-100/);
+    }
+  });
+
+  it("resolves an evidence citation to the right utterance and scrolls to it, even though no speaker carries a role", async () => {
+    const user = userEvent.setup();
+    render(<CallReviewSheet draftId="draft-1" onClose={jest.fn()} />);
+
+    const chip = screen.getByRole("button", { name: /김서연이라고 해요/ });
+    await user.click(chip);
+
+    // "김서연이라고 해요" is the second turn (index 1) in roleLessDetail's transcript.
+    const highlightedTurn = document.getElementById(transcriptTurnId(1));
+    expect(highlightedTurn?.className).toMatch(/ring-2 ring-amber-400/);
+
+    // Neighboring role-less turns are untouched.
+    expect(document.getElementById(transcriptTurnId(0))?.className).not.toMatch(/ring-2/);
+    expect(document.getElementById(transcriptTurnId(2))?.className).not.toMatch(/ring-2/);
   });
 });

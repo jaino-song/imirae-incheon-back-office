@@ -21,6 +21,7 @@ import {
   Trash2,
   UserPlus,
   X,
+  Workflow,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
@@ -107,11 +108,12 @@ import {
   MobileSearchBar,
   MobileDetailTabPanel,
 } from "@/components/app/mobile-redesign/detail-sheet";
+import { ContractAutomationsPanel } from "@/components/app/mobile-redesign/ContractAutomationsPanel";
+import { ContractAutomationEditor } from "@/components/app/mobile-redesign/ContractAutomationEditor";
 import { matchesKoreanSearch } from "@/lib/search/korean-search";
 import { useClientDialogStore, type ClientWizardPrefill } from "@/stores/client-dialog-store";
 import { useFormStore, type ContractCreationPrefill } from "@/stores/form-store";
 import "@/components/app/mobile-redesign/redesign.css";
-
 const STAFF_COMPLETION_IFRAME_ID = "contracts_staff_completion_iframe";
 const CONTRACT_PDF_VIEWER_ARIA_LABEL = "계약서 PDF 미리보기";
 
@@ -133,7 +135,7 @@ const ContractPdfViewer = dynamic(
 );
 
 type ContractCategory = "in-progress" | "signed" | "drafting" | "completed" | "expired" | "unknown";
-type ContractSectionId = "maternal-contracts" | "service-records";
+type ContractSectionId = "maternal-contracts" | "service-records" | "automations";
 type FilterKey = "전체" | "서명 대기" | "서명 완료" | "검토 필요" | "계약 완료" | "기간 만료" | "알 수 없음";
 type DetailTabId = "basic" | "signers" | "messages";
 type NotificationStatus = "pending" | "sent" | "failed";
@@ -167,6 +169,7 @@ const FILTER_LABELS: FilterKey[] = ["전체", "서명 대기", "서명 완료", 
 const CONTRACT_SECTIONS = [
   { id: "maternal-contracts", label: "산모 계약서", icon: FileSignature },
   { id: "service-records", label: "제공기록지", icon: ClipboardList },
+  { id: "automations", label: "자동화", icon: Workflow },
 ] as const;
 const CONTRACT_LIST_INITIAL_VISIBLE_COUNT = 9;
 const DROPDOWN_DIALOG_HANDOFF_DELAY_MS = 100;
@@ -1598,6 +1601,7 @@ export default function ContractsPage() {
   const [activeTab, setActiveTab] = useState<DetailTabId>("basic");
   const [deleteTargetDoc, setDeleteTargetDoc] = useState<EformsignDocument | null>(null);
   const [isDeletingDocument, setIsDeletingDocument] = useState(false);
+  const [isAutomationEditorOpen, setIsAutomationEditorOpen] = useState(false);
 
   // Finalize (mode:"02" — staff completion) flow state
   const queryClient = useQueryClient();
@@ -1935,13 +1939,16 @@ export default function ContractsPage() {
   const isServiceRecordTemplateResolved =
     serviceRecordTemplateData !== undefined || isServiceRecordTemplateError;
   // API section 값: 페이지 섹션 이름(maternal-contracts)을 백엔드 값(maternity)으로 매핑한다.
-  const sectionParam = activeSection === "maternal-contracts" ? "maternity" : "service-records";
+  const sectionParam = activeSection === "maternal-contracts"
+    ? "maternity"
+    : activeSection === "service-records" ? "service-records" : undefined;
   // 산모 계약서 섹션은 서버가 필터를 결정하므로 클라이언트 데이터 없이 조회 가능.
   // 제공기록지 섹션은 템플릿이 미설정된 설치에서 비활성(빈 목록)을 유지한다 —
   // section=service-records를 보내도 서버가 필터를 구성하지 못해 전체가 반환되는
   // 것을 막는 클라이언트 게이트다.
   const sectionFilterReady =
-    activeSection === "maternal-contracts"
+    activeSection === "automations"
+    || activeSection === "maternal-contracts"
     || (isServiceRecordTemplateResolved && serviceRecordTemplateIds.length > 0);
   const debouncedSearchQuery = useDebouncedValue(searchQuery.trim(), 300);
   const statusCategoryParam = FILTER_TO_STATUS_CATEGORY[activeFilter];
@@ -1965,7 +1972,7 @@ export default function ContractsPage() {
     displayStatus: displayStatusParam,
     search: debouncedSearchQuery,
     section: sectionParam,
-    enabled: isAuthenticated && sectionFilterReady,
+    enabled: isAuthenticated && activeSection !== "automations" && sectionFilterReady,
   });
 
   // 필터 pill 카운터: 목록과 동일한 선(先)필터가 적용된 상태 신호를 받아 클라이언트에서 접는다.
@@ -1989,7 +1996,7 @@ export default function ContractsPage() {
         search: debouncedSearchQuery || undefined,
         excludeDeleted: true,
       }),
-    enabled: isAuthenticated && sectionFilterReady && Boolean(branchId),
+    enabled: isAuthenticated && activeSection !== "automations" && sectionFilterReady && Boolean(branchId),
     staleTime: 1000 * 60 * 5,
   });
 
@@ -2205,8 +2212,8 @@ export default function ContractsPage() {
   );
 
   const totalDocs = totalRows;
-  const activeSectionLabel = activeSection === "maternal-contracts" ? "산모 계약서" : "제공기록지";
-  const listCount = isContractsLoading ? (
+  const activeSectionLabel = activeSection === "maternal-contracts" ? "산모 계약서" : activeSection === "service-records" ? "제공기록지" : "자동화";
+  const listCount = activeSection === "automations" ? undefined : isContractsLoading ? (
     <span className="contracts-count-placeholder skeleton-base" aria-label="계약서 불러오는 중" />
   ) : (
     `${totalDocs}건`
@@ -2216,8 +2223,11 @@ export default function ContractsPage() {
     <MobileDetailSheet data-component="mobile_contracts_detail-sheet"
       name="contracts"
       detailDataComponent="mobile_contracts_detail-sheet_stack_detail-page"
-      isOpen={Boolean(selectedDoc)}
-      onClose={() => setSelectedDoc(null)}
+      isOpen={Boolean(selectedDoc) || (activeSection === "automations" && isAutomationEditorOpen)}
+      onClose={() => {
+        setSelectedDoc(null);
+        setIsAutomationEditorOpen(false);
+      }}
       list={
         <div
           className="shell-content flex-col gap-[calc(8px*var(--glint-ui-scale,1))]"
@@ -2232,6 +2242,8 @@ export default function ContractsPage() {
             onSelect={(sectionId) => {
               setActiveSection(sectionId);
               setActiveFilter("전체");
+              setIsAutomationEditorOpen(false);
+              setSelectedDoc(null);
             }}
           />
           <ListCard
@@ -2240,11 +2252,11 @@ export default function ContractsPage() {
             count={listCount}
             actionLabel={activeSection === "maternal-contracts" ? "계약 작성" : undefined}
             actionHref={activeSection === "maternal-contracts" ? "/contracts/new" : undefined}
-            filters={filterItems}
+            filters={activeSection === "automations" ? [] : filterItems}
             activeFilter={activeFilter}
             onFilterChange={(label) => setActiveFilter(label as FilterKey)}
-            scrollRef={scrollContainerRef}
-            loadMore={
+            scrollRef={activeSection === "automations" ? undefined : scrollContainerRef}
+            loadMore={activeSection === "automations" ? undefined : (
               isContractsLoading ? (
                 <div
                   className="contracts-load-more-placeholder skeleton-base"
@@ -2258,8 +2270,8 @@ export default function ContractsPage() {
                   data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more_button"
                 />
               ) : null
-            }
-            beforeFilters={
+            )}
+            beforeFilters={activeSection === "automations" ? undefined : (
               <MobileSearchBar
                 data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_search"
                 placeholder="고객명, 문서명, 문서 번호 검색"
@@ -2267,9 +2279,14 @@ export default function ContractsPage() {
                 value={searchQuery}
                 onChange={setSearchQuery}
               />
-            }
+            )}
           >
-            {isContractsLoading ? (
+            {activeSection === "automations" ? (
+              <ContractAutomationsPanel
+                data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_automations"
+                onEdit={() => setIsAutomationEditorOpen(true)}
+              />
+            ) : isContractsLoading ? (
               <ContractListLoadingRows />
             ) : visibleSections.length === 0 ? (
               <div
@@ -2393,7 +2410,9 @@ export default function ContractsPage() {
         </div>
       }
       detail={
-        selectedDetailDoc ? (
+        activeSection === "automations" && isAutomationEditorOpen ? (
+          <ContractAutomationEditor onClose={() => setIsAutomationEditorOpen(false)} />
+        ) : selectedDetailDoc ? (
           <ContractDetailContent
             doc={selectedDetailDoc}
             metadata={selectedDocMetadata}

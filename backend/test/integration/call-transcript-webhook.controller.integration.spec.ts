@@ -6,6 +6,7 @@ import { CallIngestionService } from "application/services/call-ingestion.servic
 import { CallIngestTokenService } from "application/services/call-ingest-token.service";
 import { CallIngestGuard } from "infrastructure/auth/call-ingest.guard";
 import { GlobalValidationPipe } from "infrastructure/pipes/global-validation.pipe";
+import { CALL_VOCABULARY } from "domain/constants/call-vocabulary";
 
 describe("CallTranscriptWebhookController (Integration)", () => {
     let app: INestApplication;
@@ -13,9 +14,12 @@ describe("CallTranscriptWebhookController (Integration)", () => {
     let tokenService: jest.Mocked<Pick<CallIngestTokenService, "resolveBranchId">>;
 
     const payload = {
-        fileId: "drive-1",
+        driveFileId: "drive-1",
         fileName: "통화 녹음 김서연_010-4821-7763.m4a",
-        transcript: [{ speaker: "고객", text: "산후도우미 문의요" }],
+        sttModel: "gemini-3.5-transcribe",
+        diarized: true,
+        vocabularyVersion: "v1",
+        transcriptRaw: [{ speaker: "1", text: "산후도우미 문의요" }],
     };
 
     beforeEach(async () => {
@@ -49,7 +53,10 @@ describe("CallTranscriptWebhookController (Integration)", () => {
 
         expect(response.status).toBe(202);
         expect(response.body).toEqual({ accepted: true, duplicate: false, callRecordId: "rec-1" });
-        expect(ingestionService.ingest).toHaveBeenCalledWith("branch-1", expect.objectContaining({ fileId: "drive-1" }));
+        expect(ingestionService.ingest).toHaveBeenCalledWith(
+            "branch-1",
+            expect.objectContaining({ driveFileId: "drive-1" }),
+        );
     });
 
     it("200 no-op on duplicate", async () => {
@@ -75,12 +82,12 @@ describe("CallTranscriptWebhookController (Integration)", () => {
         expect(ingestionService.ingest).not.toHaveBeenCalled();
     });
 
-    it("400 on invalid payload (missing transcript)", async () => {
+    it("400 on invalid payload (missing required v2 fields)", async () => {
         tokenService.resolveBranchId.mockResolvedValue("branch-1");
         const response = await request(app.getHttpServer())
             .post("/webhooks/call-transcripts")
             .set({ Authorization: "Bearer cit_valid" })
-            .send({ fileId: "drive-1", fileName: "x.m4a" });
+            .send({ driveFileId: "drive-1", fileName: "x.m4a" });
         expect(response.status).toBe(400);
     });
 
@@ -92,5 +99,26 @@ describe("CallTranscriptWebhookController (Integration)", () => {
             .send({ ...payload, recordedAt: "2026-02-31T10:00:00.000Z" });
         expect(response.status).toBe(400);
         expect(ingestionService.ingest).not.toHaveBeenCalled();
+    });
+
+    it("GET vocabulary: 401 without a valid token", async () => {
+        tokenService.resolveBranchId.mockResolvedValue(null);
+        const response = await request(app.getHttpServer())
+            .get("/webhooks/call-transcripts/vocabulary")
+            .set({ Authorization: "Bearer cit_bad" });
+        expect(response.status).toBe(401);
+    });
+
+    it("GET vocabulary: 200 with exactly {version, phrases} matching the constant", async () => {
+        tokenService.resolveBranchId.mockResolvedValue("branch-1");
+        const response = await request(app.getHttpServer())
+            .get("/webhooks/call-transcripts/vocabulary")
+            .set({ Authorization: "Bearer cit_valid" });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({
+            version: CALL_VOCABULARY.version,
+            phrases: [...CALL_VOCABULARY.phrases],
+        });
     });
 });

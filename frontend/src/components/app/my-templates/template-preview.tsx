@@ -2,6 +2,8 @@
 
 import { TemplateVariable } from "@/lib/template/types";
 import { AutoFillMsgCard } from "@/components/app/messages/templates/AutoFillMsgCard";
+import { renderTemplate } from "@/lib/template/variable-parser";
+import { getTextByteLength } from "@/lib/message/byte-length";
 
 interface TemplatePreviewProps {
     content: string;
@@ -9,23 +11,25 @@ interface TemplatePreviewProps {
 }
 
 export const TemplatePreview = ({ content, variables }: TemplatePreviewProps) => {
-    const renderPreview = () => {
-        let preview = content;
-        variables.forEach((v) => {
-            const escapedKey = v.key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const regex = new RegExp(`\\{\\{\\s*${escapedKey}\\s*\\}\\}`, "g");
-            preview = preview.replace(regex, `[${v.label}]`);
-        });
+    // Variables with a fallback are left out of `values` so renderTemplate's
+    // fallback-aware pass fills them in, mirroring real send behavior.
+    const values = variables.reduce<Record<string, string>>((acc, v) => {
+        const hasFallback = typeof v.fallback === "string" && v.fallback.trim().length > 0;
+        if (!hasFallback) {
+            acc[v.key] = `[${v.label}]`;
+        }
+        return acc;
+    }, {});
 
-        return preview;
-    };
-
-    const previewMessage = renderPreview();
-    const variableItems = variables.map((variable) => ({
-        token: `{{${variable.key}}}`,
-        label: variable.label,
-        value: `[${variable.label}]`,
-    }));
+    const previewMessage = renderTemplate(content, values, variables);
+    const variableItems = variables.map((variable) => {
+        const hasFallback = typeof variable.fallback === "string" && variable.fallback.trim().length > 0;
+        return {
+            token: `{{${variable.key}}}`,
+            label: variable.label,
+            value: hasFallback ? (variable.fallback as string) : `[${variable.label}]`,
+        };
+    });
 
     const handleCopy = () => {
         navigator.clipboard.writeText(previewMessage);
@@ -41,6 +45,7 @@ export const TemplatePreview = ({ content, variables }: TemplatePreviewProps) =>
                 bodyDescription="템플릿 변수 치환 결과를 확인할 수 있습니다."
                 metaItems={[
                     { label: "메시지 길이", value: `${previewMessage.length}자` },
+                    { label: "바이트", value: `${getTextByteLength(previewMessage)} bytes` },
                     { label: "감지 변수", value: `${variables.length}개` },
                     { label: "편집 상태", value: "읽기 전용" },
                 ]}

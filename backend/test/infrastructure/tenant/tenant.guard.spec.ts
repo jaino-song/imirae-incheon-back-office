@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { TenantGuard } from '../../../infrastructure/tenant/tenant.guard';
 import { TenantContext } from '../../../infrastructure/tenant/tenant.context';
 import { PrismaService } from '../../../infrastructure/database/prisma.service';
+import { tenantContextStore } from '../../../infrastructure/tenant/tenant-context.store';
 
 describe('TenantGuard', () => {
     let guard: TenantGuard;
@@ -120,6 +121,83 @@ describe('TenantGuard', () => {
                 // #when & #then
                 await expect(guard.canActivate(mockContext as any))
                     .rejects.toThrow(ForbiddenException);
+            });
+        });
+
+        describe('given an active ambient tenant store', () => {
+            it('should write the resolved branchId through to the ALS store', async () => {
+                // #given
+                const user = {
+                    userId: 'user-123',
+                    branchId: 'org-123',
+                    role: 'user',
+                };
+                const request = { user };
+                const mockContext = {
+                    switchToHttp: () => ({
+                        getRequest: () => request,
+                    }),
+                };
+                mockPrismaService.user_branch.findFirst.mockResolvedValue({
+                    role: 'admin',
+                    branch: { isActive: true },
+                });
+
+                // #when
+                const observedBranchId = await tenantContextStore.run(
+                    { origin: 'http' },
+                    async () => {
+                        await guard.canActivate(mockContext as any);
+                        return tenantContextStore.get()?.branchId;
+                    },
+                );
+
+                // #then
+                expect(observedBranchId).toBe(user.branchId);
+            });
+        });
+
+        describe('given the ambient store is HTTP-origin without a branchId (the state before assignPrincipal runs)', () => {
+            it('should run the user_branch membership query under a system-scope store, then restore the outer store', async () => {
+                // #given
+                const user = {
+                    userId: 'user-123',
+                    branchId: 'org-123',
+                    role: 'user',
+                };
+                const request = { user };
+                const mockContext = {
+                    switchToHttp: () => ({
+                        getRequest: () => request,
+                    }),
+                };
+
+                let observedDuringQuery: unknown;
+                mockPrismaService.user_branch.findFirst.mockImplementation(async () => {
+                    // #when (observed from inside the query itself)
+                    observedDuringQuery = tenantContextStore.get();
+                    return { role: 'admin', branch: { isActive: true } };
+                });
+
+                // #when
+                const observedAfterActivate = await tenantContextStore.run(
+                    { origin: 'http' },
+                    async () => {
+                        const result = await guard.canActivate(mockContext as any);
+                        expect(result).toBe(true);
+                        return tenantContextStore.get();
+                    },
+                );
+
+                // #then: the membership query itself ran under a system-scope
+                // store, so the ALS store being `{ origin: "http" }` with no
+                // branchId at query time doesn't trip the tenant-isolation
+                // extension's http_no_tenant check.
+                expect(observedDuringQuery).toEqual({ origin: 'system', systemScope: true });
+                // #then: guard behavior is unchanged — the outer store is
+                // restored (system scope does not leak) and still carries
+                // the branchId written by assignPrincipal after the query.
+                expect(observedAfterActivate).toEqual({ origin: 'http', branchId: user.branchId });
             });
         });
     });

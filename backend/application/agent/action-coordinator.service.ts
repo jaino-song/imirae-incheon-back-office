@@ -297,7 +297,7 @@ export class ActionCoordinatorService {
      */
     private async supersedeProposedAction(existing: ActionRecord, requestDedupeKey: string): Promise<boolean> {
         const updated = await this.prisma.agent_action.updateMany({
-            where: { id: existing.id, status: "proposed", requestDedupeKey },
+            where: { id: existing.id, branchId: existing.branchId, status: "proposed", requestDedupeKey },
             data: {
                 status: "cancelled",
                 error: {
@@ -335,6 +335,7 @@ export class ActionCoordinatorService {
         await this.prisma.agent_action.updateMany({
             where: {
                 id: existing.id,
+                branchId: existing.branchId,
                 status: existing.status,
                 requestDedupeKey,
                 ...(requireExpired ? { dedupeExpiresAt: { lte: now } } : {}),
@@ -730,7 +731,7 @@ export class ActionCoordinatorService {
                 try {
                     const capability = this.registry.get(record.capability);
                     if (!capability.reconcile) {
-                        await this.advanceUncertainAction(record.id, record.updatedAt);
+                        await this.advanceUncertainAction(record.id, record.branchId, record.updatedAt);
                         continue;
                     }
                     const authorization = jsonObject(record.authorizationContext);
@@ -742,11 +743,11 @@ export class ActionCoordinatorService {
                     };
                     const outcome = await this.reconcile(record.id, principal);
                     if (outcome.status !== "uncertain") reconciled += 1;
-                    else await this.advanceUncertainAction(record.id, record.updatedAt);
+                    else await this.advanceUncertainAction(record.id, record.branchId, record.updatedAt);
                 } catch {
                     // A status lookup failure leaves the action uncertain. It must
                     // never be converted to failed or retried as a side effect.
-                    await this.advanceUncertainAction(record.id, record.updatedAt);
+                    await this.advanceUncertainAction(record.id, record.branchId, record.updatedAt);
                 }
             }
             return reconciled;
@@ -758,12 +759,12 @@ export class ActionCoordinatorService {
      * missing reconciler, provider lookup error, or still-uncertain result must
      * not permanently occupy the first page of a bounded sweep.
      */
-    private async advanceUncertainAction(id: string, previousUpdatedAt?: Date): Promise<void> {
+    private async advanceUncertainAction(id: string, branchId: string, previousUpdatedAt?: Date): Promise<void> {
         try {
             const now = Date.now();
             const previous = previousUpdatedAt?.getTime() ?? 0;
             await this.prisma.agent_action.updateMany({
-                where: { id, status: "uncertain" },
+                where: { id, branchId, status: "uncertain" },
                 data: { updatedAt: new Date(Math.max(now, previous + 1)) },
             });
         } catch {

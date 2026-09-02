@@ -467,6 +467,16 @@ export interface MessageAutomationPoliciesResponse {
     pastTriggerConfig: MessageAutomationPastTriggerConfig;
 }
 
+export interface ContractAutoFinalizeConfig {
+    enabled: boolean;
+    graceDays: number;
+    maxAttempts: number;
+}
+
+export interface ContractAutomationPoliciesResponse {
+    autoFinalize: ContractAutoFinalizeConfig;
+}
+
 export interface NotificationPreferencesResponse {
     emailNotificationsEnabled: boolean;
     updatedAt?: string;
@@ -568,6 +578,16 @@ export const settingsApi = {
         const { data } = await api.get("/settings/message-automation-policies");
         return data;
     },
+    getContractAutomationPolicies: async (): Promise<ContractAutomationPoliciesResponse> => {
+        const { data } = await api.get("/settings/contract-automation-policies");
+        return data;
+    },
+    updateContractAutoFinalizeConfig: async (
+        config: ContractAutoFinalizeConfig,
+    ): Promise<ContractAutoFinalizeConfig> => {
+        const { data } = await api.put("/settings/contract-automation-policies/auto-finalize", config);
+        return data;
+    },
     updateMessageAutomationPastTriggerConfig: async (
         config: MessageAutomationPastTriggerConfig,
     ): Promise<MessageAutomationPastTriggerConfig> => {
@@ -595,6 +615,42 @@ export const settingsApi = {
         return data;
     },
 }
+
+/** Owner-only. Safe fields only — never the token hash or plaintext. */
+export interface CallIngestToken {
+    id: string;
+    label: string;
+    active: boolean;
+    createdAt: string;
+}
+
+/**
+ * The `token` plaintext is present only here, exactly once, at issuance.
+ * Deliberately NOT an extension of CallIngestToken: the create response
+ * returns only these four fields (see CallIngestTokenService.createToken), so
+ * declaring `active`/`createdAt` here would promise values that arrive as
+ * undefined at runtime with no type error.
+ */
+export interface CreatedCallIngestToken {
+    id: string;
+    branchId: string;
+    label: string;
+    token: string;
+}
+
+export const callIngestTokenApi = {
+    list: async (branchId: string): Promise<CallIngestToken[]> => {
+        const { data } = await api.get(`/branches/${branchId}/call-ingest-tokens`);
+        return data;
+    },
+    create: async (branchId: string, label: string): Promise<CreatedCallIngestToken> => {
+        const { data } = await api.post(`/branches/${branchId}/call-ingest-tokens`, { label });
+        return data;
+    },
+    revoke: async (id: string): Promise<void> => {
+        await api.post(`/call-ingest-tokens/${id}/revoke`);
+    },
+};
 
 export const consultationInquiriesApi = {
     list: async (params: ConsultationInquiryListParams = {}): Promise<ConsultationInquiryListResponse> => {

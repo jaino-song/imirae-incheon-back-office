@@ -13,6 +13,12 @@ export interface MessageAutomationPastTriggerConfig {
     ruleOrder: string[];
 }
 
+export interface ContractAutoFinalizeConfig {
+    enabled: boolean;
+    graceDays: number;
+    maxAttempts: number;
+}
+
 export const DEFAULT_RIBBON_CONFIG: RibbonConfig = {
     enabled: false,
     message: "",
@@ -26,6 +32,12 @@ export const DEFAULT_RIBBON_CONFIG: RibbonConfig = {
 export const DEFAULT_MESSAGE_AUTOMATION_PAST_TRIGGER_CONFIG: MessageAutomationPastTriggerConfig = {
     sendIntervalMinutes: 1,
     ruleOrder: [],
+};
+
+export const DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG: ContractAutoFinalizeConfig = {
+    enabled: true,
+    graceDays: 0,
+    maxAttempts: 3,
 };
 
 export class SystemSettingEntity {

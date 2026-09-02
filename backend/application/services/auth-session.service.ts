@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { runSystemScope } from "infrastructure/tenant/run-system-scope";
 import { getAuthTokenMaxAgeMs } from "./auth-token-policy";
 
 const ACCESS_TOKEN_EXPIRES_IN = "15m";
@@ -628,7 +629,9 @@ export class AuthSessionService {
                 : {};
         }
 
-        const membership = await tx.user_branch.findUnique({
+        // System scope: refresh re-validates membership for the session's
+        // selected branch before any tenant store branchId is established.
+        const membership = await runSystemScope(() => tx.user_branch.findUnique({
             where: {
                 userId_branchId: {
                     userId: user.id,
@@ -639,7 +642,7 @@ export class AuthSessionService {
                 role: true,
                 branch: { select: { id: true, isActive: true } },
             },
-        });
+        }));
 
         return membership?.branch.isActive
             ? {

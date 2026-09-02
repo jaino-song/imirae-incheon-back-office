@@ -7,6 +7,14 @@ import {
 } from "domain/ports/call-extraction.port";
 import { GeminiCallExtractionAdapter } from "infrastructure/api/gemini-call-extraction.adapter";
 import {
+    CallRefinementInput,
+    CallRefinementPort,
+    CallRefinementResult,
+    NEUTRAL_SPEAKER,
+} from "domain/ports/call-refinement.port";
+import { CALL_TERM_CORRECTIONS } from "domain/constants/call-vocabulary";
+import { GeminiCallRefinementAdapter } from "infrastructure/api/gemini-call-refinement.adapter";
+import {
     AligoSendSmsParams,
     AligoSmsResponse,
     IAligoSmsApiPort,
@@ -750,6 +758,12 @@ export class StubCallExtractionAdapter implements CallExtractionPort {
                 { field: "name", value: "김서연", evidence: "stub", confidence: "high" },
                 { field: "dueDate", value: "2026-07-15", evidence: "stub", confidence: "high" },
             ],
+            summary: {
+                inquiry_type: "신규상담",
+                customer_info: "김서연 / 010-4821-7763",
+                key_content: "산모가 산후도우미 서비스 문의 (E2E stub)",
+                result_action: "상담 예약 안내",
+            },
         };
     }
 }
@@ -759,4 +773,46 @@ export function createCallExtractionAdapter(configService: ConfigService): CallE
         return new StubCallExtractionAdapter();
     }
     return new GeminiCallExtractionAdapter(configService);
+}
+
+/**
+ * Deterministic diarized-speaker map for the e2e stub. Only "1"/"2" are
+ * mapped (the raw labels this repo's fixtures use); any other raw speaker
+ * falls back to NEUTRAL_SPEAKER rather than guessing a role — the same
+ * never-guess posture the real refine prompt takes for diarized:false.
+ */
+const STUB_DIARIZED_SPEAKER_MAP: Readonly<Record<string, string>> = {
+    "1": "아이미래로",
+    "2": "고객",
+};
+
+export class StubCallRefinementAdapter implements CallRefinementPort {
+    async refine(input: CallRefinementInput): Promise<CallRefinementResult> {
+        return {
+            transcript: input.segments.map((turn) => ({
+                speaker: input.diarized
+                    ? (STUB_DIARIZED_SPEAKER_MAP[turn.speaker] ?? NEUTRAL_SPEAKER)
+                    : NEUTRAL_SPEAKER,
+                // Apply the real correction dictionary mechanically so the e2e
+                // can assert the refine stage actually corrects terminology —
+                // without this, e2e green would only prove speaker mapping.
+                text: applyStubTermCorrections(turn.text),
+            })),
+        };
+    }
+}
+
+function applyStubTermCorrections(text: string): string {
+    let corrected = text;
+    for (const [wrong, right] of Object.entries(CALL_TERM_CORRECTIONS)) {
+        corrected = corrected.split(wrong).join(right);
+    }
+    return corrected;
+}
+
+export function createCallRefinementAdapter(configService: ConfigService): CallRefinementPort {
+    if (areE2EVendorStubsEnabled(configService)) {
+        return new StubCallRefinementAdapter();
+    }
+    return new GeminiCallRefinementAdapter(configService);
 }
