@@ -3,23 +3,27 @@ import { join, relative, resolve } from "node:path";
 
 /**
  * Every scheduler entry point must consult the host-level lease (ADR-010).
- * This spec scans the source tree for `@Cron(` / `@Interval(` declarations and
+ * This spec scans the whole backend package (not only application/) for `@Cron(` / `@Interval(` declarations and
  * fails when a declaring file never calls `holdsLease()`, so a new scheduler
  * cannot be added without the gate.
  */
 
-const APPLICATION_ROOT = resolve(__dirname, "../../application");
+const BACKEND_ROOT = resolve(__dirname, "../..");
+// Build output, dependencies and generated code are not scheduler sources.
+const SKIP_DIRS = new Set<string>(["node_modules", "dist", "coverage", "prisma", ".turbo"]);
 const DECORATOR_PATTERN = /@(Cron|Interval)\(/;
 const LEASE_CALL = "holdsLease()";
 // The lease service itself declares no scheduler; listed for clarity only.
-const EXEMPT = new Set<string>(["services/scheduler-lease.service.ts"]);
+const EXEMPT = new Set<string>(["application/services/scheduler-lease.service.ts"]);
 
 function listSourceFiles(dir: string): string[] {
     const out: string[] = [];
     for (const entry of readdirSync(dir)) {
         const full = join(dir, entry);
         if (statSync(full).isDirectory()) {
-            out.push(...listSourceFiles(full));
+            if (!SKIP_DIRS.has(entry)) {
+                out.push(...listSourceFiles(full));
+            }
             continue;
         }
         if (full.endsWith(".ts") && !full.endsWith(".spec.ts") && !full.endsWith(".d.ts")) {
@@ -30,9 +34,9 @@ function listSourceFiles(dir: string): string[] {
 }
 
 describe("scheduler lease drift", () => {
-    const schedulerFiles = listSourceFiles(APPLICATION_ROOT)
+    const schedulerFiles = listSourceFiles(BACKEND_ROOT)
         .filter((file) => DECORATOR_PATTERN.test(readFileSync(file, "utf8")))
-        .map((file) => relative(APPLICATION_ROOT, file))
+        .map((file) => relative(BACKEND_ROOT, file))
         .filter((file) => !EXEMPT.has(file))
         .sort();
 
@@ -43,7 +47,7 @@ describe("scheduler lease drift", () => {
 
     it("every file declaring @Cron/@Interval calls holdsLease()", () => {
         const missing = schedulerFiles.filter(
-            (file) => !readFileSync(join(APPLICATION_ROOT, file), "utf8").includes(LEASE_CALL),
+            (file) => !readFileSync(join(BACKEND_ROOT, file), "utf8").includes(LEASE_CALL),
         );
 
         if (missing.length > 0) {

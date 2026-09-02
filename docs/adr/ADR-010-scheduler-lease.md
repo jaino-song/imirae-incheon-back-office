@@ -30,7 +30,7 @@ Every unit of work already has a row-level fence (`message_trigger_job.claim_tok
 ## Consequences
 
 - Two hosts with `SCHEDULERS_ENABLED=true` against one database are now safe: one runs background work, the other idles and reports `held=false`. Failover of scheduler ownership takes at most one TTL (90 s) after the previous holder stops renewing, and is immediate after a clean shutdown.
-- A container recreate on the same host has a gap of up to 40 s if the old process could not release (crash), and no gap if it released cleanly.
+- A container recreate on the same host has a gap of up to 40 s if the old process could not release (crash), and no gap if it released cleanly. This needs a fixed `SCHEDULER_LEASE_HOLDER_ID`; a host that falls back to the container hostname is a new holder each time and waits the full 90 s TTL after a crash.
 - The lease adds one small write per host every 20 s.
 - The passive fallback still cannot take over schedulers automatically because its `SCHEDULERS_ENABLED` is false. Flipping the passive Compose to `true` and letting the lease alone decide ownership, and reworking the failover controller's passive-gate checks, are deliberate follow-ups, not part of this decision.
 
@@ -42,4 +42,4 @@ Every unit of work already has a row-level fence (`message_trigger_job.claim_tok
 
 ## Verification
 
-Unit specs cover mode resolution, standby never touching the repository, acquire/renew/loss/grace transitions under fake timers, and shutdown release. A real-Postgres spec in the auth-e2e suite drives two repository instances through acquire, contention, renewal, same-holder takeover, release, and expiry. The drift spec enforces the entry-point rule. In production, `curl 127.0.0.1:3101/health/lease` on the fallback host shows `held=true, holderId=lightnode`, and forcing the row to another holder (`UPDATE scheduler_lease SET holder_id='rehearsal', expires_at=now()+interval '3 minutes' WHERE name='background-owner'`) makes `held` false within one renewal and true again after expiry.
+Unit specs cover mode resolution, standby never touching the repository, acquire/renew/loss/grace transitions under fake timers, and shutdown release. A real-Postgres spec in the auth-e2e suite drives two repository instances through acquire, contention, renewal, same-holder takeover, release, and expiry. The drift spec enforces the entry-point rule. In production, while the fallback host is `temporary-active`, `curl 127.0.0.1:3101/health/lease` shows `held=true, holderId=lightnode` (a passive host shows `mode=standby, held=false` and never touches the row, so the rehearsal below does nothing there), and forcing the row to another holder (`UPDATE scheduler_lease SET holder_id='rehearsal', expires_at=now()+interval '3 minutes' WHERE name='background-owner'`) makes `held` false within one renewal and true again after expiry.

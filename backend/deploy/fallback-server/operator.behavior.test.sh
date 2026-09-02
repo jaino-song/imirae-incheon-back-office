@@ -173,4 +173,10 @@ lease_out="$(lease_status_fields)"
 [[ "$lease_out" == $'lease_mode=unknown\nlease_held=unknown' ]] \
     || fail 'lease fields accepted an unexpected mode/held value'
 
+# A body split across lines must still yield exactly two key=value lines.
+lease_curl(){ printf '{\r\n"mode":"required",\r\n"holderId":"lightnode",\r\n"held":false\r\n}\r\n'; }
+lease_out="$(lease_status_fields)"
+[[ "$lease_out" == $'lease_mode=required\nlease_held=false' ]] \
+    || fail "lease fields emitted malformed lines for a multi-line body: $lease_out"
+
 echo 'Fallback temporary-active behavioral tests passed'

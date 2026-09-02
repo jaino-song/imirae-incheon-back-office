@@ -558,8 +558,9 @@ lease_curl() {
 lease_status_fields() {
     local body mode held
     if body="$(lease_curl --fail --silent --show-error --connect-timeout 2 --max-time 5 "$LOOPBACK_LEASE_URL" 2>/dev/null)"; then
-        mode="$(printf '%s' "$body" | sed -nE 's/.*"mode":"([a-z]*)".*/\1/p')"
-        held="$(printf '%s' "$body" | sed -nE 's/.*"held":(true|false).*/\1/p')"
+        body="$(printf '%s' "$body" | /usr/bin/tr -d '\r\n')"
+        mode="$(printf '%s' "$body" | /usr/bin/sed -nE 's/.*"mode":"([a-z]*)".*/\1/p')"
+        held="$(printf '%s' "$body" | /usr/bin/sed -nE 's/.*"held":(true|false).*/\1/p')"
     fi
     printf 'lease_mode=%s\n' "${mode:-unknown}"
     printf 'lease_held=%s\n' "${held:-unknown}"
