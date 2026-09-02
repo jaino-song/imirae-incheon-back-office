@@ -66,4 +66,62 @@ describe("GET /api/eformsign/documents", () => {
             "fetch all eformsign documents",
         );
     });
+
+    // 서명 완료 and 검토 필요 send the same statusCategory and differ ONLY by
+    // displayStatus, which the backend applies before the limit/skip slice. While the
+    // param was missing from the allowlist both pills asked the identical question,
+    // so the rows never split while the separately-fetched counters did.
+    it("asks a different backend question for each provider-review pill", async () => {
+        const backendPathFor = async (displayStatus: string) => {
+            mockProxyLocalGetRequest.mockClear();
+            await GET(
+                createRequest(
+                    `/api/eformsign/documents?limit=25&skip=0&section=maternity&statusCategory=in-progress&displayStatus=${displayStatus}`,
+                ),
+            );
+            return mockProxyLocalGetRequest.mock.calls[0]![1] as string;
+        };
+
+        const signed = await backendPathFor("signed");
+        const review = await backendPathFor("review");
+
+        expect(signed).toContain("displayStatus=signed");
+        expect(review).toContain("displayStatus=review");
+        expect(signed).not.toEqual(review);
+    });
+
+    it("drops a blank displayStatus so the backend keeps its own default", async () => {
+        await GET(createRequest("/api/eformsign/documents?limit=25&skip=0&displayStatus=%20"));
+
+        expect(mockProxyLocalGetRequest).toHaveBeenCalledWith(
+            expect.any(NextRequest),
+            "/api/documents?limit=25&skip=0",
+            "fetch all eformsign documents",
+        );
+    });
+
+    // The allowlist is the only thing that forwards a filter: there is no auto-forward
+    // fallback once the route pre-encodes its own query. This drives every filter the
+    // mobile client can emit through in one request, so a param that is wired into the
+    // client but not here fails here rather than in production.
+    it("forwards every filter the mobile client can send", async () => {
+        await GET(
+            createRequest(
+                "/api/eformsign/documents?limit=25&skip=0&section=maternity" +
+                    "&statusCategory=in-progress&displayStatus=review&search=%EA%B9%80&excludeDeleted=true",
+            ),
+        );
+
+        const backendPath = mockProxyLocalGetRequest.mock.calls[0]![1] as string;
+        const forwarded = new URLSearchParams(backendPath.split("?")[1]);
+        expect(Object.fromEntries(forwarded)).toEqual({
+            limit: "25",
+            skip: "0",
+            section: "maternity",
+            statusCategory: "in-progress",
+            displayStatus: "review",
+            search: "김",
+            excludeDeleted: "true",
+        });
+    });
 });
