@@ -29,9 +29,10 @@ export type AutoFinalizeVerdict =
  */
 export function evaluateAutoFinalize(
     contract: Pick<ReviewStageContract, "contractEndDate" | "autoFinalizeAttempts">,
-    context: { sinceDate: string; todayKst: string },
+    context: { sinceDate: string; todayKst: string; graceDays?: number; maxAttempts?: number },
 ): AutoFinalizeVerdict {
-    if (contract.autoFinalizeAttempts >= CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS) {
+    const maxAttempts = context.maxAttempts ?? CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS;
+    if (contract.autoFinalizeAttempts >= maxAttempts) {
         return { eligible: false, reason: "attempts-exhausted" };
     }
     if (!isValidIsoDate(contract.contractEndDate)) {
@@ -40,8 +41,15 @@ export function evaluateAutoFinalize(
     if (contract.contractEndDate < context.sinceDate) {
         return { eligible: false, reason: "before-activation" };
     }
-    if (contract.contractEndDate > context.todayKst) {
+    const dueDate = addCalendarDays(contract.contractEndDate, context.graceDays ?? 0);
+    if (dueDate > context.todayKst) {
         return { eligible: false, reason: "end-date-not-passed" };
     }
     return { eligible: true };
+}
+
+function addCalendarDays(date: string, days: number): string {
+    const result = new Date(`${date}T00:00:00.000Z`);
+    result.setUTCDate(result.getUTCDate() + days);
+    return result.toISOString().slice(0, 10);
 }

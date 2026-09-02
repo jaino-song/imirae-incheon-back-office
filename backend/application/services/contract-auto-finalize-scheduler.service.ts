@@ -13,6 +13,7 @@ import {
 } from "infrastructure/database/prisma-error.utils";
 import { EformsignDocumentJobService } from "application/services/eformsign-document-job.service";
 import { NotificationService } from "application/services/notification.service";
+import { SystemSettingService } from "application/services/system-setting.service";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
 import {
     CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS,
@@ -55,6 +56,7 @@ export class ContractAutoFinalizeSchedulerService {
         private readonly eformsignDocRepository: IEformsignDocRepository,
         private readonly documentJobService: EformsignDocumentJobService,
         private readonly notificationService: NotificationService,
+        private readonly systemSettingService?: SystemSettingService,
     ) {}
 
     @Cron(CONTRACT_AUTO_FINALIZE_CRON, { timeZone: CONTRACT_AUTO_FINALIZE_TIME_ZONE })
@@ -101,10 +103,27 @@ export class ContractAutoFinalizeSchedulerService {
     private async processDueContracts(sinceDate: string): Promise<void> {
         const todayKst = isoDateInKorea();
         const contracts = await this.eformsignDocRepository.findReviewStageContracts();
+        const branchIds = [...new Set(contracts.map((contract) => contract.branchId).filter((id): id is string => Boolean(id)))];
+        const configs = new Map(await Promise.all(branchIds.map(async (branchId) => [
+            branchId,
+            this.systemSettingService
+                ? await this.systemSettingService.getContractAutoFinalizeConfig(branchId)
+                : { enabled: true, graceDays: 0, maxAttempts: CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS },
+        ] as const)));
 
         const due: ReviewStageContract[] = [];
         for (const contract of contracts) {
-            const verdict = evaluateAutoFinalize(contract, { sinceDate, todayKst });
+            const config = contract.branchId ? configs.get(contract.branchId) : undefined;
+            if (config?.enabled === false) {
+                this.logger.debug(`[Contract Auto Finalize] Skipping ${contract.documentId}: branch auto-finalize disabled`);
+                continue;
+            }
+            const verdict = evaluateAutoFinalize(contract, {
+                sinceDate,
+                todayKst,
+                graceDays: config?.graceDays,
+                maxAttempts: config?.maxAttempts,
+            });
             if (verdict.eligible) {
                 due.push(contract);
             } else if (verdict.reason === "no-end-date") {
@@ -160,7 +179,11 @@ export class ContractAutoFinalizeSchedulerService {
         }
     }
 
-    private async notifyExhausted(contract: ReviewStageContract, reason: string): Promise<void> {
+    private async notifyExhausted(
+        contract: ReviewStageContract,
+        reason: string,
+        maxAttempts = CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS,
+    ): Promise<void> {
         const { documentId, branchId } = contract;
         if (!branchId) {
             this.logger.warn(
@@ -173,7 +196,7 @@ export class ContractAutoFinalizeSchedulerService {
             await this.notificationService.sendToBranchUsers(
                 branchId,
                 "계약서 자동 완료 실패",
-                `${customerLabel}님의 계약서 자동 검토 완료가 ${CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS}회 모두 실패했어요. 수동 확인이 필요합니다. (${reason})`,
+                `${customerLabel}님의 계약서 자동 검토 완료가 ${maxAttempts}회 모두 실패했어요. 수동 확인이 필요합니다. (${reason})`,
                 {
                     type: CONTRACT_AUTO_FINALIZE_FAILED_NOTIFICATION_TYPE,
                     documentId,
@@ -195,8 +218,6 @@ export class ContractAutoFinalizeSchedulerService {
         attempts: number | null,
     ): Promise<void> {
         if (attempts === null) return;
-        if (attempts < CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS) return;
-
         const contract = (await this.eformsignDocRepository.findReviewStageContracts())
             .find((candidate) => candidate.documentId === documentId);
         if (!contract) {
@@ -205,6 +226,11 @@ export class ContractAutoFinalizeSchedulerService {
             );
             return;
         }
-        await this.notifyExhausted(contract, reason);
+        const config = contract.branchId && this.systemSettingService
+            ? await this.systemSettingService.getContractAutoFinalizeConfig(contract.branchId)
+            : undefined;
+        const maxAttempts = config?.maxAttempts ?? CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS;
+        if (attempts < maxAttempts) return;
+        await this.notifyExhausted(contract, reason, maxAttempts);
     }
 }
