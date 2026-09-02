@@ -125,7 +125,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
     env:
       BASE_URL: http://localhost:3002
       CI: true
@@ -237,44 +236,22 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm --filter ./mobile exec playwright install --with-deps chromium
 
+      # The full suite on every trigger, PRs included.
+      #
+      # PR runs used to execute only the specs the PR itself touched, on the theory
+      # that the post-merge push to dev would catch the rest. It does — four days
+      # late, and only if someone reads an advisory check. Worse, the specs a change
+      # breaks are exactly the ones it does NOT touch: 8601e809b moved the contracts
+      # template filter from the client to the server across 25 files, none of them
+      # under mobile/tests, so its three affected specs were invisible until the
+      # post-merge run went red and stayed red for ten pushes. A file-list allowlist
+      # ("also run everything when mobile/src/services/api.ts changes") would drift
+      # the same way the mock did.
+      #
+      # The whole suite is ~1m45s of the job's ~5m; skipping it bought almost nothing
+      # and cost the only pre-merge signal this job has.
       - name: Playwright tests
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          # PR runs are advisory: execute only specs the PR itself touched —
-          # the full suite runs on every push to dev (post-merge) instead.
-          #
-          # The file list comes from the API rather than a local `git diff` against
-          # the base ref. A PR that changed four specs was once reported as "no spec
-          # files changed" and passed green without running anything, so the job
-          # certified nothing. The API answer does not depend on which refs the
-          # runner happens to have fetched, and an API failure is fatal below
-          # instead of collapsing into an empty list.
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            if ! PR_FILES=$(gh api --paginate \
-              "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-              --jq '.[] | select(.status != "removed") | .filename'); then
-              echo "::error::Could not list the files this PR changes; refusing to report a green run that tested nothing."
-              exit 1
-            fi
-            if [ -z "$PR_FILES" ]; then
-              echo "::error::The API reported no files for this PR, which cannot be right."
-              exit 1
-            fi
-            CHANGED_SPECS=$(printf '%s\n' "$PR_FILES" \
-              | { grep -E '^mobile/tests/.+\.spec\.ts$' || true; } \
-              | sed 's|^mobile/||' | tr '\n' ' ')
-            if [ -n "$CHANGED_SPECS" ]; then
-              echo "PR mode — running changed specs only: $CHANGED_SPECS"
-              pnpm --filter ./mobile exec playwright test $CHANGED_SPECS
-            else
-              echo "PR mode — this PR changes no spec files, so nothing runs here."
-              echo "The full suite runs on the push to dev after merge."
-            fi
-          else
-            pnpm --filter ./mobile run test:e2e
-          fi
+        run: pnpm --filter ./mobile run test:e2e
 
       - name: Rebuild mobile app with operational copilot shell
         env:

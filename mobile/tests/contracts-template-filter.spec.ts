@@ -7,6 +7,7 @@ import {
   type ContractMockDocument,
   type RouteContractsApiOptions,
 } from "./helpers/contracts-api-mock";
+import { selectContractsSection } from "./helpers/contracts-ui";
 
 const MATERNAL_DOCUMENT: ContractMockDocument = {
   id: "maternal-contract",
@@ -95,7 +96,11 @@ async function routeContractsPage(
 test.use({ viewport: { width: 390, height: 844 } });
 
 test.describe("contracts service-record template filters", () => {
-  test("joins every configured template id for document and status-count requests", async ({
+  // Until 8601e809b the client joined the tier ids into templateId+templateMatch
+  // itself. It now names the section and the server resolves the whitelist, so the
+  // assertion is that the client sends the section and stops sending the template
+  // filter at all — sending both would mean two sources of truth for one decision.
+  test("names the section on document and status-count requests, and sends no template filter", async ({
     page,
   }) => {
     const listRequests: ContractListRequest[] = [];
@@ -111,21 +116,14 @@ test.describe("contracts service-record template filters", () => {
 
     await page.goto("/contracts");
 
-    const joinedTemplateIds = DEFAULT_SERVICE_RECORD_TEMPLATE_IDS.join(",");
     await expect.poll(() =>
-      listRequests.some(
-        (request) =>
-          request.templateId === joinedTemplateIds
-          && request.templateMatch === "exclude",
-      ),
+      listRequests.some((request) => request.section === "maternity"),
     ).toBe(true);
     await expect.poll(() =>
-      statusCountsRequests.some(
-        (request) =>
-          request.templateId === joinedTemplateIds
-          && request.templateMatch === "exclude",
-      ),
+      statusCountsRequests.some((request) => request.section === "maternity"),
     ).toBe(true);
+    expect(listRequests.every((request) => request.templateId === null)).toBe(true);
+    expect(statusCountsRequests.every((request) => request.templateId === null)).toBe(true);
   });
 
   test("excludes a tier template document from the maternal contracts section", async ({
@@ -139,34 +137,37 @@ test.describe("contracts service-record template filters", () => {
     await expect(page.getByText("김산모 10회차 기록")).toHaveCount(0);
   });
 
-  test("falls back to the legacy single template id response", async ({ page }) => {
+  // The legacy single-id response no longer shapes any request — the server owns the
+  // filter now. What it still decides is whether the 제공기록지 tab may query at all:
+  // sectionFilterReady keeps that section inert on an installation with no configured
+  // template, so the `templateIds ?? [templateId]` fallback is what stops a legacy
+  // installation from being treated as unconfigured. Asserting the old request shape
+  // here would only duplicate the section test above and prove nothing about that.
+  test("keeps the 제공기록지 section usable on a legacy single-template installation", async ({
+    page,
+  }) => {
     const listRequests: ContractListRequest[] = [];
-    const statusCountsRequests: ContractListRequest[] = [];
     await routeContractsPage(page, {
       omitTemplateIds: true,
+      // A legacy installation knows exactly one 제공기록지 template, and its records
+      // carry that id — so point the single configured id at the fixture's record.
+      templateId: DEFAULT_SERVICE_RECORD_TEMPLATE_IDS[1],
       onListRequest: (request) => {
         listRequests.push(request);
-      },
-      onStatusCountsRequest: (request) => {
-        statusCountsRequests.push(request);
       },
     });
 
     await page.goto("/contracts");
 
+    await selectContractsSection(page, "제공기록지");
+
+    // The section queried at all — that is what the fallback decides.
     await expect.poll(() =>
-      listRequests.some(
-        (request) =>
-          request.templateId === DEFAULT_SERVICE_RECORD_TEMPLATE_IDS[0]
-          && request.templateMatch === "exclude",
-      ),
+      listRequests.some((request) => request.section === "service-records"),
     ).toBe(true);
-    await expect.poll(() =>
-      statusCountsRequests.some(
-        (request) =>
-          request.templateId === DEFAULT_SERVICE_RECORD_TEMPLATE_IDS[0]
-          && request.templateMatch === "exclude",
-      ),
-    ).toBe(true);
+    // And the single configured id still classifies: the record belongs to this
+    // section, the maternal contract does not.
+    await expect(page.getByText("김산모 10회차 기록")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("김산모 계약서")).toHaveCount(0);
   });
 });
