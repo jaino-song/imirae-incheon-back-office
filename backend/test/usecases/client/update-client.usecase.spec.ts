@@ -143,7 +143,7 @@ describe("UpdateClientUsecase", () => {
             mockRepository.setData([existingClient]);
 
             await expect(usecase.execute(branchId, 1, { duration: null }))
-                .rejects.toThrow("duration must equal the Korean business-day count (246)");
+                .rejects.toThrow("duration cannot exceed the Korean business-day count (246)");
 
             expect(mockRepository.getAllData()[0]).toBe(existingClient);
             expect(mockRepository.getAllData()[0]?.duration).toBe(15);

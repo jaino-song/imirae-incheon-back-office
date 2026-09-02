@@ -88,13 +88,25 @@ describe("client pricing and service-period invariants", () => {
             grant: "0",
             actualPrice: "1000",
         })).toThrow("Invalid Korean won amount");
-        expect(() => ClientEntity.create({
+        // duration is the contracted session count and is authoritative
+        // once set: a supplied value that fits within the derived
+        // business-day count is accepted and persisted unchanged, even
+        // though it does not equal the derived count exactly.
+        const smallerDuration = ClientEntity.create({
             ...requiredClientProps,
             duration: 5,
             fullPrice: "1000",
             grant: "0",
             actualPrice: "1000",
-        })).toThrow("duration must equal the Korean business-day count (6)");
+        });
+        expect(smallerDuration.duration).toBe(5);
+        expect(() => ClientEntity.create({
+            ...requiredClientProps,
+            duration: 7,
+            fullPrice: "1000",
+            grant: "0",
+            actualPrice: "1000",
+        })).toThrow("duration cannot exceed the Korean business-day count (6)");
         const legacyFormatted = ClientEntity.reconstitute(
             1,
             requiredClientProps.name,
@@ -138,12 +150,15 @@ describe("client pricing and service-period invariants", () => {
         )).toThrow("Invalid Korean won amount");
     });
 
-    it("derives one inclusive Korean business-day duration and rejects mismatches", () => {
+    it("derives one inclusive Korean business-day duration and rejects a duration that cannot fit", () => {
         const start = new Date("2026-08-03T00:00:00.000Z");
         const end = new Date("2026-08-10T00:00:00.000Z");
         expect(deriveClientDuration(start, end)).toBe(6);
-        expect(() => assertClientDurationMatchesDates(5, 6))
-            .toThrow(BadRequestException);
+        // A supplied duration only needs to fit within the derived count,
+        // not equal it.
+        expect(() => assertClientDurationMatchesDates(5, 6)).not.toThrow();
+        expect(() => assertClientDurationMatchesDates(7, 6))
+            .toThrow("duration cannot exceed the Korean business-day count (6)");
         expect(() => deriveClientDuration(
             new Date("2028-01-03T00:00:00.000Z"),
             new Date("2028-01-04T00:00:00.000Z"),
@@ -151,26 +166,35 @@ describe("client pricing and service-period invariants", () => {
         expect(() => deriveClientDuration(end, start)).toThrow(BadRequestException);
     });
 
-    it("re-derives entity duration for date patches and clears stale values", () => {
+    it("keeps entity duration fixed across date patches and only fills a null duration", () => {
         const entity = ClientEntity.create({
             ...requiredClientProps,
             fullPrice: "1000",
             grant: "0",
             actualPrice: "1000",
         });
+        expect(entity.duration).toBe(6);
 
+        // Extending the end date (e.g. a postponed session) must not change
+        // the stored session count, even though the business-day span for
+        // the new range grows to 7.
         entity.update({ endDate: new Date("2026-08-11T00:00:00.000Z") });
-        expect(entity.duration).toBe(7);
+        expect(entity.duration).toBe(6);
 
-        expect(() => entity.update({ duration: 6 }))
-            .toThrow("duration must equal the Korean business-day count (7)");
-        expect(entity.duration).toBe(7);
+        // A supplied duration wins as long as it fits within the (possibly
+        // extended) business-day span.
         entity.update({ duration: 7 });
         expect(entity.duration).toBe(7);
+        expect(() => entity.update({ duration: 8 }))
+            .toThrow("duration cannot exceed the Korean business-day count (7)");
+        expect(entity.duration).toBe(7);
 
+        // An unrelated profile-only update must not re-derive and overwrite
+        // an already-set duration (this was the incident this model exists
+        // to fix: a schedule change silently rewrote 15 to 18).
         entity.duration = 1;
         entity.update({ name: "프로필만 변경" });
-        expect(entity.duration).toBe(7);
+        expect(entity.duration).toBe(1);
 
         const beforeInvalidPatch = {
             startDate: entity.startDate,
@@ -185,12 +209,19 @@ describe("client pricing and service-period invariants", () => {
         expect(entity.endDate).toEqual(beforeInvalidPatch.endDate);
         expect(entity.duration).toBe(beforeInvalidPatch.duration);
 
+        // Clearing a date does not wipe out a stored duration: duration no
+        // longer depends on a complete range.
         entity.update({ endDate: null });
         expect(entity.endDate).toBeNull();
-        expect(entity.duration).toBeNull();
+        expect(entity.duration).toBe(1);
+
+        // A still-null duration is filled once the missing date reappears.
+        entity.duration = null;
+        entity.update({ endDate: new Date("2026-08-10T00:00:00.000Z") });
+        expect(entity.duration).toBe(6);
     });
 
-    it("rejects a stale pre-booking duration when the missing date completes the range", () => {
+    it("keeps a pre-booking duration when the missing date completes the range", () => {
         const prebooking = ClientEntity.create({
             ...requiredClientProps,
             duration: 5,
@@ -200,17 +231,15 @@ describe("client pricing and service-period invariants", () => {
             actualPrice: "1000",
         });
 
-        expect(() => prebooking.update({
-            endDate: requiredClientProps.endDate,
-        })).toThrow("duration must equal the Korean business-day count (6)");
-        expect(prebooking.endDate).toBeNull();
+        // The missing date completes the range to a 6-business-day span.
+        // The pre-booking duration (5, already <= 6) is not resupplied
+        // here, so it survives the transition instead of being
+        // invalidated or silently re-derived.
+        prebooking.update({ endDate: requiredClientProps.endDate });
+        expect(prebooking.endDate).toEqual(requiredClientProps.endDate);
         expect(prebooking.duration).toBe(5);
 
-        prebooking.update({
-            endDate: requiredClientProps.endDate,
-            duration: 6,
-        });
-        expect(prebooking.endDate).toEqual(requiredClientProps.endDate);
+        prebooking.update({ duration: 6 });
         expect(prebooking.duration).toBe(6);
     });
 });

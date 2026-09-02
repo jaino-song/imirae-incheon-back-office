@@ -497,24 +497,25 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                             return { status: "disabled" };
                         }
 
+                        // duration is authoritative once the payload supplies
+                        // one; the date-derived count is only a fallback for
+                        // the completed contracts whose payload has none.
                         let duration = candidate.duration;
                         try {
                             const derivedDuration = deriveClientDuration(
                                 candidate.startDate,
                                 candidate.endDate,
                             );
-                            // The provider payload has no duration field for
-                            // some completed contracts; null here means
-                            // "not supplied", so derive it from the dates.
                             if (candidate.duration !== null && candidate.duration !== undefined) {
                                 assertClientDurationMatchesDates(candidate.duration, derivedDuration);
+                            } else if (derivedDuration !== null) {
+                                duration = derivedDuration;
                             }
-                            if (derivedDuration !== null) duration = derivedDuration;
                         } catch (error) {
                             if (error instanceof BadRequestException) {
                                 this.logger.warn(
                                     `[EFORMSIGN_CLIENT_INVALID_DURATION] 문서 ${params.documentId}의 서비스 기간이 `
-                                    + "한국 영업일 계산과 일치하지 않아 자동등록을 건너뜁니다.",
+                                    + "회차 수보다 짧아 한국 영업일 계산을 충족하지 못해 자동등록을 건너뜁니다.",
                                 );
                                 return { status: "skipped" };
                             }
