@@ -31,7 +31,7 @@
 |---|---|---|---|---|
 | `dev` | 통합 대상. 모든 feature/fix PR의 목적지 | 빌드 안 함 (2026-08-06부터, [외부] Ignored Build Step) | 배포 없음. 로컬 `localhost:3001`로 테스트 | `apply-dev` (prisma 경로 push 시) |
 | `preview` | 릴리스 후보 검증 | preview 빌드 | Lightsail `preview` 컨테이너 (`preview.api.babyjamjam.com`), push 시 자동 | `apply-preview` |
-| `main` | 프로덕션 | production 빌드 (`admin.babyjamjam.com`, `m.admin.babyjamjam.com`) | Lightsail `production` 컨테이너 (`api.babyjamjam.com`), push 시 **승인 후** 자동 | `apply-production` |
+| `main` | 프로덕션 | production 빌드 (`admin.babyjamjam.com`, `m.admin.babyjamjam.com`) | **AWS Lightsail** `production` 컨테이너 (`api.babyjamjam.com`), push 시 **승인 후** 자동. 장애 시 **LightNode VPS Fallback Server**(API-only warm standby) | `apply-production` |
 
 규칙:
 
@@ -39,7 +39,7 @@
 2. **preview/main 룰셋은 linear history + Vercel deploy 체크 필수** [외부]. squash 승격은 다음 승격에서 대량 add/add 충돌을 만든다 (2026-07 실측, 79건). 승격 PR은 merge commit으로.
 3. **dev 호스팅은 없다.** dev Railway는 2026-07-16 삭제, dev Vercel 빌드는 2026-08-06 제거. `*-dev.up.railway.app`, `dev.m.admin.*` 같은 URL을 전제로 한 설정·안내는 전부 오류다.
 4. **preview 백엔드는 프로덕션과 같은 Supabase DB를 본다** (2026-07-17 Railway env 실측: NODE_ENV 외 53개 값 동일). preview 승격 = prod 데이터에 적용이라고 전제한다. 진짜 격리가 필요하면 preview 전용 DB 분리가 선행 과제다.
-5. **백엔드 런타임 소유권은 하나만.** Lightsail README는 "production scheduler는 ownership transfer 후 활성화"라고 적고 있다. Railway와 Lightsail 중 어느 쪽이 `api.babyjamjam.com`을 서빙하고 스케줄러를 갖는지는 [외부] 실측 대상이며, **두 런타임이 동시에 `SCHEDULERS_ENABLED=true`인 상태를 만들면 안 된다** (중복 발송 위험, §5 참고).
+5. **프로덕션 백엔드 = AWS Lightsail (2026-09-02 사용자 확인).** Railway는 더 이상 프로덕션 런타임이 아니다. 백업은 **LightNode VPS의 Fallback Server**(`backend/deploy/fallback-server/`): API-only warm standby로, 프로덕션 DB만 바라보며 스케줄러·자동완료·eformsign 잡·Aligo가 Compose에서 하드 비활성화돼 있다. 트래픽 전환은 Sentry Uptime 알림 → 컨트롤러 → Vercel DNS `api`/`A` 레코드 한 건의 **AWS → Fallback 일방향** 변경이며, 자동 failback은 없다. 상태와 절차는 `backend/deploy/fallback-server/README.md`, `CONTROLLER_OPERATIONS.md`, `LIGHTNODE_TEMPORARY_FALLBACK.md`, `VERCEL_DNS_FAILOVER.md`가 기준이다. **어떤 시점에도 `SCHEDULERS_ENABLED=true`인 런타임은 하나여야 한다** (중복 발송 위험, §5 참고).
 
 ---
 
@@ -131,11 +131,24 @@ PR을 `dev`에 열면 아래 워크플로가 돌고, 필수 체크는 GitHub 브
 | preview 스케줄러 | `backend.env`에 `SCHEDULERS_ENABLED=false`, `SERVICE_RECORD_AUTO_FINALIZE_ENABLED=false` 필수. deploy/rollback 스크립트가 fail-closed로 거부한다 |
 | 시크릿 | 호스트 `/opt/babyjamjam/environments/<env>/backend.env`는 root 0600. 커밋 금지, 터미널에 전문 출력 금지 |
 
-Railway 관련 (역사·잔존):
+### 4.1 Fallback Server (LightNode VPS)
+
+| 항목 | 규칙 |
+|---|---|
+| 역할 | API-only warm standby. 프론트 배포 아님. 호스트명 `api.babyjamjam.com`은 그대로 두고 DNS 소유권만 바뀐다 |
+| 바인딩 | Fallback API `127.0.0.1:3101`, 컨트롤러 `127.0.0.1:3102` (`POST /sentry/uptime-alert`, `GET /health`만) |
+| DB | 프로덕션 DB만. 활성화 전 **Production DB identity hash 게이트**(`approved-production-db-ref.sha256`) 통과 필수 |
+| 비활성 기능 | 스케줄러, 자동완료, eformsign 문서 잡 intake/worker, unlocked reconcile, Aligo — Compose에서 하드 비활성화. 켜지 않는다 |
+| 전환 | Sentry Uptime → Internal Integration webhook → 컨트롤러가 `VERIFYING` → `DNS_COMMITTING` 단계로 Vercel DNS `api`/`A` 레코드 1건을 AWS → Fallback 일방향 PATCH. 모호한 응답은 수동 reconcile |
+| 복귀 | **자동 failback 없음.** AWS 복구 후 DNS 되돌리기는 수동 절차 (`VERCEL_DNS_FAILOVER.md`) |
+| 사전 점검 | `lightnode-preflight.sh`, `NETWORK_PREFLIGHT.md`. 컨트롤러 arm/disarm은 `CONTROLLER_OPERATIONS.md` |
+| 현재 상태 | README 기준: 컨트롤러 런타임·설치기·systemd·CLI 구현됨, **컨트롤러 미설치·미arm, 프로덕션 트래픽 미서빙**. 바뀌면 README와 이 표를 같이 갱신 |
+
+Railway 관련 (역사·잔존 — 프로덕션 런타임 아님):
 
 - Railway 배포 브랜치는 `DeploymentTrigger` GraphQL로만 바꿀 수 있다 (CLI·MCP에 필드 없음). 2026-07-29까지 **네 환경 모두 `dev`에서 배포**되던 것을 main/preview/dev로 교정했다. 변경은 다음 push부터 적용된다.
 - Railpack 빌더는 빌드/런타임 이미지가 분리된다. 런타임 apt 패키지(Chromium 라이브러리 등)는 `RAILPACK_DEPLOY_APT_PACKAGES` 변수로, 변수 변경만으로는 리빌드되지 않으니 빈 커밋으로 트리거.
-- `backend/railway.json`은 아직 커밋돼 있다 (`build:sentry` + `playwright-core install`). Railway가 여전히 어떤 환경을 서빙하는지는 [외부] 실측 후에만 단정한다.
+- `backend/railway.json`은 아직 커밋돼 있고 README 본문도 "Railway for the API"라고 적혀 있다. 둘 다 stale이다 — 정리 시 이 문서 §1-5와 같은 커밋에서 갱신한다. Lightsail `backend.env` 값의 출처가 Railway 환경 변수였다는 점만 역사로 남긴다.
 
 ---
 
@@ -223,7 +236,9 @@ Railway 관련 (역사·잔존):
 8. `gh run list --commit`으로 "CI 대기중"이라고 보고.
 9. preview push의 OIDC 배포 실패를 코드 문제로 재조사.
 10. 플래그를 컬럼 패치 전에 ON.
-11. 두 런타임(Railway/Lightsail)에 동시에 스케줄러 활성화.
+11. 두 런타임(Lightsail/Fallback, 또는 잔존 Railway)에 동시에 스케줄러 활성화.
+14. Fallback Server에서 스케줄러·잡 워커·Aligo를 켬, 또는 DB identity 게이트를 우회.
+15. Fallback 전환 후 자동으로 돌아올 것이라 가정 (failback은 수동).
 12. env 키를 추가하고 `env.tpl`·`env-check`를 빠뜨림.
 13. 저장소의 `rollback.sh`를 직접 실행 (retired, 거부됨).
 
@@ -232,5 +247,5 @@ Railway 관련 (역사·잔존):
 ## 11. 이 문서를 바꿔야 할 때
 
 - 새 사고가 나면 §10에 항목을 추가하고, 해당 절에 날짜·PR/run 번호와 함께 규칙을 적는다.
-- Lightsail로의 런타임 소유권 이전이 완료되면 §1-5와 §4의 Railway 항목을 "역사"로 옮기고 [외부] 표시를 실측값으로 바꾼다.
+- Fallback 컨트롤러가 설치·arm되면 §4.1 "현재 상태"를 갱신한다. `railway.json`·README의 Railway 문구를 정리하면 §4 Railway 절을 삭제한다.
 - 워크플로 파일 이름·잡 이름이 바뀌면 §2 표를 같은 커밋에서 갱신한다.
