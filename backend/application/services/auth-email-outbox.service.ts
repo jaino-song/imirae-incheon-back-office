@@ -9,6 +9,7 @@ import {
 } from "domain/ports/email.port";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { AuthEmailTokenService } from "./auth-email-token.service";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 
 const MAX_DELIVERY_ATTEMPTS = 5;
 const STARTED_ATTEMPT_TIMEOUT_MINUTES = 5;
@@ -47,10 +48,15 @@ export class AuthEmailOutboxService {
         private readonly prisma: PrismaService,
         private readonly tokens: AuthEmailTokenService,
         @Inject(EMAIL_PORT) private readonly email: EmailPort,
+        private readonly schedulerLease: SchedulerLeaseService,
     ) {}
 
     @Cron("*/5 * * * * *")
     async deliverPending(): Promise<void> {
+        if (!this.schedulerLease.holdsLease()) {
+            return;
+        }
+
         const claimed = await this.claimBatch(20);
         for (const item of claimed) {
             await this.deliver(item);

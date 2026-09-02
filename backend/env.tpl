@@ -51,6 +51,13 @@ EFORMSIGN_WEBHOOK_SECRET=
 # runs a single backend replica, so approve the in-process lock instead of
 # leaving the sweep permanently skipped.
 EFORMSIGN_RECONCILE_ALLOW_UNLOCKED="true"
+# Host-level scheduler lease (ADR-010). The LightNode fallback pins `required`
+# and holder `lightnode` in its Compose files; Lightsail gets `lightsail` in its
+# host backend.env as a BJJ-298 failback step and until then defaults to
+# `required` with the container hostname as holder. Local development runs
+# `off` so a laptop can never take the production lease.
+SCHEDULER_LEASE_MODE="off"
+SCHEDULER_LEASE_HOLDER_ID="local"
 ALIGO_API_URL="https://kakaoapi.aligo.in"
 ALIGO_API_KEY=
 ALIGO_USER_ID="forchildrenbys"

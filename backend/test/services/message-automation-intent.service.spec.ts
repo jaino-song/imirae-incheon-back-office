@@ -6,9 +6,10 @@ import {
     MESSAGE_AUTOMATION_INTENT_RULE_ID,
 } from "domain/constants/message-automation-intent";
 import { MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
+import { createSchedulerLeaseMock } from "../utils/mocks/scheduler-lease.mock";
 
 describe("MessageAutomationIntentService", () => {
-    const setup = () => {
+    const setup = (schedulerLease: ReturnType<typeof createSchedulerLeaseMock> = createSchedulerLeaseMock()) => {
         const prisma = {
             $queryRaw: jest.fn().mockResolvedValue([{
                 id: "intent-1",
@@ -56,10 +57,12 @@ describe("MessageAutomationIntentService", () => {
             triggerService,
             serviceRecordLinkService,
             transaction,
+            schedulerLease,
             service: new MessageAutomationIntentService(
                 prisma as never,
                 triggerService as never,
                 serviceRecordLinkService as never,
+                schedulerLease,
             ),
         };
     };
@@ -871,5 +874,13 @@ describe("MessageAutomationIntentService", () => {
             },
         });
         expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it("skips the run when the scheduler lease is not held", async () => {
+        const { service, prisma } = setup(createSchedulerLeaseMock(false));
+
+        await expect(service.reconcilePendingIntents()).resolves.toBe(0);
+
+        expect(prisma.message_trigger_job.findMany).not.toHaveBeenCalled();
     });
 });

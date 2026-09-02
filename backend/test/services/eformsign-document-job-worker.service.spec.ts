@@ -2,6 +2,7 @@ import { ConfigService } from "@nestjs/config";
 
 import { EformsignDocumentJobWorkerService } from "application/services/eformsign-document-job-worker.service";
 import { EformsignDocumentJobEntity } from "domain/entities/eformsign-document-job.entity";
+import { createSchedulerLeaseMock } from "../utils/mocks/scheduler-lease.mock";
 
 const branchId = "00000000-0000-0000-0000-000000000010";
 const workerPrincipal = { branchId, source: "worker" as const };
@@ -73,6 +74,7 @@ function buildWorker(overrides: {
     dispatch?: Record<string, jest.Mock>;
     finalize?: Record<string, jest.Mock>;
     reconciliation?: Record<string, jest.Mock>;
+    schedulerLease?: ReturnType<typeof createSchedulerLeaseMock>;
 } = {}) {
     const repository = {
         recoverStale: jest.fn().mockResolvedValue([]),
@@ -101,6 +103,7 @@ function buildWorker(overrides: {
     const autoFinalizeScheduler = {
         recordTerminalFailure: jest.fn().mockResolvedValue(undefined),
     };
+    const schedulerLease = overrides.schedulerLease ?? createSchedulerLeaseMock();
     const worker = new EformsignDocumentJobWorkerService(
         new ConfigService({ EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED: "true" }),
         repository as never,
@@ -110,8 +113,9 @@ function buildWorker(overrides: {
         autoFinalizeScheduler as never,
         { findByDocumentId: jest.fn().mockResolvedValue({ documentId: "doc" }) } as never,
         { findById: jest.fn().mockResolvedValue({ id: 7 }) } as never,
+        schedulerLease,
     );
-    return { worker, repository, dispatch, finalize, reconciliation, autoFinalizeScheduler };
+    return { worker, repository, dispatch, finalize, reconciliation, autoFinalizeScheduler, schedulerLease };
 }
 
 describe("EformsignDocumentJobWorkerService", () => {
@@ -344,5 +348,15 @@ describe("EformsignDocumentJobWorkerService", () => {
         expect(started.sort()).toEqual([1, 2, 3]);
         releases.forEach((release) => release());
         await processing;
+    });
+
+    it("skips the run when the scheduler lease is not held", async () => {
+        const { worker, repository } = buildWorker({
+            schedulerLease: createSchedulerLeaseMock(false),
+        });
+
+        await worker.processDueJobs();
+
+        expect(repository.recoverStale).not.toHaveBeenCalled();
     });
 });

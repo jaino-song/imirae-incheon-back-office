@@ -381,6 +381,7 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829140000_add_message_trigger_job_claim_token/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260831185406_add_call_record_raw_transcript/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902000000_repair_replacement_schedule_start_date/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902120000_add_scheduler_lease/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903000000_add_employee_schedule_terminated_at/migration.sql
 
       # The hardening verify asserts client/employee phone_normalized, which the
@@ -921,6 +922,7 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829140000_add_message_trigger_job_claim_token/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260831185406_add_call_record_raw_transcript/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902000000_repair_replacement_schedule_start_date/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902120000_add_scheduler_lease/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903000000_add_employee_schedule_terminated_at/migration.sql
 
       # Runs after the post-lease patches: it asserts phone_normalized columns
@@ -1439,6 +1441,7 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260829140000_add_message_trigger_job_claim_token/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260831185406_add_call_record_raw_transcript/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902000000_repair_replacement_schedule_start_date/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902120000_add_scheduler_lease/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903000000_add_employee_schedule_terminated_at/migration.sql
 
       # Runs after the post-lease patches: it asserts phone_normalized columns

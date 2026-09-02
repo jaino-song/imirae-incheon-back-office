@@ -12,6 +12,8 @@ import {
 const IMAGE_TAG = 'a'.repeat(40);
 const IMAGE_DIGEST = `sha256:${'b'.repeat(64)}`;
 
+// Mirrors the key set and order that operator.sh `status_release` prints; the
+// parser accepts exactly this envelope, so a key added there must be added here.
 function output(overrides = {}) {
   const fields = {
     environment: 'fallback-server',
@@ -22,9 +24,12 @@ function output(overrides = {}) {
     db_readiness: 'ok',
     production_db_identity: 'ok',
     public_routing: 'not_managed',
+    runtime_mode: 'passive',
     schedulers_enabled: 'false',
     document_jobs_accepting: 'false',
     document_jobs_worker: 'false',
+    lease_mode: 'standby',
+    lease_held: 'false',
     ...overrides,
   };
   return `${Object.entries(fields).map(([key, value]) => `${key}=${value}`).join('\n')}\n`;

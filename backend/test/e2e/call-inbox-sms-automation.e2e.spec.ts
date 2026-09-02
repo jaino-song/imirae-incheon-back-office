@@ -6,6 +6,7 @@ import request from "supertest";
 
 import { CallInboxModule } from "module/call-inbox.module";
 import { ClientModule } from "module/client.module";
+import { SchedulerLeaseModule } from "module/scheduler-lease.module";
 import { TenantModule } from "infrastructure/tenant/tenant.module";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { GlobalValidationPipe } from "infrastructure/pipes/global-validation.pipe";
@@ -135,6 +136,7 @@ describeE2E("Call Inbox SMS Automation E2E (call-created client → CLIENT_CREAT
                 CallInboxModule,
                 ClientModule,
                 TenantModule,
+                SchedulerLeaseModule,
             ],
         })
             .overrideGuard(JwtGuard)

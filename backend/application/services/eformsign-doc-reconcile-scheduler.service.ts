@@ -18,6 +18,7 @@ import {
 import { createEformsignGlobalWorkerPrincipal } from "./eformsign-credential-boundary.service";
 import { describeEformsignBackfillError } from "../utils/eformsign-backfill-error";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 
 const KOREA_TIME_ZONE = "Asia/Seoul";
 
@@ -61,10 +62,15 @@ export class EformsignDocReconcileSchedulerService {
         private readonly configService: ConfigService,
         private readonly backfillUsecase: BackfillEformsignDocsUsecase,
         private readonly lockService: EformsignBackfillLockService,
+        private readonly schedulerLease: SchedulerLeaseService,
     ) {}
 
     @Cron("0 */6 * * *", { timeZone: KOREA_TIME_ZONE })
     async reconcileDocuments(): Promise<void> {
+        if (!this.schedulerLease.holdsLease()) {
+            return;
+        }
+
         if (!this.isEnabled()) {
             return;
         }
@@ -141,7 +147,7 @@ export class EformsignDocReconcileSchedulerService {
         if (this.lockService.isAvailable()) {
             return this.lockService.runExclusive((lease) =>
                 this.backfillUsecase.execute({
-                    shouldContinue: () => withinDeadline() && lease.isHeld(),
+                    shouldContinue: () => withinDeadline() && lease.isHeld() && this.schedulerLease.holdsLease(),
                 }, createEformsignGlobalWorkerPrincipal("reconciliation")));
         }
 
@@ -157,7 +163,7 @@ export class EformsignDocReconcileSchedulerService {
         }
 
         return this.backfillUsecase.execute(
-            { shouldContinue: withinDeadline },
+            { shouldContinue: () => withinDeadline() && this.schedulerLease.holdsLease() },
             createEformsignGlobalWorkerPrincipal("reconciliation"),
         );
     }
