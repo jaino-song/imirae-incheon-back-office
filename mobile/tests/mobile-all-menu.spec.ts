@@ -94,22 +94,41 @@ test.describe("Mobile nav: center chat + /all menu", () => {
         .locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')
     ).toBeVisible();
 
-    const before = await page.evaluate(() => {
-      const rows = Array.from(document.querySelectorAll('[data-component="mobile_all_page_menu_group_row"]'));
+    // Measured by label, not by index. rows[6]/rows[7] were 가격표 and 메시지 —
+    // the two rows below the ones the names claim — so the assertions that read
+    // "messageRow"/"alimtalkRow" were checking neither. Labels are static across
+    // the loading transition, so they identify the same row in both snapshots.
+    //
+    // Document-relative y, because getBoundingClientRect is viewport-relative and
+    // any scroll between the two snapshots would move every row at once.
+    const measureRows = () => page.evaluate(() => {
+      const rowFor = (label: string) => {
+        const row = Array.from(
+          document.querySelectorAll('[data-component="mobile_all_page_menu_group_row"]'),
+        ).find((candidate) => candidate.textContent?.includes(label));
+        if (!row) return null;
+        const rect = row.getBoundingClientRect();
+        return { y: rect.y + window.scrollY, height: rect.height };
+      };
       const groupTitle = document.querySelector(".menu-group-title")?.getBoundingClientRect();
-      const clientRow = rows[1]?.getBoundingClientRect();
-      const employeeRow = rows[2]?.getBoundingClientRect();
-      const messageRow = rows[6]?.getBoundingClientRect();
-      const alimtalkRow = rows[7]?.getBoundingClientRect();
 
       return {
-        groupTitle: groupTitle ? { y: groupTitle.y, height: groupTitle.height } : null,
-        clientRow: clientRow ? { y: clientRow.y, height: clientRow.height } : null,
-        employeeRow: employeeRow ? { y: employeeRow.y, height: employeeRow.height } : null,
-        messageRow: messageRow ? { y: messageRow.y, height: messageRow.height } : null,
-        alimtalkRow: alimtalkRow ? { y: alimtalkRow.y, height: alimtalkRow.height } : null,
+        groupTitle: groupTitle
+          ? { y: groupTitle.y + window.scrollY, height: groupTitle.height }
+          : null,
+        clientRow: rowFor("고객"),
+        employeeRow: rowFor("제공인력"),
+        messageRow: rowFor("메시지"),
+        alimtalkRow: rowFor("발송 자동화"),
       };
     });
+
+    // A web font swapping in between the two snapshots re-flows every text row by a
+    // fraction of a pixel. Individually that stays inside the 1px tolerance, but it
+    // accumulates down the page — which is how a row six rows down drifted 2px while
+    // every row above it passed. Settle the fonts before the baseline is taken.
+    await page.evaluate(() => document.fonts.ready);
+    const before = await measureRows();
 
     releaseClients();
     releaseEmployees();
@@ -128,22 +147,7 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     await expect(page.locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')).toHaveCount(0);
     await expect(page.locator('[data-component="mobile_all_page_menu_group_row_badge-skeleton"]')).toHaveCount(0);
 
-    const after = await page.evaluate(() => {
-      const rows = Array.from(document.querySelectorAll('[data-component="mobile_all_page_menu_group_row"]'));
-      const groupTitle = document.querySelector(".menu-group-title")?.getBoundingClientRect();
-      const clientRow = rows[1]?.getBoundingClientRect();
-      const employeeRow = rows[2]?.getBoundingClientRect();
-      const messageRow = rows[6]?.getBoundingClientRect();
-      const alimtalkRow = rows[7]?.getBoundingClientRect();
-
-      return {
-        groupTitle: groupTitle ? { y: groupTitle.y, height: groupTitle.height } : null,
-        clientRow: clientRow ? { y: clientRow.y, height: clientRow.height } : null,
-        employeeRow: employeeRow ? { y: employeeRow.y, height: employeeRow.height } : null,
-        messageRow: messageRow ? { y: messageRow.y, height: messageRow.height } : null,
-        alimtalkRow: alimtalkRow ? { y: alimtalkRow.y, height: alimtalkRow.height } : null,
-      };
-    });
+    const after = await measureRows();
 
     expect(before.groupTitle).not.toBeNull();
     expect(before.clientRow).not.toBeNull();
