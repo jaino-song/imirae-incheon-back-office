@@ -528,6 +528,36 @@ describe("NotificationService", () => {
             );
         });
 
+        it("should not claim a delivery as sent when its digest email fails", async () => {
+            const warnSpy = jest.spyOn(Logger.prototype, "warn").mockImplementation();
+            emailPort.send.mockRejectedValue(new Error("smtp down"));
+
+            try {
+                await service.sendDailyDigestToBranchUsers(
+                    branchId,
+                    branchName,
+                    sections,
+                    digestContext,
+                    "branch:branch-1:daily:2026-08-29",
+                );
+
+                // The push notifications landed but the email did not, so the
+                // record must not assert a complete delivery.
+                expect(systemSettingService.completePwaDigestDelivery).toHaveBeenCalledWith(
+                    "branch:branch-1:daily:2026-08-29:user:user-1",
+                    "claim-token",
+                    "uncertain",
+                );
+                expect(systemSettingService.completePwaDigestDelivery).not.toHaveBeenCalledWith(
+                    expect.any(String),
+                    expect.any(String),
+                    "sent",
+                );
+            } finally {
+                warnSpy.mockRestore();
+            }
+        });
+
         it("should keep recipient counts sent and warn when every digest email fails", async () => {
             const warnSpy = jest.spyOn(Logger.prototype, "warn").mockImplementation();
             emailPort.send.mockRejectedValue(new Error("smtp down"));
