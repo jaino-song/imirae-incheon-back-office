@@ -338,7 +338,7 @@ jobs:
       LIGHTSAIL_DNS_SHA256: ${{ secrets.LIGHTSAIL_DNS_SHA256 }}
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
@@ -603,7 +603,7 @@ jobs:
       LIGHTNODE_CI_KNOWN_HOSTS: ${{ secrets.LIGHTNODE_CI_KNOWN_HOSTS }}
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
