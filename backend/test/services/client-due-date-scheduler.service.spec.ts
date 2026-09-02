@@ -2,6 +2,7 @@ import { ClientDueDateSchedulerService } from "application/services/client-due-d
 import { MessageTriggerService } from "application/services/message-trigger.service";
 import { MessageAutomationIntentService } from "application/services/message-automation-intent.service";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { createSchedulerLeaseMock } from "../utils/mocks/scheduler-lease.mock";
 
 describe("ClientDueDateSchedulerService", () => {
     const createMockPrismaService = () => ({
@@ -23,6 +24,7 @@ describe("ClientDueDateSchedulerService", () => {
         triggerService = createMockTriggerService();
         service = new ClientDueDateSchedulerService(
             prismaService as unknown as PrismaService,
+            createSchedulerLeaseMock(),
             triggerService as unknown as MessageTriggerService,
         );
     });
@@ -194,6 +196,7 @@ describe("ClientDueDateSchedulerService", () => {
     it("does not require the trigger service for the date copy", async () => {
         const serviceWithoutTriggers = new ClientDueDateSchedulerService(
             prismaService as unknown as PrismaService,
+            createSchedulerLeaseMock(),
         );
         prismaService.client.findMany.mockResolvedValue([
             { id: 7, branchId: "11111111-1111-1111-1111-111111111111", dueDate: new Date("2026-06-19T00:00:00.000Z") },
@@ -238,6 +241,7 @@ describe("ClientDueDateSchedulerService", () => {
         };
         const intentAwareService = new ClientDueDateSchedulerService(
             transactionalPrisma as unknown as PrismaService,
+            createSchedulerLeaseMock(),
             undefined,
             undefined,
             intentService as unknown as MessageAutomationIntentService,
@@ -273,6 +277,44 @@ describe("ClientDueDateSchedulerService", () => {
             clientId: 17,
             includePast: false,
             suppressGreeting: false,
+        });
+    });
+
+    it("skips the run when the scheduler lease is not held", async () => {
+        const serviceWithoutLease = new ClientDueDateSchedulerService(
+            prismaService as unknown as PrismaService,
+            createSchedulerLeaseMock(false),
+            triggerService as unknown as MessageTriggerService,
+        );
+
+        await serviceWithoutLease.syncUpcomingDueDatesToStartDates();
+
+        expect(prismaService.client.findMany).not.toHaveBeenCalled();
+    });
+
+    it("stops when the lease is lost mid-run", async () => {
+        const schedulerLease = createSchedulerLeaseMock(false);
+        schedulerLease.holdsLease.mockReturnValueOnce(true).mockReturnValueOnce(true);
+        const serviceWithLostLease = new ClientDueDateSchedulerService(
+            prismaService as unknown as PrismaService,
+            schedulerLease,
+            triggerService as unknown as MessageTriggerService,
+        );
+        prismaService.client.findMany.mockResolvedValue([
+            { id: 7, branchId: "11111111-1111-1111-1111-111111111111", dueDate: new Date("2026-06-19T00:00:00.000Z") },
+            { id: 8, branchId: "22222222-2222-2222-2222-222222222222", dueDate: new Date("2026-06-19T00:00:00.000Z") },
+        ]);
+
+        await serviceWithLostLease.syncUpcomingDueDatesToStartDates();
+
+        expect(prismaService.client.updateMany).toHaveBeenCalledTimes(1);
+        expect(prismaService.client.updateMany).toHaveBeenCalledWith({
+            where: {
+                id: 7,
+                dueDate: new Date("2026-06-19T00:00:00.000Z"),
+                startDate: null,
+            },
+            data: { startDate: new Date("2026-06-19T00:00:00.000Z") },
         });
     });
 });

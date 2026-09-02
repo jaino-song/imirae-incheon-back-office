@@ -21,6 +21,7 @@ import {
     type PwaDigestDeliveryStatus,
     SystemSettingService,
 } from "./system-setting.service";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 
 const DAYS_THRESHOLD = 7;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -76,10 +77,15 @@ export class PwaNotificationSchedulerService {
         @Inject(MESSAGE_TRIGGER_JOB_REPOSITORY)
         private readonly messageTriggerJobRepository: IMessageTriggerJobRepository,
         private readonly systemSettingService: SystemSettingService,
+        private readonly schedulerLease: SchedulerLeaseService,
     ) {}
 
     @Cron("0 9 * * *", { timeZone: "Asia/Seoul" })
     async sendDailySummaryNotifications(): Promise<void> {
+        if (!this.schedulerLease.holdsLease()) {
+            return;
+        }
+
         this.logger.log("[PWA Scheduler] Starting daily summary notifications...");
 
         const runStartedAt = new Date(Date.now());
