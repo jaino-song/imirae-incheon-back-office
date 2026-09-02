@@ -13,6 +13,8 @@ readonly BEHAVIOR_TEST="$SCRIPT_ROOT/operator.behavior.test.sh"
 readonly INSTALL_BEHAVIOR_TEST="$SCRIPT_ROOT/install.behavior.test.sh"
 readonly BACKUP_MAP_TEST="$SCRIPT_ROOT/install-backup-map.test.sh"
 readonly LIGHTNODE_TEST="$SCRIPT_ROOT/lightnode-preflight.test.sh"
+readonly CI_DEPLOYER_CONTRACT_TEST="$SCRIPT_ROOT/ci/ci-deployer-contract.test.sh"
+readonly CI_WORKFLOW_CONTRACT_TEST="$SCRIPT_ROOT/ci/workflow-contract.test.sh"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -182,5 +184,8 @@ bash "$BEHAVIOR_TEST"
 bash "$INSTALL_BEHAVIOR_TEST"
 bash "$BACKUP_MAP_TEST"
 bash "$LIGHTNODE_TEST"
+bash "$CI_DEPLOYER_CONTRACT_TEST"
+bash "$CI_WORKFLOW_CONTRACT_TEST"
+node --test "$SCRIPT_ROOT"/ci/*.test.mjs
 
 echo "Fallback Server contract tests passed"

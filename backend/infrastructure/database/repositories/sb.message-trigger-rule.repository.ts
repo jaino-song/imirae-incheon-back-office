@@ -32,7 +32,9 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
 
     async findAll(branchId: string): Promise<MessageTriggerRuleEntity[]> {
         const rows = await this.prisma.message_trigger_rule.findMany({
-            where: { branchId },
+            // Fixed system automations are global so every branch can see the
+            // routine that is able to create its scheduled jobs.
+            where: { OR: [{ branchId }, { branchId: null }] },
             orderBy: { createdAt: "desc" },
         });
         return rows.map((row) => this.toDomain(row));
