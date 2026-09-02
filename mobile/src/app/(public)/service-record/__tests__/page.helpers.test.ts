@@ -41,4 +41,12 @@ describe("getServiceDateShiftBusinessDays", () => {
     it("counts a one-business-day shift across a weekend", () => {
         expect(getServiceDateShiftBusinessDays("2026-08-28", "2026-08-31")).toBe(1);
     });
+
+    it("returns null when the target date falls in an unsupported holiday-calendar year", () => {
+        expect(getServiceDateShiftBusinessDays("2026-08-26", "2030-07-15")).toBeNull();
+    });
+
+    it("returns null for an invalid ISO date", () => {
+        expect(getServiceDateShiftBusinessDays("2026-08-26", "not-a-date")).toBeNull();
+    });
 });
