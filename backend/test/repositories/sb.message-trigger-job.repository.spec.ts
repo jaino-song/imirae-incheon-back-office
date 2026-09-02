@@ -259,6 +259,9 @@ describe("SbMessageTriggerJobRepository", () => {
         expect(sqlText).toContain("WITH candidate_job AS");
         expect(sqlText).toContain("FOR UPDATE OF rule");
         expect(sqlText).toContain('UPDATE "message_trigger_job" AS job');
+        // The database enforces (status <> 'processing' OR claim_token IS NOT NULL);
+        // a claim that does not mint a token is rejected and surfaces as a 500.
+        expect(sqlText).toContain("claim_token = gen_random_uuid()::text");
 
         queryRaw.mockReset();
         queryRaw.mockResolvedValueOnce([]);
