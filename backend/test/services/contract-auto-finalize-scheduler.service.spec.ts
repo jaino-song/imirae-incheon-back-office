@@ -251,6 +251,8 @@ describe("ContractAutoFinalizeSchedulerService", () => {
         expect(documentJobService.enqueueFinalizeDocument).toHaveBeenCalledWith(
             expect.objectContaining({ documentId: "doc-1" }),
         );
+    });
+
     it("skips disabled branches while enqueuing enabled branches", async () => {
         const disabled = contract({ documentId: "disabled", branchId: "branch-disabled" });
         const enabled = contract({ documentId: "enabled", branchId: "branch-enabled" });

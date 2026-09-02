@@ -1,7 +1,7 @@
 import { Test } from "@nestjs/testing";
 
 import { HealthController } from "./health.controller";
-import type { SchedulerLeaseService, SchedulerLeaseSnapshot } from "application/services/scheduler-lease.service";
+import { SchedulerLeaseService, type SchedulerLeaseSnapshot } from "application/services/scheduler-lease.service";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { ReadinessService } from "infrastructure/health/readiness.service";
 
@@ -43,6 +43,7 @@ describe("HealthController", () => {
             providers: [
                 ReadinessService,
                 { provide: PrismaService, useValue: { $queryRaw: queryRaw } },
+                { provide: SchedulerLeaseService, useValue: createLease() },
             ],
         }).compile();
         const controller = moduleRef.get(HealthController);
