@@ -90,6 +90,23 @@ describe("POST /api/auth/refresh", () => {
         });
     });
 
+    it("clears the local session when upstream answers without a usable token pair", async () => {
+        // A 200 with missing tokens is unrecoverable, not transient: it must surface as
+        // 401 so the browser interceptor redirects to /login. Reported as 502 the tab
+        // would keep issuing 401s forever with no way out.
+        mockServerPost.mockResolvedValue({ data: { accessToken: "only-access" } });
+
+        const response = await POST(createRequest());
+
+        expect(response.status).toBe(401);
+        expect(cookieStore.delete).toHaveBeenCalledWith("auth_token");
+        expect(cookieStore.delete).toHaveBeenCalledWith("refresh_token");
+        await expect(response.json()).resolves.toEqual({
+            error: "Session refresh failed",
+            code: "AUTH_REFRESH_FAILED",
+        });
+    });
+
     it("keeps session cookies on a transient upstream failure", async () => {
         mockServerPost.mockRejectedValue({ response: { status: 503 } });
 
