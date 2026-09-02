@@ -131,34 +131,30 @@ describe("SbEmployeeRepository", () => {
     // ============================================
     describe("findByPhone", () => {
         it("should return the employee whose normalized phone matches", async () => {
-            const row = createEmployeeRow({ id: 3, phone: "010-1234-5678" });
-            employeeModel.findMany.mockResolvedValue([
-                createEmployeeRow({ id: 2, phone: "010-0000-0000" }),
-                { id: row.id, phone: row.phone },
-            ]);
+            const row = createEmployeeRow({
+                id: 3,
+                phone: "010-1234-5678",
+                phoneNormalized: "01012345678",
+            });
             employeeModel.findFirst.mockResolvedValue(row);
 
             const result = await repository.findByPhone(branchId, "01012345678");
 
-            expect(employeeModel.findMany).toHaveBeenCalledWith({
-                where: { branchId },
-                select: { id: true, phone: true },
-            });
             expect(employeeModel.findFirst).toHaveBeenCalledWith({
-                where: { id: 3, branchId },
+                where: { branchId, phoneNormalized: "01012345678" },
             });
             expect(result).toMatchObject({ id: 3, phone: "010-1234-5678" });
         });
 
         it("should return null when no employee phone matches", async () => {
-            employeeModel.findMany.mockResolvedValue([
-                { id: 2, phone: "010-0000-0000" },
-            ]);
+            employeeModel.findFirst.mockResolvedValue(null);
 
             const result = await repository.findByPhone(branchId, "01012345678");
 
             expect(result).toBeNull();
-            expect(employeeModel.findFirst).not.toHaveBeenCalled();
+            expect(employeeModel.findFirst).toHaveBeenCalledWith({
+                where: { branchId, phoneNormalized: "01012345678" },
+            });
         });
     });
 
@@ -241,6 +237,118 @@ describe("SbEmployeeRepository", () => {
         });
     });
 
+    describe("findWorkHistoryByEmployee", () => {
+        it("queries only branch-scoped ended or replaced schedules and maps safe history fields", async () => {
+            employeeScheduleModel.findMany.mockResolvedValue([
+                {
+                    id: 22,
+                    primaryEmployeeId: 3,
+                    secondaryEmployeeId: 7,
+                    startDate: new Date("2025-01-01T00:00:00.000Z"),
+                    endDate: new Date("2025-06-30T00:00:00.000Z"),
+                    replaced: true,
+                    client: { id: 11, name: "박서연" },
+                },
+                {
+                    id: 21,
+                    primaryEmployeeId: 7,
+                    secondaryEmployeeId: null,
+                    startDate: new Date("2024-01-01T00:00:00.000Z"),
+                    endDate: new Date("2024-12-31T00:00:00.000Z"),
+                    replaced: false,
+                    client: { id: 10, name: "김민지" },
+                },
+            ]);
+            employeeScheduleModel.count.mockResolvedValue(2);
+
+            const result = await repository.findWorkHistoryByEmployee(branchId, 7, 2, 10);
+
+            expect(employeeScheduleModel.findMany).toHaveBeenCalledWith({
+                where: {
+                    branchId,
+                    client: { branchId },
+                    OR: [
+                        { primaryEmployeeId: 7 },
+                        { secondaryEmployeeId: 7 },
+                    ],
+                    AND: [{ OR: [{ replaced: true }, { endDate: { lt: expect.any(Date) } }] }],
+                },
+                skip: 10,
+                take: 10,
+                select: {
+                    id: true,
+                    primaryEmployeeId: true,
+                    secondaryEmployeeId: true,
+                    startDate: true,
+                    endDate: true,
+                    replaced: true,
+                    client: { select: { id: true, name: true } },
+                },
+                orderBy: [{ startDate: "desc" }, { id: "desc" }],
+            });
+            expect(employeeScheduleModel.count).toHaveBeenCalledWith({
+                where: expect.objectContaining({ branchId, client: { branchId } }),
+            });
+            expect(result).toEqual({
+                data: [
+                    {
+                        scheduleId: 22,
+                        clientId: 11,
+                        clientName: "박서연",
+                        role: "secondary",
+                        startDate: new Date("2025-01-01T00:00:00.000Z"),
+                        endDate: new Date("2025-06-30T00:00:00.000Z"),
+                        status: "replaced",
+                    },
+                    {
+                        scheduleId: 21,
+                        clientId: 10,
+                        clientName: "김민지",
+                        role: "primary",
+                        startDate: new Date("2024-01-01T00:00:00.000Z"),
+                        endDate: new Date("2024-12-31T00:00:00.000Z"),
+                        status: "completed",
+                    },
+                ],
+                total: 2,
+                page: 2,
+                limit: 10,
+                totalPages: 1,
+            });
+        });
+
+        it("uses schedule/client branch predicates so cross-branch history cannot leak", async () => {
+            employeeScheduleModel.findMany.mockResolvedValue([]);
+            employeeScheduleModel.count.mockResolvedValue(0);
+
+            await repository.findWorkHistoryByEmployee(branchId, 7, 1, 20);
+
+            const findManyWhere = employeeScheduleModel.findMany.mock.calls[0]?.[0]?.where;
+            const countWhere = employeeScheduleModel.count.mock.calls[0]?.[0]?.where;
+            expect(findManyWhere).toEqual(expect.objectContaining({ branchId, client: { branchId } }));
+            expect(countWhere).toEqual(expect.objectContaining({ branchId, client: { branchId } }));
+        });
+
+        it("uses the current Korea calendar date before the UTC day rolls over", async () => {
+            jest.useFakeTimers().setSystemTime(new Date("2026-07-16T16:30:00.000Z"));
+            try {
+                employeeScheduleModel.findMany.mockResolvedValue([]);
+                employeeScheduleModel.count.mockResolvedValue(0);
+
+                await repository.findWorkHistoryByEmployee(branchId, 7, 1, 20);
+
+                const expectedCutoff = new Date("2026-07-17T00:00:00.000Z");
+                const expectedWhere = expect.objectContaining({
+                    AND: [{ OR: [{ replaced: true }, { endDate: { lt: expectedCutoff } }] }],
+                });
+                expect(employeeScheduleModel.findMany.mock.calls[0]?.[0]?.where).toEqual(expectedWhere);
+                expect(employeeScheduleModel.count.mock.calls[0]?.[0]?.where).toEqual(expectedWhere);
+            } finally {
+                jest.useRealTimers();
+            }
+        });
+    });
+
     // ============================================
     // findAll
     // ============================================
@@ -287,67 +395,87 @@ describe("SbEmployeeRepository", () => {
         });
 
         describe("status computation", () => {
-            it("should return status = 'unavailable' when openToNextWork is false", async () => {
-                // Arrange
+            it.each([
+                ["active primary schedule and open", { openToNextWork: true, primaryEmployeeSchedules: [{ id: 1 }] }, "working", true],
+                ["active primary schedule and closed", { openToNextWork: false, primaryEmployeeSchedules: [{ id: 1 }] }, "working", false],
+                ["active secondary schedule and open", { openToNextWork: true, secondaryEmployeeSchedules: [{ id: 2 }] }, "working", true],
+                ["active secondary schedule and closed", { openToNextWork: false, secondaryEmployeeSchedules: [{ id: 2 }] }, "working", false],
+                ["no active schedule and open", { openToNextWork: true }, "available", true],
+                ["no active schedule and closed", { openToNextWork: false }, "unavailable", false],
+            ] as const)(
+                "should derive %s from active assignment before availability",
+                async (_caseName, overrides, expectedStatus, expectedOpenToNextWork) => {
+                    const row = createEmployeeRow(overrides);
+                    employeeModel.findMany.mockResolvedValue([row]);
+
+                    const result = await repository.findAll(branchId);
+
+                    expect(result).toHaveLength(1);
+                    expect(result[0]).toMatchObject({
+                        status: expectedStatus,
+                        openToNextWork: expectedOpenToNextWork,
+                    });
+                },
+            );
+
+            it("should request only current unreplaced schedules and exclude soft-deleted employees", async () => {
+                const activeRow = createEmployeeRow({ id: 1, openToNextWork: true });
+                const deletedRow = createEmployeeRow({ id: 2, deletedAt: new Date("2026-01-01T00:00:00.000Z") });
+                employeeModel.findMany.mockResolvedValue([activeRow]);
+
+                const result = await repository.findAll(branchId);
+
+                const query = employeeModel.findMany.mock.calls[0]?.[0];
+                expect(query).toEqual({
+                    where: { branchId, deletedAt: null },
+                    include: {
+                        primaryEmployeeSchedules: {
+                            where: {
+                                startDate: { lte: expect.any(Date) },
+                                endDate: { gte: expect.any(Date) },
+                                replaced: false,
+                            },
+                            take: 1,
+                        },
+                        secondaryEmployeeSchedules: {
+                            where: {
+                                startDate: { lte: expect.any(Date) },
+                                endDate: { gte: expect.any(Date) },
+                                replaced: false,
+                            },
+                            take: 1,
+                        },
+                    },
+                });
+                expect(result.map((employee) => employee.id)).toEqual([activeRow.id]);
+                expect(result.map((employee) => employee.id)).not.toContain(deletedRow.id);
+            });
+
+            it("should treat ended and replaced schedules excluded by the active query as no active assignment", async () => {
                 const row = createEmployeeRow({
                     openToNextWork: false,
-                    primaryEmployeeSchedules: [{ id: 1 }],
+                    primaryEmployeeSchedules: [],
+                    secondaryEmployeeSchedules: [],
                 });
                 employeeModel.findMany.mockResolvedValue([row]);
 
-                // Act
                 const result = await repository.findAll(branchId);
 
-                // Assert
-                expect(result).toHaveLength(1);
-                expect(result[0]?.status).toBe("unavailable");
-            });
-
-            it("should return status = 'working' when has active primary schedule", async () => {
-                // Arrange
-                const row = createEmployeeRow({
-                    openToNextWork: true,
-                    primaryEmployeeSchedules: [{ id: 1 }],
+                expect(result[0]).toMatchObject({
+                    status: "unavailable",
+                    openToNextWork: false,
                 });
-                employeeModel.findMany.mockResolvedValue([row]);
-
-                // Act
-                const result = await repository.findAll(branchId);
-
-                // Assert
-                expect(result).toHaveLength(1);
-                expect(result[0]?.status).toBe("working");
-            });
-
-            it("should return status = 'working' when has active secondary schedule", async () => {
-                // Arrange
-                const row = createEmployeeRow({
-                    openToNextWork: true,
-                    secondaryEmployeeSchedules: [{ id: 1 }],
-                });
-                employeeModel.findMany.mockResolvedValue([row]);
-
-                // Act
-                const result = await repository.findAll(branchId);
-
-                // Assert
-                expect(result).toHaveLength(1);
-                expect(result[0]?.status).toBe("working");
-            });
-
-            it("should return status = 'available' when openToNextWork is true and no schedules", async () => {
-                // Arrange
-                const row = createEmployeeRow({
-                    openToNextWork: true,
-                });
-                employeeModel.findMany.mockResolvedValue([row]);
-
-                // Act
-                const result = await repository.findAll(branchId);
-
-                // Assert
-                expect(result).toHaveLength(1);
-                expect(result[0]?.status).toBe("available");
+                const query = employeeModel.findMany.mock.calls[0]?.[0];
+                expect(query).toEqual(expect.objectContaining({
+                    include: expect.objectContaining({
+                        primaryEmployeeSchedules: expect.objectContaining({
+                            where: expect.objectContaining({ replaced: false }),
+                        }),
+                        secondaryEmployeeSchedules: expect.objectContaining({
+                            where: expect.objectContaining({ replaced: false }),
+                        }),
+                    }),
+                }));
             });
         });
     });
@@ -380,6 +508,7 @@ describe("SbEmployeeRepository", () => {
                         name: "Test Employee",
                         workArea: ["Seoul"],
                         phone: "010-0000-0000",
+                        phoneNormalized: "01000000000",
                         grade: "베스트",
                         openToNextWork: false,
                         companyRegisteredDate: new Date("2024-02-01T00:00:00.000Z"),
@@ -446,6 +575,7 @@ describe("SbEmployeeRepository", () => {
                         name: "Charlie",
                         workArea: ["Busan"],
                         phone: "010-2222-0000",
+                        phoneNormalized: "01022220000",
                         grade: "스탠다드",
                         openToNextWork: true,
                         birthday: null,

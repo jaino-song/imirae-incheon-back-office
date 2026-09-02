@@ -2,6 +2,7 @@ import axios, { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } fro
 import { parse } from "cookie";
 
 import { isPublicAuthPath } from "@/lib/auth/routes";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
 import { captureApiError } from "@/lib/observability/capture-api-error";
 import { safeStorageRemoveItem, safeStorageSetItem } from "@/lib/safe-storage";
 
@@ -110,13 +111,14 @@ function shouldAuthenticateEformsignFromCredentials(error: unknown): boolean {
     return typeof status === "number" && EFORMSIGN_CREDENTIAL_REAUTH_STATUSES.has(status);
 }
 
-function redirectToLoginOnce() {
+async function redirectToLoginOnce() {
     if (typeof window === "undefined" || isRedirectingToLogin) return;
     const currentPath = window.location.pathname;
     const isAuthPage = isPublicAuthPath(currentPath);
     if (isAuthPage) return;
 
     isRedirectingToLogin = true;
+    await resetAuthorityState(undefined, { waitForCancellation: false });
     window.location.href = "/login";
 }
 
@@ -237,7 +239,7 @@ api.interceptors.response.use(
             }
 
             if (originalRequest._appAuthRetry || isAppAuthNonRetryPath(requestPath)) {
-                redirectToLoginOnce();
+                await redirectToLoginOnce();
                 return Promise.reject(err);
             }
 
@@ -248,7 +250,7 @@ api.interceptors.response.use(
             } catch (refreshError) {
                 captureApiError(refreshError);
                 if ((refreshError as AxiosError | undefined)?.response?.status === 401) {
-                    redirectToLoginOnce();
+                    await redirectToLoginOnce();
                 }
                 return Promise.reject(refreshError);
             }

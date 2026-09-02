@@ -5,11 +5,16 @@ import {
     HttpCode,
     HttpStatus,
     ConflictException,
+    ForbiddenException,
+    GoneException,
     Logger,
     MessageEvent,
     Post,
+    Param,
+    ParseUUIDPipe,
     Query,
     Req,
+    Optional,
     ServiceUnavailableException,
     Sse,
     UseGuards,
@@ -24,17 +29,18 @@ import { ListClientNamesByBranchUsecase } from "application/usecases/eformsign-d
 import { ListReviewStageContractsUsecase } from "application/usecases/eformsign-doc/list-review-stage-contracts.usecase";
 import { DispatchDocumentHeadlessUsecase } from "application/usecases/eformsign-doc/dispatch-document-headless.usecase";
 import { FinalizeDocumentHeadlessUsecase } from "application/usecases/eformsign-doc/finalize-document-headless.usecase";
+import { EformsignDispatchBoundaryService } from "application/services/eformsign-dispatch-boundary.service";
 import { AdoptEformsignDocUsecase } from "application/usecases/eformsign-doc/adopt-eformsign-doc.usecase";
 import type { CreateEformsignDocResult } from "application/usecases/eformsign-doc/create-eformsign-doc.usecase";
 import { SERVICE_RECORD_TEMPLATE_TIER_ENV_KEYS } from "application/usecases/eformsign-doc/service-record-field-ids";
 import {
-    GetAccessTokenDto,
-    RefreshAccessTokenDto,
     CreateEformsignDocLocalDto,
     DispatchHeadlessRequestDto,
     DispatchHeadlessResponseDto,
     FinalizeHeadlessRequestDto,
     FinalizeHeadlessResponseDto,
+    ReconcileEformsignDispatchIntentDto,
+    EformsignDispatchIntentResponseDto,
     AdoptEformsignDocDto,
     ReviewNeededContractDto,
 } from "interface/dto/eformsign-doc.dto";
@@ -48,6 +54,11 @@ import {
 import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { parseInteger } from "interface/parse-integer";
+import {
+    assertEformsignProviderCapability,
+    type EformsignProviderPrincipal,
+} from "application/services/eformsign-credential-boundary.service";
+import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
 
 @Controller("eformsign-docs")
 @UseGuards(JwtGuard, TenantGuard)
@@ -65,6 +76,7 @@ export class EformsignDocController {
         private readonly headlessProgressService: EformsignHeadlessProgressService,
         private readonly configService: ConfigService,
         private readonly documentJobService: EformsignDocumentJobService,
+        @Optional() private readonly dispatchBoundary?: EformsignDispatchBoundaryService,
     ) {}
 
     /**
@@ -164,6 +176,27 @@ export class EformsignDocController {
     // ============ Local DB Endpoints ============
 
     /**
+     * Legacy provider credential endpoints are retained as deterministic
+     * tombstones.  Keeping the paths avoids a misleading 404 for older
+     * clients while ensuring no request body can mint or reveal credentials.
+     */
+    @Post("access-token")
+    getAccessToken(): never {
+        throw new GoneException({
+            code: "EFORMSIGN_CREDENTIALS_SERVER_ONLY",
+            error: "Raw eformsign credentials are not exposed",
+        });
+    }
+
+    @Post("refresh-token")
+    refreshAccessToken(): never {
+        throw new GoneException({
+            code: "EFORMSIGN_CREDENTIALS_SERVER_ONLY",
+            error: "Raw eformsign credentials are not exposed",
+        });
+    }
+
+    /**
      * POST /eformsign-docs
      * Create a new eformsign document record in local DB
      * Called by frontend after document is created in eformsign
@@ -196,7 +229,9 @@ export class EformsignDocController {
                 ...(resultWithWarnings.warnings ? { warnings: resultWithWarnings.warnings } : {}),
             };
         } catch (error) {
-            this.logger.error(`[POST /eformsign-docs] Failed to create record: ${error}`);
+            this.logger.error(
+                `[POST /eformsign-docs] Failed to create record: ${sanitizeEformsignErrorMessage(error)}`,
+            );
             throw error;
         }
     }
@@ -257,33 +292,14 @@ export class EformsignDocController {
         );
     }
 
-    // ============ External API Endpoints ============
-
-    /**
-     * POST /eformsign-docs/access-token
-     * Get access token from eformsign API
-     */
-    @Post("access-token")
-    getAccessToken(@Body() dto: GetAccessTokenDto) {
-        return this.eformsignDocService.getAccessToken(dto.executionTime, dto.memberEmail);
-    }
-
-    /**
-     * POST /eformsign-docs/refresh-token
-     * Refresh access token using refresh token
-     */
-    @Post("refresh-token")
-    refreshAccessToken(@Body() dto: RefreshAccessTokenDto) {
-        return this.eformsignDocService.refreshAccessToken(dto.executionTime, dto.refreshToken);
-    }
-
     /** 원격 생성에는 성공했지만 로컬 저장에 실패한 문서를 현재 지점으로 복구한다. */
     @Post("adopt")
     async adopt(
-        @CurrentTenant() tenant: { branchId?: string },
+        @CurrentTenant() tenant: EformsignProviderPrincipal,
         @Body() dto: AdoptEformsignDocDto,
     ) {
-        const result = await this.adoptEformsignDocUsecase.execute(tenant.branchId ?? "", dto);
+        assertEformsignProviderCapability(tenant, "contract.adopt");
+        const result = await this.adoptEformsignDocUsecase.execute(tenant.branchId ?? "", dto, tenant);
         return {
             ...result.toJSON(),
             ...(result.warnings ? { warnings: result.warnings } : {}),
@@ -298,16 +314,21 @@ export class EformsignDocController {
      */
     @Post("dispatch-headless")
     async dispatchHeadless(
-        @CurrentTenant() tenant: { branchId?: string },
+        @CurrentTenant() tenant: EformsignProviderPrincipal,
         @Body() dto: DispatchHeadlessRequestDto,
     ): Promise<DispatchHeadlessResponseDto> {
+        assertEformsignProviderCapability(tenant, "contract.dispatch");
         this.logger.log(`[POST /eformsign-docs/dispatch-headless] clientId=${dto.clientId}`);
-        const result = await this.dispatchHeadlessUsecase.execute(tenant.branchId ?? "", {
-            contractData: dto.contractData,
-            clientId: dto.clientId,
-            progressId: dto.progressId,
-            force: dto.force,
-        });
+        const result = await this.dispatchHeadlessUsecase.execute(
+            tenant.branchId ?? "",
+            {
+                contractData: dto.contractData,
+                clientId: dto.clientId,
+                progressId: dto.progressId,
+                force: dto.force,
+            },
+            tenant,
+        );
         if (!result.ok) {
             this.logger.warn(`[dispatch-headless] failed: ${result.reason}`);
             return {
@@ -318,6 +339,7 @@ export class EformsignDocController {
                 fallbackHint: result.fallbackHint,
                 remoteDocumentId: result.remoteDocumentId,
                 existingDocumentId: result.existingDocumentId,
+                dispatchIntentId: result.dispatchIntentId,
             };
         }
         return {
@@ -332,13 +354,28 @@ export class EformsignDocController {
      * Run the staff-finalize iframe gate sequence (mode:"02") off-screen.
      */
     @Post("finalize-headless")
-    async finalizeHeadless(@Body() dto: FinalizeHeadlessRequestDto): Promise<FinalizeHeadlessResponseDto> {
+    async finalizeHeadless(
+        @CurrentTenant() tenant: EformsignProviderPrincipal,
+        @Body() dto: FinalizeHeadlessRequestDto,
+    ): Promise<FinalizeHeadlessResponseDto> {
+        assertEformsignProviderCapability(tenant, "contract.finalize");
+        const visibleDocument = await this.eformsignDocService.findByDocumentId(
+            tenant.branchId ?? "",
+            dto.documentId,
+        );
+        if (!visibleDocument) {
+            throw new ForbiddenException("Document access forbidden");
+        }
         this.logger.log(`[POST /eformsign-docs/finalize-headless] documentId=${dto.documentId}`);
-        const result = await this.finalizeHeadlessUsecase.execute({
-            documentId: dto.documentId,
-            prefillEndDate: dto.prefillEndDate,
-            progressId: dto.progressId,
-        });
+        const result = await this.finalizeHeadlessUsecase.execute(
+            {
+                branchId: tenant.branchId ?? "",
+                documentId: dto.documentId,
+                prefillEndDate: dto.prefillEndDate,
+                progressId: dto.progressId,
+            },
+            tenant,
+        );
         if (!result.ok) {
             this.logger.warn(
                 `[finalize-headless] failed: ${result.reason} (fallback: ${result.fallbackHint})`,
@@ -348,12 +385,82 @@ export class EformsignDocController {
                 durationMs: result.durationMs,
                 reason: result.reason,
                 fallbackHint: result.fallbackHint,
+                dispatchIntentId: result.dispatchIntentId,
             };
         }
         return {
             ok: true,
             completed: result.completed,
             durationMs: result.durationMs,
+        };
+    }
+
+    /**
+     * GET /eformsign-docs/dispatch-intents/:intentId
+     * Read the branch-scoped receipt for an eformsign provider call. Started/
+     * uncertain calls are never replayed automatically; an authorized operator
+     * can use the companion reconciliation route below to unblock a retry.
+     */
+    @Get("dispatch-intents/:intentId")
+    async getDispatchIntent(
+        @CurrentTenant() tenant: {
+            branchId?: string;
+            globalRole?: string;
+            branchRole?: string;
+        },
+        @Param("intentId", new ParseUUIDPipe()) intentId: string,
+    ): Promise<EformsignDispatchIntentResponseDto> {
+        const isOperator = tenant.globalRole === "owner" || tenant.branchRole === "admin";
+        if (!isOperator || !this.dispatchBoundary) {
+            throw new ForbiddenException("전자문서 작업을 확인할 권한이 없습니다.");
+        }
+        const result = await this.dispatchBoundary.findById(
+            tenant.branchId ?? "",
+            intentId,
+        );
+        // Do not reveal whether an intent exists in another branch.
+        if (!result) {
+            throw new ForbiddenException("전자문서 작업을 확인할 권한이 없습니다.");
+        }
+        return {
+            intentId: result.id,
+            status: result.status,
+            outcome: result.reconciledOutcome,
+            providerDocumentId: result.providerDocumentId,
+        };
+    }
+
+    @Post("dispatch-intents/:intentId/reconcile")
+    @HttpCode(HttpStatus.OK)
+    async reconcileDispatchIntent(
+        @CurrentTenant() tenant: {
+            branchId?: string;
+            userId?: string;
+            globalRole?: string;
+            branchRole?: string;
+        },
+        @Req() request: { user?: { userId?: string } },
+        @Param("intentId", new ParseUUIDPipe()) intentId: string,
+        @Body() dto: ReconcileEformsignDispatchIntentDto,
+    ): Promise<EformsignDispatchIntentResponseDto> {
+        const isOperator = tenant.globalRole === "owner" || tenant.branchRole === "admin";
+        if (!isOperator || !this.dispatchBoundary) {
+            throw new ForbiddenException("전자문서 작업을 확인할 권한이 없습니다.");
+        }
+
+        const result = await this.dispatchBoundary.reconcile({
+            branchId: tenant.branchId ?? "",
+            intentId: intentId.trim(),
+            outcome: dto.outcome,
+            actorUserId: tenant.userId ?? request.user?.userId ?? "",
+            reason: dto.reason,
+            providerDocumentId: dto.providerDocumentId?.trim() || undefined,
+        });
+        return {
+            intentId: result.id,
+            status: result.status,
+            outcome: result.reconciledOutcome ?? dto.outcome,
+            providerDocumentId: result.providerDocumentId,
         };
     }
 
@@ -365,10 +472,11 @@ export class EformsignDocController {
     @Post("jobs/creation")
     @HttpCode(HttpStatus.ACCEPTED)
     async enqueueCreationJob(
-        @CurrentTenant() tenant: { branchId?: string; userId?: string },
+        @CurrentTenant() tenant: EformsignProviderPrincipal,
         @Req() request: { user?: { userId?: string } },
         @Body() dto: CreateEformsignDocumentJobDto,
     ): Promise<EnqueueEformsignDocumentJobResponseDto> {
+        assertEformsignProviderCapability(tenant, "contract.dispatch");
         this.assertDocumentJobsAccepting();
         const result = await this.enqueueDocumentJob(() =>
             this.documentJobService.enqueueCreateDocument({
@@ -394,10 +502,11 @@ export class EformsignDocController {
     @Post("jobs/finalization")
     @HttpCode(HttpStatus.ACCEPTED)
     async enqueueFinalizationJob(
-        @CurrentTenant() tenant: { branchId?: string; userId?: string },
+        @CurrentTenant() tenant: EformsignProviderPrincipal,
         @Req() request: { user?: { userId?: string } },
         @Body() dto: FinalizeEformsignDocumentJobDto,
     ): Promise<EnqueueEformsignDocumentJobResponseDto> {
+        assertEformsignProviderCapability(tenant, "contract.finalize");
         this.assertDocumentJobsAccepting();
         const result = await this.enqueueDocumentJob(() =>
             this.documentJobService.enqueueFinalizeDocument({

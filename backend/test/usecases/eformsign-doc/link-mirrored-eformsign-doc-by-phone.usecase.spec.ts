@@ -37,6 +37,26 @@ function contractDetail() {
     };
 }
 
+function contractDetailWithProviders() {
+    const detail = contractDetail();
+    detail.fields = [
+        ...detail.fields,
+        { id: "제공인력 1 성명", value: "박관리사", type: "text" },
+        { id: "제공인력 1 연락처", value: "010-5555-1111", type: "text" },
+        { id: "제공인력 2 성명", value: "최관리사", type: "text" },
+        { id: "제공인력 2 연락처", value: "01055552222", type: "text" },
+    ];
+    return detail;
+}
+
+function contractDetailWithoutDates() {
+    const detail = contractDetail();
+    detail.fields = detail.fields.filter(
+        (field) => field.id !== "계약 시작일" && field.id !== "계약 종료일",
+    );
+    return detail;
+}
+
 function mirroredDocument(overrides: Record<string, unknown> = {}) {
     return {
         id: 11,
@@ -44,6 +64,7 @@ function mirroredDocument(overrides: Record<string, unknown> = {}) {
         documentKind: null,
         serviceRecordCaseId: null,
         templateId: "contract-template",
+        templateName: null,
         stepRecipientSms: "고객 010-1234-5678",
         customerPhone: null,
         detailPayload: null,
@@ -97,12 +118,28 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
             message_trigger_job: {
                 upsert: jest.fn().mockResolvedValue(undefined),
             },
+            area: {
+                findMany: jest.fn().mockResolvedValue([]),
+            },
+            employee: {
+                findMany: jest.fn().mockResolvedValue([]),
+                create: jest.fn().mockResolvedValue({ id: 71 }),
+            },
+            employee_schedule: {
+                create: jest.fn().mockResolvedValue({ id: 91 }),
+                // No active schedule overlaps by default, so the automatic
+                // assignment path runs the real invariant check.
+                findFirst: jest.fn().mockResolvedValue(null),
+            },
         };
         const prisma = {
             $queryRaw: jest.fn().mockResolvedValue([{
                 id: "automation-intent-1",
                 scheduled_for: new Date("2026-07-21T00:02:00.000Z"),
             }]),
+            client: {
+                findUnique: jest.fn().mockResolvedValue({ name: "김고객" }),
+            },
             user: {
                 findFirst: jest.fn().mockResolvedValue(null),
             },
@@ -138,6 +175,9 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         const serviceRecordLifecycle = {
             ensureForClient: jest.fn().mockResolvedValue(undefined),
         };
+        const notificationService = {
+            sendToBranchUsers: jest.fn().mockResolvedValue({ sent: 1, failed: 0 }),
+        };
         return {
             document,
             transaction,
@@ -145,15 +185,30 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
             settings,
             messageTrigger,
             serviceRecordLifecycle,
+            notificationService,
             usecase: new LinkMirroredEformsignDocByPhoneUsecase(
                 prisma as never,
                 config,
                 settings as never,
                 messageTrigger as never,
                 serviceRecordLifecycle as never,
+                notificationService as never,
             ),
         };
     }
+
+    it("rejects a malformed mirrored customer phone before auto-registration or linking", async () => {
+        const document = mirroredDocument({
+            customerPhone: "not-a-phone",
+        });
+        const { transaction, settings, usecase } = setup(document);
+
+        await expect(usecase.execute("doc-1")).rejects.toThrow("valid Korean phone number");
+
+        expect(settings.getClientAutoRegistrationEnabled).not.toHaveBeenCalled();
+        expect(transaction.client.create).not.toHaveBeenCalled();
+        expect(transaction.eformsign_doc.updateMany).not.toHaveBeenCalled();
+    });
 
     it("claims a later-mirrored legacy document for the one exact phone match", async () => {
         const { transaction, usecase } = setup();
@@ -405,6 +460,266 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         });
         expect(serviceRecordLifecycle.ensureForClient)
             .toHaveBeenCalledWith(31);
+    });
+
+    it("resolves the area from the contract template name", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            templateName: "인천 아이미래로 남동구 계약서",
+            detailPayload: contractDetail(),
+        });
+        const { transaction, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+        transaction.area.findMany.mockResolvedValue([
+            { id: "seogu", koreanName: "서구", branchId: null },
+            { id: "namdong", koreanName: "남동구", branchId: "branch-1" },
+        ]);
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        expect(transaction.area.findMany).toHaveBeenCalledWith({
+            where: { OR: [{ branchId: "branch-1" }, { branchId: null }] },
+            select: { id: true, koreanName: true, branchId: true },
+        });
+        expect(transaction.client.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({ areaId: "namdong" }),
+            select: { id: true },
+        });
+    });
+
+    it("keeps the area empty when the template name matches no area", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            templateName: "인천 아이미래로 남동구 계약서",
+            detailPayload: contractDetail(),
+        });
+        const { transaction, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+        transaction.area.findMany.mockResolvedValue([
+            { id: "bupyeong", koreanName: "부평구", branchId: "branch-1" },
+        ]);
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        expect(transaction.client.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({ areaId: null }),
+            select: { id: true },
+        });
+    });
+
+    it("assigns contract caretakers by phone match and persists both automation intents", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetailWithProviders(),
+        });
+        const { transaction, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+        transaction.employee.findMany.mockResolvedValue([
+            { id: 55, name: "박관리사", phone: "010-5555-1111" },
+            { id: 56, name: "최관리사", phone: "01055552222" },
+        ]);
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        expect(transaction.employee.create).not.toHaveBeenCalled();
+        expect(transaction.employee_schedule.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({
+                primaryEmployeeId: 55,
+                secondaryEmployeeId: 56,
+                workAddress: "서울시 중구",
+                clientId: 31,
+                branchId: "branch-1",
+            }),
+            select: { id: true },
+        });
+        expect(transaction.message_trigger_job.upsert).toHaveBeenCalledTimes(2);
+        expect(transaction.message_trigger_job.upsert).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({
+                create: expect.objectContaining({ employeeScheduleId: 91 }),
+            }),
+        );
+    });
+
+    it("creates missing caretakers from the contract before assigning them", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetailWithProviders(),
+        });
+        const { transaction, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+        transaction.employee.findMany.mockResolvedValue([]);
+        transaction.employee.create
+            .mockResolvedValueOnce({ id: 71 })
+            .mockResolvedValueOnce({ id: 72 });
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        expect(transaction.employee.create).toHaveBeenNthCalledWith(1, {
+            data: expect.objectContaining({
+                name: "박관리사",
+                phone: "010-5555-1111",
+                workArea: ["미지정"],
+                grade: "스탠다드",
+                openToNextWork: true,
+                branchId: "branch-1",
+            }),
+            select: { id: true },
+        });
+        expect(transaction.employee_schedule.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({
+                primaryEmployeeId: 71,
+                secondaryEmployeeId: 72,
+            }),
+            select: { id: true },
+        });
+    });
+
+    it("stores the canonical phone on a caretaker it auto-creates", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetailWithProviders(),
+        });
+        const { transaction, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+        transaction.employee.findMany.mockResolvedValue([]);
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        // phone_normalized carries the uniqueness constraint and every phone
+        // lookup; a null here would hide the row from both.
+        expect(transaction.employee.create).toHaveBeenNthCalledWith(1, {
+            data: expect.objectContaining({
+                phone: "010-5555-1111",
+                phoneNormalized: "01055551111",
+            }),
+            select: { id: true },
+        });
+    });
+
+    it("skips the automatic assignment when it would double-book a caretaker", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetailWithProviders(),
+        });
+        const { transaction, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+        transaction.employee.findMany.mockResolvedValue([]);
+        transaction.employee_schedule.findFirst.mockResolvedValue({
+            id: 55,
+            clientId: 12,
+            primaryEmployeeId: 71,
+            secondaryEmployeeId: null,
+        });
+
+        // The conflict skips the assignment; the client is still registered.
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        expect(transaction.employee_schedule.create).not.toHaveBeenCalled();
+        expect(transaction.client.create).toHaveBeenCalled();
+    });
+
+    it("skips caretaker assignment when the contract has no service dates", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetailWithoutDates(),
+        });
+        const { transaction, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        expect(transaction.employee.findMany).not.toHaveBeenCalled();
+        expect(transaction.employee_schedule.create).not.toHaveBeenCalled();
+        expect(transaction.client.create).toHaveBeenCalled();
+    });
+
+    it("notifies staff when an auto-registered client has no caretaker assignment", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetail(),
+        });
+        const { transaction, notificationService, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        expect(transaction.employee_schedule.create).not.toHaveBeenCalled();
+        expect(notificationService.sendToBranchUsers).toHaveBeenCalledWith(
+            "branch-1",
+            "제공인력 지정 필요",
+            "김고객 산모님의 제공인력 지정이 필요합니다.",
+            expect.objectContaining({
+                type: "eformsign_assignment_required",
+                documentId: "doc-1",
+                clientId: 31,
+                url: "/clients?id=31",
+            }),
+            expect.objectContaining({
+                dedupe: expect.objectContaining({
+                    type: "eformsign_assignment_required",
+                    documentId: "doc-1",
+                }),
+            }),
+        );
+    });
+
+    it("does not notify when caretakers were assigned during registration", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetailWithProviders(),
+        });
+        const { transaction, notificationService, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+        transaction.employee.findMany.mockResolvedValue([
+            { id: 55, name: "박관리사", phone: "010-5555-1111" },
+            { id: 56, name: "최관리사", phone: "01055552222" },
+        ]);
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        expect(transaction.employee_schedule.create).toHaveBeenCalled();
+        expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
+    });
+
+    it("does not notify for historical imports with suppressed automation", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetail(),
+        });
+        const { transaction, notificationService, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+
+        await expect(usecase.execute("doc-1", {
+            suppressOutboundAutomation: true,
+        })).resolves.toBe("created");
+
+        expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
+    });
+
+    it("keeps the registration successful when the assignment notification fails", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetail(),
+        });
+        const { transaction, notificationService, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+        notificationService.sendToBranchUsers.mockRejectedValue(new Error("push provider down"));
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        expect(transaction.client.create).toHaveBeenCalled();
     });
 
     it("does not create a client for a completed mirror in existing-only mode", async () => {

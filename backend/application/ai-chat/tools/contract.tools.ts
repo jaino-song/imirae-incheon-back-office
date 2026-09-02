@@ -24,12 +24,8 @@ export const createAndSendContractSchema: FunctionDeclaration = {
                 type: "string",
                 description: "The area ID for template selection (e.g., 'incheon', 'seoul'). Use listAvailableTemplates to see available areas.",
             },
-            confirmed: {
-                type: "boolean",
-                description: "Set to true to confirm and execute the contract creation. Set to false to request confirmation first.",
-            },
         },
-        required: ["clientId", "areaId", "confirmed"],
+        required: ["clientId", "areaId"],
     },
 };
 

@@ -1,11 +1,27 @@
 import {
     addBusinessDaysKr,
+    assertSupportedKoreanHolidayYear,
     calcEndDateBusinessDays,
+    countBusinessDaysKr,
     diffBusinessDaysKr,
+    KOREAN_HOLIDAY_CALENDAR_VERSION,
     isBusinessDayKr,
     KR_HOLIDAYS,
     nextBusinessDayKr,
+    UnsupportedKoreanHolidayYearError,
 } from "./business-days";
+
+describe("versioned Korean holiday calendar", () => {
+    it("exposes the calendar version and fails closed for an unpopulated year", () => {
+        expect(KOREAN_HOLIDAY_CALENDAR_VERSION).toBe("kr-public-holidays-2024-2027.v1");
+        expect(() => assertSupportedKoreanHolidayYear(2028))
+            .toThrow(UnsupportedKoreanHolidayYearError);
+        expect(() => isBusinessDayKr("2028-01-03"))
+            .toThrow(UnsupportedKoreanHolidayYearError);
+        expect(() => countBusinessDaysKr("2028-01-03", "2028-01-04"))
+            .toThrow(UnsupportedKoreanHolidayYearError);
+    });
+});
 
 describe("KR_HOLIDAYS fixtures", () => {
     it("contains the 2026/2027 Korean public holidays used by both apps", () => {
@@ -87,5 +103,10 @@ describe("nextBusinessDayKr / addBusinessDaysKr", () => {
 
     it("returns the input unchanged for a non-positive count", () => {
         expect(addBusinessDaysKr("2026-07-16", 0)).toBe("2026-07-16");
+    });
+
+    it("does not bypass the calendar for an unsupported zero-step date", () => {
+        expect(() => addBusinessDaysKr("2028-01-03", 0))
+            .toThrow(UnsupportedKoreanHolidayYearError);
     });
 });

@@ -1,4 +1,4 @@
-import { INestApplication, ExecutionContext } from "@nestjs/common";
+import { INestApplication, ExecutionContext, ValidationPipe } from "@nestjs/common";
 import { Test, TestingModule } from "@nestjs/testing";
 import request from "supertest";
 import { ClientDraftController } from "interface/controllers/client-draft.controller";
@@ -47,6 +47,11 @@ describe("ClientDraftController (Integration)", () => {
             .compile();
 
         app = moduleFixture.createNestApplication();
+        app.useGlobalPipes(new ValidationPipe({
+            whitelist: true,
+            forbidNonWhitelisted: true,
+            transform: true,
+        }));
         await app.init();
     });
 
@@ -90,6 +95,24 @@ describe("ClientDraftController (Integration)", () => {
             "draft-1",
             expect.objectContaining({ fields: body.fields }),
         );
+    });
+
+    it("POST /client-drafts/draft-1/confirm rejects unknown NEW_CLIENT nested fields at the DTO boundary", async () => {
+        const body = {
+            fields: {
+                name: "김서연",
+                voucherClient: false,
+                breastPump: false,
+                unexpected: "reject-me",
+            },
+        };
+
+        const res = await request(app.getHttpServer())
+            .post("/client-drafts/draft-1/confirm")
+            .send(body);
+
+        expect(res.status).toBe(400);
+        expect(callInboxService.confirm).not.toHaveBeenCalled();
     });
 
     it("POST /client-drafts/draft-2/confirm (CLIENT_UPDATE) passes changes through to confirm", async () => {

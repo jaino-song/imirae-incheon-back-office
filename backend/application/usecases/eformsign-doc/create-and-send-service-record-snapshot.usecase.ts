@@ -20,7 +20,10 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 import { eformsignExpiryDateFromRemainingDays } from "domain/utils/eformsign-expiry-date";
 import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 import { captureServiceRecordError } from "infrastructure/observability/service-record-sentry";
-import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
+import {
+    EformsignCredentialBoundary,
+    EformsignProviderPrincipal,
+} from "application/services/eformsign-credential-boundary.service";
 import {
     buildServiceRecordDocumentFields,
     chunkSessionsByTier,
@@ -124,7 +127,7 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
         @Inject(EFORMSIGN_CLIENT_REPOSITORY)
         private readonly eformsignClient: IEformsignClientRepository,
         private readonly prisma: PrismaService,
-        private readonly getAccessTokenUsecase: GetEformsignAccessTokenUsecase,
+        private readonly credentialBoundary: EformsignCredentialBoundary,
         private readonly configService: ConfigService,
     ) {}
 
@@ -153,6 +156,7 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
     async executeCase(
         branchid: string,
         serviceRecordCaseId: string,
+        principal: EformsignProviderPrincipal,
     ): Promise<{ documentIds: string[]; documentId: string; chunkCount: number }> {
         const tiers = this.getConfiguredTiers();
         const tierNumbers = tiers.map((t) => t.tier);
@@ -207,29 +211,7 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
             existingDocs.map((document) => [document.snapshotChunkIndex, document]),
         );
 
-        const missingChunks = chunks.filter((chunk) => !existingByChunk.has(chunk.chunkIndex));
-        let accessToken: string | null = null;
-        // The reviewer recipient must mirror each used template's pre-specified 제공업체 확인 step
-        // exactly (eformsign rejects mismatches), so it is read once per distinct templateId
-        // actually needed by chunks not yet created — reviewer configuration can differ per template.
-        const reviewerByTemplateId = new Map<
-            string,
-            NonNullable<Awaited<ReturnType<IEformsignClientRepository["getTemplateReviewer"]>>>
-        >();
-        if (missingChunks.length > 0) {
-            const tokenResponse = await this.getAccessTokenUsecase.execute(Date.now());
-            accessToken = tokenResponse.oauth_token.access_token;
-            const neededTemplateIds = new Set(missingChunks.map((chunk) => chunk.templateId));
-            for (const templateId of neededTemplateIds) {
-                const reviewer = await this.eformsignClient.getTemplateReviewer(accessToken, templateId);
-                if (!reviewer) {
-                    throw new BadRequestException("제공기록지 템플릿에 검토자(제공업체 확인) 지정이 없습니다.");
-                }
-                reviewerByTemplateId.set(templateId, reviewer);
-            }
-        }
-
-        const documentIds: string[] = [];
+        const documentIdsByChunk = new Map<number, string>();
         for (const chunk of chunks) {
             const existingDoc = existingByChunk.get(chunk.chunkIndex);
             const row = chunkRows.find((candidate) => candidate.chunkIndex === chunk.chunkIndex);
@@ -237,28 +219,65 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
 
             if (existingDoc) {
                 await this.markChunkCreated(row.id, existingDoc.documentId);
-                documentIds.push(existingDoc.documentId);
-                continue;
+                documentIdsByChunk.set(chunk.chunkIndex, existingDoc.documentId);
             }
-            const reviewer = reviewerByTemplateId.get(chunk.templateId);
-            if (!accessToken || !reviewer) {
-                throw new Error("Eformsign credentials were not initialized");
-            }
-
-            const documentId = await this.processChunk({
-                record,
-                chunk,
-                chunkId: row.id,
-                chunkStatus: row.status,
-                chunkAttempts: row.attempts,
-                chunkClaimedAt: row.claimedAt,
-                chunkCreateAttemptedAt: row.createAttemptedAt,
-                templateId: chunk.templateId,
-                accessToken,
-                reviewer,
-            });
-            documentIds.push(documentId);
         }
+
+        const missingChunks = chunks.filter((chunk) => !existingByChunk.has(chunk.chunkIndex));
+        if (missingChunks.length > 0) {
+            // The reviewer recipient must mirror each used template's pre-specified
+            // 제공업체 확인 step exactly. Both reviewer lookup and document creation
+            // happen inside the credential custody callback so no token escapes.
+            const createdDocumentIds = await this.credentialBoundary.withCredentials(
+                principal,
+                "contract.dispatch",
+                async ({ accessToken }) => {
+                    const reviewerByTemplateId = new Map<
+                        string,
+                        NonNullable<Awaited<ReturnType<IEformsignClientRepository["getTemplateReviewer"]>>>
+                    >();
+                    const neededTemplateIds = new Set(missingChunks.map((chunk) => chunk.templateId));
+                    for (const templateId of neededTemplateIds) {
+                        const reviewer = await this.eformsignClient.getTemplateReviewer(accessToken, templateId);
+                        if (!reviewer) {
+                            throw new BadRequestException("제공기록지 템플릿에 검토자(제공업체 확인) 지정이 없습니다.");
+                        }
+                        reviewerByTemplateId.set(templateId, reviewer);
+                    }
+
+                    const ids: string[] = [];
+                    for (const chunk of missingChunks) {
+                        const row = chunkRows.find((candidate) => candidate.chunkIndex === chunk.chunkIndex);
+                        if (!row) throw new Error(`Snapshot chunk ${chunk.chunkIndex} was not prepared`);
+                        const reviewer = reviewerByTemplateId.get(chunk.templateId);
+                        if (!reviewer) {
+                            throw new Error("Eformsign reviewer was not initialized");
+                        }
+                        ids.push(await this.processChunk({
+                            record,
+                            chunk,
+                            chunkId: row.id,
+                            chunkStatus: row.status,
+                            chunkAttempts: row.attempts,
+                            chunkClaimedAt: row.claimedAt,
+                            chunkCreateAttemptedAt: row.createAttemptedAt,
+                            templateId: chunk.templateId,
+                            accessToken,
+                            reviewer,
+                        }));
+                    }
+                    return ids;
+                },
+            );
+            missingChunks.forEach((chunk, index) => {
+                const documentId = createdDocumentIds[index];
+                if (documentId) documentIdsByChunk.set(chunk.chunkIndex, documentId);
+            });
+        }
+
+        const documentIds = chunks
+            .map((chunk) => documentIdsByChunk.get(chunk.chunkIndex))
+            .filter((documentId): documentId is string => Boolean(documentId));
 
         return {
             documentIds,

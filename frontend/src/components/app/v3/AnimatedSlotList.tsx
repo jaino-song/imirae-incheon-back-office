@@ -158,7 +158,9 @@ export function AnimatedSlotList<T>({
               data-component={itemDataComponent}
               className={cn(
                 shouldAnimateSlot && "animate-v3-pop-up",
-                "h-[calc(94px*var(--glint-ui-scale,1))] overflow-hidden px-[calc(16px*var(--glint-ui-scale,1))] py-[calc(16px*var(--glint-ui-scale,1))]",
+                // Mirror the real card chrome so a mid-load mix of skeleton and
+                // rendered rows reads as one list, not broken cards.
+                "flex h-[calc(94px*var(--glint-ui-scale,1))] items-center gap-[calc(12px*var(--glint-ui-scale,1))] overflow-hidden rounded-[18px] border-2 border-transparent bg-white p-[calc(16px*var(--glint-ui-scale,1))] text-left",
                 computedSlotClassName
               )}
               style={shouldAnimateSlot ? { animationDelay } : undefined}
@@ -167,7 +169,7 @@ export function AnimatedSlotList<T>({
                 data-component={
                   itemDataComponent ? `${itemDataComponent}_text-skeleton` : undefined
                 }
-                className="ml-[calc(56px*var(--glint-ui-scale,1))] max-w-[calc(220px*var(--glint-ui-scale,1))] space-y-[calc(8px*var(--glint-ui-scale,1))]"
+                className="ml-[calc(56px*var(--glint-ui-scale,1))] w-[calc(220px*var(--glint-ui-scale,1))] max-w-full space-y-[calc(8px*var(--glint-ui-scale,1))]"
               >
                 <Skeleton className="h-[calc(16px*var(--glint-ui-scale,1))] w-[calc(112px*var(--glint-ui-scale,1))] bg-v3-dim-white" />
                 <Skeleton className="h-[calc(12px*var(--glint-ui-scale,1))] w-full bg-v3-dim-white" />

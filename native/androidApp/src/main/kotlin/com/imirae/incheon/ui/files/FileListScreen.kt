@@ -107,7 +107,7 @@ fun FileListScreen(
                     items(items = uiState.files, key = { it.id }) { file ->
                         FileItemCard(
                             file = file,
-                            onOpenFile = { runCatching { uriHandler.openUri(file.url) } }
+                            onOpenFile = { file.storageUrl?.let { runCatching { uriHandler.openUri(it) } } }
                         )
                     }
                 }
@@ -122,8 +122,8 @@ private fun FileItemCard(
     onOpenFile: () -> Unit
 ) {
     val icon = when {
-        file.mimeType?.contains("pdf", ignoreCase = true) == true -> Icons.Default.PictureAsPdf
-        file.mimeType?.contains("image", ignoreCase = true) == true -> Icons.Default.Image
+        file.mimeType.contains("pdf", ignoreCase = true) -> Icons.Default.PictureAsPdf
+        file.mimeType.contains("image", ignoreCase = true) -> Icons.Default.Image
         else -> Icons.Default.InsertDriveFile
     }
 
@@ -150,9 +150,9 @@ private fun FileItemCard(
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold
                 )
-                if (!file.mimeType.isNullOrBlank()) {
+                if (file.mimeType.isNotBlank()) {
                     Text(
-                        text = file.mimeType ?: "",
+                        text = file.mimeType,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

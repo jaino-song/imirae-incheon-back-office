@@ -25,6 +25,10 @@ describe("EformsignWebhookController (Integration)", () => {
         | "markDocumentsDeleted"
     >>;
     const authHeader = { Authorization: "Bearer webhook-secret" };
+    const webhookPrincipal = {
+        branchId: "__system__:webhook",
+        source: "worker" as const,
+    };
 
     const payload: EformsignWebhookPayloadDto = {
         webhook_id: "webhook-1",
@@ -135,6 +139,7 @@ describe("EformsignWebhookController (Integration)", () => {
         expect(response.body).toEqual({ success: true });
         expect(documentMirrorService.syncDocument).toHaveBeenCalledWith(
             "doc-1",
+            webhookPrincipal,
             {
                 force: true,
                 skipBranchOwnedProjection: true,
@@ -294,6 +299,7 @@ describe("EformsignWebhookController (Integration)", () => {
         expect(webhookService.publishCompletionEvent).not.toHaveBeenCalled();
         expect(documentMirrorService.syncDocument).toHaveBeenCalledWith(
             "doc-1",
+            webhookPrincipal,
             {
                 force: true,
                 skipBranchOwnedProjection: true,
@@ -413,6 +419,7 @@ describe("EformsignWebhookController (Integration)", () => {
         expect(response.status).toBe(503);
         expect(documentMirrorService.syncDocument).toHaveBeenCalledWith(
             "doc-1",
+            webhookPrincipal,
             {
                 force: true,
                 skipBranchOwnedProjection: true,
@@ -437,6 +444,7 @@ describe("EformsignWebhookController (Integration)", () => {
         });
         expect(documentMirrorService.syncDocument).toHaveBeenCalledWith(
             "doc-1",
+            webhookPrincipal,
             {
                 force: true,
                 skipBranchOwnedProjection: true,
@@ -470,6 +478,7 @@ describe("EformsignWebhookController (Integration)", () => {
         );
         expect(documentMirrorService.syncDocument).toHaveBeenCalledWith(
             "doc-1",
+            webhookPrincipal,
             {
                 force: true,
                 skipBranchOwnedProjection: true,
@@ -500,6 +509,7 @@ describe("EformsignWebhookController (Integration)", () => {
         expect(response.status).toBe(200);
         expect(documentMirrorService.syncDocument).toHaveBeenCalledWith(
             "doc-1",
+            webhookPrincipal,
             {
                 force: true,
                 skipBranchOwnedProjection: true,

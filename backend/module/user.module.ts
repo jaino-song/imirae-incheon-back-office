@@ -16,6 +16,7 @@ import { USER_REPOSITORY } from "domain/repositories/user.repository.interface";
 import { DatabaseModule } from "infrastructure/database/database.module";
 import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 import { OwnerOnlyGuard } from "infrastructure/auth/owner-only.guard";
+import { AdminAuditEventWriter } from "application/services/admin-audit-event.service";
 
 @Module({
     imports: [DatabaseModule],
@@ -27,6 +28,7 @@ import { OwnerOnlyGuard } from "infrastructure/auth/owner-only.guard";
         UpdateUserUsecase,
         DeleteUserUsecase,
         UserService,
+        AdminAuditEventWriter,
         OwnerOrAdminGuard,
         OwnerOnlyGuard,
         {

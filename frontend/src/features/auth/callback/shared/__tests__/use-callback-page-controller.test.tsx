@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 
 import { useCallbackPageController } from "../use-callback-page-controller";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
 
 const mockReplace = jest.fn();
 const mockPush = jest.fn();
@@ -21,6 +22,12 @@ jest.mock("@/app/(auth)/callback/actions", () => ({
   exchangeToken: (code: string) => exchangeTokenMock(code),
 }));
 
+jest.mock("@/lib/auth/authority-state", () => ({
+  resetAuthorityState: jest.fn().mockResolvedValue(undefined),
+}));
+
+const mockedResetAuthorityState = jest.mocked(resetAuthorityState);
+
 // A probe so we can render the hook through `render(<StrictMode>...)`. Note:
 // `renderHook(..., { wrapper: <StrictMode> })` does NOT double-invoke the hook's
 // effect under React 19 — only `render()` inside a <StrictMode> element does,
@@ -32,6 +39,7 @@ function CallbackProbe() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockedResetAuthorityState.mockResolvedValue(undefined);
   searchParamValues = {};
 });
 
@@ -54,6 +62,7 @@ describe("useCallbackPageController", () => {
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith("/dashboard");
     });
+    expect(mockedResetAuthorityState).toHaveBeenCalled();
     expect(exchangeTokenMock).toHaveBeenCalledTimes(1);
   });
 

@@ -12,11 +12,14 @@ import {
     ListEmployeesByRegisteredDateUsecase,
     ListEmployeesByWorkAreaUsecase,
     ListActiveClientsByEmployeeUsecase,
+    ListWorkHistoryByEmployeeUsecase,
     ListEmployeesOpenToNextWorkUsecase,
     ListEmployeesUsecase,
     UpdateEmployeeUsecase,
 } from "application/usecases/employee";
 import { EMPLOYEE_REPOSITORY, IEmployeeRepository } from "domain/repositories/employee.repository.interface";
+import { MessageTriggerService } from "application/services/message-trigger.service";
+import { MessageAutomationIntentService } from "application/services/message-automation-intent.service";
 import { EmployeeFactory } from "../utils";
 
 describe("EmployeeService", () => {
@@ -39,6 +42,8 @@ describe("EmployeeService", () => {
     let changeOpenStatusUsecase: jest.Mocked<ChangeEmployeeOpenStatusUsecase>;
     let listOpenToNextWorkUsecase: jest.Mocked<ListEmployeesOpenToNextWorkUsecase>;
     let employeeRepository: jest.Mocked<Pick<IEmployeeRepository, "findByPhone">>;
+    let triggerService: jest.Mocked<Pick<MessageTriggerService, "syncEmployeeAssignmentRulesForEmployee">>;
+    let messageAutomationIntentService: jest.Mocked<Pick<MessageAutomationIntentService, "enqueueEmployeeProfileRefreshIntent">>;
 
     const branchId = "org-1";
 
@@ -57,6 +62,8 @@ describe("EmployeeService", () => {
         const mockChangeOpenStatusUsecase = { execute: jest.fn() };
         const mockListOpenToNextWorkUsecase = { execute: jest.fn() };
         const mockEmployeeRepository = { findByPhone: jest.fn() };
+        const mockTriggerService = { syncEmployeeAssignmentRulesForEmployee: jest.fn() };
+        const mockMessageAutomationIntentService = { enqueueEmployeeProfileRefreshIntent: jest.fn() };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -74,7 +81,10 @@ describe("EmployeeService", () => {
                 { provide: ChangeEmployeeOpenStatusUsecase, useValue: mockChangeOpenStatusUsecase },
                 { provide: ListEmployeesOpenToNextWorkUsecase, useValue: mockListOpenToNextWorkUsecase },
                 { provide: ListActiveClientsByEmployeeUsecase, useValue: { execute: jest.fn() } },
+                { provide: ListWorkHistoryByEmployeeUsecase, useValue: { execute: jest.fn() } },
                 { provide: EMPLOYEE_REPOSITORY, useValue: mockEmployeeRepository },
+                { provide: MessageTriggerService, useValue: mockTriggerService },
+                { provide: MessageAutomationIntentService, useValue: mockMessageAutomationIntentService },
             ],
         }).compile();
 
@@ -92,6 +102,8 @@ describe("EmployeeService", () => {
         changeOpenStatusUsecase = module.get(ChangeEmployeeOpenStatusUsecase);
         listOpenToNextWorkUsecase = module.get(ListEmployeesOpenToNextWorkUsecase);
         employeeRepository = module.get(EMPLOYEE_REPOSITORY);
+        triggerService = module.get(MessageTriggerService);
+        messageAutomationIntentService = module.get(MessageAutomationIntentService);
     });
 
     // ============================================
@@ -120,11 +132,42 @@ describe("EmployeeService", () => {
     // create
     // ============================================
     describe("create", () => {
+        it("rejects malformed phone before invoking the create usecase", async () => {
+            await expect(service.create(branchId, {
+                name: "잘못된 직원",
+                workArea: ["서울"],
+                phone: "not-a-phone",
+                grade: "베스트",
+                openToNextWork: true,
+            })).rejects.toThrow("valid Korean phone number");
+
+            expect(createUsecase.execute).not.toHaveBeenCalled();
+        });
+
         it("should map a branch phone unique conflict to 409", async () => {
             const error = new Prisma.PrismaClientKnownRequestError("duplicate", {
                 code: "P2002",
                 clientVersion: "test",
                 meta: { target: ["branch_id", "phone"] },
+            });
+            createUsecase.execute.mockRejectedValue(error);
+
+            await expect(service.create(branchId, {
+                name: "중복 직원",
+                workArea: ["서울"],
+                phone: "010-1234-5678",
+                grade: "베스트",
+                openToNextWork: true,
+            })).rejects.toMatchObject({
+                status: 409,
+                response: { statusCode: 409, code: "P2002", error: "Conflict", field: "phone" },
+            });
+        });
+        it("should map the canonical phone constraint name to 409", async () => {
+            const error = new Prisma.PrismaClientKnownRequestError("duplicate", {
+                code: "P2002",
+                clientVersion: "test",
+                meta: { target: "employee_branch_id_phone_normalized_key" },
             });
             createUsecase.execute.mockRejectedValue(error);
 
@@ -259,11 +302,32 @@ describe("EmployeeService", () => {
     // update
     // ============================================
     describe("update", () => {
+        it("rejects malformed phone before invoking the update usecase or refresh", async () => {
+            await expect(service.update(branchId, 1, { phone: "not-a-phone" }))
+                .rejects.toThrow("valid Korean phone number");
+
+            expect(updateUsecase.execute).not.toHaveBeenCalled();
+            expect(triggerService.syncEmployeeAssignmentRulesForEmployee).not.toHaveBeenCalled();
+        });
+
         it("should map a branch phone unique conflict to 409", async () => {
             const error = new Prisma.PrismaClientKnownRequestError("duplicate", {
                 code: "P2002",
                 clientVersion: "test",
                 meta: { target: ["branchId", "phone"] },
+            });
+            updateUsecase.execute.mockRejectedValue(error);
+
+            await expect(service.update(branchId, 3, { phone: "010-1234-5678" })).rejects.toMatchObject({
+                status: 409,
+                response: { statusCode: 409, code: "P2002", error: "Conflict", field: "phone" },
+            });
+        });
+        it("should map a canonical phone field conflict to 409", async () => {
+            const error = new Prisma.PrismaClientKnownRequestError("duplicate", {
+                code: "P2002",
+                clientVersion: "test",
+                meta: { target: ["branchId", "phoneNormalized"] },
             });
             updateUsecase.execute.mockRejectedValue(error);
 
@@ -287,6 +351,106 @@ describe("EmployeeService", () => {
             // Assert
             expect(updateUsecase.execute).toHaveBeenCalledWith(branchId, 3, updateParams);
             expect(result).toBe(mockEmployee);
+        });
+
+        it.each([
+            ["name", { name: "새 직원 이름" }],
+            ["phone", { phone: "010-1111-2222" }],
+        ])("should refresh assignment jobs when %s changes", async (_field, updateParams) => {
+            const existingEmployee = EmployeeFactory.create({ id: 3 });
+            const updatedEmployee = EmployeeFactory.create({ id: 3, ...updateParams });
+            findByIdUsecase.execute.mockResolvedValue(existingEmployee);
+            updateUsecase.execute.mockResolvedValue(updatedEmployee);
+
+            await service.update(branchId, existingEmployee.id, updateParams);
+
+            expect(triggerService.syncEmployeeAssignmentRulesForEmployee).toHaveBeenCalledTimes(1);
+            expect(triggerService.syncEmployeeAssignmentRulesForEmployee).toHaveBeenCalledWith(
+                branchId,
+                existingEmployee.id,
+            );
+        });
+
+        it("persists an employee refresh intent when immediate assignment refresh is retryable", async () => {
+            const existingEmployee = EmployeeFactory.create({ id: 3, name: "기존 직원" });
+            const updatedEmployee = EmployeeFactory.create({ id: 3, name: "새 직원 이름" });
+            findByIdUsecase.execute.mockResolvedValue(existingEmployee);
+            updateUsecase.execute.mockResolvedValue(updatedEmployee);
+            triggerService.syncEmployeeAssignmentRulesForEmployee.mockResolvedValue(false);
+
+            await expect(service.update(branchId, existingEmployee.id, { name: updatedEmployee.name }))
+                .resolves.toBe(updatedEmployee);
+
+            expect(messageAutomationIntentService.enqueueEmployeeProfileRefreshIntent)
+                .toHaveBeenCalledWith({ branchId, employeeId: existingEmployee.id });
+        });
+
+        it("keeps the profile update successful and persists an intent when immediate refresh throws", async () => {
+            const existingEmployee = EmployeeFactory.create({ id: 3, name: "기존 직원" });
+            const updatedEmployee = EmployeeFactory.create({ id: 3, name: "새 직원 이름" });
+            const refreshError = new Error("assignment refresh unavailable");
+            findByIdUsecase.execute.mockResolvedValue(existingEmployee);
+            updateUsecase.execute.mockResolvedValue(updatedEmployee);
+            triggerService.syncEmployeeAssignmentRulesForEmployee.mockRejectedValue(refreshError);
+
+            await expect(service.update(branchId, existingEmployee.id, { name: updatedEmployee.name }))
+                .resolves.toBe(updatedEmployee);
+
+            expect(messageAutomationIntentService.enqueueEmployeeProfileRefreshIntent)
+                .toHaveBeenCalledWith({ branchId, employeeId: existingEmployee.id });
+        });
+
+        it("does not enqueue an intent after an immediate assignment refresh succeeds", async () => {
+            const existingEmployee = EmployeeFactory.create({ id: 3, name: "기존 직원" });
+            const updatedEmployee = EmployeeFactory.create({ id: 3, name: "새 직원 이름" });
+            findByIdUsecase.execute.mockResolvedValue(existingEmployee);
+            updateUsecase.execute.mockResolvedValue(updatedEmployee);
+            triggerService.syncEmployeeAssignmentRulesForEmployee.mockResolvedValue(true);
+
+            await service.update(branchId, existingEmployee.id, { name: updatedEmployee.name });
+
+            expect(messageAutomationIntentService.enqueueEmployeeProfileRefreshIntent).not.toHaveBeenCalled();
+        });
+
+        it("does not fail the profile update when intent persistence itself is unavailable", async () => {
+            const existingEmployee = EmployeeFactory.create({ id: 3, name: "기존 직원" });
+            const updatedEmployee = EmployeeFactory.create({ id: 3, name: "새 직원 이름" });
+            findByIdUsecase.execute.mockResolvedValue(existingEmployee);
+            updateUsecase.execute.mockResolvedValue(updatedEmployee);
+            triggerService.syncEmployeeAssignmentRulesForEmployee.mockResolvedValue(false);
+            messageAutomationIntentService.enqueueEmployeeProfileRefreshIntent.mockRejectedValue(
+                new Error("intent store unavailable"),
+            );
+
+            await expect(service.update(branchId, existingEmployee.id, { name: updatedEmployee.name }))
+                .resolves.toBe(updatedEmployee);
+        });
+
+        it("should not refresh assignment jobs when name and phone are omitted", async () => {
+            const existingEmployee = EmployeeFactory.create({ id: 3 });
+            findByIdUsecase.execute.mockResolvedValue(existingEmployee);
+            updateUsecase.execute.mockResolvedValue(EmployeeFactory.create({ id: 3, grade: "스탠다드" }));
+
+            await service.update(branchId, existingEmployee.id, { grade: "스탠다드" });
+
+            expect(triggerService.syncEmployeeAssignmentRulesForEmployee).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            ["name", { name: "Test Employee" }],
+            ["phone", { phone: "010-9876-5432" }],
+        ])("should refresh assignment jobs when %s matches the stale snapshot", async (_field, updateParams) => {
+            const existingEmployee = EmployeeFactory.create({ id: 3 });
+            findByIdUsecase.execute.mockResolvedValue(existingEmployee);
+            updateUsecase.execute.mockResolvedValue(existingEmployee);
+
+            await service.update(branchId, existingEmployee.id, updateParams);
+
+            expect(triggerService.syncEmployeeAssignmentRulesForEmployee).toHaveBeenCalledTimes(1);
+            expect(triggerService.syncEmployeeAssignmentRulesForEmployee).toHaveBeenCalledWith(
+                branchId,
+                existingEmployee.id,
+            );
         });
 
         it("should handle partial update params", async () => {

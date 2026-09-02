@@ -1,5 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { ExecutionContext, INestApplication, ValidationPipe } from "@nestjs/common";
+import { ExecutionContext, INestApplication } from "@nestjs/common";
 import request from "supertest";
 import { AreaTemplateController } from "interface/controllers/area-template.controller";
 import { AreaTemplateService } from "application/services/area-template.service";
@@ -9,6 +9,7 @@ import {
 } from "domain/entities/area-template.entity";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { TenantGuard } from "infrastructure/tenant/tenant.guard";
+import { GlobalValidationPipe } from "infrastructure/pipes/global-validation.pipe";
 
 describe("AreaTemplateController (Integration)", () => {
     // ============================================
@@ -79,7 +80,13 @@ describe("AreaTemplateController (Integration)", () => {
             .compile();
 
         app = moduleFixture.createNestApplication();
-        app.useGlobalPipes(new ValidationPipe({ transform: true }));
+        app.useGlobalPipes(
+            new GlobalValidationPipe({
+                whitelist: true,
+                forbidNonWhitelisted: true,
+                transform: true,
+            }),
+        );
         await app.init();
 
         areaTemplateService = moduleFixture.get(AreaTemplateService);
@@ -187,6 +194,55 @@ describe("AreaTemplateController (Integration)", () => {
                 expect(response.status).toBe(201);
                 expect(areaTemplateService.create).toHaveBeenCalled();
             });
+        });
+
+        describe("given invalid request data", () => {
+            it("should reject a missing templateId before calling the service", async () => {
+                const response = await request(app.getHttpServer())
+                    .post("/area-templates")
+                    .send({ area: "Seoul" });
+
+                expect(response.status).toBe(400);
+                expect(areaTemplateService.create).not.toHaveBeenCalled();
+            });
+
+            it.each(["", "   "])(
+                "should reject an empty templateId (%j) before calling the service",
+                async (templateId) => {
+                    const response = await request(app.getHttpServer())
+                        .post("/area-templates")
+                        .send({ area: "Seoul", templateId });
+
+                    expect(response.status).toBe(400);
+                    expect(areaTemplateService.create).not.toHaveBeenCalled();
+                },
+            );
+
+            it("should reject undeclared fields before calling the service", async () => {
+                const response = await request(app.getHttpServer())
+                    .post("/area-templates")
+                    .send({ area: "Seoul", templateId: "valid-template", unexpected: "value" });
+
+                expect(response.status).toBe(400);
+                expect(areaTemplateService.create).not.toHaveBeenCalled();
+            });
+        });
+
+        it("should trim a valid templateId before passing it to the service", async () => {
+            areaTemplateService.create.mockResolvedValue(createMockAreaTemplate());
+
+            const response = await request(app.getHttpServer())
+                .post("/area-templates")
+                .send({ area: "Seoul", templateId: "  valid-template  " });
+
+            expect(response.status).toBe(201);
+            expect(areaTemplateService.create).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({
+                    area: "Seoul",
+                    templateId: "valid-template",
+                }),
+            );
         });
     });
 
@@ -413,6 +469,47 @@ describe("AreaTemplateController (Integration)", () => {
                     }),
                 );
             });
+        });
+
+        describe("given invalid update data", () => {
+            it.each(["", "   "])(
+                "should reject an empty templateId (%j) before calling the service",
+                async (templateId) => {
+                    const response = await request(app.getHttpServer())
+                        .patch("/area-templates")
+                        .query({ area: "Seoul" })
+                        .send({ templateId });
+
+                    expect(response.status).toBe(400);
+                    expect(areaTemplateService.update).not.toHaveBeenCalled();
+                },
+            );
+
+            it("should reject undeclared fields before calling the service", async () => {
+                const response = await request(app.getHttpServer())
+                    .patch("/area-templates")
+                    .query({ area: "Seoul" })
+                    .send({ templateId: "valid-template", unexpected: "value" });
+
+                expect(response.status).toBe(400);
+                expect(areaTemplateService.update).not.toHaveBeenCalled();
+            });
+        });
+
+        it("should trim a valid templateId before passing it to the service", async () => {
+            areaTemplateService.update.mockResolvedValue(createMockAreaTemplate());
+
+            const response = await request(app.getHttpServer())
+                .patch("/area-templates")
+                .query({ area: "Seoul" })
+                .send({ templateId: "  valid-template  " });
+
+            expect(response.status).toBe(200);
+            expect(areaTemplateService.update).toHaveBeenCalledWith(
+                expect.any(String),
+                "Seoul",
+                expect.objectContaining({ templateId: "valid-template" }),
+            );
         });
     });
 

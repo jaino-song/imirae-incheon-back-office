@@ -29,7 +29,7 @@ describe("ClientRegistrationPolicySettings", () => {
     renderSettings();
     const greeting = await screen.findByRole("switch", { name: "자동 등록 시 인사 문자 발송" });
     await waitFor(() => {
-      expect(screen.getByRole("switch", { name: "전자문서 생성 시 고객 자동 등록" })).toBeChecked();
+      expect(screen.getByRole("switch", { name: "eformsign 계약서 도착 시 고객 자동 등록" })).toBeChecked();
       expect(greeting).not.toBeDisabled();
     });
     fireEvent.click(greeting);
@@ -42,7 +42,7 @@ describe("ClientRegistrationPolicySettings", () => {
   it("rolls an optimistic switch update back when saving fails", async () => {
     mockedSettingsApi.updateClientRegistrationPolicy.mockRejectedValueOnce(new Error("failed"));
     renderSettings();
-    const autoRegistration = await screen.findByRole("switch", { name: "전자문서 생성 시 고객 자동 등록" });
+    const autoRegistration = await screen.findByRole("switch", { name: "eformsign 계약서 도착 시 고객 자동 등록" });
     await waitFor(() => expect(autoRegistration).toBeChecked());
 
     fireEvent.click(autoRegistration);

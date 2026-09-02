@@ -534,9 +534,8 @@ export function buildEformsignStubPdf(documentId: string, fileType: "document" |
 }
 
 export class E2eEformsignClientStub implements IEformsignClientRepository {
-    getAccessToken(executionTime: number, memberEmail?: string): Promise<EformsignTokenResponse> {
+    getAccessToken(executionTime: number): Promise<EformsignTokenResponse> {
         void executionTime;
-        void memberEmail;
         return Promise.resolve(buildEformsignStubTokenResponse());
     }
 

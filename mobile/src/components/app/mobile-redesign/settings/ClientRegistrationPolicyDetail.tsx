@@ -48,19 +48,19 @@ export function ClientRegistrationPolicyDetail({
             data-component={sub("client-auto-registration_copy_label")}
             className="text-[calc(0.78rem*var(--glint-ui-scale,1))] font-bold leading-[calc(1.08rem*var(--glint-ui-scale,1))] text-v3-dark"
           >
-            전자문서 생성 시 고객 자동 등록
+            eformsign 계약서 도착 시 고객 자동 등록
           </span>
           <span
             data-component={sub("client-auto-registration_copy_description")}
             className="text-[calc(0.66rem*var(--glint-ui-scale,1))] leading-[calc(0.98rem*var(--glint-ui-scale,1))] text-v3-text-muted"
           >
-            계약서 전자문서를 만들면 산모를 고객 목록에 자동으로 등록합니다.
+            eformsign 계약서가 도착하거나 완결되면 산모를 고객 목록에 자동으로 등록합니다.
           </span>
         </div>
         <Switch
           data-component={sub("client-auto-registration_switch")}
           thumbDataComponent={sub("client-auto-registration_switch_thumb")}
-          aria-label="전자문서 생성 시 고객 자동 등록"
+          aria-label="eformsign 계약서 도착 시 고객 자동 등록"
           checked={policy?.clientAutoRegistration === true}
           disabled={switchesDisabled || !policy}
           className="[--v3-ui-scale:var(--glint-ui-scale,1)]"

@@ -1,9 +1,13 @@
 import { BadRequestException, ConflictException } from "@nestjs/common";
 
-import { normalizePhone } from "application/utils/normalize-phone";
+import { assertValidPhone, normalizePhone } from "application/utils/normalize-phone";
 import { ClientEntity } from "domain/entities/client.entity";
 import { IClientRepository } from "domain/repositories/client.repository.interface";
 import { isServiceStatus, SERVICE_STATUS_VALUES } from "domain/value-objects/service-status.vo";
+import {
+    countBusinessDaysKr,
+    UnsupportedKoreanHolidayYearError,
+} from "domain/utils/business-days";
 
 interface AreaLookup {
     area: {
@@ -32,6 +36,18 @@ export interface ClientPhoneMatch {
     existingClient: ClientEntity | null;
 }
 
+/** Validate a client write before any lookup or side effect. */
+export function assertClientPhoneInput(phone: string | null | undefined): string | null {
+    try {
+        return assertValidPhone(phone);
+    } catch (error) {
+        if (error instanceof Error && error.name === "InvalidPhoneError") {
+            throw new BadRequestException("Phone number must be a valid Korean phone number");
+        }
+        throw error;
+    }
+}
+
 /**
  * Parse a client calendar date without allowing timezone offsets to change
  * the submitted day. Client date columns are calendar dates, not instants.
@@ -39,12 +55,68 @@ export interface ClientPhoneMatch {
 export function parseClientDate(value: string | null | undefined): Date | null | undefined {
     if (value === undefined || value === null) return value;
 
+    if (!/^\d{4}-\d{2}-\d{2}(?:$|T)/.test(value)) {
+        throw new BadRequestException("Invalid calendar date");
+    }
+
     const calendarDate = value.slice(0, 10);
     const parsed = new Date(`${calendarDate}T00:00:00.000Z`);
     if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== calendarDate) {
         throw new BadRequestException("Invalid calendar date");
     }
     return parsed;
+}
+
+/**
+ * Derive a client's persisted duration from its authoritative calendar dates.
+ * The count is inclusive and skips Korean weekends/holidays exactly as the
+ * service-record lifecycle does. A missing endpoint remains nullable for
+ * pre-booking clients that do not yet have a complete service period.
+ */
+export function deriveClientDuration(
+    startDate: Date | null | undefined,
+    endDate: Date | null | undefined,
+): number | null {
+    if (!startDate || !endDate) return null;
+    if (
+        Number.isNaN(startDate.getTime())
+        || Number.isNaN(endDate.getTime())
+        || startDate.getTime() > endDate.getTime()
+    ) {
+        throw new BadRequestException("서비스 시작일은 종료일보다 늦을 수 없습니다.");
+    }
+
+    try {
+        const duration = countBusinessDaysKr(
+            startDate.toISOString().slice(0, 10),
+            endDate.toISOString().slice(0, 10),
+        );
+        if (duration === null) {
+            throw new BadRequestException("서비스 기간을 계산할 수 없습니다.");
+        }
+        return duration;
+    } catch (error) {
+        if (error instanceof UnsupportedKoreanHolidayYearError) {
+            throw new BadRequestException(error.message);
+        }
+        throw error;
+    }
+}
+
+/** Reject a caller-provided duration that disagrees with authoritative dates. */
+export function assertClientDurationMatchesDates(
+    suppliedDuration: number | null | undefined,
+    derivedDuration: number | null,
+): void {
+    // Undefined means the caller omitted duration. Null is an explicit clear
+    // and is only valid while no complete date range exists; once both dates
+    // are present, every supplied value must equal the derived count.
+    if (suppliedDuration === undefined || derivedDuration === null) return;
+    if (suppliedDuration === null || !Number.isSafeInteger(suppliedDuration) || suppliedDuration !== derivedDuration) {
+        throw new BadRequestException(
+            `duration must equal the Korean business-day count (${derivedDuration}) for the submitted service period`,
+        );
+    }
 }
 
 /**
@@ -129,7 +201,10 @@ export async function assertPhoneAvailable(
     phone: string | null | undefined,
     currentClientId?: number,
 ): Promise<string | null> {
-    const { normalizedPhone, existingClient } = await findClientByNormalizedPhone(repository, branchId, phone);
+    const normalizedPhone = assertClientPhoneInput(phone);
+    const existingClient = normalizedPhone
+        ? await repository.findByPhone(branchId, normalizedPhone)
+        : null;
     if (existingClient && existingClient.id !== currentClientId) {
         throw new ConflictException({
             statusCode: 409,

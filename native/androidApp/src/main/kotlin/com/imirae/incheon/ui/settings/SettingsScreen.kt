@@ -141,7 +141,7 @@ fun SettingsScreen(
 
                     SettingsSelectionCard(
                         title = "언어",
-                        subtitle = "앱에서 사용할 언어를 선택합니다",
+                        subtitle = "현재 백엔드 미지원 · 이 기기에서만 적용됩니다",
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Language,
@@ -153,12 +153,13 @@ fun SettingsScreen(
                         options = listOf("ko" to "한국어", "en" to "English"),
                         selectedValue = language,
                         onSelect = { language = it },
-                        optionTagPrefix = "settings-language-option"
+                        optionTagPrefix = "settings-language-option",
+                        enabled = false,
                     )
 
                     SettingsSelectionCard(
                         title = "테마",
-                        subtitle = "앱 테마를 선택합니다",
+                        subtitle = "현재 백엔드 미지원 · 이 기기에서만 적용됩니다",
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Palette,
@@ -170,7 +171,8 @@ fun SettingsScreen(
                         options = listOf("light" to "라이트", "dark" to "다크", "system" to "시스템"),
                         selectedValue = theme,
                         onSelect = { theme = it },
-                        optionTagPrefix = "settings-theme-option"
+                        optionTagPrefix = "settings-theme-option",
+                        enabled = false,
                     )
 
                     Row(
@@ -310,7 +312,8 @@ private fun SettingsSelectionCard(
     options: List<Pair<String, String>>,
     selectedValue: String,
     onSelect: (String) -> Unit,
-    optionTagPrefix: String
+    optionTagPrefix: String,
+    enabled: Boolean = true,
 ) {
     Card(
         shape = RoundedCornerShape(DesignTokens.Radius.md),
@@ -350,6 +353,7 @@ private fun SettingsSelectionCard(
                     FilterChip(
                         selected = value == selectedValue,
                         onClick = { onSelect(value) },
+                        enabled = enabled,
                         label = { Text(label) },
                         modifier = Modifier.testTag("$optionTagPrefix-$value")
                     )

@@ -1,3 +1,5 @@
+import { normalizeKoreanWon } from "domain/value-objects/money.vo";
+
 interface ClientPricingInput {
     voucherClient: boolean;
     type: string | null;
@@ -17,16 +19,16 @@ export function normalizeClientPricing(input: ClientPricingInput): ClientPricing
     if (input.voucherClient) {
         return {
             type: input.type,
-            fullPrice: input.fullPrice,
-            grant: input.grant,
-            actualPrice: input.actualPrice,
+            fullPrice: normalizeKoreanWon(input.fullPrice),
+            grant: normalizeKoreanWon(input.grant),
+            actualPrice: normalizeKoreanWon(input.actualPrice),
         };
     }
 
     return {
         type: null,
-        fullPrice: input.fullPrice,
+        fullPrice: normalizeKoreanWon(input.fullPrice),
         grant: "0",
-        actualPrice: input.fullPrice,
+        actualPrice: normalizeKoreanWon(input.fullPrice),
     };
 }

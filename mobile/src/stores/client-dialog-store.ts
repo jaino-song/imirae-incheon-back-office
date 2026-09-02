@@ -29,6 +29,7 @@ interface ClientDialogStore {
   setPrefillClient: (client: ClientWizardPrefill) => void;
   clearPrefillName: () => void;
   clearPrefillClient: () => void;
+  reset: () => void;
 }
 
 export const useClientDialogStore = create<ClientDialogStore>((set) => ({
@@ -38,4 +39,5 @@ export const useClientDialogStore = create<ClientDialogStore>((set) => ({
   setPrefillClient: (client) => set({ prefillClient: client }),
   clearPrefillName: () => set({ prefillName: "" }),
   clearPrefillClient: () => set({ prefillClient: null }),
+  reset: () => set({ prefillName: "", prefillClient: null }),
 }));

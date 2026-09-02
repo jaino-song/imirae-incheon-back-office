@@ -8,7 +8,13 @@ import {
     TRIGGER_JOB_RETRY_DELAY_MS,
 } from "domain/constants/message-automation-policy";
 
-export type MessageTriggerJobStatus = "pending" | "processing" | "sent" | "failed" | "canceled";
+export type MessageTriggerJobStatus =
+    | "pending"
+    | "processing"
+    | "dispatching"
+    | "sent"
+    | "failed"
+    | "canceled";
 
 export interface MessageTriggerCatchUpMetadata {
     batchId: string;
@@ -23,6 +29,12 @@ export interface MessageTriggerJobPayload {
     clientName?: string | null;
     employeeId?: number | null;
     employeeName?: string | null;
+    /**
+     * Hash of the schedule and assignment source used to build an employee
+     * assignment job. It is intentionally opaque so address data is not
+     * duplicated into the dispatch payload.
+     */
+    employeeScheduleFingerprint?: string;
     memberId: string;
     recipientName: string;
     recipientPhone: string;
@@ -53,6 +65,8 @@ export class MessageTriggerJobEntity {
         public nextAttemptAt: Date | null,
         public createdAt: Date,
         public updatedAt: Date,
+        /** Immutable token for the currently claimed processing attempt. */
+        public claimToken: string | null = null,
     ) {}
 
     static create(params: {
@@ -88,6 +102,7 @@ export class MessageTriggerJobEntity {
             null,
             now,
             now,
+            null,
         );
     }
 
@@ -111,6 +126,7 @@ export class MessageTriggerJobEntity {
         updatedAt: Date,
         attempts = 0,
         nextAttemptAt: Date | null = null,
+        claimToken: string | null = null,
     ): MessageTriggerJobEntity {
         return new MessageTriggerJobEntity(
             id,
@@ -132,11 +148,26 @@ export class MessageTriggerJobEntity {
             nextAttemptAt,
             createdAt,
             updatedAt,
+            claimToken,
         );
     }
 
-    markProcessing(): void {
+    markProcessing(claimToken?: string | null): void {
         this.status = "processing";
+        if (claimToken !== undefined) {
+            this.claimToken = claimToken;
+        }
+        this.updatedAt = new Date();
+    }
+
+    /**
+     * The dispatching state is an irreversible authorization boundary. Once a
+     * claim reaches it, the provider path may open its own database connection
+     * without holding the claim row lock; terminal completion remains fenced
+     * by the immutable claim token.
+     */
+    markDispatchAuthorized(): void {
+        this.status = "dispatching";
         this.updatedAt = new Date();
     }
 

@@ -55,12 +55,14 @@ export class NotificationController {
      * Subscribe to push notifications
      */
     @Post("subscribe")
-    @UseGuards(JwtGuard)
+    @UseGuards(JwtGuard, TenantGuard)
     async subscribe(
+        @CurrentTenant() tenant: { branchId?: string },
         @Request() req: { user: JwtPayload },
         @Body() dto: SubscribePushDto,
     ): Promise<{ success: boolean }> {
         await this.notificationService.subscribePush(
+            tenant.branchId ?? "",
             req.user.userId,
             dto.endpoint,
             dto.p256dh,
@@ -74,9 +76,13 @@ export class NotificationController {
      * Unsubscribe from push notifications
      */
     @Post("unsubscribe")
-    @UseGuards(JwtGuard)
-    async unsubscribe(@Body() dto: UnsubscribePushDto): Promise<{ success: boolean }> {
-        await this.notificationService.unsubscribePush(dto.endpoint);
+    @UseGuards(JwtGuard, TenantGuard)
+    async unsubscribe(
+        @CurrentTenant() tenant: { branchId?: string },
+        @Request() req: { user: JwtPayload },
+        @Body() dto: UnsubscribePushDto,
+    ): Promise<{ success: boolean }> {
+        await this.notificationService.unsubscribePush(tenant.branchId ?? "", req.user.userId, dto.endpoint);
         return { success: true };
     }
 
@@ -178,9 +184,11 @@ export class NotificationController {
     @Post("broadcast")
     @UseGuards(JwtGuard, TenantGuard, OwnerOrAdminGuard)
     async broadcastNotification(
+        @CurrentTenant() tenant: { branchId?: string },
         @Body() dto: BroadcastNotificationDto,
     ): Promise<BroadcastResultResponseDto> {
         return this.notificationService.broadcastNotification(
+            tenant.branchId ?? "",
             dto.title,
             dto.body,
             dto.data,
@@ -193,11 +201,14 @@ export class NotificationController {
      */
     @Post("test-broadcast")
     @UseGuards(JwtGuard, TenantGuard, OwnerOrAdminGuard)
-    async testBroadcast(): Promise<BroadcastResultResponseDto> {
+    async testBroadcast(
+        @CurrentTenant() tenant: { branchId?: string },
+    ): Promise<BroadcastResultResponseDto> {
         if (this.configService.get('NODE_ENV') === 'production') {
             throw new ForbiddenException('Test endpoint disabled in production');
         }
         return this.notificationService.broadcastNotification(
+            tenant.branchId ?? "",
             "🎉 테스트 알림",
             "PWA 푸시 알림이 정상 작동합니다!",
             { url: "/clients", timestamp: new Date().toISOString() },

@@ -19,12 +19,14 @@ export class ChatSessionMapper {
             messages,
             row.createdAt,
             row.expiresAt,
+            row.branchId,
         );
     }
 
     static toPrismaCreate(entity: ChatSessionEntity) {
         return {
             userId: entity.userId,
+            branchId: entity.branchId,
             expiresAt: entity.expiresAt,
         };
     }

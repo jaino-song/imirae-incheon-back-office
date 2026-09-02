@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import {
     removeById,
@@ -20,7 +20,7 @@ export interface Employee {
     phone: string;
     grade: string;
     openToNextWork: boolean;
-    registeredDate: string;
+    registeredDate: string | null;
     status: EmployeeStatus;
     birthday?: string;
 }
@@ -52,6 +52,24 @@ export interface EmployeeActiveClient {
     serviceStatus: string;
 }
 
+export interface EmployeeWorkHistoryEntry {
+    scheduleId: number;
+    clientId: number;
+    clientName: string;
+    role: "primary" | "secondary";
+    startDate: string;
+    endDate: string;
+    status: "completed" | "replaced";
+}
+
+export interface PaginatedEmployeeWorkHistory {
+    data: EmployeeWorkHistoryEntry[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+}
+
 // Query key factory pattern
 export const employeeQueryKeys = {
     all: ["employees"] as const,
@@ -60,6 +78,7 @@ export const employeeQueryKeys = {
     details: () => [...employeeQueryKeys.all, "detail"] as const,
     detail: (id: number) => [...employeeQueryKeys.details(), id] as const,
     activeClients: (id: number) => [...employeeQueryKeys.detail(id), "active-clients"] as const,
+    workHistory: (id: number) => [...employeeQueryKeys.detail(id), "work-history"] as const,
 };
 
 // Fetch all employees
@@ -91,6 +110,33 @@ export function useEmployeeActiveClients(employeeId: number) {
         enabled: employeeId > 0,
         staleTime: 1000 * 60 * 5,
     });
+}
+
+export function useEmployeeWorkHistory(employeeId: number, limit = 20) {
+    const query = useInfiniteQuery<PaginatedEmployeeWorkHistory>({
+        queryKey: [...employeeQueryKeys.workHistory(employeeId), limit],
+        queryFn: async ({ pageParam }) => {
+            const { data } = await api.get<PaginatedEmployeeWorkHistory>(
+                `/employees/${employeeId}/work-history?page=${pageParam}&limit=${limit}`,
+            );
+            return data;
+        },
+        initialPageParam: 1,
+        getNextPageParam: (lastPage) => (
+            lastPage.page < lastPage.totalPages ? lastPage.page + 1 : undefined
+        ),
+        enabled: Number.isFinite(employeeId) && employeeId > 0,
+        staleTime: 1000 * 60 * 5,
+    });
+
+    const history = query.data?.pages.flatMap((pageData) => pageData.data ?? []) ?? [];
+    const total = query.data?.pages.at(-1)?.total ?? history.length;
+
+    return {
+        ...query,
+        history,
+        total,
+    };
 }
 
 // Create employee

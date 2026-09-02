@@ -40,7 +40,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function authenticateOnce(memberEmail?: string): Promise<void> {
+async function authenticateOnce(): Promise<void> {
   if (!inFlightAuthentication) {
     const executionTime = Date.now();
 
@@ -49,7 +49,10 @@ async function authenticateOnce(memberEmail?: string): Promise<void> {
 
       for (let attempt = 0; attempt <= MAX_AUTH_RETRIES; attempt++) {
         try {
-          await eformsignApi.authenticate(executionTime, memberEmail);
+          const authStatus = await eformsignApi.getAuthStatus();
+          if (!authStatus.hasAppAuthToken) {
+            throw new Error("Authentication required");
+          }
           safeStorageSetItem("session", "eformsign_auth_time", executionTime.toString());
           return;
         } catch (err) {
@@ -153,7 +156,7 @@ export function useEformsignAuth(
       }
 
       const authStatus = await eformsignApi.getAuthStatus();
-      if (authStatus.hasAppAuthToken && authStatus.hasAccessToken) {
+      if (authStatus.hasAppAuthToken) {
         setIsAuthenticated(true);
         return;
       }

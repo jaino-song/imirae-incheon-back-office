@@ -1,5 +1,6 @@
 package com.imirae.incheon.network
 
+import com.imirae.incheon.logging.SafeLogger
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.*
@@ -14,22 +15,49 @@ import kotlinx.coroutines.delay
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 
+internal fun privacySafeKtorLogger(): Logger = object : Logger {
+    override fun log(message: String) {
+        // Ktor supplies a formatted request/response string here. Never pass
+        // that string onward: it can contain headers or payload text.
+        SafeLogger.debug("network.request")
+    }
+}
+
 interface TokenProvider {
     suspend fun getAccessToken(): String?
     suspend fun refreshToken(): String?
 }
 
 class ApiClient(
-    private val baseUrl: String = "http://10.0.2.2:3001",
+    private val baseUrl: String,
     private val tokenProviderLazy: Lazy<TokenProvider?> = lazy { null },
     val rateLimitHandler: RateLimitHandler = RateLimitHandler(),
 ) {
-    private val tokenProvider: TokenProvider? get() = tokenProviderLazy.value
+    /** Convenience constructor for Swift, which cannot construct Kotlin Lazy values directly. */
+    constructor(baseUrl: String, tokenProvider: TokenProvider?) : this(
+        baseUrl = baseUrl,
+        tokenProviderLazy = lazy { tokenProvider },
+    )
+
+    @PublishedApi
+    internal val tokenProvider: TokenProvider? get() = tokenProviderLazy.value
     val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
 
     val httpClient = HttpClient(platformEngine()) {
         install(ContentNegotiation) { json(this@ApiClient.json) }
-        install(Logging) { level = LogLevel.HEADERS }
+        install(Logging) {
+            // INFO retains request/response lifecycle visibility without asking
+            // Ktor to inspect headers. The callback intentionally discards the
+            // raw Ktor message and emits only a local structured debug event.
+            level = LogLevel.INFO
+            sanitizeHeader { header ->
+                header.equals(HttpHeaders.Authorization, ignoreCase = true) ||
+                    header.equals(HttpHeaders.Cookie, ignoreCase = true) ||
+                    header.equals("Set-Cookie", ignoreCase = true) ||
+                    header.equals("X-API-Key", ignoreCase = true)
+            }
+            logger = privacySafeKtorLogger()
+        }
         install(HttpTimeout) { requestTimeoutMillis = 30_000; connectTimeoutMillis = 10_000 }
         defaultRequest { url(baseUrl); contentType(ContentType.Application.Json) }
     }
@@ -37,8 +65,9 @@ class ApiClient(
     suspend inline fun <reified T> get(
         path: String,
         endpointCategory: EndpointCategory = if (path.startsWith("/auth")) EndpointCategory.AUTH else EndpointCategory.READ_HEAVY,
+        retryOnUnauthorized: Boolean = true,
         noinline block: HttpRequestBuilder.() -> Unit = {},
-    ): ApiResult<T> = request(endpointCategory = endpointCategory) {
+    ): ApiResult<T> = request(endpointCategory = endpointCategory, retryOnUnauthorized = retryOnUnauthorized) {
         httpClient.get(path) {
             addAuth()
             block()
@@ -48,8 +77,9 @@ class ApiClient(
     suspend inline fun <reified T> post(
         path: String,
         endpointCategory: EndpointCategory = if (path.startsWith("/auth")) EndpointCategory.AUTH else EndpointCategory.MUTATION,
+        retryOnUnauthorized: Boolean = true,
         noinline block: HttpRequestBuilder.() -> Unit = {},
-    ): ApiResult<T> = request(endpointCategory = endpointCategory) {
+    ): ApiResult<T> = request(endpointCategory = endpointCategory, retryOnUnauthorized = retryOnUnauthorized) {
         httpClient.post(path) {
             addAuth()
             block()
@@ -59,9 +89,33 @@ class ApiClient(
     suspend inline fun <reified T> put(
         path: String,
         endpointCategory: EndpointCategory = if (path.startsWith("/auth")) EndpointCategory.AUTH else EndpointCategory.MUTATION,
+        retryOnUnauthorized: Boolean = true,
+        noinline block: HttpRequestBuilder.() -> Unit = {},
+    ): ApiResult<T> = request(endpointCategory = endpointCategory, retryOnUnauthorized = retryOnUnauthorized) {
+        httpClient.put(path) {
+            addAuth()
+            block()
+        }
+    }
+
+    suspend inline fun <reified T> patch(
+        path: String,
+        endpointCategory: EndpointCategory = if (path.startsWith("/auth")) EndpointCategory.AUTH else EndpointCategory.MUTATION,
         noinline block: HttpRequestBuilder.() -> Unit = {},
     ): ApiResult<T> = request(endpointCategory = endpointCategory) {
-        httpClient.put(path) {
+        httpClient.patch(path) {
+            addAuth()
+            block()
+        }
+    }
+
+    /** Read a non-JSON response body while retaining auth, retry, and error mapping. */
+    suspend fun postText(
+        path: String,
+        endpointCategory: EndpointCategory = EndpointCategory.MUTATION,
+        block: HttpRequestBuilder.() -> Unit = {},
+    ): ApiResult<String> = request(endpointCategory = endpointCategory) {
+        httpClient.post(path) {
             addAuth()
             block()
         }
@@ -70,8 +124,9 @@ class ApiClient(
     suspend inline fun <reified T> delete(
         path: String,
         endpointCategory: EndpointCategory = if (path.startsWith("/auth")) EndpointCategory.AUTH else EndpointCategory.MUTATION,
+        retryOnUnauthorized: Boolean = true,
         noinline block: HttpRequestBuilder.() -> Unit = {},
-    ): ApiResult<T> = request(endpointCategory = endpointCategory) {
+    ): ApiResult<T> = request(endpointCategory = endpointCategory, retryOnUnauthorized = retryOnUnauthorized) {
         httpClient.delete(path) {
             addAuth()
             block()
@@ -80,9 +135,11 @@ class ApiClient(
 
     suspend inline fun <reified T> request(
         endpointCategory: EndpointCategory,
+        retryOnUnauthorized: Boolean = true,
         call: () -> HttpResponse,
     ): ApiResult<T> {
         var attempt = 0
+        var unauthorizedRetried = false
 
         while (true) {
             try {
@@ -93,6 +150,20 @@ class ApiClient(
                 }
 
                 val statusCode = response.status.value
+                if (statusCode == HttpStatusCode.Unauthorized.value && retryOnUnauthorized && !unauthorizedRetried) {
+                    val refreshedAccessToken = try {
+                        tokenProvider?.refreshToken()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (!refreshedAccessToken.isNullOrBlank()) {
+                        unauthorizedRetried = true
+                        continue
+                    }
+                }
+
                 val retryPlan = rateLimitHandler.planRetry(
                     statusCode = statusCode,
                     attempt = attempt,

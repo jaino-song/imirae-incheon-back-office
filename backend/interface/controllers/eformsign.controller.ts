@@ -1,22 +1,22 @@
-import { BadRequestException, Controller, Post, Get, Head, Delete, Body, Query, Param, HttpException, HttpStatus, UseGuards, Res, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, Controller, Post, Get, Head, Delete, Body, Query, Param, HttpException, HttpStatus, UseGuards, Res, ServiceUnavailableException, GoneException } from "@nestjs/common";
 import { EformsignService } from "../../application/services/eformsign.service";
 import { EformsignDocService } from "../../application/services/eformsign-doc.service";
 import { AreaTemplateService } from "../../application/services/area-template.service";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { INCHEON_STAFF_BRANCH_SLUG } from "domain/constants/branch-routing.constants";
-import { GenerateStaffDocumentRequestDto } from "../dto/staff-document.dto";
 import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { Response } from "express";
 import { parseInteger } from "interface/parse-integer";
+import { parseBooleanQuery } from "interface/parse-boolean";
 import {
-    AccessTokenRequestDto,
     DeleteDocumentsRequestDto,
-    GenerateDocumentRequestDto,
-    GenerateSignatureRequestDto,
-    RefreshTokenRequestDto,
     ReRequestOutsiderDocumentRequestDto,
 } from "interface/dto/eformsign.dto";
+import {
+    EformsignCredentialBoundary,
+    type EformsignProviderPrincipal,
+} from "application/services/eformsign-credential-boundary.service";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import {
     DocumentSnapshotEntry,
@@ -29,6 +29,10 @@ import {
     enrichMirrorPage,
 } from "application/services/eformsign-mirror-list.service";
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
+import {
+    EformsignTemplateScopeService,
+    type EformsignListSection,
+} from "application/services/eformsign-template-scope.service";
 import { EformsignPermanentPurgeRequest } from "domain/repositories/eformsign-document-mirror.repository.interface";
 import { GetContractClientCandidateUsecase } from "application/usecases/eformsign-doc/get-contract-client-candidate.usecase";
 import {
@@ -49,6 +53,7 @@ import {
     normalizeEformsignStatusCode,
     normalizeEformsignStepType,
 } from "domain/utils/eformsign-status-code";
+import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
 
 function throwHttpOrInternalError(error: unknown): never {
     if (error instanceof HttpException) {
@@ -56,28 +61,14 @@ function throwHttpOrInternalError(error: unknown): never {
     }
 
     if (error instanceof EformsignApiError) {
-        throw new HttpException({ error: error.message }, error.status);
+        throw new HttpException({ error: sanitizeEformsignErrorMessage(error) }, error.status);
     }
 
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = sanitizeEformsignErrorMessage(error);
     throw new HttpException(
         { error: message },
         HttpStatus.INTERNAL_SERVER_ERROR
     );
-}
-
-function parseBooleanQuery(value: string | undefined, name: string, defaultValue: boolean): boolean {
-    if (value === undefined || value === "") {
-        return defaultValue;
-    }
-    if (value === "true") {
-        return true;
-    }
-    if (value === "false") {
-        return false;
-    }
-
-    throw new BadRequestException(`${name} must be true or false`);
 }
 
 type DownloadFileType = "document" | "audit_trail";
@@ -137,6 +128,12 @@ function parseDisplayStatus(value: string | undefined): EformsignDocDisplayStatu
     if (value === undefined || value === "") return undefined;
     if (value === "signed" || value === "review") return value;
     throw new BadRequestException("displayStatus must be signed or review");
+}
+
+function parseSection(value: string | undefined): EformsignListSection | undefined {
+    if (value === undefined || value === "") return undefined;
+    if (value === "maternity" || value === "service-records") return value;
+    throw new BadRequestException("section must be maternity or service-records");
 }
 
 function shouldExcludeSnapshotTombstones(
@@ -204,7 +201,9 @@ export class EformsignController {
         private readonly documentSnapshotService: EformsignDocumentSnapshotService,
         private readonly mirrorListService: EformsignMirrorListService,
         private readonly documentMirrorService: EformsignDocumentMirrorService,
+        private readonly templateScopeService: EformsignTemplateScopeService,
         private readonly getContractClientCandidateUsecase: GetContractClientCandidateUsecase,
+        private readonly credentialBoundary: EformsignCredentialBoundary,
     ) { }
 
     /**
@@ -329,6 +328,26 @@ export class EformsignController {
         return documents.filter((document) => visibleDocumentIds.has(document.id));
     }
 
+    /**
+     * section 요청이면 템플릿 필터를 서버 정본(area_template 레지스트리 + 제공기록지
+     * 티어 설정)으로 결정해 클라이언트가 보낸 templateId/templateMatch를 덮어쓴다.
+     * frontend와 mobile이 같은 목록을 보도록 하는 단일 결정 지점이다.
+     * section이 없으면 클라이언트 값을 그대로 되돌린다(기존 pass-through 동작 유지).
+     */
+    private async resolveListTemplateFilter(
+        sectionValue: string | undefined,
+        branchId: string,
+        clientTemplateId?: string,
+        clientTemplateMatch: TemplateMatch = "include",
+    ): Promise<{ templateId?: string; templateMatch: TemplateMatch }> {
+        const section = parseSection(sectionValue);
+        const sectionFilter = await this.templateScopeService.resolveTemplateFilter(section, branchId);
+        return {
+            templateId: sectionFilter?.templateId ?? clientTemplateId,
+            templateMatch: sectionFilter?.templateMatch ?? clientTemplateMatch,
+        };
+    }
+
     private toSnapshotEntries(documents: EformsignListDoc[]): DocumentSnapshotEntry<EformsignListDoc>[] {
         return documents.map((document) => ({
             document,
@@ -362,103 +381,51 @@ export class EformsignController {
         });
     }
 
+    /**
+     * Legacy browser/provider primitives are intentionally retained as a
+     * deprecation tombstone so old clients receive a deterministic response.
+     * None of these routes accepts a member identity or credential and none
+     * can return a provider bearer/refresh token.  Supported callers use the
+     * server-mediated headless/job endpoints instead.
+     */
     @Post("generate-signature")
-    async generateSignature(@Body() body: GenerateSignatureRequestDto) {
-        try {
-            const signature = this.eformsignService.generateSignature(body.executionTime);
-            return { signature };
-        } catch (error) {
-            const message = error instanceof Error ? error.message : "Unknown error";
-            throw new HttpException(
-                { error: message },
-                HttpStatus.INTERNAL_SERVER_ERROR
-            );
-        }
+    generateSignature(): never {
+        throw new GoneException({
+            code: "EFORMSIGN_PROVIDER_OPERATION_SERVER_ONLY",
+            error: "eformsign provider operations are server-only",
+        });
     }
 
     @Post("access-token")
-    async getAccessToken(@Body() body: AccessTokenRequestDto) {
-        try {
-            const result = await this.eformsignService.getAccessToken(
-                body.executionTime,
-                body.memberEmail
-            );
-            return result;
-        } catch (error) {
-            throwHttpOrInternalError(error);
-        }
+    getAccessToken(): never {
+        throw new GoneException({
+            code: "EFORMSIGN_CREDENTIALS_SERVER_ONLY",
+            error: "Raw eformsign credentials are not exposed",
+        });
     }
 
     @Post("refresh-token")
-    async refreshAccessToken(@Body() body: RefreshTokenRequestDto) {
-        try {
-            const result = await this.eformsignService.refreshAccessToken(
-                body.executionTime,
-                body.refreshToken
-            );
-            return result;
-        } catch (error) {
-            throwHttpOrInternalError(error);
-        }
+    refreshAccessToken(): never {
+        throw new GoneException({
+            code: "EFORMSIGN_CREDENTIALS_SERVER_ONLY",
+            error: "Raw eformsign credentials are not exposed",
+        });
     }
 
     @Post("generate-document")
-    async generateDocument(
-        @CurrentTenant() tenant: { branchId?: string },
-        @Body() body: GenerateDocumentRequestDto
-    ) {
-        try {
-            await this.assignmentGuard.assertAssignedProvider(
-                tenant.branchId ?? "",
-                body.clientId,
-                body.contractData.caretaker1Contact,
-            );
-            // Look up templateId based on area
-            let templateId: string | undefined;
-            if (body.contractData.area) {
-                const areaTemplate = await this.areaTemplateService.findByArea(
-                    tenant.branchId ?? "",
-                    body.contractData.area
-                );
-                templateId = areaTemplate?.templateId;
-            }
-
-            const documentOptions = this.eformsignService.generateDocumentOptions(
-                body.contractData,
-                body.accessToken,
-                body.refreshToken,
-                templateId
-            );
-
-            // Return clientId for frontend to use when creating eformsign doc record
-            return {
-                ...documentOptions,
-                clientId: body.clientId,
-            };
-        } catch (error) {
-            throwHttpOrInternalError(error);
-        }
+    generateDocument(): never {
+        throw new GoneException({
+            code: "EFORMSIGN_PROVIDER_OPERATION_SERVER_ONLY",
+            error: "Use the server-mediated eformsign dispatch operation",
+        });
     }
 
     @Post("generate-staff-document")
-    async generateStaffDocument(@Body() body: GenerateStaffDocumentRequestDto) {
-        try {
-            return await this.eformsignService.generateStaffCompletionOptions(
-                body.documentId,
-                body.accessToken,
-                body.refreshToken,
-                body.prefillEndDate,
-            );
-        } catch (error) {
-            if (error instanceof HttpException) {
-                throw error;
-            }
-            const message = error instanceof Error ? error.message : "Unknown error";
-            throw new HttpException(
-                { error: message },
-                HttpStatus.INTERNAL_SERVER_ERROR
-            );
-        }
+    generateStaffDocument(): never {
+        throw new GoneException({
+            code: "EFORMSIGN_PROVIDER_OPERATION_SERVER_ONLY",
+            error: "Use the server-mediated eformsign finalize operation",
+        });
     }
 
     /**
@@ -476,25 +443,32 @@ export class EformsignController {
         @Query("search") search?: string,
         @Query("excludeDeleted") excludeDeletedValue?: string,
         @Query("displayStatus") displayStatusValue?: string,
+        @Query("section") sectionValue?: string,
     ) {
         try {
             const parsedLimit = parseInteger(limit, "limit", { defaultValue: 100, min: 1, max: 100 });
             const parsedSkip = parseInteger(skip, "skip", { defaultValue: 0, min: 0 });
             const templateMatch = parseTemplateMatch(templateMatchValue);
             const statusCategory = parseStatusCategory(statusCategoryValue);
-            const excludeDeleted = excludeDeletedValue === "true";
+            const excludeDeleted = parseBooleanQuery(excludeDeletedValue, "excludeDeleted", false);
             const displayStatus = parseDisplayStatus(displayStatusValue);
             const branchId = tenant.branchId ?? "";
 
             const isHeadquarters = await this.isHeadquartersBranch(branchId);
+            const listTemplateFilter = await this.resolveListTemplateFilter(
+                sectionValue,
+                branchId,
+                templateId,
+                templateMatch,
+            );
             return await this.listFromMirror({
                 branchId,
                 isHeadquarters,
                 scope: "all",
                 limit: parsedLimit,
                 skip: parsedSkip,
-                templateId,
-                templateMatch,
+                templateId: listTemplateFilter.templateId,
+                templateMatch: listTemplateFilter.templateMatch,
                 statusCategory,
                 search,
                 excludeDeleted,
@@ -518,11 +492,18 @@ export class EformsignController {
         @Query("templateMatch") templateMatchValue?: string,
         @Query("search") search?: string,
         @Query("excludeDeleted") excludeDeletedValue?: string,
+        @Query("section") sectionValue?: string,
     ) {
         try {
             const templateMatch = parseTemplateMatch(templateMatchValue);
-            const excludeDeleted = excludeDeletedValue === "true";
+            const excludeDeleted = parseBooleanQuery(excludeDeletedValue, "excludeDeleted", false);
             const branchId = tenant.branchId ?? "";
+            const listTemplateFilter = await this.resolveListTemplateFilter(
+                sectionValue,
+                branchId,
+                templateId,
+                templateMatch,
+            );
             // 인천점(본사)은 다른 지점 소유분 제외 전체, 그 외 지점은 보유 문서 전체를 모은다.
             // 목록과 같은 "all" 스냅샷을 공유해 StatsBar 카운터와 목록이 항상 같은 세대를 본다.
             const isHeadquarters = await this.isHeadquartersBranch(branchId);
@@ -551,8 +532,8 @@ export class EformsignController {
                     branchId,
                     isHeadquarters,
                     scope: "all",
-                    templateId,
-                    templateMatch,
+                    templateId: listTemplateFilter.templateId,
+                    templateMatch: listTemplateFilter.templateMatch,
                     search,
                     excludeDeleted,
                 },
@@ -575,19 +556,26 @@ export class EformsignController {
         @Query("templateMatch") templateMatchValue?: string,
         @Query("statusCategory") statusCategoryValue?: string,
         @Query("search") search?: string,
+        @Query("section") sectionValue?: string,
     ) {
         try {
             const parsedLimit = parseInteger(limit, "limit", { defaultValue: 100, min: 1, max: 100 });
             const parsedSkip = parseInteger(skip, "skip", { defaultValue: 0, min: 0 });
             const templateMatch = parseTemplateMatch(templateMatchValue);
             const statusCategory = parseStatusCategory(statusCategoryValue);
+            const listTemplateFilter = await this.resolveListTemplateFilter(
+                sectionValue,
+                tenant.branchId ?? "",
+                templateId,
+                templateMatch,
+            );
             return await this.getBranchScopedStatusPage(
                 tenant.branchId ?? "",
                 parsedLimit,
                 parsedSkip,
                 "in-progress",
-                templateId,
-                templateMatch,
+                listTemplateFilter.templateId,
+                listTemplateFilter.templateMatch,
                 statusCategory,
                 search,
             );
@@ -608,19 +596,26 @@ export class EformsignController {
         @Query("templateMatch") templateMatchValue?: string,
         @Query("statusCategory") statusCategoryValue?: string,
         @Query("search") search?: string,
+        @Query("section") sectionValue?: string,
     ) {
         try {
             const parsedLimit = parseInteger(limit, "limit", { defaultValue: 100, min: 1, max: 100 });
             const parsedSkip = parseInteger(skip, "skip", { defaultValue: 0, min: 0 });
             const templateMatch = parseTemplateMatch(templateMatchValue);
             const statusCategory = parseStatusCategory(statusCategoryValue);
+            const listTemplateFilter = await this.resolveListTemplateFilter(
+                sectionValue,
+                tenant.branchId ?? "",
+                templateId,
+                templateMatch,
+            );
             return await this.getBranchScopedStatusPage(
                 tenant.branchId ?? "",
                 parsedLimit,
                 parsedSkip,
                 "completed",
-                templateId,
-                templateMatch,
+                listTemplateFilter.templateId,
+                listTemplateFilter.templateMatch,
                 statusCategory,
                 search,
             );
@@ -641,19 +636,26 @@ export class EformsignController {
         @Query("templateMatch") templateMatchValue?: string,
         @Query("statusCategory") statusCategoryValue?: string,
         @Query("search") search?: string,
+        @Query("section") sectionValue?: string,
     ) {
         try {
             const parsedLimit = parseInteger(limit, "limit", { defaultValue: 100, min: 1, max: 100 });
             const parsedSkip = parseInteger(skip, "skip", { defaultValue: 0, min: 0 });
             const templateMatch = parseTemplateMatch(templateMatchValue);
             const statusCategory = parseStatusCategory(statusCategoryValue);
+            const listTemplateFilter = await this.resolveListTemplateFilter(
+                sectionValue,
+                tenant.branchId ?? "",
+                templateId,
+                templateMatch,
+            );
             return await this.getBranchScopedStatusPage(
                 tenant.branchId ?? "",
                 parsedLimit,
                 parsedSkip,
                 "rejected",
-                templateId,
-                templateMatch,
+                listTemplateFilter.templateId,
+                listTemplateFilter.templateMatch,
                 statusCategory,
                 search,
             );
@@ -667,20 +669,13 @@ export class EformsignController {
      */
     @Delete("documents")
     async deleteDocuments(
-        @CurrentTenant() tenant: { branchId?: string },
-        @Query("accessToken") accessToken: string,
+        @CurrentTenant() tenant: EformsignProviderPrincipal,
         @Query("is_permanent") isPermanent: string,
         @Body() body: DeleteDocumentsRequestDto
     ) {
         let requestedDocumentIds: string[] = [];
         let permanentPurgeRequests: EformsignPermanentPurgeRequest[] = [];
         try {
-            if (!accessToken) {
-                throw new HttpException(
-                    { error: "Access token is required" },
-                    HttpStatus.BAD_REQUEST
-                );
-            }
             if (!body.document_ids || !Array.isArray(body.document_ids) || body.document_ids.length === 0) {
                 throw new HttpException(
                     { error: "document_ids array is required and must not be empty" },
@@ -712,9 +707,13 @@ export class EformsignController {
             // Cancel, not delete. Cancelling expires the recipient's signing link — the whole
             // point, since deletions are usually mis-sends — while leaving the document and its
             // audit trail at eformsign.
-            const result = await this.eformsignService.cancelDocuments(
-                accessToken,
-                requestedDocumentIds,
+            const result = await this.credentialBoundary.withCredentials(
+                tenant,
+                "document.cancel",
+                ({ accessToken }) => this.eformsignService.cancelDocuments(
+                    accessToken,
+                    requestedDocumentIds,
+                ),
             );
             const cancelledDocumentIds = successfulDeletedDocumentIds(result);
             const uncancelledDocumentIds = requestedDocumentIds.filter(
@@ -792,7 +791,7 @@ export class EformsignController {
             if (error instanceof HttpException) {
                 throw error;
             }
-            const message = error instanceof Error ? error.message : "Unknown error";
+            const message = sanitizeEformsignErrorMessage(error);
             throw new HttpException(
                 { error: message },
                 HttpStatus.INTERNAL_SERVER_ERROR
@@ -899,7 +898,7 @@ export class EformsignController {
                 parsedFileType,
             );
             if (!file) {
-                await this.syncMissingDocumentFile(documentId);
+                await this.syncMissingDocumentFile(documentId, tenant);
                 file = await this.documentMirrorService.getStoredFileMetadata(
                     documentId,
                     parsedFileType,
@@ -952,7 +951,7 @@ export class EformsignController {
                 parsedFileType,
             );
             if (!file) {
-                await this.syncMissingDocumentFile(documentId);
+                await this.syncMissingDocumentFile(documentId, tenant);
                 file = await this.documentMirrorService.getStoredFile(
                     documentId,
                     parsedFileType,
@@ -978,7 +977,10 @@ export class EformsignController {
         }
     }
 
-    private async syncMissingDocumentFile(documentId: string): Promise<void> {
+    private async syncMissingDocumentFile(
+        documentId: string,
+        principal: EformsignProviderPrincipal,
+    ): Promise<void> {
         const currentSync = this.missingDocumentFileSyncs.get(documentId);
         if (currentSync) {
             await currentSync;
@@ -986,7 +988,7 @@ export class EformsignController {
         }
 
         const nextSync = Promise.resolve().then(async () => {
-            await this.documentMirrorService.syncDocument(documentId, {
+            await this.documentMirrorService.syncDocument(documentId, principal, {
                 skipBranchOwnedProjection: true,
                 skipClientReconciliation: true,
                 skipHealthySameVersionFileRepair: true,
@@ -1009,18 +1011,11 @@ export class EformsignController {
      */
     @Post("documents/:documentId/re_request_outsider")
     async reRequestOutsiderDocument(
-        @CurrentTenant() tenant: { branchId?: string },
+        @CurrentTenant() tenant: EformsignProviderPrincipal,
         @Param("documentId") documentId: string,
         @Body() body: ReRequestOutsiderDocumentRequestDto
     ) {
         try {
-            if (!body.accessToken) {
-                throw new HttpException(
-                    { error: "Access token is required" },
-                    HttpStatus.BAD_REQUEST
-                );
-            }
-
             if (!body.stepType || !body.stepSeq) {
                 throw new HttpException(
                     { error: "stepType and stepSeq are required" },
@@ -1049,20 +1044,24 @@ export class EformsignController {
                 );
             }
 
-            return await this.eformsignService.reRequestOutsiderDocument(
-                body.accessToken,
-                documentId,
-                body.stepType,
-                body.stepSeq,
-                body.comment,
-                body.recipientPhone
+            return await this.credentialBoundary.withCredentials(
+                tenant,
+                "document.re_request",
+                ({ accessToken }) => this.eformsignService.reRequestOutsiderDocument(
+                    accessToken,
+                    documentId,
+                    body.stepType,
+                    body.stepSeq,
+                    body.comment,
+                    body.recipientPhone,
+                ),
             );
         } catch (error) {
             if (error instanceof HttpException) {
                 throw error;
             }
 
-            const message = error instanceof Error ? error.message : "Unknown error";
+            const message = sanitizeEformsignErrorMessage(error);
             throw new HttpException(
                 { error: message },
                 HttpStatus.INTERNAL_SERVER_ERROR

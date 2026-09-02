@@ -6,6 +6,7 @@ import { captureServiceRecordError } from "infrastructure/observability/service-
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
 import { isEformsignDocumentAbsentError } from "infrastructure/api/eformsign-api.error";
 import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
+import { createEformsignGlobalWorkerPrincipal } from "application/services/eformsign-credential-boundary.service";
 
 const COMPLETED_EFORMSIGN_STATUS_TYPES = new Set([
     "003", "012", "022", "032", "050", "062", "072", "092",
@@ -128,7 +129,10 @@ export class EformsignWebhookController {
         options: { requireCompletionReady?: boolean } = {},
     ): Promise<{ ready: boolean; ownershipChanged: boolean }> {
         try {
-            const syncResult = await this.documentMirrorService.syncDocument(documentId, {
+            const syncResult = await this.documentMirrorService.syncDocument(
+                documentId,
+                createEformsignGlobalWorkerPrincipal("webhook"),
+                {
                 force: true,
                 skipBranchOwnedProjection: true,
                 ...(options.requireCompletionReady
@@ -140,7 +144,8 @@ export class EformsignWebhookController {
                         deferServiceRecordLifecycle: true,
                     }
                     : {}),
-            });
+                },
+            );
             if (options.requireCompletionReady) {
                 const mirroredDocument =
                     await this.documentMirrorService.getStoredDetail(documentId);

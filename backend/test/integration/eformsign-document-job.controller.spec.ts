@@ -15,6 +15,7 @@ import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { TenantGuard } from "infrastructure/tenant";
 import { EformsignDocController } from "interface/controllers/eformsign-doc.controller";
 import type { EformsignDocumentJobEntity } from "domain/entities/eformsign-document-job.entity";
+import { EformsignDispatchBoundaryService } from "application/services/eformsign-dispatch-boundary.service";
 
 const validContractData = {
     customerName: "산모",
@@ -71,6 +72,8 @@ const job = (overrides: Partial<EformsignDocumentJobEntity> = {}): EformsignDocu
     ...overrides,
 });
 
+let authRole = "admin";
+
 describe("EformsignDocumentJobController (Integration)", () => {
     let app: INestApplication;
     let documentJobService: {
@@ -79,27 +82,37 @@ describe("EformsignDocumentJobController (Integration)", () => {
         getSummary: jest.Mock;
         listForBranch: jest.Mock;
     };
+    let dispatchBoundary: { reconcile: jest.Mock; findById?: jest.Mock };
 
     const authGuard = {
         canActivate: (context: ExecutionContext) => {
             const req = context.switchToHttp().getRequest();
-            req.user = { userId: "user-a", branchId: "branch-a", role: "admin", branchRole: "admin" };
+            req.user = { userId: "user-a", branchId: "branch-a", role: authRole, branchRole: authRole };
             req.tenant = {
                 userId: "user-a",
                 branchId: "branch-a",
-                globalRole: "admin",
-                branchRole: "admin",
+                globalRole: authRole,
+                branchRole: authRole,
             };
             return true;
         },
     };
 
     beforeEach(async () => {
+        authRole = "admin";
         documentJobService = {
             enqueueCreateDocument: jest.fn(),
             enqueueFinalizeDocument: jest.fn(),
             getSummary: jest.fn(),
             listForBranch: jest.fn(),
+        };
+        dispatchBoundary = {
+            reconcile: jest.fn().mockResolvedValue({
+                id: "11111111-1111-4111-8111-111111111111",
+                status: "reconciled_not_delivered",
+                reconciledOutcome: "not_delivered",
+                providerDocumentId: null,
+            }),
         };
 
         const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -122,6 +135,7 @@ describe("EformsignDocumentJobController (Integration)", () => {
                     },
                 },
                 { provide: EformsignDocumentJobService, useValue: documentJobService },
+                { provide: EformsignDispatchBoundaryService, useValue: dispatchBoundary },
             ],
         })
             .overrideGuard(JwtGuard)
@@ -235,6 +249,77 @@ describe("EformsignDocumentJobController (Integration)", () => {
 
         expect(response.status).toBe(400);
         expect(documentJobService.enqueueFinalizeDocument).not.toHaveBeenCalled();
+    });
+
+    it("reconciles a dispatch intent with the authenticated branch operator", async () => {
+        const intentId = "11111111-1111-4111-8111-111111111111";
+        const response = await request(app.getHttpServer())
+            .post(`/eformsign-docs/dispatch-intents/${intentId}/reconcile`)
+            .send({
+                outcome: "not_delivered",
+                reason: "provider receipt lookup confirms no delivery",
+            });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({
+            intentId,
+            status: "reconciled_not_delivered",
+            outcome: "not_delivered",
+            providerDocumentId: null,
+        });
+        expect(dispatchBoundary.reconcile).toHaveBeenCalledWith({
+            branchId: "branch-a",
+            intentId,
+            outcome: "not_delivered",
+            actorUserId: "user-a",
+            reason: "provider receipt lookup confirms no delivery",
+            providerDocumentId: undefined,
+        });
+    });
+
+    it("reads only the current branch's dispatch intent summary", async () => {
+        const intentId = "11111111-1111-4111-8111-111111111111";
+        dispatchBoundary.reconcile.mockReset();
+        dispatchBoundary.findById = jest.fn().mockResolvedValue({
+            id: intentId,
+            status: "uncertain",
+            reconciledOutcome: null,
+            providerDocumentId: null,
+        });
+
+        const response = await request(app.getHttpServer())
+            .get(`/eformsign-docs/dispatch-intents/${intentId}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({
+            intentId,
+            status: "uncertain",
+            outcome: null,
+            providerDocumentId: null,
+        });
+        expect(dispatchBoundary.findById).toHaveBeenCalledWith(
+            "branch-a",
+            intentId,
+        );
+    });
+
+    it("validates reconciliation reasons before reaching the repository", async () => {
+        const response = await request(app.getHttpServer())
+            .post("/eformsign-docs/dispatch-intents/11111111-1111-4111-8111-111111111111/reconcile")
+            .send({ outcome: "delivered", reason: " ".repeat(501) });
+
+        expect(response.status).toBe(400);
+        expect(dispatchBoundary.reconcile).not.toHaveBeenCalled();
+    });
+
+    it("restricts intent reconciliation to owner/admin operators", async () => {
+        authRole = "user";
+        const response = await request(app.getHttpServer())
+            .post("/eformsign-docs/dispatch-intents/11111111-1111-4111-8111-111111111111/reconcile")
+            .send({ outcome: "delivered", reason: "provider receipt verified" });
+
+        expect(response.status).toBe(403);
+        expect(dispatchBoundary.reconcile).not.toHaveBeenCalled();
     });
 
     it("returns branch-scoped summary and list with a 24-hour/50 terminal bound", async () => {

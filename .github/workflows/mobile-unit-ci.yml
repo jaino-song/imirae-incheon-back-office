@@ -1,0 +1,75 @@
+name: Mobile Unit CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, dev, preview, "feature/**", "fix/**", "ci/**" ]
+    paths:
+      - 'mobile/src/**'
+      - 'mobile/tests/**'
+      - 'mobile/scripts/**'
+      - 'mobile/*.config.*'
+      - 'mobile/*config*'
+      - 'mobile/*.json'
+      - 'mobile/package.json'
+      - 'mobile/next-env.d.ts'
+      - 'packages/shared/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'scripts/ci/**'
+      - '.github/workflows/mobile-unit-ci.yml'
+  pull_request:
+    branches: [ main, dev, preview, "feature/**", "fix/**", "ci/**" ]
+    paths:
+      - 'mobile/src/**'
+      - 'mobile/tests/**'
+      - 'mobile/scripts/**'
+      - 'mobile/*.config.*'
+      - 'mobile/*config*'
+      - 'mobile/*.json'
+      - 'mobile/package.json'
+      - 'mobile/next-env.d.ts'
+      - 'packages/shared/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'scripts/ci/**'
+      - '.github/workflows/mobile-unit-ci.yml'
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-unit:
+    name: mobile unit tests
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Workflow contract tests
+        run: node --test scripts/ci/workflow-contract.test.mjs scripts/ci/aggregate-gate.test.mjs
+
+      - name: Unit tests
+        run: pnpm --filter ./mobile test
+        env:
+          CI: true

@@ -4,9 +4,11 @@ import { SbSystemSettingRepository } from "infrastructure/database/repositories/
 import { DatabaseModule } from "infrastructure/database/database.module";
 import { GetSettingUsecase, UpdateSettingUsecase } from "application/usecases/system-setting";
 import { SystemSettingService } from "application/services/system-setting.service";
+import { EformsignAutomationStatusService } from "application/services/eformsign-automation-status.service";
 import { MessageSenderApprovalService } from "application/services/message-sender-approval.service";
 import { SystemSettingController } from "interface/controllers/system-setting.controller";
 import { PublicSettingsController } from "interface/controllers/public-settings.controller";
+import { AdminAuditEventWriter } from "application/services/admin-audit-event.service";
 
 @Module({
     imports: [DatabaseModule],
@@ -17,6 +19,8 @@ import { PublicSettingsController } from "interface/controllers/public-settings.
         UpdateSettingUsecase,
         SystemSettingService,
         MessageSenderApprovalService,
+        EformsignAutomationStatusService,
+        AdminAuditEventWriter,
     ],
     exports: [GetSettingUsecase, UpdateSettingUsecase, SystemSettingService, MessageSenderApprovalService],
 })

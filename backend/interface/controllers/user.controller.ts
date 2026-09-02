@@ -24,8 +24,9 @@ import {
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 import { OwnerOnlyGuard } from "infrastructure/auth/owner-only.guard";
+import { runWithAdminAuditActor } from "application/services/admin-audit-context";
 
-type AuthenticatedRequest = { user: { userId: string; role: string; branchId?: string } };
+type AuthenticatedRequest = { user: { userId: string; role: string; branchId?: string; branchRole?: string } };
 
 @Controller("users")
 @UseGuards(JwtGuard, OwnerOrAdminGuard)
@@ -87,23 +88,32 @@ export class UserController {
         @Res({ passthrough: true }) response: Response,
     ) {
         this.markLegacyUserApi(response);
-        return this.userService.update(id, {
+        return runWithAdminAuditActor({
+            userId: req.user.userId,
+            globalRole: req.user.role,
+            branchRole: req.user.branchRole,
+        }, () => this.userService.update(id, {
             name: updateUserDto.name ?? undefined,
             email: updateUserDto.email ?? undefined,
             profileImage: updateUserDto.profileImage ?? undefined,
             role: updateUserDto.role,
             callerRole: req.user.role,
-        });
+        }));
     }
 
     @Delete()
     @UseGuards(JwtGuard, OwnerOnlyGuard)
     delete(
+        @Req() req: AuthenticatedRequest,
         @Query("id") id: string,
         @Res({ passthrough: true }) response: Response,
     ) {
         this.markLegacyUserApi(response);
-        return this.userService.delete(id);
+        return runWithAdminAuditActor({
+            userId: req.user.userId,
+            globalRole: req.user.role,
+            branchRole: req.user.branchRole,
+        }, () => this.userService.delete(id));
     }
 
     @Get(":id")
@@ -119,13 +129,17 @@ export class UserController {
         @Param("id") id: string,
         @Body() updateUserDto: UpdateUserDto,
     ) {
-        return this.userService.update(id, {
+        return runWithAdminAuditActor({
+            userId: req.user.userId,
+            globalRole: req.user.role,
+            branchRole: req.user.branchRole,
+        }, () => this.userService.update(id, {
             name: updateUserDto.name ?? undefined,
             email: updateUserDto.email ?? undefined,
             profileImage: updateUserDto.profileImage ?? undefined,
             role: updateUserDto.role,
             callerRole: req.user.role,
-        });
+        }));
     }
 
     @Patch(":id/account-assignment")
@@ -135,19 +149,27 @@ export class UserController {
         @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
         @Body() updateUserDto: UpdateUserAccountDto,
     ) {
-        return this.userService.updateAccountAssignment(id, {
+        return runWithAdminAuditActor({
+            userId: req.user.userId,
+            globalRole: req.user.role,
+            branchRole: req.user.branchRole,
+        }, () => this.userService.updateAccountAssignment(id, {
             role: updateUserDto.role,
             branchIds: updateUserDto.branchIds,
             expectedRole: updateUserDto.expectedRole,
             expectedBranchIds: updateUserDto.expectedBranchIds,
             callerRole: req.user.role,
-        });
+        }));
     }
 
     @Delete(":id")
     @UseGuards(JwtGuard, OwnerOnlyGuard)
-    deleteGlobalUser(@Param("id") id: string) {
-        return this.userService.delete(id);
+    deleteGlobalUser(@Req() req: AuthenticatedRequest, @Param("id") id: string) {
+        return runWithAdminAuditActor({
+            userId: req.user.userId,
+            globalRole: req.user.role,
+            branchRole: req.user.branchRole,
+        }, () => this.userService.delete(id));
     }
 
     @Post(":id/approve")
@@ -157,17 +179,25 @@ export class UserController {
         @Param("id") id: string,
         @Body() approveUserDto: ApproveUserDto,
     ) {
-        return this.userService.approve(id, {
+        return runWithAdminAuditActor({
+            userId: req.user.userId,
+            globalRole: req.user.role,
+            branchRole: req.user.branchRole,
+        }, () => this.userService.approve(id, {
             role: approveUserDto.role,
             branchId: approveUserDto.branchId,
-            ownerBranchId: approveUserDto.ownerBranchId,
             approvedBy: req.user.userId,
-        });
+            ...(approveUserDto.ownerBranchId ? { ownerBranchId: approveUserDto.ownerBranchId } : {}),
+        }));
     }
 
     @Post(":id/reject")
     @UseGuards(JwtGuard, OwnerOnlyGuard)
-    reject(@Param("id") id: string) {
-        return this.userService.reject(id);
+    reject(@Req() req: AuthenticatedRequest, @Param("id") id: string) {
+        return runWithAdminAuditActor({
+            userId: req.user.userId,
+            globalRole: req.user.role,
+            branchRole: req.user.branchRole,
+        }, () => this.userService.reject(id));
     }
 }

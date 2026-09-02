@@ -7,6 +7,8 @@ import { Building2, Check } from "lucide-react";
 import { useInitialUser } from "@/providers/UserProvider";
 import { useLocale } from "@/providers/LocaleProvider";
 import { t } from "@/lib/i18n/translations";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
+import { getCurrentPushEndpoint } from "@/lib/notifications/push-endpoint";
 import { logout } from "@/app/(shell)/logout/actions";
 import { getUserBranches, setCurrentBranch } from "./actions";
 import "@/components/app/mobile-redesign/redesign.css";
@@ -46,6 +48,7 @@ export default function SelectBranchPage() {
   const confirmSelectBranch = useCallback(async (branchId: string): Promise<boolean> => {
     setSubmitting(true);
     try {
+      await resetAuthorityState();
       const result = await setCurrentBranch(branchId);
       if (!result.success) {
         setError(result.error || "지점 선택에 실패했습니다.");
@@ -104,11 +107,17 @@ export default function SelectBranchPage() {
   const handleLogout = async () => {
     if (isPageBusy) return;
     setLoggingOut(true);
-    // auth_token/refresh_token are httpOnly — document.cookie cannot clear
-    // them, and the middleware bounces authenticated users straight back
-    // from /login. The server action clears them properly.
+    // Auth cookies are HttpOnly; the shared server action revokes the session,
+    // clears those cookies, and removes this browser's push endpoint.
     try {
-      await logout();
+      const pushEndpoint = await getCurrentPushEndpoint();
+      await resetAuthorityState();
+      const result = await logout(pushEndpoint);
+      if (!result.success) {
+        setError(result.error || "로그아웃에 실패했습니다.");
+        setLoggingOut(false);
+        return;
+      }
       window.location.replace("/login");
     } catch (err) {
       console.error("[Select Branch] Error logging out:", err);

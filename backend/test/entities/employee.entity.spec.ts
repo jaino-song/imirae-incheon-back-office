@@ -34,6 +34,7 @@ describe("EmployeeEntity", () => {
             expect(employee.name).toBe("테스트 직원");
             expect(employee.workArea).toEqual(["인천 연수구", "인천 남동구"]);
             expect(employee.phone).toBe("010-1234-5678");
+            expect(employee.phoneNormalized).toBe("01012345678");
             expect(employee.grade).toBe("프리미엄");
             expect(employee.openToNextWork).toBe(true);
             expect(employee.registeredDate).toEqual(new Date("2024-01-15"));
@@ -70,24 +71,23 @@ describe("EmployeeEntity", () => {
             expect(employee.name).toBe("테스트 직원");
         });
 
-        it("should default registeredDate to now when not provided", () => {
-            // Arrange
-            const before = new Date();
+        it("should default an omitted registeredDate to the current Korean calendar date", () => {
+            jest.useFakeTimers().setSystemTime(new Date("2026-08-27T23:30:00.000Z"));
+            try {
+                // Act
+                const employee = EmployeeEntity.create(
+                    "테스트 직원",
+                    ["서울"],
+                    "010-0000-0000",
+                    "베스트",
+                    false,
+                );
 
-            // Act
-            const employee = EmployeeEntity.create(
-                "테스트 직원",
-                ["서울"],
-                "010-0000-0000",
-                "베스트",
-                false,
-            );
-
-            const after = new Date();
-
-            // Assert
-            expect(employee.registeredDate.getTime()).toBeGreaterThanOrEqual(before.getTime());
-            expect(employee.registeredDate.getTime()).toBeLessThanOrEqual(after.getTime());
+                // Assert: PostgreSQL DATE values are represented at UTC midnight.
+                expect(employee.registeredDate).toEqual(new Date("2026-08-28T00:00:00.000Z"));
+            } finally {
+                jest.useRealTimers();
+            }
         });
 
         it("should use provided registeredDate when specified", () => {
@@ -106,6 +106,16 @@ describe("EmployeeEntity", () => {
 
             // Assert
             expect(employee.registeredDate).toEqual(customDate);
+        });
+
+        it("should reject malformed phone values on create", () => {
+            expect(() => EmployeeEntity.create(
+                "테스트 직원",
+                ["서울"],
+                "not-a-phone",
+                "베스트",
+                false,
+            )).toThrow("valid Korean phone number");
         });
 
         it("should handle empty workArea array", () => {
@@ -190,6 +200,20 @@ describe("EmployeeEntity", () => {
             expect(employee.grade).toBe("특급");
             expect(employee.openToNextWork).toBe(false);
             expect(employee.registeredDate).toEqual(new Date("2022-03-20"));
+        });
+
+        it("should preserve a null registeredDate from legacy persistence", () => {
+            const employee = EmployeeEntity.reconstitute(
+                101,
+                "레거시 직원",
+                ["서울"],
+                "010-0000-0000",
+                "베스트",
+                true,
+                null,
+            );
+
+            expect(employee.registeredDate).toBeNull();
         });
     });
 
@@ -347,6 +371,22 @@ describe("EmployeeEntity", () => {
 
                 // Assert
                 expect(employee.phone).toBe("010-9999-8888");
+            });
+
+            it("should reject malformed phone updates without changing the profile", () => {
+                const employee = EmployeeEntity.reconstitute(
+                    1,
+                    "직원",
+                    ["서울"],
+                    "010-1111-1111",
+                    "프리미엄",
+                    true,
+                    new Date("2024-01-01"),
+                );
+
+                expect(() => employee.updateProfile(undefined, undefined, "not-a-phone")).toThrow("valid Korean phone number");
+                expect(employee.phone).toBe("010-1111-1111");
+                expect(employee.phoneNormalized).toBe("01011111111");
             });
 
             it("should update only grade when provided", () => {

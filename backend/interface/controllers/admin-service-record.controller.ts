@@ -1,7 +1,11 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from "@nestjs/common";
-import { AdminServiceRecordService } from "application/services/admin-service-record.service";
+import {
+    AdminServiceRecordService,
+    ServiceRecordAdminActor,
+} from "application/services/admin-service-record.service";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
-import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
+import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
+import { CurrentTenant, TenantGuard, VerifiedTenantPrincipal } from "infrastructure/tenant";
 import {
     PrepareAdminServiceRecordLinkDto,
     SendAdminServiceRecordLinkDto,
@@ -48,10 +52,16 @@ export class AdminServiceRecordController {
     }
 
     @Post("schedules/:scheduleId/reset-link")
+    @UseGuards(OwnerOrAdminGuard)
     resetLink(
-        @CurrentTenant() tenant: { branchId?: string },
+        @CurrentTenant() tenant: VerifiedTenantPrincipal,
         @Param("scheduleId", ParseIntPipe) scheduleId: number,
     ) {
-        return this.adminServiceRecordService.resetLink(tenant.branchId ?? "", scheduleId);
+        const actor: ServiceRecordAdminActor = {
+            userId: tenant.userId,
+            globalRole: tenant.globalRole,
+            branchRole: tenant.branchRole,
+        };
+        return this.adminServiceRecordService.resetLink(tenant.branchId, scheduleId, actor);
     }
 }

@@ -3,6 +3,7 @@ import { SyncClientEndDateUsecase } from "application/usecases/eformsign-doc/syn
 import { ClientEntity } from "domain/entities/client.entity";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
+import { countBusinessDaysKr, UnsupportedKoreanHolidayYearError } from "domain/utils/business-days";
 
 describe("SyncClientEndDateUsecase", () => {
     const branchId = "test-branch";
@@ -142,6 +143,7 @@ describe("SyncClientEndDateUsecase", () => {
 
         const updatedClient = clientRepository.update.mock.calls[0][1] as ClientEntity;
         expect(updatedClient.endDate?.toISOString()).toBe("2026-05-17T00:00:00.000Z");
+        expect(updatedClient.duration).toBe(countBusinessDaysKr("2026-05-01", "2026-05-17"));
         expect(result).toEqual({
             clientId: 7,
             endDate: new Date("2026-05-17T00:00:00.000Z"),
@@ -161,6 +163,20 @@ describe("SyncClientEndDateUsecase", () => {
             clientId: 7,
             endDate: new Date("2026-11-30T00:00:00.000Z"),
         });
+    });
+
+    it("fails closed for an end date in an unsupported holiday year", async () => {
+        eformsignClient.getDocument.mockResolvedValue(
+            createDocumentResponse([
+                { id: "계약 종료 년도", value: "2028", type: "text" },
+                { id: "계약 종료 월", value: "01", type: "text" },
+                { id: "계약 종료 일", value: "03", type: "text" },
+            ]),
+        );
+
+        await expect(usecase.execute(branchId, documentId, accessToken, { throwOnError: true }))
+            .rejects.toBeInstanceOf(UnsupportedKoreanHolidayYearError);
+        expect(clientRepository.update).not.toHaveBeenCalled();
     });
 
     it("should delegate persistence when an atomic lifecycle writer is provided", async () => {

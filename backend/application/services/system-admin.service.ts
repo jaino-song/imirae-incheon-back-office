@@ -9,10 +9,15 @@ import {
     UpdateSystemAdminBranchDto,
 } from "interface/dto/system-admin.dto";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { AdminAuditActor, AdminAuditEventWriter } from "application/services/admin-audit-event.service";
+import { currentAdminAuditActor } from "application/services/admin-audit-context";
 
 @Injectable()
 export class SystemAdminService {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly auditWriter?: AdminAuditEventWriter,
+    ) {}
 
     async listBranchRequests(): Promise<SystemAdminBranchRequestDto[]> {
         const branches = await this.prisma.branch.findMany({
@@ -101,9 +106,14 @@ export class SystemAdminService {
     async createBranch(
         dto: CreateSystemAdminBranchDto,
         onCreated?: (transaction: Prisma.TransactionClient, branchId: string) => Promise<void>,
+        actor?: AdminAuditActor,
     ): Promise<SystemAdminBranchRequestDto> {
-        const manager = dto.ownerId ? await this.getEligibleBranchManager(dto.ownerId) : null;
-
+        actor = actor ?? currentAdminAuditActor();
+        // Fail before opening a write transaction for legacy callers while the
+        // transaction-local lookup below remains the race-safe authority check.
+        if (dto.ownerId) {
+            await this.getEligibleBranchManager(this.prisma, dto.ownerId);
+        }
         try {
             const branch = await this.prisma.$transaction(async (tx) => {
                 const createdBranch = await tx.branch.create({
@@ -121,10 +131,25 @@ export class SystemAdminService {
                     select: { id: true },
                 });
 
+                const manager = dto.ownerId
+                    ? await this.getEligibleBranchManager(tx, dto.ownerId)
+                    : null;
                 if (manager) {
                     await this.assignBranchManager(tx, createdBranch.id, manager);
                 }
                 await onCreated?.(tx, createdBranch.id);
+                await this.appendAudit(tx, actor, {
+                    action: "branch.created",
+                    branchId: createdBranch.id,
+                    targetType: "branch",
+                    targetId: createdBranch.id,
+                    before: null,
+                    after: {
+                        id: createdBranch.id,
+                        ownerId: dto.ownerId ?? null,
+                        isActive: dto.isActive ?? true,
+                    },
+                });
                 return createdBranch;
             });
 
@@ -137,19 +162,25 @@ export class SystemAdminService {
     async updateBranch(
         branchId: string,
         dto: UpdateSystemAdminBranchDto,
+        actor?: AdminAuditActor,
     ): Promise<SystemAdminBranchRequestDto> {
-        const manager = dto.ownerId
-            ? await this.getEligibleBranchManager(dto.ownerId)
-            : null;
-
+        actor = actor ?? currentAdminAuditActor();
         try {
             await this.prisma.$transaction(async (tx) => {
+                await this.lockRow(tx, "branch", branchId);
                 const existing = await tx.branch.findUnique({
                     where: { id: branchId },
-                    select: { ownerId: true },
+                    select: { ownerId: true, isActive: true },
                 });
                 if (!existing) {
                     throw new NotFoundException("지점을 찾을 수 없습니다.");
+                }
+
+                const manager = dto.ownerId
+                    ? await this.getEligibleBranchManager(tx, dto.ownerId)
+                    : null;
+                if (dto.ownerId === undefined && existing.ownerId) {
+                    await this.ensureOwnerMembership(tx, branchId, existing.ownerId);
                 }
 
                 await tx.branch.update({
@@ -191,6 +222,16 @@ export class SystemAdminService {
                         },
                         data: { role: "user" },
                     });
+                    // A few legacy rows used an owner-equivalent membership
+                    // role. Revoke that authority as well during transfer.
+                    await tx.user_branch.updateMany({
+                        where: {
+                            userId: existing.ownerId,
+                            branchId,
+                            role: "owner",
+                        },
+                        data: { role: "user" },
+                    });
                     const stillOwnsBranch = await tx.branch.findFirst({
                         where: { ownerId: existing.ownerId },
                         select: { id: true },
@@ -202,6 +243,27 @@ export class SystemAdminService {
                         });
                     }
                 }
+
+                await this.appendAudit(tx, actor, {
+                    action: dto.ownerId !== undefined && existing.ownerId !== dto.ownerId
+                        ? "branch.owner_transferred"
+                        : "branch.updated",
+                    branchId,
+                    targetType: "branch",
+                    targetId: branchId,
+                    before: {
+                        id: branchId,
+                        ownerId: existing.ownerId ?? null,
+                        isActive: existing.isActive ?? true,
+                    },
+                    after: {
+                        id: branchId,
+                        ownerId: dto.ownerId !== undefined ? dto.ownerId : existing.ownerId ?? null,
+                        isActive: dto.isActive !== undefined
+                            ? dto.isActive
+                            : existing.isActive ?? true,
+                    },
+                });
             });
 
             return this.getBranchRequest(branchId);
@@ -211,9 +273,10 @@ export class SystemAdminService {
     }
 
     private async getEligibleBranchManager(
+        client: Pick<PrismaService, "user"> | Prisma.TransactionClient,
         userId: string,
     ): Promise<{ id: string; role: string }> {
-        const manager = await this.prisma.user.findFirst({
+        const manager = await client.user.findFirst({
             where: {
                 id: userId,
                 approvalStatus: "approved",
@@ -250,6 +313,66 @@ export class SystemAdminService {
                 role: "admin",
             },
             update: { role: "admin" },
+        });
+    }
+
+    private async ensureOwnerMembership(
+        tx: Prisma.TransactionClient,
+        branchId: string,
+        ownerId: string,
+    ): Promise<void> {
+        // Older rows may contain owner_id without the corresponding membership.
+        // Repair that narrow inconsistency inside the same locked branch
+        // transaction before allowing any further branch mutation.
+        if (typeof tx.user_branch.findUnique !== "function") return;
+        const membership = await tx.user_branch.findUnique({
+            where: { userId_branchId: { userId: ownerId, branchId } },
+        });
+        if (!membership) {
+            await tx.user_branch.upsert({
+                where: { userId_branchId: { userId: ownerId, branchId } },
+                create: { userId: ownerId, branchId, role: "admin" },
+                update: { role: "admin" },
+            });
+            return;
+        }
+        if (membership.role !== "admin" && membership.role !== "owner") {
+            await tx.user_branch.updateMany({
+                where: { userId: ownerId, branchId },
+                data: { role: "admin" },
+            });
+        }
+    }
+
+    private async lockRow(
+        tx: Prisma.TransactionClient,
+        table: "branch" | "user",
+        id: string,
+    ): Promise<void> {
+        if (typeof tx.$queryRaw !== "function") return;
+        const query = table === "branch"
+            ? Prisma.sql`SELECT "id" FROM "branch" WHERE "id" = ${id}::uuid FOR UPDATE`
+            : Prisma.sql`SELECT "id" FROM "user" WHERE "id" = ${id}::uuid FOR UPDATE`;
+        await tx.$queryRaw(query);
+    }
+
+    private async appendAudit(
+        tx: Prisma.TransactionClient,
+        actor: AdminAuditActor | undefined,
+        event: Omit<Parameters<AdminAuditEventWriter["append"]>[1], "actor" | "outcome" | "source">,
+    ): Promise<void> {
+        if (!this.auditWriter) {
+            if (actor) throw new Error("Admin audit writer is required for audited branch mutations");
+            return;
+        }
+        if (!actor?.userId) {
+            throw new Error("Authenticated actor is required for audited branch mutations");
+        }
+        await this.auditWriter.append(tx, {
+            ...event,
+            actor: actor ?? null,
+            outcome: "success",
+            source: "backend",
         });
     }
 

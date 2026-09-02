@@ -1,5 +1,13 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import {
+    createGeminiStreamDeadline,
+    DEFAULT_GEMINI_STREAM_TOTAL_TIMEOUT_MS,
+    getGeminiStreamTermination,
+    getGeminiStreamTimeouts,
+    getSafeGeminiStreamError,
+    waitForGeminiStreamOperation,
+} from "./gemini-stream-timeout";
 
 export interface ChatMessage {
     role: 'user' | 'model' | 'system';
@@ -55,7 +63,12 @@ export class GeminiChatGateway {
         this.model = this.configService.get<string>("GEMINI_CHAT_MODEL") || "gemini-2.5-flash-lite";
         this.temperature = getNumberConfig(this.configService, "GEMINI_CHAT_TEMPERATURE", 0.1, 0);
         this.maxOutputTokens = getNumberConfig(this.configService, "GEMINI_CHAT_MAX_OUTPUT_TOKENS", 4096, 1);
-        this.requestTimeoutMs = getNumberConfig(this.configService, "GEMINI_CHAT_TIMEOUT_MS", 25000, 1);
+        this.requestTimeoutMs = getNumberConfig(
+            this.configService,
+            "GEMINI_CHAT_TIMEOUT_MS",
+            DEFAULT_GEMINI_STREAM_TOTAL_TIMEOUT_MS,
+            1,
+        );
     }
 
     private getApiKey(): string {
@@ -165,6 +178,7 @@ export class GeminiChatGateway {
     async *chatStream(
         messages: ChatMessage[],
         tools?: FunctionDeclaration[],
+        callerSignal?: AbortSignal,
     ): AsyncGenerator<GeminiStreamChunk> {
         const apiKey = this.getApiKey();
         const systemInstruction = this.getSystemInstruction(messages);
@@ -193,93 +207,138 @@ export class GeminiChatGateway {
             };
         }
 
-        const response = await this.fetchWithTimeout(
-            `${this.baseUrl}/models/${this.model}:streamGenerateContent?alt=sse&key=${apiKey}`,
-            {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(requestBody),
-            }
+        const deadline = createGeminiStreamDeadline(
+            getGeminiStreamTimeouts(this.configService),
+            callerSignal,
         );
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            this.logger.error(`Gemini streaming error: ${response.status} - ${errorText}`);
-            yield { type: 'error', error: `Gemini API error: ${response.status}` };
-            return;
-        }
-
-        const reader = response.body?.getReader();
-        if (!reader) {
-            yield { type: 'error', error: 'No response body' };
-            return;
-        }
-
-        const decoder = new TextDecoder();
-        let buffer = '';
+        let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+        let readerCompleted = false;
         let doneEmitted = false;
-        let shouldStop = false;
+        let terminated = false;
 
         try {
-            while (!shouldStop) {
-                const { done, value } = await reader.read();
-                if (done) break;
+            const response = await waitForGeminiStreamOperation(
+                fetch(
+                    `${this.baseUrl}/models/${this.model}:streamGenerateContent?alt=sse&key=${apiKey}`,
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(requestBody),
+                        signal: deadline.signal,
+                    },
+                ),
+                deadline,
+            );
 
+            if (!response.ok) {
+                this.logger.error(`Gemini streaming error: ${response.status}`);
+                yield { type: "error", error: `Gemini API error: ${response.status}` };
+                terminated = true;
+                return;
+            }
+
+            deadline.markHeadersReceived();
+            reader = response.body?.getReader();
+            if (!reader) {
+                yield { type: "error", error: "Gemini streaming response had no body" };
+                terminated = true;
+                return;
+            }
+
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let shouldStop = false;
+
+            while (!shouldStop) {
+                const { done, value } = await waitForGeminiStreamOperation(
+                    reader.read(),
+                    deadline,
+                );
+                if (done) {
+                    readerCompleted = true;
+                    break;
+                }
+
+                deadline.markChunkReceived();
                 buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
 
                 for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const jsonStr = line.slice(6).trim();
-                        if (!jsonStr || jsonStr === '[DONE]') continue;
-
-                        try {
-                            const data = JSON.parse(jsonStr);
-                            const candidate = data.candidates?.[0];
-                            const content = candidate?.content;
-
-                            if (content?.parts) {
-                                for (const part of content.parts) {
-                                    if (part.text) {
-                                        yield { type: 'text', content: part.text };
-                                    }
-                                    if (part.functionCall) {
-                                        yield {
-                                            type: 'function_call',
-                                            functionCall: {
-                                                name: part.functionCall.name,
-                                                args: part.functionCall.args || {},
-                                            },
-                                        };
-                                    }
-                                }
-                            }
-
-                            if (candidate?.finishReason === 'STOP') {
-                                if (!doneEmitted) {
-                                    doneEmitted = true;
-                                    yield { type: 'done' };
-                                }
-                                shouldStop = true;
-                                break;
-                            }
-                        } catch (parseError) {
-                            this.logger.warn(`Failed to parse SSE chunk: ${jsonStr}`);
-                        }
+                    if (!line.startsWith("data: ")) {
+                        continue;
+                    }
+                    const jsonStr = line.slice(6).trim();
+                    if (!jsonStr || jsonStr === "[DONE]") {
+                        continue;
                     }
 
-                    if (shouldStop) {
-                        break;
+                    try {
+                        const data = JSON.parse(jsonStr);
+                        const candidate = data.candidates?.[0];
+                        const content = candidate?.content;
+
+                        if (content?.parts) {
+                            for (const part of content.parts) {
+                                if (part.text) {
+                                    yield { type: "text", content: part.text };
+                                }
+                                if (part.functionCall) {
+                                    yield {
+                                        type: "function_call",
+                                        functionCall: {
+                                            name: part.functionCall.name,
+                                            args: part.functionCall.args || {},
+                                        },
+                                    };
+                                }
+                            }
+                        }
+
+                        if (candidate?.finishReason === "STOP") {
+                            if (!doneEmitted) {
+                                doneEmitted = true;
+                                yield { type: "done" };
+                            }
+                            shouldStop = true;
+                            break;
+                        }
+                    } catch {
+                        this.logger.warn("Failed to parse Gemini streaming response chunk");
                     }
                 }
             }
-        } finally {
-            reader.releaseLock();
-        }
 
-        if (!doneEmitted) {
-            yield { type: 'done' };
+            if (!doneEmitted && !terminated) {
+                doneEmitted = true;
+                yield { type: "done" };
+            }
+        } catch (error) {
+            terminated = true;
+            const termination = getGeminiStreamTermination(error, deadline);
+            if (!termination) {
+                this.logger.error(
+                    "Gemini streaming request failed",
+                    error instanceof Error ? error.stack : undefined,
+                );
+            }
+            yield { type: "error", error: getSafeGeminiStreamError(error, deadline) };
+        } finally {
+            if (reader) {
+                if (!readerCompleted) {
+                    try {
+                        void Promise.resolve(reader.cancel()).catch(() => undefined);
+                    } catch {
+                        // The stream is already closing; releasing the lock is sufficient.
+                    }
+                }
+                try {
+                    reader.releaseLock();
+                } catch {
+                    // The underlying response may have released the lock during cancellation.
+                }
+            }
+            deadline.cleanup();
         }
     }
 

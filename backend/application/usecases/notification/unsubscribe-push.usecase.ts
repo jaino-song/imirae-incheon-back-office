@@ -8,7 +8,7 @@ import {
  * Unsubscribe Push Use Case
  *
  * 브라우저에서 구독 해제 시 호출.
- * endpoint로 구독 정보 삭제.
+ * 현재 인증된 사용자가 소유한 endpoint만 삭제한다.
  */
 @Injectable()
 export class UnsubscribePushUsecase {
@@ -17,7 +17,7 @@ export class UnsubscribePushUsecase {
         private pushSubscriptionRepository: IPushSubscriptionRepository,
     ) {}
 
-    async execute(endpoint: string): Promise<void> {
-        await this.pushSubscriptionRepository.deleteByEndpoint(endpoint);
+    async execute(userId: string, endpoint: string): Promise<void> {
+        await this.pushSubscriptionRepository.deleteByEndpointForUser(endpoint, userId);
     }
 }

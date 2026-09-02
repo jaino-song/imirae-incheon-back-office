@@ -293,8 +293,7 @@ describe("useInfiniteContracts", () => {
       "drafting",
       "all-display-statuses",
       "alpha",
-      "any-template",
-      "include",
+      "any-section",
     ])).toBeDefined();
     expect(queryClient.getQueryState([
       "eformsign-documents",
@@ -303,8 +302,7 @@ describe("useInfiniteContracts", () => {
       "completed",
       "all-display-statuses",
       "alpha",
-      "any-template",
-      "include",
+      "any-section",
     ])).toBeDefined();
     expect(queryClient.getQueryState([
       "eformsign-documents",
@@ -313,8 +311,7 @@ describe("useInfiniteContracts", () => {
       "completed",
       "all-display-statuses",
       "beta",
-      "any-template",
-      "include",
+      "any-section",
     ])).toBeDefined();
     expect(result.current.queryKey).toEqual([
       "eformsign-documents",
@@ -323,9 +320,24 @@ describe("useInfiniteContracts", () => {
       "completed",
       "all-display-statuses",
       "beta",
-      "any-template",
-      "include",
+      "any-section",
     ]);
+  });
+
+  it("passes the section to the server request and the cache key", async () => {
+    mockedGetAllDocuments.mockResolvedValue(
+      createPage({ ids: ["doc-1"], totalRows: 1, limit: 9, skip: 0, hasMore: false }),
+    );
+
+    const { result } = renderHook(
+      () => useInfiniteContracts({ section: "maternity" }),
+      { wrapper: createWrapper(queryClient) },
+    );
+
+    await waitFor(() => expect(mockedGetAllDocuments).toHaveBeenCalledWith(
+      expect.objectContaining({ section: "maternity" }),
+    ));
+    expect(result.current.queryKey).toContain("maternity");
   });
 
   it("stops after an empty page even when has_more remains true", async () => {

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-08-24",
+  "updated": "2026-08-27",
   "purpose": "Machine-readable inventory of BabyJamJam design-system components. Agents MUST consult this before any UI work and compose ONLY these components in pages. See docs/design-system/AGENT_UI_RULES.md.",
   "docs": {
     "rules": "docs/design-system/AGENT_UI_RULES.md",
@@ -1365,6 +1365,15 @@
         "exports": [
           "useV3UiScaleStyle"
         ]
+      },
+      {
+        "name": "AutomationStatusNotice",
+        "layer": "molecule",
+        "import": "@/components/app/ui/automation-status-notice",
+        "file": "frontend/src/components/app/ui/automation-status-notice.tsx",
+        "exports": [
+          "AutomationStatusNotice"
+        ]
       }
     ],
     "mobile": [
@@ -2021,6 +2030,18 @@
         "file": "mobile/src/components/app/v3/TeaserOverlay.tsx",
         "exports": [
           "TeaserOverlay"
+        ]
+      },
+      {
+        "name": "Toaster",
+        "layer": "atom",
+        "import": "@/components/ui/toaster",
+        "file": "mobile/src/components/ui/toaster.tsx",
+        "exports": [
+          "Toaster"
+        ],
+        "requiredFor": [
+          "mobile shell toast feedback"
         ]
       },
       {

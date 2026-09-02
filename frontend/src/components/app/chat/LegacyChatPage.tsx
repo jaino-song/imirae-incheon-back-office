@@ -47,6 +47,9 @@ export function LegacyChatPage() {
         state,
         sessionId,
         sendMessage,
+        confirmAction,
+        cancelAction,
+        pendingConfirmation,
         clearSession,
         isToolExecuting,
         currentTool,
@@ -116,12 +119,11 @@ export function LegacyChatPage() {
         setIsOpen(false);
         setTimeout(() => router.back(), 300);
     };
-    const handleConfirm = () => sendMessage("확인");
-    const handleCancel = () => sendMessage("취소");
+    const handleConfirm = () => { void confirmAction?.(); };
+    const handleCancel = () => { cancelAction?.(); };
     const quickActions = ["산모 등록", "계약서 전송", "계약서 상태 조회"] as const;
     const lastMessage = messages[messages.length - 1];
-    const showConfirmButtons = lastMessage?.role === "assistant" && !lastMessage.isStreaming &&
-        (lastMessage.content.includes("하시겠습니까?") || lastMessage.content.includes("Would you like"));
+    const showConfirmButtons = Boolean(pendingConfirmation) && lastMessage?.role === "assistant" && !lastMessage.isStreaming;
 
     return (
         <div data-component="desktop_chat_page" className={cn("fixed inset-0 h-dvh flex flex-col bg-background z-[1200]", "transition-transform duration-300 ease-out", isOpen ? "translate-y-0" : "translate-y-full")}>
@@ -153,8 +155,8 @@ export function LegacyChatPage() {
                         <StateIndicator state={state} />
                         {showConfirmButtons && (
                             <div data-component="desktop_chat_page_messages_confirm-actions" className="flex gap-2 mb-4 px-4">
-                                <Button size="sm" onClick={handleConfirm} disabled={state === "streaming"}>확인</Button>
-                                <Button variant="outline" size="sm" onClick={handleCancel} disabled={state === "streaming"}>취소</Button>
+                                <Button size="sm" onClick={handleConfirm} disabled={state === "streaming" || state === "connecting"}>확인</Button>
+                                <Button variant="outline" size="sm" onClick={handleCancel} disabled={state === "streaming" || state === "connecting"}>취소</Button>
                             </div>
                         )}
                         <div ref={messagesEndRef} data-component="desktop_chat_page_messages_end" />

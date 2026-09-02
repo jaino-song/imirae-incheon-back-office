@@ -46,6 +46,8 @@ import {
     ListEmptyState,
 } from "@/components/app/v3";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/app/ui/status-badge";
 import {
     DropdownMenu,
@@ -56,6 +58,8 @@ import {
 import { formatWorkAreaLabel } from "@/components/app/employees/employee-form.constants";
 import { getEmployeeGradeBadgeStyle, normalizeEmployeeGrade } from "@/features/employees/grade";
 import { formatDateForDisplay } from "@/lib/date/format-date-for-display";
+import { useLocale } from "@/providers/LocaleProvider";
+import { t } from "@/lib/i18n/translations";
 
 const filterItems = [
     { label: "전체", value: "all" },
@@ -87,9 +91,8 @@ function getEmployeeAvatarClassName(openToNextWork: boolean): string {
         : "border border-[hsl(220,20%,90%)] bg-[hsl(220,20%,97%)] text-v3-text-muted";
 }
 
-function formatDate(dateStr: string | null | undefined): string {
-    if (!dateStr) return "-";
-    return formatDateForDisplay(dateStr);
+function formatDate(dateStr: string | null | undefined, fallback: string): string {
+    return formatDateForDisplay(dateStr, fallback);
 }
 
 function formatPhoneNumber(phone: string | null | undefined): string {
@@ -116,9 +119,11 @@ export default function EmployeesPage() {
         employees,
         allEmployees,
         isLoading,
+        isError,
         isFetchingNextPage,
         hasNextPage,
         fetchNextPage,
+        refetch,
     } = useInfiniteEmployees({ filter, search });
     const deleteEmployee = useDeleteEmployee();
 
@@ -220,7 +225,7 @@ export default function EmployeesPage() {
                     searchValue={search}
                     onSearchChange={setSearch}
                     searchPlaceholder="이름, 연락처, 지역으로 검색..."
-                    isLoading={isLoading}
+                    isLoading={isLoading} subHeader={!isLoading && isError && employees.length > 0 ? <Alert variant="warning" data-component="desktop_employees_split-layout_list-panel_cached-data-error"><AlertTitle>직원 목록을 불러오지 못했습니다</AlertTitle><AlertDescription>현재 저장된 직원 목록을 표시하고 있습니다. 잠시 후 다시 시도해 주세요.<Button type="button" variant="outline" size="sm" data-component="desktop_employees_split-layout_list-panel_cached-data-error_retry" className="mt-3" aria-label="직원 목록 다시 시도" onClick={() => void refetch()}>다시 시도</Button></AlertDescription></Alert> : undefined}
                     headerActions={
                         <HeaderActionButton
                             icon={Plus}
@@ -230,13 +235,36 @@ export default function EmployeesPage() {
                             className="text-[calc(12px*var(--glint-ui-scale,1))]"
                         />
                     }
-                    emptyState={!isLoading && employees.length === 0 ? (
+                    emptyState={!isLoading && !isError && employees.length === 0 ? (
                         <ListEmptyState
                             message={search || filter !== "all" ? "검색 결과가 없습니다" : "등록된 직원이 없습니다"}
                         />
                     ) : undefined}
                 >
-                    <AnimatedSlotList<Employee>
+                    {!isLoading && isError && employees.length === 0 ? (
+                        <Alert
+                            variant="destructive"
+                            data-component="desktop_employees_split-layout_list-panel_error"
+                            className="m-6"
+                        >
+                            <AlertTitle>직원 목록을 불러오지 못했습니다</AlertTitle>
+                            <AlertDescription>
+                                잠시 후 다시 시도해 주세요.
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    data-component="desktop_employees_split-layout_list-panel_error_retry"
+                                    className="mt-3"
+                                    aria-label="직원 목록 다시 시도"
+                                    onClick={() => void refetch()}
+                                >
+                                    다시 시도
+                                </Button>
+                            </AlertDescription>
+                        </Alert>
+                    ) : (
+                        <AnimatedSlotList<Employee>
                             items={employees}
                             isLoading={isLoading}
                             loadingCount={6}
@@ -287,6 +315,7 @@ export default function EmployeesPage() {
                                 );
                             }}
                         />
+                    )}
                 </ListPanel>
 
                 {isCreatingEmployee ? (
@@ -365,6 +394,9 @@ interface EmployeeDetailProps {
 }
 
 function EmployeeDetail({ employee, onEdit, onDelete }: EmployeeDetailProps) {
+    const locale = useLocale();
+    const unknownDateLabel = t(locale, "employees.form.registered-date-unknown");
+
     return (
         <DetailPanel data-component="desktop_employees_split-layout_detail-panel"
             avatar={
@@ -382,7 +414,7 @@ function EmployeeDetail({ employee, onEdit, onDelete }: EmployeeDetailProps) {
             subtitle={
                 <span className="inline-flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
-                    등록일 {formatDate(employee.registeredDate)}
+                    {t(locale, "employees.form.registered-date")} {formatDate(employee.registeredDate, unknownDateLabel)}
                 </span>
             }
             trailing={
@@ -444,7 +476,10 @@ function EmployeeDetail({ employee, onEdit, onDelete }: EmployeeDetailProps) {
                 </InfoCard>
 
                 <InfoCard data-component="desktop_employees_detail-panel_info-card-3" title="등록 정보">
-                    <InfoRow label="등록일" value={formatDate(employee.registeredDate)} />
+                    <InfoRow
+                        label={t(locale, "employees.form.registered-date")}
+                        value={formatDate(employee.registeredDate, unknownDateLabel)}
+                    />
                 </InfoCard>
             </div>
         </DetailPanel>

@@ -226,10 +226,21 @@ export function usePushNotification() {
             return;
         }
 
+        let active = true;
         const checkSubscription = async () => {
             try {
                 const registration = await navigator.serviceWorker.ready;
                 const subscription = await registration.pushManager.getSubscription();
+
+                // A browser subscription can outlive the authenticated account
+                // that created it. Reconcile the endpoint on every authenticated
+                // shell mount so the backend's atomic upsert binds it to the
+                // current user before the UI reports "enabled".
+                if (subscription) {
+                    await subscribePush(subscription);
+                }
+
+                if (!active) return;
                 setState((prev) => ({
                     ...prev,
                     isSubscribed: !!subscription,
@@ -237,15 +248,20 @@ export function usePushNotification() {
                 }));
             } catch (err) {
                 console.error('[Push] Failed to check subscription:', err);
+                if (!active) return;
                 setState((prev) => ({
                     ...prev,
                     isLoading: false,
                     error: 'Failed to check subscription status',
                 }));
             }
+
         };
 
-        checkSubscription();
+        void checkSubscription();
+        return () => {
+            active = false;
+        };
     }, [state.isSupported]);
 
     // Register Service Worker

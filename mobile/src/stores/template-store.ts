@@ -14,6 +14,7 @@ interface TemplateStore {
     setTemplates: (templates: MessageTemplate[]) => void;
     isLoading: boolean;
     setIsLoading: (isLoading: boolean) => void;
+    reset: () => void;
 }
 
 export const useTemplateStore = create<TemplateStore>((set) => ({
@@ -32,4 +33,10 @@ export const useTemplateStore = create<TemplateStore>((set) => ({
     setTemplates: (templates) => set({ templates }),
     isLoading: false,
     setIsLoading: (isLoading) => set({ isLoading }),
+    reset: () => set({
+        currentTemplate: null,
+        variableValues: {},
+        templates: [],
+        isLoading: false,
+    }),
 }));

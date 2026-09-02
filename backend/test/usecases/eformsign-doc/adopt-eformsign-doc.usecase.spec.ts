@@ -2,6 +2,23 @@ import { Logger } from "@nestjs/common";
 
 import { AdoptEformsignDocUsecase } from "application/usecases/eformsign-doc/adopt-eformsign-doc.usecase";
 
+const TEST_PRINCIPAL = {
+    userId: "test-user",
+    branchId: "branch-1",
+    globalRole: "owner",
+    branchRole: "owner",
+} as const;
+
+function createCredentialBoundary(accessToken = "token") {
+    return {
+        withCredentials: jest.fn(async (
+            _principal: unknown,
+            _capability: unknown,
+            operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+        ) => operation({ accessToken, refreshToken: "refresh-token" })),
+    };
+}
+
 describe("AdoptEformsignDocUsecase", () => {
     afterEach(() => {
         jest.restoreAllMocks();
@@ -13,7 +30,7 @@ describe("AdoptEformsignDocUsecase", () => {
         const create = { execute: jest.fn().mockResolvedValue({ documentId: "doc-1" }) };
         const mirror = { syncDocumentWithToken: jest.fn().mockResolvedValue(undefined) };
         const usecase = new AdoptEformsignDocUsecase(
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createCredentialBoundary() as never,
             { execute: jest.fn().mockResolvedValue({
                 id: "doc-1",
                 updated_date: 1_751_500_800_000,
@@ -40,8 +57,8 @@ describe("AdoptEformsignDocUsecase", () => {
             mirror as never,
         );
 
-        await usecase.execute("branch-1", { documentId: "doc-1", clientId: 7 });
-        await usecase.execute("branch-1", { documentId: "doc-1", clientId: 7 });
+        await usecase.execute("branch-1", { documentId: "doc-1", clientId: 7 }, TEST_PRINCIPAL);
+        await usecase.execute("branch-1", { documentId: "doc-1", clientId: 7 }, TEST_PRINCIPAL);
 
         expect(create.execute).toHaveBeenCalledTimes(2);
         expect(create.execute).toHaveBeenNthCalledWith(2, "branch-1", expect.objectContaining({
@@ -73,7 +90,7 @@ describe("AdoptEformsignDocUsecase", () => {
         const create = { execute: jest.fn().mockResolvedValue({ documentId: "doc-status" }) };
         const mirror = { syncDocumentWithToken: jest.fn().mockResolvedValue(undefined) };
         const usecase = new AdoptEformsignDocUsecase(
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createCredentialBoundary() as never,
             { execute: jest.fn().mockResolvedValue({
                 id: "doc-status",
                 document_name: "계약서",
@@ -93,7 +110,7 @@ describe("AdoptEformsignDocUsecase", () => {
             mirror as never,
         );
 
-        await usecase.execute("branch-1", { documentId: "doc-status", clientId: 7 });
+        await usecase.execute("branch-1", { documentId: "doc-status", clientId: 7 }, TEST_PRINCIPAL);
 
         expect(create.execute).toHaveBeenCalledWith(
             "branch-1",
@@ -105,7 +122,7 @@ describe("AdoptEformsignDocUsecase", () => {
         const create = { execute: jest.fn().mockResolvedValue({ documentId: "doc-no-expiry" }) };
         const mirror = { syncDocumentWithToken: jest.fn().mockResolvedValue(undefined) };
         const usecase = new AdoptEformsignDocUsecase(
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createCredentialBoundary() as never,
             { execute: jest.fn().mockResolvedValue({
                 id: "doc-no-expiry",
                 document_name: "무기한 계약서",
@@ -126,7 +143,7 @@ describe("AdoptEformsignDocUsecase", () => {
             mirror as never,
         );
 
-        await usecase.execute("branch-1", { documentId: "doc-no-expiry", clientId: 7 });
+        await usecase.execute("branch-1", { documentId: "doc-no-expiry", clientId: 7 }, TEST_PRINCIPAL);
 
         expect(create.execute).toHaveBeenCalledWith(
             "branch-1",
@@ -144,7 +161,7 @@ describe("AdoptEformsignDocUsecase", () => {
         };
         const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation();
         const usecase = new AdoptEformsignDocUsecase(
-            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            createCredentialBoundary() as never,
             { execute: jest.fn().mockResolvedValue({
                 id: "doc-complete",
                 updated_date: 1_751_500_800_000,
@@ -168,7 +185,7 @@ describe("AdoptEformsignDocUsecase", () => {
         await expect(usecase.execute("branch-1", {
             documentId: "doc-complete",
             clientId: 7,
-        })).resolves.toMatchObject({
+        }, TEST_PRINCIPAL)).resolves.toMatchObject({
             documentId: "doc-complete",
             warnings: ["client_link_failed", "mirror_sync_failed"],
         });

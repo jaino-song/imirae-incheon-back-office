@@ -16,6 +16,10 @@ on:
   # merges as eternally "expected" when the paths don't match.
   pull_request:
     branches: [ main, dev, preview, "feature/**", "fix/**" ]
+  merge_group:
+
+permissions:
+  contents: read
 
 jobs:
   verify:
@@ -24,20 +28,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # The e2e copy drift gate diffs against a base commit; the default
           # depth-1 checkout has no history for it to resolve and the gate
           # would silently skip.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
         with:
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: 'pnpm'
@@ -108,12 +113,19 @@ jobs:
   # must stay truthful (red when it fails) for the signal to be worth anything.
   e2e:
     name: playwright e2e (advisory · real backend)
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/dev')
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
+      github.event_name == 'merge_group' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/dev')
     needs: verify
     # 90: the full 266-test suite against the real stack needs headroom —
     # two 60-minute runs were cancelled mid-suite before any report upload.
     timeout-minutes: 90
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     env:
       BASE_URL: http://localhost:3002
       CI: true
@@ -129,7 +141,8 @@ jobs:
       # not real secrets (the CI backend never talks to real eformsign).
       EFORMSIGN_COMPANY_ID: e2e-stub-company
       EFORMSIGN_WEBHOOK_SECRET: e2e-dummy-webhook-${{ github.run_id }}
-      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      # PR-controlled E2E code gets only a per-run dummy; no repository JWT secret.
+      JWT_SECRET: e2e-dummy-jwt-signing-key-at-least-32-${{ github.run_id }}
       AUTH_EMAIL_TOKEN_HMAC_SECRET: e2e-dummy-email-hmac-${{ github.run_id }}
       EMAIL_TRANSPORT: smtp
       SMTP_HOST: localhost
@@ -139,7 +152,7 @@ jobs:
       STORAGE_BOOTSTRAP_DISABLED: '1'
     services:
       postgres:
-        image: postgres:16
+        image: postgres@sha256:c1b3783309b6499c795eed7c20135a1a4d25cae1b575c3d52c6f536129a1b109 # postgres:16
         env:
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
@@ -150,7 +163,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       valkey:
-        image: valkey/valkey:8-alpine
+        image: valkey/valkey@sha256:e0eb7c480958d32bdc4357a74bdd70653ae15f2f9b4c93c4a5a9fad1dc471c84 # valkey/valkey:8-alpine
         ports:
           - 6379:6379
         options: >-
@@ -159,25 +172,26 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       mailpit:
-        image: axllent/mailpit:v1.27
+        image: axllent/mailpit@sha256:e22dce5b36f93c77082e204a3942fb6b283b7896e057458400a4c88344c3df68 # axllent/mailpit:v1.27
         ports:
           - 1025:1025
           - 8025:8025
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # Full history; the changed-spec selection below no longer depends on it
           # (it asks the API instead), but keep it so any future git-based step works.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
         with:
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: 'pnpm'
@@ -275,7 +289,7 @@ jobs:
         run: pnpm --filter ./mobile exec playwright test tests/agent-real-backend.spec.ts
 
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: mobile-playwright-report
@@ -283,7 +297,7 @@ jobs:
           retention-days: 30
 
       - name: Upload backend log
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: mobile-backend-log

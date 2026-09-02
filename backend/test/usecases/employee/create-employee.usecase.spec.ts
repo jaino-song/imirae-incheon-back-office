@@ -45,30 +45,55 @@ describe("CreateEmployeeUsecase", () => {
             expect(result.phone).toBe("010-1234-5678");
             expect(result.grade).toBe("프리미엄");
             expect(result.openToNextWork).toBe(true);
+            expect(result.registeredDate).toEqual(registeredDate);
         });
 
-        it("should create employee without registeredDate (defaults to now)", async () => {
-            // Arrange
-            const name = "신규 직원";
-            const workArea = ["서울 강남구"];
-            const phone = "010-9999-8888";
-            const grade = "베스트";
-            const openToNextWork = false;
+        it("should persist an omitted registeredDate as today's Korean calendar date and make it queryable", async () => {
+            jest.useFakeTimers().setSystemTime(new Date("2026-08-27T23:30:00.000Z"));
+            try {
+                // Arrange
+                const expectedRegisteredDate = new Date("2026-08-28T00:00:00.000Z");
 
-            // Act
-            const result = await usecase.execute(
-                branchId,
-                name,
-                workArea,
-                phone,
-                grade,
-                openToNextWork,
-            );
+                // Act
+                const result = await usecase.execute(
+                    branchId,
+                    "신규 직원",
+                    ["서울 강남구"],
+                    "010-9999-8888",
+                    "베스트",
+                    false,
+                );
+                const matchingEmployees = await mockRepository.findByRegisteredDate(
+                    branchId,
+                    expectedRegisteredDate,
+                );
+                const explicitRegisteredDate = new Date("2024-01-15T00:00:00.000Z");
+                const explicitlyDatedEmployee = await usecase.execute(
+                    branchId,
+                    "기존 등록일 직원",
+                    ["서울 강남구"],
+                    "010-9999-8889",
+                    "베스트",
+                    false,
+                    explicitRegisteredDate,
+                );
+                const explicitlyDatedMatches = await mockRepository.findByRegisteredDate(
+                    branchId,
+                    explicitRegisteredDate,
+                );
 
-            // Assert
-            expect(result).toBeDefined();
-            expect(result.name).toBe("신규 직원");
-            expect(result.registeredDate).toBeDefined();
+                // Assert
+                expect(result).toBeDefined();
+                expect(result.name).toBe("신규 직원");
+                expect(result.registeredDate).toEqual(expectedRegisteredDate);
+                expect(matchingEmployees).toEqual([expect.objectContaining({ id: result.id })]);
+                expect(explicitlyDatedEmployee.registeredDate).toBe(explicitRegisteredDate);
+                expect(explicitlyDatedMatches).toEqual([
+                    expect.objectContaining({ id: explicitlyDatedEmployee.id }),
+                ]);
+            } finally {
+                jest.useRealTimers();
+            }
         });
 
         it("should auto-increment employee id for multiple creates", async () => {

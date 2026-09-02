@@ -1,5 +1,6 @@
 import { ClientEntity } from "domain/entities/client.entity";
 import {
+    AutomaticServiceStatusUpdateResult,
     ClientWithInitialSchedule,
     IClientRepository,
     InitialClientSchedule,
@@ -7,6 +8,10 @@ import {
 } from "domain/repositories/client.repository.interface";
 import type { Prisma } from "@prisma/client";
 import { clientAgentTargetVersion } from "application/usecases/client/client-agent-target";
+import {
+    isAutomaticServiceStatusTransitionAllowed,
+    ServiceStatusType,
+} from "domain/value-objects/service-status.vo";
 
 /**
  * 테스트용 Mock Client Repository
@@ -116,6 +121,12 @@ export class MockClientRepository implements IClientRepository {
             client.serviceStatus,
             client.breastPump,
             client.eDocId,
+            client.createdAt,
+            client.areaId,
+            client.branchId,
+            client.suppressGreetingSms,
+            client.birthDate,
+            client.phoneNormalized,
         );
         this.clients.set(id, newClient);
         return newClient;
@@ -137,6 +148,26 @@ export class MockClientRepository implements IClientRepository {
         }
         this.clients.set(client.id, client);
         return client;
+    }
+
+    async updateServiceStatusIfCurrent(
+        branchid: string,
+        id: number,
+        expectedServiceStatus: string | null,
+        newServiceStatus: ServiceStatusType,
+    ): Promise<AutomaticServiceStatusUpdateResult> {
+        const client = this.clients.get(id);
+        if (
+            !client
+            || (client.branchId !== null && client.branchId !== branchid)
+            || !isAutomaticServiceStatusTransitionAllowed(client.serviceStatus, newServiceStatus)
+            || client.serviceStatus !== expectedServiceStatus
+        ) {
+            return "stale";
+        }
+
+        client.update({ serviceStatus: newServiceStatus });
+        return "updated";
     }
 
     async updateIfTargetVersion(
@@ -261,7 +292,10 @@ export class MockClientRepository implements IClientRepository {
         });
     }
 
-    async findByPhone(_branchid: string, _normalizedPhone: string): Promise<ClientEntity | null> {
-        return null;
+    async findByPhone(branchid: string, normalizedPhone: string): Promise<ClientEntity | null> {
+        return Array.from(this.clients.values()).find((client) =>
+            client.phoneNormalized === normalizedPhone
+            && (client.branchId === null || client.branchId === branchid),
+        ) ?? null;
     }
 }

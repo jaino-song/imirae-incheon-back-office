@@ -1,0 +1,103 @@
+name: Native Android CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - "native/**"
+      - ".github/workflows/native-android.yml"
+      - "scripts/ci/native-workflow-contract.test.mjs"
+  pull_request:
+    branches: [main, dev, preview]
+    paths:
+      - "native/**"
+      - ".github/workflows/native-android.yml"
+      - "scripts/ci/native-workflow-contract.test.mjs"
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+jobs:
+  android_ci:
+    name: Android CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Verify Android build metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [[ -z "$sdk_root" || ! -d "$sdk_root" ]]; then
+            echo "::error::ANDROID_HOME or ANDROID_SDK_ROOT must point to an installed Android SDK"
+            exit 1
+          fi
+          if [[ ! -d "$sdk_root/platforms/android-36" ]]; then
+            echo "::error::Android SDK platform android-36 is required by native/androidApp"
+            exit 1
+          fi
+          test -x native/gradlew || {
+            echo "::error::The committed native/gradlew wrapper is missing or not executable"
+            exit 1
+          }
+          test -f native/settings.gradle.kts || {
+            echo "::error::The committed native Gradle settings file is missing"
+            exit 1
+          }
+
+      - name: Verify setup documentation freshness
+        run: bash native/scripts/setup-doc-freshness.test.sh
+
+      - name: Validate native workflow contract
+        run: node scripts/ci/native-workflow-contract.test.mjs
+
+      - name: Validate Android push intent contract
+        run: bash native/scripts/android-push-intent-contract.test.sh
+
+      - name: Compile shared Android sources and run Android checks
+        working-directory: native
+        run: ./gradlew :shared:compileAndroidMain :androidApp:test :androidApp:lint :androidApp:assembleDebug --stacktrace --no-daemon
+
+      - name: Upload Android reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-android-ci-reports
+          path: |
+            native/androidApp/build/reports
+            native/androidApp/build/test-results
+          if-no-files-found: ignore
+
+  sca_scan:
+    name: SCA Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Run Trivy file system scan
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: native
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"

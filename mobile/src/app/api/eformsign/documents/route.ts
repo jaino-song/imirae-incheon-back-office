@@ -5,8 +5,8 @@ import { proxyDeleteRequest, proxyLocalGetRequest } from "@/lib/api/route-utils"
 
 // Mirrors backend DeleteDocumentsRequestDto (eformsign.dto.ts):
 // document_ids is @IsArray() @ArrayNotEmpty() @IsString({ each: true }).
-// accessToken is forwarded as a query param by proxyDeleteRequest, not in the
-// body. Passthrough preserves forward-compatible fields (e.g. is_permanent).
+// Passthrough preserves forward-compatible fields (e.g. is_permanent), while
+// the shared proxy strips provider credential-shaped fields before forwarding.
 const deleteDocumentsSchema = z
     .object({
         document_ids: z.array(z.string()).nonempty(),
@@ -50,11 +50,12 @@ function parseIntegerParam(
 }
 
 // Filter params forwarded verbatim to the backend, which owns their validation
-// (parseStatusCategory / parseTemplateMatch throw BadRequest on bad input).
-// Blank values are dropped so the backend keeps its own defaults.
+// (parseStatusCategory / parseTemplateMatch / parseSection throw BadRequest on bad
+// input). Blank values are dropped so the backend keeps its own defaults.
 const PASSTHROUGH_FILTER_PARAMS = [
     "templateId",
     "templateMatch",
+    "section",
     "statusCategory",
     "search",
 ] as const;
@@ -66,6 +67,8 @@ const PASSTHROUGH_FILTER_PARAMS = [
  * Query params:
  * - limit: number of documents to fetch (default: 100)
  * - skip: number of documents to skip for pagination (default: 0)
+ * - section: maternity | service-records — backend resolves the template filter
+ *   itself from its own registries; overrides templateId/templateMatch
  * - templateId / templateMatch: template include/exclude filter
  * - statusCategory: drafting | in-progress | completed | expired | unknown
  * - search: chosung-aware name/title search

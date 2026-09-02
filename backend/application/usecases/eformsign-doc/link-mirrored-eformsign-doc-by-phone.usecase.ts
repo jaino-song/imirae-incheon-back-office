@@ -1,27 +1,58 @@
-import { Injectable, Logger, Optional } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, Logger, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
 
 import { MessageTriggerService } from "application/services/message-trigger.service";
-import { persistClientMessageAutomationIntent } from "application/services/message-automation-intent-writer";
+import { NotificationService } from "application/services/notification.service";
+import { persistClientMessageAutomationIntent, persistScheduleMessageAutomationIntent } from "application/services/message-automation-intent-writer";
 import { fulfillClientMessageAutomationIntent } from "application/services/client-message-automation-intent-fulfiller";
 import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
 import { SystemSettingService } from "application/services/system-setting.service";
 import {
+    EformsignContractClientCandidate,
     extractEformsignContractClientCandidate,
     formatNormalizedKoreanPhone,
     toEformsignDocumentDetail,
 } from "application/utils/eformsign-contract-client-candidate";
-import { extractPhoneCandidates, normalizePhone } from "application/utils/normalize-phone";
+import {
+    assertRequiredPhone,
+    assertValidPhone,
+    extractPhoneCandidates,
+    InvalidPhoneError,
+    normalizePhone,
+} from "application/utils/normalize-phone";
 import {
     configuredServiceRecordTemplateIds,
     isServiceRecordEformsignDocument,
 } from "application/utils/eformsign-document-kind";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
+import { DEFAULT_EMPLOYEE_GRADE } from "domain/constants/employee-grade.constants";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 import { normalizeClientPricing } from "domain/services/client-pricing";
 import { computeServiceStatus } from "domain/value-objects/service-status.vo";
+import {
+    assertClientDurationMatchesDates,
+    deriveClientDuration,
+} from "application/usecases/client/client-write-validation";
+import {
+    assertNoActiveEmployeeScheduleOverlap,
+    EMPLOYEE_SCHEDULE_OVERLAP_CODE,
+    lockEmployeesForScheduleWrite,
+} from "application/policies/employee-schedule-invariants.policy";
 import { PrismaService } from "infrastructure/database/prisma.service";
+
+/**
+ * The schedule invariant policy signals a double-booking with a
+ * ConflictException whose payload carries EMPLOYEE_SCHEDULE_OVERLAP_CODE.
+ * Only that shape is recoverable here; anything else propagates.
+ */
+function isEmployeeScheduleOverlapError(error: unknown): boolean {
+    if (!(error instanceof ConflictException)) return false;
+    const response = error.getResponse();
+    return typeof response === "object"
+        && response !== null
+        && (response as { code?: unknown }).code === EMPLOYEE_SCHEDULE_OVERLAP_CODE;
+}
 
 const AUTO_REGISTRATION_ELIGIBLE_STATUS_CODES = new Set([
     // 001 is only a temporary save. Start from the first durable document state.
@@ -86,7 +117,10 @@ interface TransactionResult {
     status: LinkMirroredEformsignDocResult;
     createdClientId?: number;
     createdBranchId?: string;
+    createdScheduleId?: number;
 }
+
+const ASSIGNMENT_REQUIRED_NOTIFICATION_TYPE = "eformsign_assignment_required";
 
 /**
  * Reconciles a locally mirrored contract with its client.
@@ -109,6 +143,8 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
         private readonly messageTriggerService?: MessageTriggerService,
         @Optional()
         private readonly serviceRecordLifecycleService?: ServiceRecordLifecycleService,
+        @Optional()
+        private readonly notificationService?: NotificationService,
     ) {}
 
     async execute(
@@ -124,6 +160,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                 documentKind: true,
                 serviceRecordCaseId: true,
                 templateId: true,
+                templateName: true,
                 stepRecipientSms: true,
                 customerPhone: true,
                 detailPayload: true,
@@ -168,6 +205,14 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             ?? singleLegacyPhone(document.stepRecipientSms, detail !== null);
         if (!phone) {
             return "no_match";
+        }
+        try {
+            assertValidPhone(phone);
+        } catch (error) {
+            if (error instanceof InvalidPhoneError) {
+                throw new BadRequestException("customerPhone must be a valid Korean phone number");
+            }
+            throw error;
         }
 
         if (
@@ -226,8 +271,61 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                 },
             });
             if (!postLinkApplied) return "mirror_not_ready";
+            // Historical imports must not page staff for old unassigned clients.
+            if (result.createdScheduleId === undefined && !options.suppressOutboundAutomation) {
+                await this.notifyAssignmentRequired(
+                    result.createdBranchId,
+                    documentId,
+                    result.createdClientId,
+                );
+            }
         }
         return result.status;
+    }
+
+    /**
+     * An auto-registered client without an initial assignment (caretaker
+     * unmatched, or the contract carried no service dates) is invisible work —
+     * tell the branch staff once per document so someone can pick it up.
+     */
+    private async notifyAssignmentRequired(
+        branchId: string,
+        documentId: string,
+        clientId: number,
+    ): Promise<void> {
+        if (!this.notificationService) return;
+        try {
+            const client = await this.prisma.client.findUnique({
+                where: { id: clientId },
+                select: { name: true },
+            });
+            const clientName = client?.name?.trim() || "미확인";
+            const result = await this.notificationService.sendToBranchUsers(
+                branchId,
+                "제공인력 지정 필요",
+                `${clientName} 산모님의 제공인력 지정이 필요합니다.`,
+                {
+                    type: ASSIGNMENT_REQUIRED_NOTIFICATION_TYPE,
+                    documentId,
+                    clientId,
+                    url: `/clients?id=${clientId}`,
+                },
+                {
+                    dedupe: {
+                        type: ASSIGNMENT_REQUIRED_NOTIFICATION_TYPE,
+                        documentId,
+                    },
+                },
+            );
+            this.logger.log(
+                `Assignment-required notification for document ${documentId}: ${result.sent} sent, ${result.failed} failed`,
+            );
+        } catch (error) {
+            this.logger.warn(
+                `Failed to send assignment-required notification for document ${documentId}: `
+                + (error instanceof Error ? error.name : "UnknownError"),
+            );
+        }
     }
 
     private async applyPostLinkEffects(params: {
@@ -316,6 +414,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                                 documentKind: true,
                                 serviceRecordCaseId: true,
                                 templateId: true,
+                                templateName: true,
                                 stepRecipientSms: true,
                                 customerPhone: true,
                                 detailPayload: true,
@@ -338,6 +437,14 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                             ?? singleLegacyPhone(document.stepRecipientSms, detail !== null);
                         if (!currentPhone || currentPhone !== params.phone) {
                             return { status: "no_match" };
+                        }
+                        try {
+                            assertRequiredPhone(currentPhone);
+                        } catch (error) {
+                            if (error instanceof InvalidPhoneError) {
+                                throw new BadRequestException("customerPhone must be a valid Korean phone number");
+                            }
+                            throw error;
                         }
 
                         const phoneSuffix = params.phone.slice(-PHONE_LOOKUP_SUFFIX_LENGTH);
@@ -382,11 +489,36 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                         if (!candidate || candidate.phone !== params.phone) {
                             return { status: "no_match" };
                         }
+                        assertRequiredPhone(candidate.phone);
                         if (
                             !params.canCreate
                             || params.creationBranchId !== creationBranchId
                         ) {
                             return { status: "disabled" };
+                        }
+
+                        let duration = candidate.duration;
+                        try {
+                            const derivedDuration = deriveClientDuration(
+                                candidate.startDate,
+                                candidate.endDate,
+                            );
+                            // The provider payload has no duration field for
+                            // some completed contracts; null here means
+                            // "not supplied", so derive it from the dates.
+                            if (candidate.duration !== null && candidate.duration !== undefined) {
+                                assertClientDurationMatchesDates(candidate.duration, derivedDuration);
+                            }
+                            if (derivedDuration !== null) duration = derivedDuration;
+                        } catch (error) {
+                            if (error instanceof BadRequestException) {
+                                this.logger.warn(
+                                    `[EFORMSIGN_CLIENT_INVALID_DURATION] 문서 ${params.documentId}의 서비스 기간이 `
+                                    + "한국 영업일 계산과 일치하지 않아 자동등록을 건너뜁니다.",
+                                );
+                                return { status: "skipped" };
+                            }
+                            throw error;
                         }
 
                         const pricing = normalizeClientPricing({
@@ -396,14 +528,22 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                             grant: candidate.grant,
                             actualPrice: candidate.actualPrice,
                         });
+                        const areaId = params.creationBranchId
+                            ? await this.resolveTemplateAreaId(
+                                transaction,
+                                params.creationBranchId,
+                                document.templateName,
+                            )
+                            : null;
                         const client = await transaction.client.create({
                             data: {
                                 name: candidate.name,
                                 address: candidate.address,
                                 phone: formatNormalizedKoreanPhone(candidate.phone),
+                                phoneNormalized: normalizePhone(candidate.phone),
                                 suppressGreetingSms: params.suppressGreetingSms,
                                 type: pricing.type,
-                                duration: candidate.duration,
+                                duration,
                                 fullPrice: pricing.fullPrice,
                                 grant: pricing.grant,
                                 actualPrice: pricing.actualPrice,
@@ -421,7 +561,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                                 breastPump: candidate.breastPump,
                                 eDocId: document.documentId,
                                 branchId: creationBranchId,
-                                areaId: null,
+                                areaId,
                             },
                             select: { id: true },
                         });
@@ -444,6 +584,14 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                                 `Eformsign document ${document.documentId} was claimed concurrently`,
                             );
                         }
+                        const scheduleId = await this.assignInitialScheduleFromContract(
+                            transaction,
+                            {
+                                branchId: creationBranchId,
+                                clientId: client.id,
+                                candidate,
+                            },
+                        );
                         if (params.applyMessageAutomation) {
                             await persistClientMessageAutomationIntent(transaction, {
                                 branchId: creationBranchId,
@@ -452,11 +600,23 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                                 suppressGreeting: params.suppressGreetingSms,
                                 intentAt: params.intentAt,
                             });
+                            if (scheduleId !== null) {
+                                // The 5-minute reconciliation cron fulfils this intent:
+                                // assignment SMS rules + service-record link scheduling.
+                                await persistScheduleMessageAutomationIntent(transaction, {
+                                    branchId: creationBranchId,
+                                    clientId: client.id,
+                                    scheduleId,
+                                    includePast: true,
+                                    intentAt: params.intentAt,
+                                });
+                            }
                         }
                         return {
                             status: "created",
                             createdClientId: client.id,
                             createdBranchId: creationBranchId,
+                            createdScheduleId: scheduleId ?? undefined,
                         };
                     },
                     { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
@@ -469,6 +629,176 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             }
         }
         throw lastError;
+    }
+
+    /**
+     * The contract template name carries the district (e.g. "인천 아이미래로
+     * 남동구 계약서" → 남동구). Match it against the branch's (or global)
+     * area names; an unmatched template keeps the previous behaviour of
+     * registering the client without an area.
+     */
+    private async resolveTemplateAreaId(
+        transaction: Prisma.TransactionClient,
+        branchId: string,
+        templateName: string | null,
+    ): Promise<string | null> {
+        const normalizedTemplateName = templateName?.trim() ?? "";
+        if (!normalizedTemplateName) return null;
+        const areas = await transaction.area.findMany({
+            where: { OR: [{ branchId }, { branchId: null }] },
+            select: { id: true, koreanName: true, branchId: true },
+        });
+        const matches = areas
+            .map((area) => ({ area, koreanName: area.koreanName.trim() }))
+            .filter(({ koreanName }) => koreanName.length > 0 && normalizedTemplateName.includes(koreanName))
+            .sort((left, right) => {
+                const branchScore = (entry: typeof left) => (entry.area.branchId === branchId ? 0 : 1);
+                return branchScore(left) - branchScore(right)
+                    || right.koreanName.length - left.koreanName.length;
+            });
+        return matches[0]?.area.id ?? null;
+    }
+
+    /**
+     * Assigns the caretakers named in the contract (제공인력 1·2) to the newly
+     * created client. A provider is reused when its phone matches exactly one
+     * branch employee (falling back to a unique exact name match); otherwise a
+     * minimal employee is created from the name + phone the contract provides.
+     * Without both service dates no assignment is made — employee_schedule
+     * requires them and inventing dates could misplace the service.
+     */
+    private async assignInitialScheduleFromContract(
+        transaction: Prisma.TransactionClient,
+        params: {
+            branchId: string;
+            clientId: number;
+            candidate: EformsignContractClientCandidate;
+        },
+    ): Promise<number | null> {
+        const { startDate, endDate } = params.candidate;
+        if (!startDate || !endDate) return null;
+
+        const primaryEmployeeId = await this.resolveOrCreateEmployee(
+            transaction,
+            params.branchId,
+            {
+                name: params.candidate.primaryProviderName,
+                phone: params.candidate.primaryProviderPhone,
+            },
+        );
+        if (primaryEmployeeId === null) return null;
+
+        let secondaryEmployeeId = await this.resolveOrCreateEmployee(
+            transaction,
+            params.branchId,
+            {
+                name: params.candidate.secondaryProviderName,
+                phone: params.candidate.secondaryProviderPhone,
+            },
+        );
+        if (secondaryEmployeeId === primaryEmployeeId) secondaryEmployeeId = null;
+
+        // Automatic assignment is subject to the same no-double-booking
+        // invariant as every manual create/update/replacement path: lock the
+        // employees, then reject an overlapping active schedule. A conflict
+        // skips the assignment instead of failing the whole auto-registration
+        // — the client is still created, and the ambiguity is left to an
+        // operator, exactly as an ambiguous provider match already is.
+        await lockEmployeesForScheduleWrite(
+            transaction,
+            params.branchId,
+            [primaryEmployeeId, secondaryEmployeeId],
+        );
+        try {
+            await assertNoActiveEmployeeScheduleOverlap(transaction, {
+                branchId: params.branchId,
+                clientId: params.clientId,
+                primaryEmployeeId,
+                secondaryEmployeeId,
+                startDate,
+                endDate,
+                replaced: false,
+            });
+        } catch (error) {
+            if (!isEmployeeScheduleOverlapError(error)) throw error;
+            this.logger.warn(
+                `[EFORMSIGN_SCHEDULE_OVERLAP] 지점 ${params.branchId}에서 제공인력 `
+                + `${primaryEmployeeId}${secondaryEmployeeId === null ? "" : `·${secondaryEmployeeId}`}`
+                + `의 기존 배정과 기간이 겹쳐 계약서 자동 배정을 건너뜁니다.`,
+            );
+            return null;
+        }
+
+        const schedule = await transaction.employee_schedule.create({
+            data: {
+                primaryEmployeeId,
+                secondaryEmployeeId,
+                workAddress: params.candidate.address ?? "",
+                startDate,
+                endDate,
+                clientId: params.clientId,
+                branchId: params.branchId,
+            },
+            select: { id: true },
+        });
+        return schedule.id;
+    }
+
+    private async resolveOrCreateEmployee(
+        transaction: Prisma.TransactionClient,
+        branchId: string,
+        provider: { name: string | null; phone: string | null },
+    ): Promise<number | null> {
+        const phone = provider.phone === null ? null : normalizePhone(provider.phone);
+        if (!phone) return null;
+        const employees = await transaction.employee.findMany({
+            where: {
+                branchId,
+                deletedAt: null,
+                openToNextWork: true,
+            },
+            select: { id: true, name: true, phone: true },
+        });
+        const phoneMatches = employees.filter(
+            (employee) => normalizePhone(employee.phone) === phone,
+        );
+        if (phoneMatches.length === 1) return phoneMatches[0]!.id;
+        if (phoneMatches.length > 1) {
+            this.logger.warn(
+                `[EFORMSIGN_EMPLOYEE_AMBIGUOUS_PHONE] 지점 ${branchId}에서 전화번호가 겹치는 제공인력이 `
+                + `${phoneMatches.length}명이라 계약서 자동 배정을 건너뜁니다.`,
+            );
+            return null;
+        }
+
+        const providerName = provider.name?.trim() ?? "";
+        if (providerName) {
+            const nameMatches = employees.filter(
+                (employee) => employee.name.trim() === providerName,
+            );
+            if (nameMatches.length === 1) return nameMatches[0]!.id;
+        }
+
+        if (!providerName) return null;
+        // A unique-constraint loss means a concurrent registration created the
+        // same employee first; the serializable retry re-runs the lookup and
+        // takes the existing row.
+        const created = await transaction.employee.create({
+            data: {
+                name: providerName,
+                phone: formatNormalizedKoreanPhone(phone),
+                // The uniqueness constraint and every phone lookup operate on
+                // phone_normalized. Leaving it null would make this row invisible
+                // to findByPhone and exempt from duplicate enforcement.
+                phoneNormalized: phone,
+                workArea: ["미지정"],
+                grade: DEFAULT_EMPLOYEE_GRADE,
+                openToNextWork: true,
+                branchId,
+            },
+            select: { id: true },
+        });
+        return created.id;
     }
 
     private repairAssignedDocument(document: {

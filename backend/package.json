@@ -29,17 +29,16 @@
     "start:prod": "node dist/main",
     "test": "jest",
     "e2e:full-flow": "node scripts/run-full-flow-e2e.mjs",
+    "e2e:canonical-phone-identity": "node scripts/run-canonical-phone-identity-e2e.mjs",
+    "e2e:retention-delete-guards": "node scripts/run-retention-delete-guards-e2e.mjs",
     "test:auth-e2e": "jest --config jest.auth-e2e.config.ts",
     "test:agent-e2e": "jest --config jest.agent-e2e.config.ts",
     "db:seed:auth-e2e": "prisma generate && ts-node test/auth-e2e/seed-auth-e2e.ts",
     "test:watch": "jest --watch",
-    "db:seed": "ts-node prisma/seed.ts",
+    "db:seed": "node scripts/db-seed-unsupported.mjs",
     "db:seed:e2e": "prisma generate && ts-node test/e2e-env/seed-e2e.ts",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy"
-  },
-  "prisma": {
-    "seed": "ts-node prisma/seed.ts"
   },
   "_dependencies_warning": "DO NOT REMOVE @nestjs/cli, ts-node, or typescript from dependencies! They are required for Railway production deployment with 'nest start'. Moving them to devDependencies will break deployment. See commit 993b0d63.",
   "dependencies": {

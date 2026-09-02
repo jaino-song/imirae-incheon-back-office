@@ -5,6 +5,7 @@ import { json } from "express";
 import request from "supertest";
 
 import { ClientService } from "application/services/client.service";
+import { EmployeeScheduleService } from "application/services/employee-schedule.service";
 import { MessageAutomationIntentService } from "application/services/message-automation-intent.service";
 import { MessageTriggerService } from "application/services/message-trigger.service";
 import { ServiceRecordFinalizationService } from "application/services/service-record-finalization.service";
@@ -26,7 +27,15 @@ import {
     SERVICE_RECORD_LINK_RULE_ID,
     SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON,
 } from "domain/constants/service-record-link-message";
+import { normalizePhone } from "domain/utils/normalize-phone";
 import { EFORMSIGN_CLIENT_REPOSITORY, IEformsignClientRepository } from "domain/repositories/eformsign.client.interface";
+import {
+    addBusinessDaysKr,
+    countBusinessDaysKr,
+    isoDateInKorea,
+    isBusinessDayKr,
+    UnsupportedKoreanHolidayYearError,
+} from "domain/utils/business-days";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { GlobalValidationPipe } from "infrastructure/pipes/global-validation.pipe";
@@ -45,10 +54,51 @@ interface ScheduleFixture {
     scheduleId: number;
 }
 
+interface TwoBusinessDayServicePeriod {
+    startDate: string;
+    endDate: string;
+}
+
+const createTwoBusinessDayServicePeriod = (anchorDate = isoDateInKorea()): TwoBusinessDayServicePeriod => {
+    const startDate = addBusinessDaysKr(anchorDate, 1);
+    return {
+        startDate,
+        endDate: addBusinessDaysKr(startDate, 1),
+    };
+};
+
+const findNextBusinessFriday = (anchorDate = isoDateInKorea()): string => {
+    const cursor = new Date(`${anchorDate}T00:00:00.000Z`);
+    for (let offset = 0; offset < 56; offset += 1) {
+        const candidate = cursor.toISOString().slice(0, 10);
+        if (cursor.getUTCDay() === 5 && isBusinessDayKr(candidate)) return candidate;
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    throw new Error(`Unable to find a Korean business Friday after ${anchorDate}`);
+};
+
+describe("full-flow service period fixture", () => {
+    it("keeps two contracted sessions after a Friday/weekend boundary", () => {
+        const friday = findNextBusinessFriday();
+        const period = createTwoBusinessDayServicePeriod(friday);
+
+        expect(isBusinessDayKr(period.startDate)).toBe(true);
+        expect(isBusinessDayKr(period.endDate)).toBe(true);
+        expect(countBusinessDaysKr(period.startDate, period.endDate)).toBe(2);
+    });
+
+    it("fails closed for service periods outside the supported holiday calendar", () => {
+        expect(() => countBusinessDaysKr("2099-01-01", "2099-01-03")).toThrow(
+            UnsupportedKoreanHolidayYearError,
+        );
+    });
+});
+
 describeE2E("BJJ-275 full connected flow", () => {
     let app: INestApplication;
     let prisma: PrismaService;
     let clientService: ClientService;
+    let employeeScheduleService: EmployeeScheduleService;
     let messageAutomationIntentService: MessageAutomationIntentService;
     let messageTriggerService: MessageTriggerService;
     let finalizationService: ServiceRecordFinalizationService;
@@ -91,6 +141,7 @@ describeE2E("BJJ-275 full connected flow", () => {
 
         prisma = app.get(PrismaService);
         clientService = app.get(ClientService, { strict: false });
+        employeeScheduleService = app.get(EmployeeScheduleService, { strict: false });
         messageAutomationIntentService = app.get(MessageAutomationIntentService, { strict: false });
         messageTriggerService = app.get(MessageTriggerService, { strict: false });
         finalizationService = app.get(ServiceRecordFinalizationService);
@@ -136,6 +187,7 @@ describeE2E("BJJ-275 full connected flow", () => {
                 name: `${label}-직원-${uniqueDigits}`,
                 workArea: ["E2E"],
                 phone: `0107${uniqueDigits}`,
+                phoneNormalized: normalizePhone(`0107${uniqueDigits}`),
                 grade: "E2E",
                 openToNextWork: true,
                 branchId: BRANCH_ID,
@@ -150,8 +202,8 @@ describeE2E("BJJ-275 full connected flow", () => {
                 address: "E2E 자동화 불변식 테스트 주소",
                 phone: `0108${uniqueDigits}`,
                 duration: 3,
-                startDate: "2099-01-01",
-                endDate: "2099-01-03",
+                startDate: "2027-01-04",
+                endDate: "2027-01-06",
                 careCenter: false,
                 voucherClient: false,
                 breastPump: false,
@@ -521,6 +573,61 @@ describeE2E("BJJ-275 full connected flow", () => {
         }
     }, 30_000);
 
+    it("cancels assignment automation and does not rebuild it when a schedule is replaced", async () => {
+        let fixture: ScheduleFixture | undefined;
+        let employeeAssignmentRule: { id: string; created: boolean } | undefined;
+        try {
+            employeeAssignmentRule = await ensureEmployeeAssignmentRule("자동화-대체-종료");
+            fixture = await createAutomationEnabledSchedule("자동화-대체-종료");
+
+            // Reconcile once so the assertion always starts with a persisted
+            // pending assignment generation, even when schedule creation was
+            // intentionally configured not to await its automation intent.
+            await messageTriggerService.syncEmployeeAssignmentRulesForSchedule(
+                BRANCH_ID,
+                fixture.scheduleId,
+                true,
+            );
+            const beforeReplacement = await prisma.message_trigger_job.findMany({
+                where: {
+                    employeeScheduleId: fixture.scheduleId,
+                    ruleId: employeeAssignmentRule.id,
+                    status: "pending",
+                },
+                select: { id: true, dedupeKey: true },
+            });
+            expect(beforeReplacement.length).toBeGreaterThan(0);
+
+            await employeeScheduleService.update(BRANCH_ID, fixture.scheduleId, { replaced: true });
+
+            const assignmentJobs = await prisma.message_trigger_job.findMany({
+                where: {
+                    employeeScheduleId: fixture.scheduleId,
+                    ruleId: employeeAssignmentRule.id,
+                },
+                select: { id: true, dedupeKey: true, status: true, sentAt: true, canceledByUser: true },
+            });
+            expect(assignmentJobs).toHaveLength(beforeReplacement.length);
+            expect(assignmentJobs.every((job) => job.status === "canceled")).toBe(true);
+            expect(assignmentJobs.every((job) => job.sentAt === null)).toBe(true);
+            expect(assignmentJobs.every((job) => job.canceledByUser === false)).toBe(true);
+            expect(await prisma.message_trigger_job.count({
+                where: {
+                    employeeScheduleId: fixture.scheduleId,
+                    ruleId: employeeAssignmentRule.id,
+                    status: { in: ["pending", "processing"] },
+                },
+            })).toBe(0);
+            await expect(prisma.employee_schedule.findUniqueOrThrow({
+                where: { id: fixture.scheduleId },
+                select: { replaced: true },
+            })).resolves.toEqual({ replaced: true });
+        } finally {
+            if (fixture) await cleanupScheduleFixture(fixture);
+            if (employeeAssignmentRule) await cleanupEmployeeAssignmentRule(employeeAssignmentRule);
+        }
+    }, 30_000);
+
     it("keeps generated client jobs stable when the intent marker deletion fails", async () => {
         let fixture: ScheduleFixture | undefined;
         let intentDeleteSpy: jest.SpyInstance | undefined;
@@ -766,17 +873,12 @@ describeE2E("BJJ-275 full connected flow", () => {
         const runId = `${Date.now()}`.slice(-8);
         const employeePhone = `0108${runId}`.slice(0, 11);
         const clientPhone = `0109${runId}`.slice(0, 11);
-        const start = new Date();
-        start.setUTCHours(0, 0, 0, 0);
-        const end = new Date(start);
-        end.setUTCDate(end.getUTCDate() + 1);
-        const startDate = start.toISOString().slice(0, 10);
-        const endDate = end.toISOString().slice(0, 10);
+        const { startDate, endDate } = createTwoBusinessDayServicePeriod();
 
         const clientRes = await request(app.getHttpServer()).post("/clients").send({
             name: `전체흐름고객-${runId}`,
             phone: clientPhone,
-            duration: 1,
+            duration: 2,
             startDate,
             endDate,
             careCenter: false,

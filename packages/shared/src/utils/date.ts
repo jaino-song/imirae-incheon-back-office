@@ -26,7 +26,7 @@ const KST_DATETIME_PARTS_FORMATTER = new Intl.DateTimeFormat("en-US", {
   day: "2-digit",
   hour: "2-digit",
   minute: "2-digit",
-  hour12: false,
+  hourCycle: "h23",
 });
 
 function partsToMap(parts: Intl.DateTimeFormatPart[]): Record<string, string> {
@@ -91,7 +91,9 @@ export function formatDateTimeKo(
   if (Number.isNaN(date.getTime())) return fallback;
 
   const parts = partsToMap(KST_DATETIME_PARTS_FORMATTER.formatToParts(date));
-  return `${parts.year}.${parts.month}.${parts.day} ${parts.hour}:${parts.minute}`;
+  // Keep the public contract at 00–23 even on ICU builds that expose 24 for midnight.
+  const hour = parts.hour === "24" ? "00" : parts.hour;
+  return `${parts.year}.${parts.month}.${parts.day} ${hour}:${parts.minute}`;
 }
 
 /**

@@ -1,5 +1,14 @@
 import { CreateAndSendServiceRecordSnapshotUsecase } from "application/usecases/eformsign-doc/create-and-send-service-record-snapshot.usecase";
 
+const TEST_PRINCIPAL = { branchId: "branch-1", globalRole: "owner" };
+const createBoundary = () => ({
+    withCredentials: jest.fn((
+        _principal: unknown,
+        _capability: unknown,
+        operation: (credentials: { accessToken: string; refreshToken: string }) => unknown,
+    ) => operation({ accessToken: "token", refreshToken: "refresh-token" })),
+});
+
 const dbDate = (day: number) => new Date(`2026-07-${String(day).padStart(2, "0")}T00:00:00.000Z`);
 
 type PreparedChunk = {
@@ -171,7 +180,7 @@ function setup() {
     const usecase = new CreateAndSendServiceRecordSnapshotUsecase(
         eformsignClient as never,
         prismaWithTransaction as never,
-        {} as never,
+        createBoundary() as never,
         {} as never,
     );
     return { usecase, prisma: prismaWithTransaction, eformsignClient, remoteDocument };
@@ -217,7 +226,7 @@ describe("client-owned service record snapshot", () => {
         const usecase = new CreateAndSendServiceRecordSnapshotUsecase(
             {} as never,
             {} as never,
-            {} as never,
+            createBoundary() as never,
             { get: jest.fn().mockReturnValue(undefined) } as never,
         );
         const reader = usecase as unknown as { getConfiguredTiers(): unknown };
@@ -481,7 +490,7 @@ describe("client-owned service record snapshot", () => {
         const usecase = new CreateAndSendServiceRecordSnapshotUsecase(
             {} as never,
             prismaWithTransaction as never,
-            { execute: jest.fn() } as never,
+            createBoundary() as never,
             {
                 get: jest.fn((key: string) => (
                     key === "EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID" ? "template-1" : undefined
@@ -489,7 +498,7 @@ describe("client-owned service record snapshot", () => {
             } as never,
         );
 
-        await expect(usecase.executeCase("branch-1", record.id)).resolves.toEqual({
+        await expect(usecase.executeCase("branch-1", record.id, TEST_PRINCIPAL)).resolves.toEqual({
             documentIds: ["existing-doc-1"],
             documentId: "existing-doc-1",
             chunkCount: 1,

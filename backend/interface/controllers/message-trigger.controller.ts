@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
+import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 import { MessageTriggerService } from "application/services/message-trigger.service";
 import { SmsRetryService } from "application/services/sms-retry.service";
@@ -12,6 +13,7 @@ import {
     UpdateMessageTriggerRuleDto,
 } from "interface/dto/message-trigger.dto";
 import { parseInteger } from "interface/parse-integer";
+import { SmsProviderReconciliationDto } from "interface/dto/sms-provider-reconciliation.dto";
 
 @Controller()
 @UseGuards(JwtGuard, TenantGuard)
@@ -66,6 +68,23 @@ export class MessageTriggerController {
         return this.smsRetryService.retryById(
             tenant.branchId ?? "",
             parseInteger(id, "id", { min: 1 }),
+        );
+    }
+
+    @Post("message-logs/:id/reconcile")
+    @UseGuards(OwnerOrAdminGuard)
+    reconcileHistory(
+        @CurrentTenant() tenant: { branchId?: string; userId?: string },
+        @Param("id") id: string,
+        @Body() dto: SmsProviderReconciliationDto,
+    ) {
+        return this.smsRetryService.reconcileById(
+            tenant.branchId ?? "",
+            parseInteger(id, "id", { min: 1 }),
+            dto.outcome,
+            tenant.userId ?? "",
+            dto.reason,
+            dto.providerMessageId,
         );
     }
 

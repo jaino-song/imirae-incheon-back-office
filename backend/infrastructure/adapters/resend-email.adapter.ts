@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Resend } from 'resend';
 import { maskEmail } from 'application/utils/mask';
-import { EmailPort, EmailOptions } from '../../domain/ports/email.port';
+import {
+    EmailOptions,
+    EmailPort,
+    EmailProviderError,
+    EmailSendOptions,
+} from '../../domain/ports/email.port';
 
 // Published Resend template IDs
 const TEMPLATE_IDS = {
@@ -35,7 +40,7 @@ export class ResendEmailAdapter implements EmailPort {
     async send(options: EmailOptions): Promise<string> {
         if (!this.resend) {
             this.logger.warn(`Email not sent (no API key): to=${maskEmail(options.to)}, subject=${options.subject}`);
-            return 'disabled';
+            throw new EmailProviderError('email_provider_disabled', 'pre_send');
         }
 
         try {
@@ -56,7 +61,9 @@ export class ResendEmailAdapter implements EmailPort {
             return response.data?.id || '';
         } catch (error) {
             this.logger.error(`Failed to send email to ${maskEmail(options.to)}:`, error);
-            throw error;
+            throw error instanceof EmailProviderError
+                ? error
+                : new EmailProviderError('email_provider_unknown', 'unknown');
         }
     }
 
@@ -64,6 +71,7 @@ export class ResendEmailAdapter implements EmailPort {
         to: string,
         name: string | null,
         verificationUrl: string,
+        options?: EmailSendOptions,
     ): Promise<string> {
         return this.sendWithTemplate({
             to,
@@ -73,13 +81,14 @@ export class ResendEmailAdapter implements EmailPort {
                 VERIFICATION_URL: verificationUrl,
                 EXPIRY_HOURS: 24,
             },
-        });
+        }, options);
     }
 
     async sendPasswordResetEmail(
         to: string,
         name: string | null,
         resetUrl: string,
+        options?: EmailSendOptions,
     ): Promise<string> {
         return this.sendWithTemplate({
             to,
@@ -89,28 +98,33 @@ export class ResendEmailAdapter implements EmailPort {
                 RESET_URL: resetUrl,
                 EXPIRY_HOURS: 1,
             },
-        });
+        }, options);
     }
 
     private async sendWithTemplate(options: {
         to: string;
         templateId: string;
         variables: Record<string, string | number>;
-    }): Promise<string> {
+    }, sendOptions?: EmailSendOptions): Promise<string> {
         if (!this.resend) {
             this.logger.warn(`Email not sent (no API key): to=${maskEmail(options.to)}, template=${options.templateId}`);
-            return 'disabled';
+            throw new EmailProviderError('email_provider_disabled', 'pre_send');
         }
 
         try {
-            const response = await this.resend.emails.send({
-                from: this.fromEmail,
-                to: options.to,
-                template: {
-                    id: options.templateId,
-                    variables: options.variables,
+            const response = await this.resend.emails.send(
+                {
+                    from: this.fromEmail,
+                    to: options.to,
+                    template: {
+                        id: options.templateId,
+                        variables: options.variables,
+                    },
                 },
-            });
+                sendOptions?.idempotencyKey
+                    ? { idempotencyKey: sendOptions.idempotencyKey }
+                    : undefined,
+            );
 
             if (response.error) {
                 this.logger.error(`Failed to send template email: ${response.error.message}`);
@@ -121,7 +135,9 @@ export class ResendEmailAdapter implements EmailPort {
             return response.data?.id || '';
         } catch (error) {
             this.logger.error(`Failed to send template email to ${maskEmail(options.to)}:`, error);
-            throw error;
+            throw error instanceof EmailProviderError
+                ? error
+                : new EmailProviderError('email_provider_unknown', 'unknown');
         }
     }
 }

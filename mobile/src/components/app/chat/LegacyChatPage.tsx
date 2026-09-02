@@ -7,6 +7,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Spinner } from "@/components/ui/spinner";
+import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/components/app/chat/CodeBlock";
 import ClientRegistrationWizard, {
   type CreatedClient,
@@ -261,6 +262,9 @@ export function LegacyChatPage() {
     messages,
     state,
     sendMessage,
+    confirmAction,
+    cancelAction,
+    pendingConfirmation,
     clearSession,
     isToolExecuting,
     currentTool,
@@ -324,10 +328,7 @@ export function LegacyChatPage() {
   }, [messages]);
 
   const lastMessage = messages[messages.length - 1];
-  const showConfirmButtons =
-    lastMessage?.role === "assistant" &&
-    !lastMessage.isStreaming &&
-    (lastMessage.content.includes("하시겠습니까?") || lastMessage.content.includes("Would you like"));
+  const showConfirmButtons = Boolean(pendingConfirmation) && lastMessage?.role === "assistant" && !lastMessage.isStreaming;
 
   const userLabel = user?.name ? `${user.name} 님` : "송진호 님";
   const branchLabel = user?.branchName ?? "인천 아이미래로";
@@ -377,12 +378,12 @@ export function LegacyChatPage() {
 
           {showConfirmButtons && (
             <div className={styles.confirmActions} data-component="mobile_chat_page_content_messages_confirm-actions">
-              <button type="button" onClick={() => sendMessage("확인")} disabled={isInputDisabled}>
+              <Button type="button" size="sm" onClick={() => void confirmAction?.()} disabled={isInputDisabled}>
                 확인
-              </button>
-              <button type="button" onClick={() => sendMessage("취소")} disabled={isInputDisabled}>
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => cancelAction?.()} disabled={isInputDisabled}>
                 취소
-              </button>
+              </Button>
             </div>
           )}
 

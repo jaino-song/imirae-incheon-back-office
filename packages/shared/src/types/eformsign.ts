@@ -20,9 +20,6 @@ export interface EformsignCompanyOption {
 export interface EformsignUserOption {
   type: "01" | "02";
   id?: string;
-  access_token?: string;
-  refresh_token?: string;
-  external_token?: string;
   external_user_info?: {
     name?: string;
   };
@@ -215,8 +212,8 @@ export interface EformsignDeleteDocumentsResponse {
 
 export interface EformsignAuthStatusResponse {
   hasAppAuthToken: boolean;
-  hasAccessToken: boolean;
-  hasRefreshToken: boolean;
+  /** Provider session details intentionally stay server-side. */
+  providerSession: "server-only";
 }
 
 export interface EformsignDocClientSummary {

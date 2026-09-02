@@ -34,6 +34,40 @@ test('workflow validates, tests, builds, and packages without automatic deployme
   assert.match(workflow, /environment:\n\s+name: production/);
 });
 
+test('pull-request validation is secret-free and trusted packaging has job-scoped OIDC', () => {
+  const validationStart = workflow.indexOf('\n  validate-build-package:');
+  const packageStart = workflow.indexOf('\n  package-trusted:');
+  const deployStart = workflow.indexOf('\n  deploy-preview:');
+  assert.ok(validationStart >= 0 && packageStart > validationStart && deployStart > packageStart);
+
+  const validationJob = workflow.slice(validationStart, packageStart);
+  const packageJob = workflow.slice(packageStart, deployStart);
+
+  assert.match(validationJob, /permissions:\n      contents: read/);
+  assert.doesNotMatch(validationJob, /id-token:\s*write/);
+  assert.doesNotMatch(validationJob, /configure-aws-credentials|role-to-assume|sam package|SAM_PACKAGE_|secrets\./);
+  assert.match(validationJob, /sam validate --lint/);
+  assert.match(validationJob, /sam build/);
+
+  assert.match(packageJob, /if: github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'/);
+  assert.doesNotMatch(packageJob, /pull_request/);
+  assert.match(packageJob, /needs: validate-build-package/);
+  assert.match(packageJob, /permissions:\n      contents: read\n      id-token: write/);
+  assert.match(packageJob, /configure-aws-credentials@[0-9a-f]{40}/);
+  assert.match(packageJob, /role-to-assume: \$\{\{ env\.SAM_PACKAGE_ROLE_ARN \}\}/);
+  assert.match(packageJob, /sam package/);
+  assert.doesNotMatch(packageJob, /secrets\./);
+
+  for (const environment of ['preview', 'production']) {
+    const start = workflow.indexOf(`\n  deploy-${environment}:`);
+    const next = workflow.indexOf('\n  deploy-', start + 1);
+    const deployJob = workflow.slice(start, next === -1 ? workflow.length : next);
+    assert.match(deployJob, /needs:\n      - validate-build-package\n      - package-trusted/);
+    assert.match(deployJob, /id-token:\s*write/);
+    assert.match(deployJob, /sam deploy/);
+  }
+});
+
 test('each deploy job performs a live fail-closed Sentry rule audit before AWS authentication', () => {
   for (const environment of ['preview', 'production']) {
     const start = workflow.indexOf(`deploy-${environment}:`);

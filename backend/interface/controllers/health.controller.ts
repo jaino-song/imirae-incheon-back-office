@@ -9,6 +9,7 @@ import {
 import type { Response } from "express";
 
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { ReadinessService } from "infrastructure/health/readiness.service";
 
 interface HealthResponse {
     status: "ok";
@@ -20,7 +21,10 @@ interface ReadinessResponse {
 
 @Controller()
 export class HealthController {
-    constructor(@Optional() private readonly prisma?: PrismaService) {}
+    constructor(
+        @Optional() private readonly prisma: PrismaService | undefined,
+        private readonly readiness: ReadinessService,
+    ) {}
 
     @Get("health")
     getHealth(): HealthResponse {
@@ -35,6 +39,10 @@ export class HealthController {
         response.setHeader("Cache-Control", "no-store");
 
         try {
+            if (!this.readiness.isReady()) {
+                throw new Error("Application readiness has been revoked");
+            }
+
             if (!this.prisma) {
                 throw new Error("Database service is unavailable");
             }

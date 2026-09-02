@@ -9,9 +9,9 @@ import {
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-const CLIENT_DELETE_CONFLICT_CODE = "CLIENT_DELETE_CONFLICT";
-const CLIENT_DELETE_CONFLICT_MESSAGE =
-    "연결된 데이터로 인해 고객을 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요.";
+const CLIENT_RETENTION_BLOCKED_CODE = "CLIENT_RETENTION_BLOCKED";
+const CLIENT_RETENTION_BLOCKED_MESSAGE =
+    "연결된 운영 또는 이력 데이터가 있어 고객을 삭제할 수 없습니다.";
 const CLIENT_DELETE_CONFLICT_FALLBACK =
     "연결된 정보 때문에 고객을 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요.";
 
@@ -103,14 +103,14 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         return NextResponse.json({ success: true });
     } catch (error) {
         if (getUpstreamErrorStatus(error) === 409) {
-            const isAllowlistedConflict = getUpstreamErrorCode(error) === CLIENT_DELETE_CONFLICT_CODE;
+            const isAllowlistedConflict = getUpstreamErrorCode(error) === CLIENT_RETENTION_BLOCKED_CODE;
             logUpstreamError("delete client", error);
             return NextResponse.json(
                 {
                     error: isAllowlistedConflict
-                        ? CLIENT_DELETE_CONFLICT_MESSAGE
+                        ? CLIENT_RETENTION_BLOCKED_MESSAGE
                         : CLIENT_DELETE_CONFLICT_FALLBACK,
-                    code: CLIENT_DELETE_CONFLICT_CODE,
+                    code: CLIENT_RETENTION_BLOCKED_CODE,
                 },
                 { status: 409 },
             );

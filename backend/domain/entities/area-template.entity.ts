@@ -4,7 +4,13 @@ export class AreaTemplateEntity {
         public readonly areaId: string,
         public templateId: string,
         public templateName: string | null,
-    ) {}
+    ) {
+        if (typeof templateId !== "string" || templateId.trim().length === 0) {
+            throw new Error("Area template templateId must be a non-empty string");
+        }
+
+        this.templateId = templateId.trim();
+    }
 
     static create(areaId: string, templateId: string, templateName: string | null = null): AreaTemplateEntity {
         return new AreaTemplateEntity('', areaId, templateId, templateName);

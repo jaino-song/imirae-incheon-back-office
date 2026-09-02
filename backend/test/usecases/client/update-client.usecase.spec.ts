@@ -1,4 +1,4 @@
-import { NotFoundException } from "@nestjs/common";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { UpdateClientUsecase } from "application/usecases/client/update-client.usecase";
 import { MockClientRepository, ClientFactory } from "../../utils";
 
@@ -112,6 +112,55 @@ describe("UpdateClientUsecase", () => {
             // Assert
             expect(result.birthDate).toEqual(new Date("1995-03-15"));
         });
+
+        it.each([
+            "address",
+            "phone",
+            "type",
+            "fullPrice",
+            "grant",
+            "actualPrice",
+            "startDate",
+            "endDate",
+            "careCenter",
+            "birthday",
+            "dueDate",
+            "birthDate",
+            "serviceStatus",
+            "eDocId",
+            "areaId",
+        ])("should clear nullable %s only when null is explicitly supplied", async (field) => {
+            const existingClient = ClientFactory.create({ id: 1, birthDate: new Date("1995-03-15") });
+            mockRepository.setData([existingClient]);
+
+            const result = await usecase.execute(branchId, 1, { [field]: null } as never);
+
+            expect((result as unknown as Record<string, unknown>)[field]).toBeNull();
+        });
+
+        it("should reject clearing duration when the service period is complete", async () => {
+            const existingClient = ClientFactory.create({ id: 1 });
+            mockRepository.setData([existingClient]);
+
+            await expect(usecase.execute(branchId, 1, { duration: null }))
+                .rejects.toThrow("duration must equal the Korean business-day count (246)");
+
+            expect(mockRepository.getAllData()[0]).toBe(existingClient);
+            expect(mockRepository.getAllData()[0]?.duration).toBe(15);
+        });
+
+        it.each(["name", "voucherClient", "breastPump"])(
+            "should reject null for non-nullable %s before repository mutation",
+            async (field) => {
+                const existingClient = ClientFactory.create({ id: 1 });
+                mockRepository.setData([existingClient]);
+
+                await expect(usecase.execute(branchId, 1, { [field]: null } as never))
+                    .rejects.toBeInstanceOf(BadRequestException);
+
+                expect(mockRepository.getAllData()[0]).toBe(existingClient);
+            },
+        );
 
         it("should throw NotFoundException when client not found", async () => {
             // Arrange - empty repository

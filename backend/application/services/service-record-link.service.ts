@@ -42,6 +42,12 @@ import { captureServiceRecordError } from "infrastructure/observability/service-
 const AUTOMATIC_SCHEDULING_LEASE_MINUTES = 10;
 const AUTOMATIC_SCHEDULING_RETRY_DELAY_MS = AUTOMATIC_SCHEDULING_LEASE_MINUTES * 60 * 1000;
 
+interface AutomaticSchedulingClaim {
+    id: string;
+    claimVersion: string;
+    dedupeKey: string;
+}
+
 function readStoredCustomVariables(
     value: Prisma.JsonValue | null,
 ): Array<{ key: string; required: boolean }> {
@@ -167,7 +173,7 @@ export class ServiceRecordLinkService {
             expectedPhone: resolvedRecipientPhone,
             expiresAt,
         };
-        const { linkToken } = await this.tokenService.reuseActiveLink(tokenParams)
+        const { linkToken } = await this.tokenService.reuseActiveLink(tokenParams, { includeLocked: false })
             ?? await this.tokenService.prepareLink(tokenParams);
 
         return {
@@ -295,9 +301,9 @@ export class ServiceRecordLinkService {
 
         const scheduledFor = options.scheduledFor ?? getServiceRecordLinkScheduledFor(schedule.startDate);
         const automaticDedupeKey = this.buildDedupeKey(scheduleId, false);
-        let automaticSchedulingClaimed = false;
+        let automaticSchedulingClaim: AutomaticSchedulingClaim | null = null;
         if (!options.isManualSend) {
-            automaticSchedulingClaimed = await this.claimAutomaticScheduling({
+            automaticSchedulingClaim = await this.claimAutomaticScheduling({
                 branchId: schedule.branchId,
                 scheduleId,
                 clientId: schedule.clientId,
@@ -310,7 +316,7 @@ export class ServiceRecordLinkService {
                 serviceStartDate: this.formatDate(schedule.startDate),
                 serviceEndDate: this.formatDate(schedule.endDate),
             });
-            if (!automaticSchedulingClaimed) {
+            if (!automaticSchedulingClaim) {
                 return {
                     scheduledFor,
                     employeeId: employee.id,
@@ -413,39 +419,53 @@ ${employee.name} 관리사님, ${clientName} 산모님의 서비스 제공기록
 제공기록지 링크
 ${url}`;
 
-            const persistedJob = await this.jobRepository.upsertPending(
-                MessageTriggerJobEntity.create({
-                    branchId: schedule.branchId,
-                    ruleId: SERVICE_RECORD_LINK_RULE_ID,
-                    scheduledFor,
+            const pendingJob = MessageTriggerJobEntity.create({
+                branchId: schedule.branchId,
+                ruleId: SERVICE_RECORD_LINK_RULE_ID,
+                scheduledFor,
+                clientId: schedule.clientId,
+                employeeScheduleId: scheduleId,
+                recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+                recipientPhone: resolvedRecipientPhone,
+                templateKey: MessageTriggerTemplateKey.SERVICE_RECORD_LINK,
+                dedupeKey: options.isManualSend
+                    ? this.buildDedupeKey(scheduleId, true)
+                    : automaticDedupeKey,
+                payload: {
                     clientId: schedule.clientId,
-                    employeeScheduleId: scheduleId,
-                    recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+                    clientName,
+                    employeeId: employee.id,
+                    employeeName: employee.name,
+                    memberId: `employee:${employee.id}`,
+                    recipientName: employee.name,
                     recipientPhone: resolvedRecipientPhone,
-                    templateKey: MessageTriggerTemplateKey.SERVICE_RECORD_LINK,
-                    dedupeKey: options.isManualSend
-                        ? this.buildDedupeKey(scheduleId, true)
-                        : automaticDedupeKey,
-                    payload: {
-                        clientId: schedule.clientId,
+                    buttonUrl: url,
+                    messageBody: message,
+                    templateVariables: {
                         clientName,
-                        employeeId: employee.id,
                         employeeName: employee.name,
-                        memberId: `employee:${employee.id}`,
-                        recipientName: employee.name,
-                        recipientPhone: resolvedRecipientPhone,
-                        buttonUrl: url,
-                        messageBody: message,
-                        templateVariables: {
-                            clientName,
-                            employeeName: employee.name,
-                            serviceRecordUrl: url,
-                            serviceStartDate: this.formatDate(schedule.startDate),
-                            serviceEndDate: this.formatDate(schedule.endDate),
-                        },
+                        serviceRecordUrl: url,
+                        serviceStartDate: this.formatDate(schedule.startDate),
+                        serviceEndDate: this.formatDate(schedule.endDate),
                     },
-                }),
-            );
+                },
+            });
+            const persistedJob = automaticSchedulingClaim
+                ? await this.jobRepository.promoteAutomaticSchedulingClaim(
+                    automaticSchedulingClaim.id,
+                    automaticSchedulingClaim.claimVersion,
+                    pendingJob,
+                )
+                : await this.jobRepository.upsertPending(pendingJob);
+
+            if (!persistedJob) {
+                return {
+                    scheduledFor,
+                    employeeId: employee.id,
+                    jobEnqueued: false,
+                    jobId: null,
+                };
+            }
 
             return {
                 scheduledFor,
@@ -454,8 +474,8 @@ ${url}`;
                 jobId: persistedJob.id,
             };
         } finally {
-            if (automaticSchedulingClaimed) {
-                await this.releaseAutomaticSchedulingClaim(automaticDedupeKey);
+            if (automaticSchedulingClaim) {
+                await this.releaseAutomaticSchedulingClaim(automaticSchedulingClaim);
             }
         }
     }
@@ -472,7 +492,7 @@ ${url}`;
         dedupeKey: string;
         serviceStartDate: string;
         serviceEndDate: string;
-    }): Promise<boolean> {
+    }): Promise<AutomaticSchedulingClaim | null> {
         const payload = {
             clientId: params.clientId,
             clientName: params.clientName,
@@ -491,7 +511,7 @@ ${url}`;
                 serviceEndDate: params.serviceEndDate,
             },
         };
-        const claimed = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        const claimed = await this.prisma.$queryRaw<Array<{ id: string; claim_version: string }>>(Prisma.sql`
             INSERT INTO "message_trigger_job" (
                 branch_id,
                 rule_id,
@@ -528,14 +548,14 @@ ${url}`;
                 ${JSON.stringify(payload)}::jsonb,
                 0,
                 clock_timestamp() + (${AUTOMATIC_SCHEDULING_LEASE_MINUTES} * interval '1 minute'),
-                date_trunc('milliseconds', clock_timestamp())
+                clock_timestamp()
             WHERE NOT EXISTS (
                 SELECT 1
                 FROM "message_trigger_job" AS blocker
                 WHERE blocker."employee_schedule_id" = ${params.scheduleId}
                   AND blocker."rule_id" = ${SERVICE_RECORD_LINK_RULE_ID}
                   AND (
-                      blocker."status" IN ('pending', 'processing', 'sent')
+                      blocker."status" IN ('pending', 'processing', 'dispatching', 'sent')
                       OR (
                           blocker."status" = 'failed'
                           AND blocker."cancel_reason" IS DISTINCT FROM ${SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON}
@@ -563,7 +583,7 @@ ${url}`;
                 payload = EXCLUDED.payload,
                 attempts = 0,
                 next_attempt_at = clock_timestamp() + (${AUTOMATIC_SCHEDULING_LEASE_MINUTES} * interval '1 minute'),
-                updated_at = date_trunc('milliseconds', clock_timestamp())
+                updated_at = clock_timestamp()
             WHERE (
                 "message_trigger_job"."status" = 'failed'
                 AND "message_trigger_job"."cancel_reason" = ${SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON}
@@ -579,27 +599,31 @@ ${url}`;
                     ${MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON}
                 )
             )
-            RETURNING id;
+            RETURNING id, updated_at::text AS claim_version;
         `);
 
-        return claimed.length > 0;
+        const [claim] = claimed;
+        return claim
+            ? {
+                id: claim.id,
+                claimVersion: claim.claim_version,
+                dedupeKey: params.dedupeKey,
+            }
+            : null;
     }
 
-    private async releaseAutomaticSchedulingClaim(dedupeKey: string): Promise<void> {
-        await this.prisma.message_trigger_job.updateMany({
-            where: {
-                dedupeKey,
-                status: "failed",
-                cancelReason: SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON,
-                canceledByUser: false,
-            },
-            data: {
-                // Keep failed markers out of the next five-minute scan. Without
-                // this durable backoff, the first batch of persistently failing
-                // schedules can monopolize every reconciliation cycle.
-                nextAttemptAt: new Date(Date.now() + AUTOMATIC_SCHEDULING_RETRY_DELAY_MS),
-            },
-        });
+    private async releaseAutomaticSchedulingClaim(claim: AutomaticSchedulingClaim): Promise<void> {
+        await this.prisma.$executeRaw(Prisma.sql`
+            UPDATE "message_trigger_job"
+            SET next_attempt_at = clock_timestamp() + (${AUTOMATIC_SCHEDULING_RETRY_DELAY_MS} * interval '1 millisecond'),
+                updated_at = clock_timestamp()
+            WHERE id = ${claim.id}
+              AND dedupe_key = ${claim.dedupeKey}
+              AND status = 'failed'
+              AND cancel_reason = ${SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON}
+              AND canceled_by_user = false
+              AND updated_at = ${claim.claimVersion}::timestamptz;
+        `);
     }
 
     private async ensureSystemRule(): Promise<void> {

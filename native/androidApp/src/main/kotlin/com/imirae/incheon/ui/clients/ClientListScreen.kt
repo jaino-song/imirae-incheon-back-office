@@ -21,7 +21,7 @@ import com.imirae.incheon.viewmodel.ClientListViewModel
 @Composable
 fun ClientListScreen(
     viewModel: ClientListViewModel,
-    onNavigateToDetail: (String) -> Unit,
+    onNavigateToDetail: (Int) -> Unit,
     onNavigateToNew: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -47,7 +47,7 @@ fun ClientListScreen(
 
         // Filters
         FilterChipRow(
-            filters = listOf(null to "전체", "active" to "활성", "inactive" to "비활성"),
+            filters = listOf(null to "전체", "pre_booking" to "예약 전", "waiting" to "대기", "active" to "진행 중", "completed" to "완료"),
             selectedFilter = uiState.statusFilter,
             onFilterSelected = { viewModel.filterByStatus(it) }
         )
@@ -71,7 +71,8 @@ fun ClientListScreen(
                                 Text(it.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                                 it.phone?.let { p -> Text(p, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             }
-                            StatusBadge(status = it.status, label = StatusCodes.getStatusLabel(it.status))
+                            val status = it.serviceStatus ?: "pre_booking"
+                            StatusBadge(status = status, label = StatusCodes.getStatusLabel(status))
                             Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }

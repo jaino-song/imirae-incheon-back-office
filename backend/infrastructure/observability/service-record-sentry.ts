@@ -12,9 +12,15 @@ const FILTERED_VALUE = "[Filtered]";
 const MAX_SANITIZE_DEPTH = 3;
 const reportedErrors = new WeakSet<object>();
 const reportedPrismaErrors = new WeakSet<object>();
+const reportedBackendErrors = new WeakSet<object>();
 
 export const SERVICE_RECORD_FEATURE = "service-records";
 export const DATABASE_FAILOVER_FEATURE = "database-failover";
+export const BACKEND_FEATURE = "backend";
+
+type ExceptionValue = NonNullable<NonNullable<Event["exception"]>["values"]>[number];
+type Stacktrace = NonNullable<ExceptionValue["stacktrace"]>;
+type StackFrame = NonNullable<Stacktrace["frames"]>[number];
 
 export interface PrismaSentryErrorContext {
     code: string;
@@ -44,6 +50,12 @@ export interface ServiceRecordErrorContext {
     scheduleId?: number;
     retryCount?: number;
     smokeTest?: boolean;
+}
+
+export interface BackendErrorContext {
+    handled: boolean;
+    statusCode?: number;
+    operation?: string;
 }
 
 function normalizeDatabaseEnvironment(value: string | undefined): string | undefined {
@@ -90,7 +102,14 @@ export function isDatabaseFailoverEvent(event: Event): boolean {
 }
 
 const SENSITIVE_FIELD_PATTERN =
-    /authorization|cookie|password|token|secret|api[_-]?key|email|phone|mobile|address|birth|resident|signature|document|content|message|body|query/i;
+    /authorization|cookie|password|token|secret|api[_-]?key|email|phone|mobile|address|birth|resident|signature|document|content|message|body|query|transcript|full[_-]?name|first[_-]?name|last[_-]?name|client[_-]?name|display[_-]?name|(?:^|[_-])name$/i;
+const URL_FIELD_PATTERN = /(?:url|uri|href|endpoint|origin)$/i;
+const CREDENTIAL_URL_PATTERN =
+    /\b[a-z][a-z\d+.-]*:\/\/[^/\s:@]+:[^/\s@]+@[^\s"'<>]+/gi;
+const SECRET_ASSIGNMENT_PATTERN =
+    /((?:authorization|password|token|secret|api[_-]?key|client[_-]?secret)\s*[:=]\s*)[^\s,;]+/gi;
+const DATABASE_CREDENTIAL_URL_PATTERN =
+    /\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis):\/\/[^\s"'<>]+/gi;
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const PHONE_PATTERN = /(?:\+?82[-\s]?)?0?1[016789][-.\s]?\d{3,4}[-.\s]?\d{4}/g;
 const BEARER_PATTERN = /(bearer\s+)[^\s,;]+/gi;
@@ -106,9 +125,45 @@ const SERVICE_RECORD_SIGNAL_PATTERN =
     /service-record(?:s)?|service_record(?:s)?|service-feedback|service_feedback/i;
 const SCHEDULE_CHANGE_PATTERN =
     /\/schedule-change-requests\/schedules\/[^/]+\/(?:preview|apply)(?:\/|$)/i;
+const SAFE_TAG_KEYS = new Set([
+    "app",
+    "runtime",
+    "environment",
+    "feature",
+    "operation",
+    "job",
+    "job_name",
+    "job.name",
+    "provider",
+    "provider_request_id",
+    "provider.request_id",
+    "outcome",
+    "correlation_id",
+    "correlation.id",
+    "handled",
+    "status_code",
+    "http.method",
+    "http.status_code",
+    "route",
+    "smoke_test",
+]);
+const EXPECTED_TRACE_STATUSES = new Set([
+    "already_exists",
+    "aborted",
+    "cancelled",
+    "failed_precondition",
+    "invalid_argument",
+    "not_found",
+    "out_of_range",
+    "permission_denied",
+    "unauthenticated",
+]);
 
 function sanitizeText(value: string): string {
     return value
+        .replace(CREDENTIAL_URL_PATTERN, FILTERED_VALUE)
+        .replace(DATABASE_CREDENTIAL_URL_PATTERN, FILTERED_VALUE)
+        .replace(SECRET_ASSIGNMENT_PATTERN, `$1${FILTERED_VALUE}`)
         .replace(BEARER_PATTERN, `$1${FILTERED_VALUE}`)
         .replace(EMAIL_PATTERN, "[Email]")
         .replace(PHONE_PATTERN, "[Phone]")
@@ -123,6 +178,9 @@ export function sanitizeSentryUrl(value: string | undefined): string | undefined
     try {
         const baseUrl = "https://sentry.local";
         const parsed = new URL(value, baseUrl);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+            return FILTERED_VALUE;
+        }
         const path = sanitizeText(parsed.pathname);
         return parsed.origin === baseUrl ? path : `${parsed.origin}${path}`;
     } catch {
@@ -135,16 +193,39 @@ function sanitizeUnknown(value: unknown, depth = 0): unknown {
     if (value === null || typeof value !== "object") return value;
     if (depth >= MAX_SANITIZE_DEPTH) return FILTERED_VALUE;
     if (Array.isArray(value)) return value.map((item) => sanitizeUnknown(item, depth + 1));
-    if (value instanceof Error) return { name: value.name, message: sanitizeText(value.message) };
+    if (value instanceof Error) {
+        return {
+            name: sanitizeText(value.name),
+            message: sanitizeText(value.message),
+        };
+    }
 
     return Object.fromEntries(
         Object.entries(value).map(([key, nestedValue]) => [
             key,
             SENSITIVE_FIELD_PATTERN.test(key)
                 ? FILTERED_VALUE
+                : URL_FIELD_PATTERN.test(key) && typeof nestedValue === "string"
+                ? sanitizeSentryUrl(nestedValue)
                 : sanitizeUnknown(nestedValue, depth + 1),
         ]),
     );
+}
+
+function sanitizeSentryTags(
+    sourceTags: Event["tags"],
+    feature: string,
+): Record<string, string> {
+    const tags: Record<string, string> = { feature };
+    for (const [key, value] of Object.entries(sourceTags ?? {})) {
+        if (!SAFE_TAG_KEYS.has(key) || key === "feature") continue;
+        if (typeof value === "string") {
+            tags[key] = sanitizeText(value);
+        } else if (typeof value === "number" || typeof value === "boolean") {
+            tags[key] = String(value);
+        }
+    }
+    return tags;
 }
 
 function sanitizeHeaders(
@@ -154,22 +235,101 @@ function sanitizeHeaders(
     return Object.fromEntries(
         Object.entries(headers).map(([key, value]) => [
             key,
-            SENSITIVE_FIELD_PATTERN.test(key) ? FILTERED_VALUE : sanitizeText(value),
+            SENSITIVE_FIELD_PATTERN.test(key)
+                ? FILTERED_VALUE
+                : typeof value === "string"
+                ? sanitizeText(value)
+                : FILTERED_VALUE,
         ]),
     );
 }
 
+function sanitizeStackFrame(frame: StackFrame): StackFrame {
+    return {
+        filename: frame.filename ? sanitizeText(frame.filename) : frame.filename,
+        function: frame.function ? sanitizeText(frame.function) : frame.function,
+        module: frame.module ? sanitizeText(frame.module) : frame.module,
+        platform: frame.platform ? sanitizeText(frame.platform) : frame.platform,
+        lineno: frame.lineno,
+        colno: frame.colno,
+        abs_path: frame.abs_path ? sanitizeText(frame.abs_path) : frame.abs_path,
+        in_app: frame.in_app,
+        instruction_addr: frame.instruction_addr
+            ? sanitizeText(frame.instruction_addr)
+            : frame.instruction_addr,
+        addr_mode: frame.addr_mode ? sanitizeText(frame.addr_mode) : frame.addr_mode,
+        debug_id: frame.debug_id ? sanitizeText(frame.debug_id) : frame.debug_id,
+        context_line: undefined,
+        pre_context: undefined,
+        post_context: undefined,
+        vars: undefined,
+        module_metadata: undefined,
+    };
+}
+
+function sanitizeStacktrace(stacktrace: Stacktrace): Stacktrace {
+    return {
+        frames: stacktrace.frames?.map(sanitizeStackFrame),
+        frames_omitted: stacktrace.frames_omitted,
+    };
+}
+
+function sanitizeExceptionValue(
+    exception: ExceptionValue,
+    sanitizedFailureMessage: string,
+): ExceptionValue {
+    const mechanism = exception.mechanism
+        ? {
+            type: sanitizeText(exception.mechanism.type),
+            handled: exception.mechanism.handled,
+            synthetic: exception.mechanism.synthetic,
+            source: exception.mechanism.source
+                ? sanitizeText(exception.mechanism.source)
+                : exception.mechanism.source,
+            is_exception_group: exception.mechanism.is_exception_group,
+            exception_id: exception.mechanism.exception_id,
+            parent_id: exception.mechanism.parent_id,
+        }
+        : exception.mechanism;
+
+    return {
+        type: exception.type ? sanitizeText(exception.type) : exception.type,
+        value: exception.value ? sanitizedFailureMessage : exception.value,
+        mechanism,
+        module: exception.module ? sanitizeText(exception.module) : exception.module,
+        thread_id: typeof exception.thread_id === "string"
+            ? sanitizeText(exception.thread_id)
+            : exception.thread_id,
+        stacktrace: exception.stacktrace
+            ? sanitizeStacktrace(exception.stacktrace)
+            : exception.stacktrace,
+    };
+}
+
 export function sanitizeSentryEvent(event: Event): Event {
     const databaseFailoverEvent = isDatabaseFailoverEvent(event);
+    const serviceRecordEvent = isServiceRecordEvent(event);
+    const feature = databaseFailoverEvent
+        ? DATABASE_FAILOVER_FEATURE
+        : serviceRecordEvent
+        ? SERVICE_RECORD_FEATURE
+        : BACKEND_FEATURE;
     const sanitizedFailureMessage = databaseFailoverEvent
         ? "Database connectivity failure"
-        : "Service-record backend failure";
-    const tags = databaseFailoverEvent ? getDatabaseFailoverTags(event) : event.tags;
+        : serviceRecordEvent
+        ? "Service-record backend failure"
+        : "Backend failure";
+    const tags = databaseFailoverEvent
+        ? getDatabaseFailoverTags(event)
+        : sanitizeSentryTags(event.tags, feature);
 
     return {
         ...event,
         tags,
         message: event.message ? sanitizedFailureMessage : event.message,
+        logentry: event.logentry
+            ? { message: sanitizedFailureMessage, params: undefined }
+            : event.logentry,
         transaction: databaseFailoverEvent
             ? undefined
             : event.transaction
@@ -185,16 +345,15 @@ export function sanitizeSentryEvent(event: Event): Event {
                 data: undefined,
                 query_string: undefined,
                 cookies: undefined,
+                env: undefined,
                 headers: sanitizeHeaders(event.request.headers),
             }
             : event.request,
         exception: event.exception
             ? {
                 ...event.exception,
-                values: event.exception.values?.map((exception) => ({
-                    ...exception,
-                    value: exception.value ? sanitizedFailureMessage : exception.value,
-                })),
+                values: event.exception.values?.map((exception) =>
+                    sanitizeExceptionValue(exception, sanitizedFailureMessage)),
             }
             : event.exception,
         breadcrumbs: undefined,
@@ -210,9 +369,19 @@ export function sanitizeSentryEvent(event: Event): Event {
             : event.extra,
         spans: event.spans?.map((span) => ({
             ...span,
-            description: span.op ?? "service-record span",
+            description: span.op
+                ? sanitizeText(span.op)
+                : serviceRecordEvent
+                ? "service-record span"
+                : "backend span",
             data: {},
         })),
+        fingerprint: event.fingerprint?.map((value) => sanitizeText(value)),
+        server_name: undefined,
+        modules: undefined,
+        threads: undefined,
+        debug_meta: undefined,
+        sdkProcessingMetadata: undefined,
     };
 }
 
@@ -251,12 +420,26 @@ export function isServiceRecordEvent(event: Event): boolean {
     ].some(isServiceRecordSignal) || hasServiceRecordStack(event);
 }
 
-function getStatusCode(event: Event, hint: EventHint): number | undefined {
+function parseStatusCode(value: unknown): number | undefined {
+    if (typeof value === "number" && Number.isInteger(value)) return value;
+    if (typeof value === "string" && /^\d{3}$/.test(value)) return Number(value);
+    return undefined;
+}
+
+function getStatusCode(event: Event, hint: EventHint = {}): number | undefined {
     if (hint.originalException instanceof HttpException) {
         return hint.originalException.getStatus();
     }
-    const taggedStatus = Number(event.tags?.["status_code"]);
-    return Number.isFinite(taggedStatus) ? taggedStatus : undefined;
+    return parseStatusCode(event.tags?.["status_code"])
+        ?? parseStatusCode(event.tags?.["http.status_code"])
+        ?? parseStatusCode(event.contexts?.response?.status_code);
+}
+
+function isExpectedEvent(event: Event, hint: EventHint = {}): boolean {
+    const statusCode = getStatusCode(event, hint);
+    if (statusCode !== undefined && statusCode < 500) return true;
+    const traceStatus = event.contexts?.trace?.status;
+    return typeof traceStatus === "string" && EXPECTED_TRACE_STATUSES.has(traceStatus);
 }
 
 export function filterAndSanitizeSentryEvent(
@@ -265,9 +448,8 @@ export function filterAndSanitizeSentryEvent(
 ): ErrorEvent | null {
     const databaseFailoverEvent = isDatabaseFailoverEvent(event);
     const serviceRecordEvent = isServiceRecordEvent(event);
-    if (!serviceRecordEvent && !databaseFailoverEvent) return null;
-    const statusCode = getStatusCode(event, hint);
-    if (serviceRecordEvent && statusCode !== undefined && statusCode < 500) return null;
+    if (serviceRecordEvent && isExpectedEvent(event, hint)) return null;
+    if (!databaseFailoverEvent && isExpectedEvent(event, hint)) return null;
     return sanitizeSentryEvent(event) as ErrorEvent;
 }
 
@@ -286,8 +468,7 @@ export function getSentryOptions(): NodeOptions {
         environment,
         release: process.env["SENTRY_RELEASE"] ?? process.env["RAILWAY_GIT_COMMIT_SHA"],
         sampleRate: 1,
-        tracesSampler: (samplingContext) => {
-            if (!isServiceRecordSignal(samplingContext.name)) return 0;
+        tracesSampler: () => {
             return environment === "production" ? 0.1 : 1;
         },
         sendDefaultPii: false,
@@ -299,11 +480,50 @@ export function getSentryOptions(): NodeOptions {
             },
         },
         beforeSend: filterAndSanitizeSentryEvent,
-        beforeSendTransaction: (event) => {
-            if (!isServiceRecordEvent(event)) return null;
+        beforeSendTransaction: (event, hint) => {
+            const databaseFailoverEvent = isDatabaseFailoverEvent(event);
+            const serviceRecordEvent = isServiceRecordEvent(event);
+            if (!databaseFailoverEvent && !serviceRecordEvent && isExpectedEvent(event, hint)) {
+                return null;
+            }
             return sanitizeSentryEvent(event) as typeof event;
         },
     };
+}
+
+export function captureBackendError(
+    error: unknown,
+    context: BackendErrorContext,
+): string | undefined {
+    if (typeof error === "object" && error !== null) {
+        if (reportedBackendErrors.has(error)) return undefined;
+        reportedBackendErrors.add(error);
+    }
+
+    const sourceError = error instanceof Error ? error : new Error("Backend failure");
+    const capturedError = Object.assign(new Error("Backend failure"), {
+        name: sourceError.name ? sanitizeText(sourceError.name) : "Backend error",
+    });
+    if (sourceError.stack) {
+        capturedError.stack = [
+            capturedError.toString(),
+            ...sourceError.stack.split("\n").slice(1),
+        ].join("\n");
+    }
+
+    return Sentry.withScope((scope) => {
+        scope.setLevel("error");
+        scope.setTag("feature", BACKEND_FEATURE);
+        scope.setTag("app", "backend");
+        scope.setTag("runtime", "node");
+        scope.setTag("operation", context.operation ?? "http");
+        scope.setTag("handled", String(context.handled));
+        if (context.statusCode !== undefined) {
+            scope.setTag("status_code", String(context.statusCode));
+        }
+        scope.setFingerprint(["{{ default }}", BACKEND_FEATURE]);
+        return Sentry.captureException(capturedError);
+    });
 }
 
 export function captureServiceRecordError(

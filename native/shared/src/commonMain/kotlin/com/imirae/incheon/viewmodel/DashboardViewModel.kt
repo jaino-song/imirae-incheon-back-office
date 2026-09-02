@@ -4,7 +4,6 @@ import com.imirae.incheon.data.remote.ClientService
 import com.imirae.incheon.data.remote.DocumentService
 import com.imirae.incheon.data.remote.EmployeeService
 import com.imirae.incheon.domain.models.Client
-import com.imirae.incheon.domain.models.Contract
 import com.imirae.incheon.domain.models.DashboardStats
 import com.imirae.incheon.network.ApiResult
 import kotlinx.coroutines.*
@@ -16,7 +15,6 @@ data class DashboardUiState(
     val isLoading: Boolean = true,
     val stats: DashboardStats = DashboardStats(),
     val recentClients: List<Client> = emptyList(),
-    val recentContracts: List<Contract> = emptyList(),
     val error: String? = null
 )
 
@@ -34,28 +32,40 @@ class DashboardViewModel(
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
                 val clientsResult = clientService.getClients(page = 1, limit = 5)
-                val employeesResult = employeeService.getEmployees(page = 1, limit = 1)
-                val contractsResult = documentService.getContracts(page = 1, limit = 5)
+                val employeesResult = employeeService.getEmployees()
+                val documentsResult = documentService.getDocuments()
 
                 val totalClients = when (clientsResult) { is ApiResult.Success -> clientsResult.data.total; else -> 0 }
-                val totalEmployees = when (employeesResult) { is ApiResult.Success -> employeesResult.data.total; else -> 0 }
+                val totalEmployees = when (employeesResult) { is ApiResult.Success -> employeesResult.data.size; else -> 0 }
                 val recentClients = when (clientsResult) { is ApiResult.Success -> clientsResult.data.data; else -> emptyList() }
-                val contracts = when (contractsResult) { is ApiResult.Success -> contractsResult.data.data; else -> emptyList() }
-                val activeContracts = contracts.count { it.status == "active" || it.status == "signed" }
-                val pendingContracts = contracts.count { it.status == "pending" || it.status == "draft" }
+                val totalDocuments = when (documentsResult) { is ApiResult.Success -> documentsResult.data.size; else -> 0 }
+
+                val firstError = listOfNotNull(
+                    (clientsResult as? ApiResult.Error)?.error,
+                    (employeesResult as? ApiResult.Error)?.error,
+                    (documentsResult as? ApiResult.Error)?.error,
+                ).firstOrNull()
+                if (firstError != null) {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        recentClients = recentClients,
+                        error = firstError.userMessage(),
+                    )
+                    return@launch
+                }
 
                 _uiState.value = DashboardUiState(
                     isLoading = false,
                     stats = DashboardStats(
                         totalClients = totalClients,
-                        activeContracts = activeContracts,
+                        activeContracts = 0,
                         totalEmployees = totalEmployees,
-                        pendingContracts = pendingContracts,
+                        pendingContracts = 0,
                         recentClients = recentClients,
-                        recentContracts = contracts
+                        totalDocuments = totalDocuments,
+                        contractsSupported = false,
                     ),
                     recentClients = recentClients,
-                    recentContracts = contracts
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isLoading = false, error = "대시보드를 불러올 수 없습니다")

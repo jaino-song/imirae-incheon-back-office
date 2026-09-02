@@ -24,11 +24,12 @@ type ClientRow = {
     areaId?: string | null;
     branchId?: string | null;
     suppressGreetingSms?: boolean;
+    phoneNormalized?: string | null;
 };
 
 export class ClientMapper {
     static toDomain(row: ClientRow): ClientEntity {
-        return new ClientEntity(
+        return ClientEntity.reconstitute(
             row.id,
             row.name,
             row.address,
@@ -43,15 +44,16 @@ export class ClientMapper {
             row.careCenter,
             row.voucherClient,
             row.birthday,
+            row.dueDate ?? null,
             row.serviceStatus,
             row.breastPump,
             row.eDocId,
-            row.dueDate ?? null,
             row.createdAt ?? null,
             row.areaId ?? null,
             row.branchId ?? null,
             row.suppressGreetingSms ?? false,
             row.birthDate ?? null,
+            row.phoneNormalized,
         );
     }
 
@@ -60,6 +62,7 @@ export class ClientMapper {
             name: entity.name,
             address: entity.address,
             phone: entity.phone,
+            phoneNormalized: entity.phoneNormalized,
             type: entity.type,
             duration: entity.duration,
             fullPrice: entity.fullPrice,
@@ -86,6 +89,7 @@ export class ClientMapper {
             name: entity.name,
             address: entity.address,
             phone: entity.phone,
+            phoneNormalized: entity.phoneNormalized,
             type: entity.type,
             duration: entity.duration,
             fullPrice: entity.fullPrice,

@@ -9,4 +9,15 @@ describe("frontend select-branch navigation lifecycle", () => {
     expect(source).toContain("keepLoadingForNavigation = await handleSelectBranch");
     expect(source).toContain("if (!keepLoadingForNavigation)");
   });
+
+  it("resets authority state before changing the selected branch", () => {
+    expect(source).toContain('import { resetAuthorityState } from "@/lib/auth/authority-state"');
+    expect(source).toContain("await resetAuthorityState(queryClient)");
+  });
+
+  it("uses the shared server logout action instead of client cookie mutation", () => {
+    expect(source).toContain('import { logout } from "@/app/logout/actions"');
+    expect(source).toContain("const result = await logout(pushEndpoint)");
+    expect(source).not.toContain(["document", "cookie"].join("."));
+  });
 });

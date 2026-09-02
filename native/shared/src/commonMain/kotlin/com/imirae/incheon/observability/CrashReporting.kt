@@ -1,22 +1,22 @@
 package com.imirae.incheon.observability
 
 import com.imirae.incheon.auth.currentTimeMillis
+import com.imirae.incheon.logging.SafeLogger
 
 object CrashReporting {
     fun initialize(isDebug: Boolean) { if (isDebug) return }
     fun logError(tag: String, message: String, throwable: Throwable? = null) {
-        val sanitized = sanitizeMessage(message)
-        println("[CrashReporting] $tag: $sanitized")
+        // Keep the source-compatible arguments, but do not serialize free-form
+        // messages or exception text. The external crash sink remains unconfigured.
+        SafeLogger.error(
+            eventType = "app.error",
+            context = mapOf("reason_code" to tag),
+            errorCode = "captured",
+        )
     }
     fun setUserId(userId: String) {}
     fun clearUserId() {}
     fun recordMetric(name: String, value: Long) {}
-
-    private fun sanitizeMessage(message: String): String = message
-        .replace(Regex("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"), "[EMAIL]")
-        .replace(Regex("01[0-9]-?[0-9]{3,4}-?[0-9]{4}"), "[PHONE]")
-        .replace(Regex("Bearer [a-zA-Z0-9._-]+"), "Bearer [TOKEN]")
-        .replace(Regex("eyJ[a-zA-Z0-9._-]+"), "[JWT]")
 }
 
 object PerformanceTelemetry {
