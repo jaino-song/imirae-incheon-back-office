@@ -32,6 +32,7 @@
         "./utils/date": "./src/utils/date.ts",
         "./utils/rule-order": "./src/utils/rule-order.ts",
         "./utils/business-days": "./src/utils/business-days.ts",
+        "./utils/service-record-schedule": "./src/utils/service-record-schedule.ts",
         "./utils/birthday": "./src/utils/birthday.ts",
         "./eslint-plugin": "./eslint-plugin/index.mjs"
     },
