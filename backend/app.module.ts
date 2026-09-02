@@ -26,6 +26,7 @@ import { EformsignWebhookModule } from "module/eformsign-webhook.module";
 import { AreaTemplateModule } from "module/area-template.module";
 import { DocumentModule } from "module/document.module";
 import { DatabaseModule } from "infrastructure/database/database.module";
+import { SchedulerLeaseModule } from "module/scheduler-lease.module";
 import { TenantModule } from "./infrastructure/tenant/tenant.module";
 import { TenantAlsMiddleware } from "./infrastructure/tenant/tenant-als.middleware";
 import { NotificationModule } from "module/notification.module";
@@ -61,6 +62,7 @@ const ENV_FILE_PATHS = [
             envFilePath: ENV_FILE_PATHS,
         }),
         DatabaseModule,
+        SchedulerLeaseModule,
         ScheduleModule.forRoot(resolveSchedulerModuleOptions(process.env)),
         PassportModule,
         JwtModule.register({
