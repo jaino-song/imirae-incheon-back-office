@@ -1,7 +1,7 @@
 # Desktop UI Rules — 섹션·매니저 화면 조립 규칙
 
 > 대상: `frontend/` 데스크톱 관리자 앱의 모든 화면 작업 (사람·에이전트 공통).
-> 상위 문서는 [`docs/design-system/AGENT_UI_RULES.md`](../../docs/design-system/AGENT_UI_RULES.md)이다.
+> 상위 문서는 [`docs/design-system/AGENT_UI_RULES.md`](./design-system/AGENT_UI_RULES.md)이다.
 > 그 문서가 "무엇을 금지하는가"를 ESLint 기준으로 정의한다면, 이 문서는 **"그래서 화면을 어떻게 조립하는가"**를
 > 실제 기준 구현(`TriggerRulesManager`)에 맞춰 단계별로 못 박는다. 두 문서가 충돌하면 상위 문서와 ESLint가 이긴다.
 
@@ -9,13 +9,13 @@
 
 | 역할 | 파일 |
 |---|---|
-| 섹션 페이지 골격 | `src/app/(protected)/messages/page.tsx` (`SectionNav` + 섹션별 organism 마운트) |
-| 목록+상세 매니저 organism | `src/components/app/messages/TriggerRulesManager.tsx` |
-| 계약서 페이지 적용 예 | `src/app/(protected)/contracts/page.tsx` + `src/components/app/contracts/ContractAutomationsManager.tsx` |
-| 디자인 시스템 배럴 | `src/components/app/v3/index.ts` |
-| 폼 분자(molecule) | `src/components/ui/title-select-molecule.tsx`, `title-text-input-molecule.tsx`, `title-textarea-molecule.tsx`, `switch.tsx` |
-| 토큰 | `src/app/globals.css` (`--v3-*`, `--status-*`, `--glint-ui-scale`) |
-| DOM 주석 규약 | `DATA-COMPONENT-CONVENTION.md` |
+| 섹션 페이지 골격 | `frontend/src/app/(protected)/messages/page.tsx` (`SectionNav` + 섹션별 organism 마운트) |
+| 목록+상세 매니저 organism | `frontend/src/components/app/messages/TriggerRulesManager.tsx` |
+| 계약서 페이지 적용 예 | `frontend/src/app/(protected)/contracts/page.tsx` + `frontend/src/components/app/contracts/ContractAutomationsManager.tsx` |
+| 디자인 시스템 배럴 | `frontend/src/components/app/v3/index.ts` |
+| 폼 분자(molecule) | `frontend/src/components/ui/title-select-molecule.tsx`, `title-text-input-molecule.tsx`, `title-textarea-molecule.tsx`, `switch.tsx` |
+| 토큰 | `frontend/src/app/globals.css` (`--v3-*`, `--status-*`, `--glint-ui-scale`) |
+| DOM 주석 규약 | `frontend/DATA-COMPONENT-CONVENTION.md` |
 
 ---
 
@@ -106,7 +106,7 @@ interface Props { dataComponent: string; /* + 도메인 파라미터 */ }
 const component = (suffix: string) => `${dataComponent}_${suffix}`;
 ```
 
-- 모든 v3 컴포넌트에 `data-component={component("…")}`를 넘긴다. 규칙은 `DATA-COMPONENT-CONVENTION.md`.
+- 모든 v3 컴포넌트에 `data-component={component("…")}`를 넘긴다. 규칙은 `frontend/DATA-COMPONENT-CONVENTION.md`.
 - `_`는 논리 세그먼트, `-`는 세그먼트 내부. `_div`·`_wrapper` 같은 기계적 이름은 붙이지 않는다.
 
 ### 2.3 ListPanel 규칙
@@ -185,7 +185,7 @@ const hasChanges = useMemo(
 - 조회: `useQuery({ queryKey: ["settings", "<resource>"], queryFn: settingsApi.get… })`
   키는 `["<domain>", "<resource>"]` 2단이 기본이며, 같은 리소스를 쓰는 화면끼리 키를 공유한다.
 - 변경: `useMutation` → 성공 시 해당 키 `invalidateQueries`, 토스트.
-- API 함수는 `src/services/api.ts`의 도메인 객체(`settingsApi`, …)에 추가한다. 컴포넌트에서 `api.get`을 직접 부르지 않는다.
+- API 함수는 `frontend/src/services/api.ts`의 도메인 객체(`settingsApi`, …)에 추가한다. 컴포넌트에서 `api.get`을 직접 부르지 않는다.
 - 403(권한 없음)은 토스트로 알리고 폼을 비활성화하지 않는다. 비활성화는 `ListPanel.disabled` 게이트로만 한다.
 
 ### 2.8 피드백·빈 상태·로딩
