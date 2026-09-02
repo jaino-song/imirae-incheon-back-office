@@ -6,6 +6,7 @@ import {
   type ContractListRequest,
   type ContractMockDocument,
 } from "./helpers/contracts-api-mock";
+import { selectContractsSection } from "./helpers/contracts-ui";
 
 async function createPreviewPdf(): Promise<Buffer> {
   const pdfDocument = await PDFDocument.create();
@@ -414,14 +415,12 @@ test.describe("Mobile contracts list rows", () => {
     await page.goto("/contracts");
 
     const maternalContractsButton = page.getByRole("button", { name: "산모 계약서", exact: true });
-    const serviceRecordsButton = page.getByRole("button", { name: "제공기록지", exact: true });
     await expect(maternalContractsButton).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(1);
     await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toContainText("홍길동");
 
-    await serviceRecordsButton.click();
+    await selectContractsSection(page, "제공기록지");
 
-    await expect(serviceRecordsButton).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_header"]')).toContainText("제공기록지");
     await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(1);
     const serviceRecordRow = page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]');
@@ -870,7 +869,7 @@ test.describe("Mobile contracts list rows", () => {
     await routeNotificationLogs(page);
 
     await page.goto("/contracts");
-    await page.getByRole("button", { name: "제공기록지", exact: true }).click();
+    await selectContractsSection(page, "제공기록지");
     await page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "검토고객" }).click();
     await expect(
       page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_header_title-group_name"]'),

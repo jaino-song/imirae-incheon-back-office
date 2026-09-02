@@ -7,6 +7,7 @@ import {
   type ContractMockDocument,
   type RouteContractsApiOptions,
 } from "./helpers/contracts-api-mock";
+import { selectContractsSection } from "./helpers/contracts-ui";
 
 const MATERNAL_DOCUMENT: ContractMockDocument = {
   id: "maternal-contract",
@@ -158,10 +159,7 @@ test.describe("contracts service-record template filters", () => {
 
     await page.goto("/contracts");
 
-    const serviceRecordsButton = page.getByRole("button", { name: "제공기록지", exact: true });
-    await expect(serviceRecordsButton).toBeVisible({ timeout: 15_000 });
-    await serviceRecordsButton.click();
-    await expect(serviceRecordsButton).toHaveAttribute("aria-pressed", "true");
+    await selectContractsSection(page, "제공기록지");
 
     // The section queried at all — that is what the fallback decides.
     await expect.poll(() =>
