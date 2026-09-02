@@ -388,6 +388,50 @@ describe("ClientServiceRecordsTab", () => {
         expect(screen.queryByText("예정일 2026.09.24")).not.toBeInTheDocument();
     });
 
+    it("chains an unwritten slot's 예정일 from the last written session's actual date", () => {
+        function writtenSession(sessionIndex: number, serviceDate: string): ServiceRecordSession {
+            return {
+                sessionIndex,
+                serviceDate: `${serviceDate}T00:00:00.000Z`,
+                locked: true,
+                submittedAt: `${serviceDate}T10:00:00.000Z`,
+                updatedAt: `${serviceDate}T10:00:00.000Z`,
+                answers: {},
+                etcService: null,
+                notes: null,
+                paymentConfirmed: true,
+                hasMomApproval: true,
+            };
+        }
+
+        const assignment = {
+            ...createAssignment(1, "sent"),
+            startDate: "2026-08-01T00:00:00.000Z",
+            endDate: "2026-09-30T00:00:00.000Z",
+            totalSessions: 15,
+            // Sessions 12 and 13 were postponed and written on 8/28 and
+            // 8/31 instead of following the start-date formula.
+            sessions: [writtenSession(12, "2026-08-28"), writtenSession(13, "2026-08-31")],
+        };
+
+        render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [assignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        // Slot 14 (unwritten) chains from session 13's actual date rather
+        // than counting business days from the assignment start date.
+        expect(screen.getByText("예정일 2026.09.01")).toBeInTheDocument();
+        expect(screen.getByText("예정일 2026.09.02")).toBeInTheDocument();
+        // Regression guard: the old start-date formula collided slot 15's
+        // 예정일 with session 13's own written date.
+        expect(screen.queryByText("예정일 2026.08.31")).not.toBeInTheDocument();
+    });
+
     it("shows an alert from 18:00 KST on the second service date when sessions one and two are unwritten", () => {
         jest.spyOn(Date, "now").mockReturnValue(new Date("2026-07-02T18:00:00+09:00").getTime());
         const assignment = {
