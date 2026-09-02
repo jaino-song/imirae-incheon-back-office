@@ -149,4 +149,34 @@ grep -Fqx "pull-failed:$replace_target_tag" "$TMP/replace.calls" \
 if grep -Fq '^compose:' "$TMP/replace.calls"; then
     fail 'active replacement touched Compose after preload failure'
 fi
+# Lease status fields (ADR-010 GET /health/lease) are display-only for
+# `status` and must degrade to "unknown" rather than fail, since the endpoint
+# can be missing on a release that predates ADR-010 or momentarily
+# unreachable over loopback.
+lease_curl(){ printf '%s' '{"mode":"required","holderId":"lightnode","held":true}'; }
+lease_out="$(lease_status_fields)"
+[[ "$lease_out" == $'lease_mode=required\nlease_held=true' ]] \
+    || fail 'lease fields did not report required/true'
+
+lease_curl(){ printf '%s' '{"mode":"standby","holderId":"lightnode","held":false}'; }
+lease_out="$(lease_status_fields)"
+[[ "$lease_out" == $'lease_mode=standby\nlease_held=false' ]] \
+    || fail 'lease fields did not report standby/false'
+
+lease_curl(){ return 1; }
+lease_out="$(lease_status_fields)"
+[[ "$lease_out" == $'lease_mode=unknown\nlease_held=unknown' ]] \
+    || fail 'lease fields did not degrade to unknown on curl failure'
+
+lease_curl(){ printf '%s' '{"mode":"<script>","held":"yes"}'; }
+lease_out="$(lease_status_fields)"
+[[ "$lease_out" == $'lease_mode=unknown\nlease_held=unknown' ]] \
+    || fail 'lease fields accepted an unexpected mode/held value'
+
+# A body split across lines must still yield exactly two key=value lines.
+lease_curl(){ printf '{\r\n"mode":"required",\r\n"holderId":"lightnode",\r\n"held":false\r\n}\r\n'; }
+lease_out="$(lease_status_fields)"
+[[ "$lease_out" == $'lease_mode=required\nlease_held=false' ]] \
+    || fail "lease fields emitted malformed lines for a multi-line body: $lease_out"
+
 echo 'Fallback temporary-active behavioral tests passed'

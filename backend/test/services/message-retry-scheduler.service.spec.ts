@@ -2,6 +2,7 @@ import { MessageRetrySchedulerService } from "application/services/message-retry
 import { SmsRetryService } from "application/services/sms-retry.service";
 import { MessageLogEntity } from "domain/entities/message-log.entity";
 import { IMessageLogRepository } from "domain/repositories/message-log.repository.interface";
+import { createSchedulerLeaseMock } from "../utils/mocks/scheduler-lease.mock";
 
 describe("MessageRetrySchedulerService", () => {
     const createLog = (provider: string, retrySafety?: string) =>
@@ -41,6 +42,7 @@ describe("MessageRetrySchedulerService", () => {
         scheduler = new MessageRetrySchedulerService(
             logRepository as unknown as IMessageLogRepository,
             smsRetryService as unknown as SmsRetryService,
+            createSchedulerLeaseMock(),
         );
         nowSpy = jest.spyOn(Date, "now");
         nowSpy.mockReturnValue(0);
@@ -131,5 +133,35 @@ describe("MessageRetrySchedulerService", () => {
 
         releaseFirstRun?.();
         await firstRun;
+    });
+
+    it("skips the run when the scheduler lease is not held", async () => {
+        scheduler = new MessageRetrySchedulerService(
+            logRepository as unknown as IMessageLogRepository,
+            smsRetryService as unknown as SmsRetryService,
+            createSchedulerLeaseMock(false),
+        );
+
+        await scheduler.retryFailedMessages();
+
+        expect(logRepository.findPendingRetriesSystemScope).not.toHaveBeenCalled();
+    });
+
+    it("stops when the lease is lost mid-run", async () => {
+        const schedulerLease = createSchedulerLeaseMock(false);
+        schedulerLease.holdsLease.mockReturnValueOnce(true).mockReturnValueOnce(true);
+        scheduler = new MessageRetrySchedulerService(
+            logRepository as unknown as IMessageLogRepository,
+            smsRetryService as unknown as SmsRetryService,
+            schedulerLease,
+        );
+        const firstLog = createLog("aligo_sms");
+        const secondLog = createLog("aligo_sms");
+        logRepository.findPendingRetriesSystemScope.mockResolvedValue([firstLog, secondLog]);
+
+        await scheduler.retryFailedMessages();
+
+        expect(smsRetryService.retry).toHaveBeenCalledTimes(1);
+        expect(smsRetryService.retry).toHaveBeenCalledWith(firstLog);
     });
 });

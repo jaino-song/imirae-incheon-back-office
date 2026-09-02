@@ -1,4 +1,5 @@
 import { CallExtractionRetrySchedulerService } from "application/services/call-extraction-retry-scheduler.service";
+import { createSchedulerLeaseMock } from "../utils/mocks/scheduler-lease.mock";
 
 const CALL_PROCESSING_CLAIM_LEASE_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
@@ -16,7 +17,11 @@ describe("CallExtractionRetrySchedulerService", () => {
         prisma.call_record.updateMany.mockResolvedValue({ count: 1 });
         prisma.client_draft.updateMany.mockResolvedValue({ count: 0 });
         processingService.processCallRecord.mockResolvedValue(undefined);
-        scheduler = new CallExtractionRetrySchedulerService(prisma as never, processingService as never);
+        scheduler = new CallExtractionRetrySchedulerService(
+            prisma as never,
+            processingService as never,
+            createSchedulerLeaseMock(),
+        );
     });
 
     afterEach(() => {
@@ -217,5 +222,17 @@ describe("CallExtractionRetrySchedulerService", () => {
             },
             data: { status: "PENDING", confirmingStartedAt: null },
         });
+    });
+
+    it("skips the run when the scheduler lease is not held", async () => {
+        scheduler = new CallExtractionRetrySchedulerService(
+            prisma as never,
+            processingService as never,
+            createSchedulerLeaseMock(false),
+        );
+
+        await scheduler.retryFailedExtractions();
+
+        expect(prisma.call_record.findMany).not.toHaveBeenCalled();
     });
 });

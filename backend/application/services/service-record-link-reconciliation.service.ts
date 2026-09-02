@@ -14,6 +14,7 @@ import {
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { captureServiceRecordError } from "infrastructure/observability/service-record-sentry";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 import { ServiceRecordLinkService } from "./service-record-link.service";
 
 const MAX_RUN_MS = 10 * 60 * 1000;
@@ -37,10 +38,15 @@ export class ServiceRecordLinkReconciliationService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly linkService: ServiceRecordLinkService,
+        private readonly schedulerLease: SchedulerLeaseService,
     ) {}
 
     @Cron("*/5 * * * *", { timeZone: "Asia/Seoul" })
     async repairMissingJobs(): Promise<void> {
+        if (!this.schedulerLease.holdsLease()) {
+            return;
+        }
+
         const runToken = this.executionGuard.tryStart();
         if (!runToken) return;
 

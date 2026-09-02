@@ -6,6 +6,7 @@ import { abortWhenResponseCloses, AgentController } from "interface/controllers/
 import { redactModelValue } from "application/agent/agent-runtime.service";
 import type { IAgentSessionRepository } from "domain/repositories/agent-session.repository.interface";
 import { EventEmitter } from "node:events";
+import { createSchedulerLeaseMock } from "../../utils/mocks/scheduler-lease.mock";
 
 describe("Release A agent security boundaries", () => {
     const repository = {
@@ -16,7 +17,7 @@ describe("Release A agent security boundaries", () => {
 
     it("denies cross-user and cross-branch session reads through the same owner predicate", async () => {
         repository.findOwned.mockResolvedValue(null);
-        const service = new AgentSessionService(repository, new ConfigService());
+        const service = new AgentSessionService(repository, new ConfigService(), createSchedulerLeaseMock());
         await expect(service.get("session", { userId: "other", branchId: "other-branch" })).rejects.toThrow("Agent session not found");
         expect(repository.findOwned).toHaveBeenCalledWith("session", { userId: "other", branchId: "other-branch" });
     });
@@ -31,7 +32,7 @@ describe("Release A agent security boundaries", () => {
 
     it("treats expired and invalid session ids as unavailable", async () => {
         repository.findOwned.mockResolvedValue(null);
-        const service = new AgentSessionService(repository, new ConfigService());
+        const service = new AgentSessionService(repository, new ConfigService(), createSchedulerLeaseMock());
         await expect(service.get("expired-session", { userId: "user", branchId: "branch" })).rejects.toThrow("Agent session not found");
         expect(repository.findOwned).toHaveBeenCalledWith("expired-session", { userId: "user", branchId: "branch" });
     });
@@ -42,7 +43,7 @@ describe("Release A agent security boundaries", () => {
             selectedEntities: {}, model: "stub", agentVersion: "release-a.1", createdAt: new Date(), updatedAt: new Date(),
             expiresAt: new Date(Date.now() + 60_000), archivedAt: null, messages: [],
         });
-        const service = new AgentSessionService(repository, new ConfigService());
+        const service = new AgentSessionService(repository, new ConfigService(), createSchedulerLeaseMock());
         await service.clearEntityMemory("session", { userId: "user", branchId: "branch" });
         expect(repository.updateOwned).toHaveBeenCalledWith("session", { userId: "user", branchId: "branch" }, { selectedEntities: {} });
     });

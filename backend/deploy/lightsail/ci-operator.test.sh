@@ -185,6 +185,51 @@ status_runtime_result=1
 assert_fails status_environment
 )
 
+# ADR-010: the scheduler-owning host (production) must run the lease as
+# `lightsail`. Preview never contests the lease, so its keys are not enforced.
+(
+configure_environment production
+ROUTE_STATE_ACTIVE_ROUTE=direct
+ensure_route_state() { :; }
+load_route_state() { :; }
+validate_backend_env_file() { :; }
+load_current_release_identity() {
+    CURRENT_ROUTE_IMAGE_TAG="$valid_sha"
+    CURRENT_ROUTE_IMAGE_DIGEST="$valid_digest"
+}
+find_api_container() { printf '%s\n' status-api; }
+read_recorded_tag() { printf '%s\n' "$valid_sha"; }
+read_recorded_digest() { printf '%s\n' "$valid_digest"; }
+verify_api_runtime() { return 0; }
+lease_env_lines=$'SCHEDULERS_ENABLED=true\nSCHEDULER_LEASE_MODE=required\nSCHEDULER_LEASE_HOLDER_ID=lightsail'
+run_as_root() {
+    case "$*" in
+        *"{{.Config.Image}}"*) printf '%s\n' "$LOCAL_IMAGE_REPOSITORY:$valid_sha" ;;
+        *"{{.RestartCount}}"*) printf '0\n' ;;
+        *"{{if .State.Health}}"*) printf 'healthy\n' ;;
+        *"{{range .Config.Env}}"*) printf '%s\n' "$lease_env_lines" ;;
+        *curl*) printf '{"status":"ok"}\n' ;;
+        *) : ;;
+    esac
+}
+status_output="$(status_environment)"
+[[ "$status_output" == *$'lease_mode=required\n'* ]] || fail "production status did not expose lease_mode"
+[[ "$status_output" == *$'lease_holder=lightsail\n'* ]] || fail "production status did not expose lease_holder"
+
+lease_env_lines=$'SCHEDULERS_ENABLED=true'
+assert_fails status_environment
+lease_env_lines=$'SCHEDULERS_ENABLED=true\nSCHEDULER_LEASE_MODE=off\nSCHEDULER_LEASE_HOLDER_ID=lightsail'
+assert_fails status_environment
+lease_env_lines=$'SCHEDULERS_ENABLED=true\nSCHEDULER_LEASE_MODE=required\nSCHEDULER_LEASE_HOLDER_ID=lightnode'
+assert_fails status_environment
+
+# Preview (schedulers off) reports the missing keys but does not enforce them.
+configure_environment preview
+lease_env_lines=$'SCHEDULERS_ENABLED=false'
+status_output="$(status_environment)"
+[[ "$status_output" == *$'lease_mode=missing\n'* ]] || fail "preview status did not report a missing lease mode"
+)
+
 # Exercise the actual runtime invariant in both accepting and refusing
 # directions. Each failure model represents an observation that deploy and
 # rollback status checks must reject.

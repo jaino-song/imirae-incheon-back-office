@@ -43,6 +43,7 @@ import { TenantModule } from "infrastructure/tenant/tenant.module";
 import { ClientModule } from "module/client.module";
 import { EmployeeModule } from "module/employee.module";
 import { EmployeeScheduleModule } from "module/employee-schedule.module";
+import { SchedulerLeaseModule } from "module/scheduler-lease.module";
 
 const BRANCH_ID = "33dbe950-1574-4951-b7b4-92d97ab29512";
 const OWNER_USER_ID = "ac5f25d7-f8cc-4c68-82a5-db6dc2968c5f";
@@ -126,6 +127,7 @@ describeE2E("BJJ-275 full connected flow", () => {
                 ClientModule,
                 EmployeeModule,
                 EmployeeScheduleModule,
+                SchedulerLeaseModule,
             ],
         })
             .overrideGuard(JwtGuard)

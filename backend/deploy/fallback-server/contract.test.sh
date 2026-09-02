@@ -90,6 +90,12 @@ assert_not_contains "$ACTIVE_COMPOSE_FILE" 'ALIGO_(API_KEY|USER_ID|SENDER_PHONE)
     "temporary-active Compose must receive Aligo credentials only through backend.env"
 assert_contains "$COMPOSE_FILE" 'pull_policy:[[:space:]]+never' \
     "Compose must not resolve a mutable image during activation"
+for compose_file in "$COMPOSE_FILE" "$ACTIVE_COMPOSE_FILE"; do
+    assert_contains "$compose_file" 'SCHEDULER_LEASE_MODE:[[:space:]]+"required"' \
+        "both Fallback runtimes must take part in the scheduler lease (ADR-010)"
+    assert_contains "$compose_file" 'SCHEDULER_LEASE_HOLDER_ID:[[:space:]]+"lightnode"' \
+        "both Fallback runtimes must present the fixed lightnode lease holder id"
+done
 
 assert_contains "$OPERATOR" 'ghcr\.io/jaino-song/babyjamjam-admin-backend' \
     "operator must use the fixed backend image repository"

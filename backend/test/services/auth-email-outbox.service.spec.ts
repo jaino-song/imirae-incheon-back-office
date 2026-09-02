@@ -2,6 +2,7 @@ import { AuthEmailOutboxService } from "application/services/auth-email-outbox.s
 import { AuthEmailTokenService } from "application/services/auth-email-token.service";
 import { EmailPort } from "domain/ports/email.port";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { createSchedulerLeaseMock } from "../utils/mocks/scheduler-lease.mock";
 
 const OUTBOX_ID = "11111111-1111-1111-1111-111111111111";
 const TOKEN_ID = "22222222-2222-2222-2222-222222222222";
@@ -57,6 +58,7 @@ describe("AuthEmailOutboxService provider boundary", () => {
             prisma as unknown as PrismaService,
             tokens as unknown as AuthEmailTokenService,
             email,
+            createSchedulerLeaseMock(),
         );
     });
 
@@ -256,5 +258,18 @@ describe("AuthEmailOutboxService provider boundary", () => {
                 }),
             }),
         );
+    });
+
+    it("skips the run when the scheduler lease is not held", async () => {
+        service = new AuthEmailOutboxService(
+            prisma as unknown as PrismaService,
+            tokens as unknown as AuthEmailTokenService,
+            email,
+            createSchedulerLeaseMock(false),
+        );
+
+        await service.deliverPending();
+
+        expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 });

@@ -2,6 +2,7 @@ import { DeterministicAgentLanguageModel } from "infrastructure/agent/determinis
 import { ActionCoordinatorService } from "./action-coordinator.service";
 import { AgentRuntimeService } from "./agent-runtime.service";
 import { ClientWriteAgentCapabilitiesProvider } from "application/usecases/client/client-write-agent-capabilities.provider";
+import { createSchedulerLeaseMock } from "../../test/utils/mocks/scheduler-lease.mock";
 
 const principal = {
     userId: "user-a",
@@ -208,6 +209,7 @@ function buildCoordinator(capability: ReturnType<ClientWriteAgentCapabilitiesPro
         { isAvailable: jest.fn().mockReturnValue(false) } as never,
         sessions as never,
         actionRepository as never,
+        createSchedulerLeaseMock(),
     );
     return { service, getPersisted: () => persisted };
 }

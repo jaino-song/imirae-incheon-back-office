@@ -9,6 +9,7 @@ import {
     type AgentSessionPatch,
     type IAgentSessionRepository,
 } from "domain/repositories/agent-session.repository.interface";
+import { SchedulerLeaseService } from "application/services/scheduler-lease.service";
 
 export const DEFAULT_AGENT_RETENTION_DAYS = 30;
 
@@ -17,6 +18,7 @@ export class AgentSessionService {
     constructor(
         @Inject(AGENT_SESSION_REPOSITORY) private readonly repository: IAgentSessionRepository,
         private readonly configService: ConfigService,
+        private readonly schedulerLease: SchedulerLeaseService,
     ) {}
 
     list(owner: AgentSessionOwner) {
@@ -99,7 +101,8 @@ export class AgentSessionService {
     }
 
     @Cron(CronExpression.EVERY_HOUR)
-    cleanupExpired(now = new Date()) {
+    cleanupExpired(now = new Date()): Promise<number> {
+        if (!this.schedulerLease.holdsLease()) return Promise.resolve(0);
         return this.repository.deleteExpired(now);
     }
 

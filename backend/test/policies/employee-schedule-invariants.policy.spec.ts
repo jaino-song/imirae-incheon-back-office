@@ -1,9 +1,14 @@
 import { BadRequestException, ConflictException } from "@nestjs/common";
 import {
     assertNoActiveEmployeeScheduleOverlap,
+    employeeScheduleHandoverPeriod,
+    employeeScheduleReplacementEndDate,
     lockEmployeesForScheduleWrite,
 } from "application/policies/employee-schedule-invariants.policy";
-import { employeeScheduleDatesOverlap } from "domain/entities/employee-schedule.entity";
+import {
+    assertEmployeeScheduleDateRange,
+    employeeScheduleDatesOverlap,
+} from "domain/entities/employee-schedule.entity";
 
 const range = {
     startDate: new Date("2026-08-01T00:00:00.000Z"),
@@ -15,6 +20,72 @@ const createTransaction = (conflict: { id: number } | null = null) => ({
     employee_schedule: {
         findFirst: jest.fn().mockResolvedValue(conflict),
     },
+});
+
+describe("employee schedule handover period", () => {
+    const contractStartDate = new Date("2026-08-10T00:00:00.000Z");
+    const contractEndDate = new Date("2026-08-31T00:00:00.000Z");
+
+    it("starts the incoming schedule on the handover day, not the contract start", () => {
+        const replacementAt = new Date("2026-08-25T00:00:00.000Z");
+
+        const period = employeeScheduleHandoverPeriod({ replacementAt, contractStartDate, contractEndDate });
+
+        expect(period.startDate).toEqual(replacementAt);
+        expect(period.endDate).toEqual(contractEndDate);
+    });
+
+    it("shares the handover day between the outgoing and incoming schedules", () => {
+        const replacementAt = new Date("2026-08-25T00:00:00.000Z");
+
+        const outgoingEndDate = employeeScheduleReplacementEndDate(replacementAt, contractStartDate);
+        const period = employeeScheduleHandoverPeriod({
+            replacementAt: outgoingEndDate,
+            contractStartDate,
+            contractEndDate,
+        });
+
+        expect(period.startDate).toEqual(outgoingEndDate);
+    });
+
+    it("pulls the end up to the handover day when the contract has already ended", () => {
+        const replacementAt = new Date("2026-09-02T00:00:00.000Z");
+
+        const period = employeeScheduleHandoverPeriod({ replacementAt, contractStartDate, contractEndDate });
+
+        expect(period.startDate).toEqual(replacementAt);
+        expect(period.endDate).toEqual(replacementAt);
+        expect(() => assertEmployeeScheduleDateRange(period.startDate, period.endDate)).not.toThrow();
+    });
+
+    it("does not extend an ended contract by a default service period", () => {
+        const replacementAt = new Date("2026-09-02T00:00:00.000Z");
+
+        const period = employeeScheduleHandoverPeriod({ replacementAt, contractStartDate, contractEndDate });
+
+        expect(period.endDate.getTime() - period.startDate.getTime()).toBe(0);
+    });
+
+    it("keeps the contract start when the handover predates the contract", () => {
+        const replacementAt = new Date("2026-08-01T00:00:00.000Z");
+
+        const period = employeeScheduleHandoverPeriod({ replacementAt, contractStartDate, contractEndDate });
+
+        expect(period.startDate).toEqual(contractStartDate);
+        expect(period.endDate).toEqual(contractEndDate);
+    });
+
+    it("never produces an inverted range", () => {
+        for (const replacementAt of [
+            new Date("2026-07-01T00:00:00.000Z"),
+            new Date("2026-08-10T00:00:00.000Z"),
+            new Date("2026-08-31T00:00:00.000Z"),
+            new Date("2027-01-01T00:00:00.000Z"),
+        ]) {
+            const period = employeeScheduleHandoverPeriod({ replacementAt, contractStartDate, contractEndDate });
+            expect(() => assertEmployeeScheduleDateRange(period.startDate, period.endDate)).not.toThrow();
+        }
+    });
 });
 
 describe("employee schedule invariants policy", () => {
