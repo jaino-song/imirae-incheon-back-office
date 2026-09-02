@@ -28,6 +28,7 @@ import {
     IClientRepository,
 } from "domain/repositories/client.repository.interface";
 import { createEformsignWorkerPrincipal } from "application/services/eformsign-credential-boundary.service";
+import { SchedulerLeaseService } from "application/services/scheduler-lease.service";
 
 const WORKER_INTERVAL_MS = 5_000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -75,10 +76,14 @@ export class EformsignDocumentJobWorkerService {
         private readonly eformsignDocRepository: IEformsignDocRepository,
         @Inject(CLIENT_REPOSITORY)
         private readonly clientRepository: IClientRepository,
+        private readonly schedulerLease: SchedulerLeaseService,
     ) {}
 
     @Interval(WORKER_INTERVAL_MS)
     async processDueJobs(): Promise<void> {
+        if (!this.schedulerLease.holdsLease()) {
+            return;
+        }
         if (!this.isEnabled() || this.running) return;
         this.running = true;
         try {

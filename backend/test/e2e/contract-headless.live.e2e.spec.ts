@@ -18,6 +18,7 @@ import { EformsignHeadlessService } from "infrastructure/automation/eformsign-he
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { TenantModule } from "infrastructure/tenant/tenant.module";
 import { EformsignDocModule } from "module/eformsign-doc.module";
+import { SchedulerLeaseModule } from "module/scheduler-lease.module";
 import { extractEformsignContractEndDate } from "application/utils/eformsign-contract-client-candidate";
 import { createEformsignWorkerPrincipal } from "application/services/eformsign-credential-boundary.service";
 import type { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
@@ -158,7 +159,7 @@ const buildContract = (
         expect(process.env["E2E_VENDOR_STUBS"]).not.toBe("1");
 
         moduleRef = await Test.createTestingModule({
-            imports: [ConfigModule.forRoot({ isGlobal: true }), TenantModule, EformsignDocModule],
+            imports: [ConfigModule.forRoot({ isGlobal: true }), TenantModule, EformsignDocModule, SchedulerLeaseModule],
         }).compile();
 
         prisma = moduleRef.get(PrismaService, { strict: false });
