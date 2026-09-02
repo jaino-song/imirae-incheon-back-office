@@ -1,7 +1,9 @@
 import { ConfigService } from "@nestjs/config";
 
 import {
+    LEASE_HOLD_GRACE_MS,
     LEASE_RENEW_INTERVAL_MS,
+    LEASE_RENEW_TIMEOUT_MS,
     LEASE_SHUTDOWN_TIMEOUT_MS,
     LEASE_STARTUP_TIMEOUT_MS,
     LEASE_TAKEOVER_AFTER_SECONDS,
@@ -87,6 +89,21 @@ describe("resolveSchedulerLeaseMode", () => {
         expect(
             resolveSchedulerLeaseMode({ leaseMode: "   ", nodeEnv: "production", schedulersEnabled: true }),
         ).toBe("required");
+    });
+});
+
+describe("scheduler lease timing constants", () => {
+    it("same-holder takeover is admitted only after the predecessor's local hold grace has lapsed", () => {
+        // Otherwise a stalled old process (still inside its grace) and its recreated successor
+        // would both answer holdsLease() true. Keep takeover under the TTL so a same-host restart
+        // still beats waiting for expiry.
+        expect(LEASE_TAKEOVER_AFTER_SECONDS * 1000).toBeGreaterThan(LEASE_HOLD_GRACE_MS);
+        expect(LEASE_TAKEOVER_AFTER_SECONDS).toBeLessThan(LEASE_TTL_SECONDS);
+    });
+
+    it("a renew round trip is abandoned before the next tick, and the local grace lapses before the row TTL", () => {
+        expect(LEASE_RENEW_TIMEOUT_MS).toBeLessThan(LEASE_RENEW_INTERVAL_MS);
+        expect(LEASE_HOLD_GRACE_MS).toBeLessThan(LEASE_TTL_SECONDS * 1000);
     });
 });
 
@@ -244,29 +261,70 @@ describe("SchedulerLeaseService", () => {
             resolveAcquire(acquireResult({ acquired: true }));
         });
 
-        it("renew does not overlap: a pending unresolved renew is not retried on the next tick", async () => {
+        it("a renew that never settles is abandoned after LEASE_RENEW_TIMEOUT_MS; the loop keeps retrying and a late result is ignored", async () => {
             repository.acquireOrRenew.mockResolvedValueOnce(acquireResult({ acquired: true }));
             const service = createService({ SCHEDULER_LEASE_MODE: "required" }, true);
             await service.onModuleInit();
-            expect(repository.acquireOrRenew).toHaveBeenCalledTimes(1);
+            expect(service.holdsLease()).toBe(true);
 
-            let resolveSecond: (result: SchedulerLeaseAcquireResult) => void = () => {};
+            const pending: Array<(result: SchedulerLeaseAcquireResult) => void> = [];
             repository.acquireOrRenew.mockImplementation(
                 () =>
                     new Promise((resolve) => {
-                        resolveSecond = resolve;
+                        pending.push(resolve);
                     }),
             );
 
+            // t=20s: renew #2 starts and hangs. Before its timeout nothing else is issued.
             await jest.advanceTimersByTimeAsync(LEASE_RENEW_INTERVAL_MS);
             expect(repository.acquireOrRenew).toHaveBeenCalledTimes(2);
-
-            // A second renew interval elapses while the first renew is still in flight — must
-            // not call the repository again.
-            await jest.advanceTimersByTimeAsync(LEASE_RENEW_INTERVAL_MS);
+            await jest.advanceTimersByTimeAsync(LEASE_RENEW_TIMEOUT_MS - 1_000);
             expect(repository.acquireOrRenew).toHaveBeenCalledTimes(2);
 
-            resolveSecond(acquireResult({ acquired: true }));
+            // t=40s, t=60s, t=80s: each tick retries because the previous attempt was abandoned.
+            await jest.advanceTimersByTimeAsync(LEASE_RENEW_INTERVAL_MS - (LEASE_RENEW_TIMEOUT_MS - 1_000));
+            expect(repository.acquireOrRenew).toHaveBeenCalledTimes(3);
+            await jest.advanceTimersByTimeAsync(LEASE_RENEW_INTERVAL_MS * 2);
+            expect(repository.acquireOrRenew).toHaveBeenCalledTimes(5);
+            // No successful renew since t=0, so the grace window has lapsed.
+            expect(service.holdsLease()).toBe(false);
+
+            // A stale success arriving now must not resurrect ownership; the next real renew will.
+            const resolveFirstHung = pending[0];
+            expect(resolveFirstHung).toBeDefined();
+            resolveFirstHung?.(acquireResult({ acquired: true }));
+            await jest.advanceTimersByTimeAsync(0);
+            expect(service.holdsLease()).toBe(false);
+            expect(repository.release).not.toHaveBeenCalled();
+        });
+
+        it("onModuleDestroy while the startup acquire is still pending: no renew interval is ever created", async () => {
+            let resolveStartup: (result: SchedulerLeaseAcquireResult) => void = () => {};
+            repository.acquireOrRenew.mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        resolveStartup = resolve;
+                    }),
+            );
+            const service = createService({ SCHEDULER_LEASE_MODE: "required" }, true);
+
+            const initPromise = service.onModuleInit();
+            const destroyPromise = service.onModuleDestroy();
+            await jest.advanceTimersByTimeAsync(LEASE_STARTUP_TIMEOUT_MS);
+            await Promise.all([initPromise, destroyPromise]);
+
+            await jest.advanceTimersByTimeAsync(LEASE_RENEW_INTERVAL_MS * 5);
+            expect(repository.acquireOrRenew).toHaveBeenCalledTimes(1);
+            expect(service.holdsLease()).toBe(false);
+
+            // The startup acquire lands after shutdown: it must be handed back, not kept.
+            resolveStartup(acquireResult({ acquired: true }));
+            await jest.advanceTimersByTimeAsync(0);
+            expect(service.holdsLease()).toBe(false);
+            expect(repository.release).toHaveBeenCalledWith(SCHEDULER_LEASE_NAME, {
+                holderId: service.holderId,
+                instanceId: service.instanceId,
+            });
         });
 
         it("renew in flight when onModuleDestroy runs: resolving it after destroy leaves holdsLease() false and calls acquireOrRenew no further", async () => {
@@ -294,11 +352,15 @@ describe("SchedulerLeaseService", () => {
 
             expect(service.holdsLease()).toBe(false);
 
+            expect(repository.release).toHaveBeenCalledTimes(1); // the normal shutdown release
+
             resolveSecond(acquireResult({ acquired: true }));
             await jest.advanceTimersByTimeAsync(0);
 
             expect(service.holdsLease()).toBe(false);
             expect(repository.acquireOrRenew).toHaveBeenCalledTimes(2);
+            // The late renew re-extended the row for a dead process; it must be released again.
+            expect(repository.release).toHaveBeenCalledTimes(2);
         });
     });
 });

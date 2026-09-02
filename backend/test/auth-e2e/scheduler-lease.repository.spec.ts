@@ -66,6 +66,15 @@ describe("SbSchedulerLeaseRepository (real Postgres, two competing hosts)", () =
     });
 
     it("step 2: B cannot acquire while A's lease is live", async () => {
+        // Renew A right here so the assertion does not depend on how long ago step 1 ran.
+        const renewed = await hostA.acquireOrRenew({
+            name: leaseName,
+            ...A,
+            ttlSeconds: TTL_SECONDS,
+            takeoverAfterSeconds: TAKEOVER_AFTER_SECONDS,
+        });
+        expect(renewed.acquired).toBe(true);
+
         const result = await hostB.acquireOrRenew({
             name: leaseName,
             ...B,
@@ -98,6 +107,16 @@ describe("SbSchedulerLeaseRepository (real Postgres, two competing hosts)", () =
     });
 
     it("step 4: A2 (same holder, other instance) cannot take over immediately", async () => {
+        // Renew A right here: the takeover window is only 1 s, so relying on step 3's
+        // timestamp would make this assertion depend on scheduling between it() blocks.
+        const renewed = await hostA.acquireOrRenew({
+            name: leaseName,
+            ...A,
+            ttlSeconds: TTL_SECONDS,
+            takeoverAfterSeconds: TAKEOVER_AFTER_SECONDS,
+        });
+        expect(renewed.acquired).toBe(true);
+
         const result = await hostB.acquireOrRenew({
             name: leaseName,
             ...A2,
@@ -144,6 +163,15 @@ describe("SbSchedulerLeaseRepository (real Postgres, two competing hosts)", () =
     });
 
     it("step 6: the old instance (A) is now locked out — taken over by its own successor", async () => {
+        // A2 renews right here so A's same-holder takeover window is provably not open.
+        const renewed = await hostB.acquireOrRenew({
+            name: leaseName,
+            ...A2,
+            ttlSeconds: TTL_SECONDS,
+            takeoverAfterSeconds: TAKEOVER_AFTER_SECONDS,
+        });
+        expect(renewed.acquired).toBe(true);
+
         const result = await hostA.acquireOrRenew({
             name: leaseName,
             ...A,

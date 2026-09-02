@@ -21,8 +21,20 @@ export const LEASE_TTL_SECONDS = 90;
 export const LEASE_RENEW_INTERVAL_MS = 20_000;
 /** Local "still held" window after the last successful renew. */
 export const LEASE_HOLD_GRACE_MS = 60_000;
-/** 2 x renew interval. */
-export const LEASE_TAKEOVER_AFTER_SECONDS = 40;
+/**
+ * Same-holder, different-instance takeover (a recreated container). MUST exceed
+ * LEASE_HOLD_GRACE_MS: a stalled predecessor still answers holdsLease() true until the
+ * grace lapses, so admitting its successor any earlier lets two processes of one host
+ * both believe they own the lease. Kept under the TTL so a same-host restart still
+ * beats waiting for expiry.
+ */
+export const LEASE_TAKEOVER_AFTER_SECONDS = 70;
+/**
+ * A single acquire/renew round trip that has not settled by now is treated as failed so
+ * the renew loop never wedges on a black-holed connection. Strictly shorter than the
+ * renew interval so the next tick always retries.
+ */
+export const LEASE_RENEW_TIMEOUT_MS = 15_000;
 export const LEASE_STARTUP_TIMEOUT_MS = 5_000;
 export const LEASE_SHUTDOWN_TIMEOUT_MS = 2_000;
 
@@ -136,6 +148,12 @@ export class SchedulerLeaseService implements OnModuleInit, OnModuleDestroy {
 
         await this.attemptStartupAcquire();
 
+        // onModuleDestroy may have run while the startup acquire was in flight (a SIGTERM
+        // during boot); creating the interval now would leave a renewer nothing can stop.
+        if (this.stopped) {
+            return;
+        }
+
         const timer = setInterval(() => {
             void this.startRenew();
         }, LEASE_RENEW_INTERVAL_MS);
@@ -157,8 +175,8 @@ export class SchedulerLeaseService implements OnModuleInit, OnModuleDestroy {
         this.held = false;
 
         // A slow renew that commits after release would re-extend the row by 90s for a dead
-        // process, so bound the wait and let handleAcquireResult's stopped-guard neutralise it
-        // if it settles after we've moved on.
+        // process. Bound the wait; if it settles after we've moved on, handleAcquireResult's
+        // stopped-guard releases whatever it acquired.
         await this.waitForInFlightRenew();
 
         if (wasHeld) {
@@ -263,12 +281,15 @@ export class SchedulerLeaseService implements OnModuleInit, OnModuleDestroy {
         // unhandled.
         repoPromise.catch(() => {});
 
-        const tracked: Promise<void> = repoPromise.then(
-            (result) => {
-                this.handleAcquireResult(result);
-            },
-            (error) => {
-                this.handleRenewError(error);
+        const tracked: Promise<void> = this.awaitWithTimeout(repoPromise, LEASE_RENEW_TIMEOUT_MS).then(
+            (outcome) => {
+                if (outcome.outcome === "resolved") {
+                    this.handleAcquireResult(outcome.value);
+                } else if (outcome.outcome === "rejected") {
+                    this.handleRenewError(outcome.error);
+                } else {
+                    this.handleRenewTimeout(repoPromise);
+                }
             },
         );
 
@@ -288,8 +309,12 @@ export class SchedulerLeaseService implements OnModuleInit, OnModuleDestroy {
 
     private handleAcquireResult(result: SchedulerLeaseAcquireResult): void {
         // A renew that settles after onModuleDestroy has already run must not resurrect held
-        // or lastRenewOkAt for a process that is shutting down.
+        // or lastRenewOkAt for a process that is shutting down — and if it acquired, the row
+        // now names a dead process for a full TTL, so give it back.
         if (this.stopped) {
+            if (result.acquired) {
+                this.releaseLateAcquire();
+            }
             return;
         }
 
@@ -331,6 +356,37 @@ export class SchedulerLeaseService implements OnModuleInit, OnModuleDestroy {
         // `held` is intentionally left untouched here: holdsLease() falls back to false on its
         // own once the grace window since the last successful renew elapses, so two consecutive
         // failed renews are tolerated and the third is not.
+    }
+
+    /**
+     * The round trip did not settle in time: treat it like a failed renew (held is left to
+     * the grace window) and stop tracking it so the next tick retries. A result that
+     * arrives later is stale and ignored — except that an acquire landing after shutdown
+     * must be released, exactly as in handleAcquireResult.
+     */
+    private handleRenewTimeout(abandoned: Promise<SchedulerLeaseAcquireResult>): void {
+        abandoned
+            .then((result) => {
+                if (result.acquired && this.stopped) {
+                    this.releaseLateAcquire();
+                }
+            })
+            .catch(() => {});
+
+        if (this.stopped) {
+            return;
+        }
+        this.logger.warn(
+            `Scheduler lease renew did not settle within ${LEASE_RENEW_TIMEOUT_MS}ms; treating as failed: name=${SCHEDULER_LEASE_NAME} holderId=${this.holderId} instanceId=${this.instanceId}`,
+        );
+    }
+
+    private releaseLateAcquire(): void {
+        const identity: SchedulerLeaseIdentity = { holderId: this.holderId, instanceId: this.instanceId };
+        this.logger.warn(
+            `Scheduler lease acquired after shutdown began; releasing: name=${SCHEDULER_LEASE_NAME} holderId=${this.holderId} instanceId=${this.instanceId}`,
+        );
+        this.repository.release(SCHEDULER_LEASE_NAME, identity).catch(() => {});
     }
 
     private logCurrentHolder(): void {
