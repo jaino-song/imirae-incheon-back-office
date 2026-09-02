@@ -65,6 +65,7 @@ import {
   SectionNav,
 } from "@/components/app/v3";
 import { ContractStatsBar } from "@/components/app/contracts/ContractStatsBar";
+import { ContractAutomationsManager } from "@/components/app/contracts/ContractAutomationsManager";
 import type { StatusType } from "@/components/app/v3";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { ClientFormDialog } from "@/components/app/clients/ClientFormDialog";
@@ -441,22 +442,6 @@ const NAV_SECTIONS = [
   { id: "documents", label: "전자문서 목록", icon: FileText, disabled: true },
   { id: "notifications", label: "알림 설정", icon: Bell, disabled: true },
   { id: "automations", label: "자동화", icon: Workflow },
-] as const;
-
-/**
- * Registry of automations shown in the 자동화 section. Backend-driven
- * schedules are described here; the entries are informational.
- */
-const AUTOMATIONS = [
-  {
-    id: "contract-auto-finalize",
-    title: "계약 종료일 자동 완료",
-    summary: "검토 필요 상태의 계약서를 계약 종료일에 계약 완료로 전환",
-    schedule: "매일 17:00 (KST)",
-    target: "제공기관 검토 단계(검토 필요)에 있고 계약 종료일이 오늘 이전인 산모 계약서",
-    action: "eformsign '검토 완료 확인'을 자동 실행해 계약 완료로 전환",
-    guards: "문서당 최대 3회 시도, 도입일 이전 계약 종료일은 제외",
-  },
 ] as const;
 
 type SectionId = (typeof NAV_SECTIONS)[number]["id"];
@@ -1089,53 +1074,7 @@ export default function ContractsPage() {
           ) : null}
 
           {activeSection === "automations" ? (
-            <section
-              data-component="desktop_contracts_sections_section-content_automations-section"
-              className="flex flex-1 min-h-0 flex-col"
-            >
-              <SplitLayout data-component="desktop_contracts_sections_section-content_automations-section_split-layout" hasSelection={false}>
-                <ListPanel data-component="desktop_contracts_sections_section-content_automations-section_split-layout_list-panel"
-                  title="자동화"
-                  subtitle={`등록된 자동화 ${AUTOMATIONS.length}건`}
-                  avatar={
-                    <div className="flex h-[calc(48px*var(--glint-ui-scale,1))] w-[calc(48px*var(--glint-ui-scale,1))] shrink-0 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary">
-                      <Workflow className="h-[calc(20px*var(--glint-ui-scale,1))] w-[calc(20px*var(--glint-ui-scale,1))]" />
-                    </div>
-                  }
-                  emptyState={<ListEmptyState message="등록된 자동화가 없습니다" />}
-                >
-                  <div
-                    data-component="desktop_contracts_sections_section-content_automations-section_split-layout_list-panel_list"
-                    className="flex flex-col gap-[calc(12px*var(--glint-ui-scale,1))]"
-                  >
-                    {AUTOMATIONS.map((automation) => (
-                      <InfoCard
-                        key={automation.id}
-                        data-component="desktop_contracts_sections_section-content_automations-section_split-layout_list-panel_list_item"
-                        title={automation.title}
-                        description={automation.summary}
-                      >
-                        <InfoRow label="실행 주기" value={automation.schedule} size="compact" />
-                        <InfoRow label="대상" value={automation.target} size="compact" />
-                        <InfoRow label="동작" value={automation.action} size="compact" />
-                        <InfoRow label="제한" value={automation.guards} size="compact" />
-                      </InfoCard>
-                    ))}
-                  </div>
-                </ListPanel>
-                <DetailPanel data-component="desktop_contracts_sections_section-content_automations-section_split-layout_detail-panel"
-                  title="자동화"
-                  subtitle="백엔드 스케줄러가 실행하는 자동화 목록"
-                  avatar={
-                    <div className="flex h-[calc(48px*var(--glint-ui-scale,1))] w-[calc(48px*var(--glint-ui-scale,1))] shrink-0 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary">
-                      <Workflow className="h-[calc(20px*var(--glint-ui-scale,1))] w-[calc(20px*var(--glint-ui-scale,1))]" />
-                    </div>
-                  }
-                >
-                  <DetailEmptyState icon={Workflow} message="왼쪽 목록에서 자동화 내용을 확인하세요" />
-                </DetailPanel>
-              </SplitLayout>
-            </section>
+            <ContractAutomationsManager dataComponent="desktop_contracts_sections_section-content_automations-section" />
           ) : null}
         </div>
       </div>
