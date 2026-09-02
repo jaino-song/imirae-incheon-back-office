@@ -304,6 +304,7 @@ export function TriggerRulesManager({
     selectedRule
     && !CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS.includes(selectedRule.templateKey),
   );
+  const isSelectedSystemRule = selectedRule?.branchId === null;
 
   // Fetch all SMS templates in one query (no event/recipient filter), then derive
   // the event / recipient / template dropdowns from the catalog so future templates surface
@@ -507,7 +508,7 @@ export function TriggerRulesManager({
       kind: "trigger-rule",
       id: rule.id,
       title: rule.name,
-      subtitle: getRuleSummary(toFormState(rule)),
+      subtitle: `${rule.branchId === null ? "시스템 자동화 · " : ""}${getRuleSummary(toFormState(rule))}`,
       active: rule.isActive,
       icon: getRuleIcon(rule.eventType),
       rule,
@@ -546,7 +547,7 @@ export function TriggerRulesManager({
   };
 
   const handleRuleActiveToggle = async (rule: MessageTriggerRule, checked: boolean) => {
-    if (isTriggerRulesLocked) return;
+    if (isTriggerRulesLocked || rule.branchId === null) return;
 
     const dto = normalizeDto({
       ...toFormState(rule),
@@ -570,7 +571,7 @@ export function TriggerRulesManager({
   };
 
   const handleSave = async () => {
-    if (isTriggerRulesLocked) return;
+    if (isTriggerRulesLocked || isSelectedSystemRule) return;
     const dto = normalizeDto(formState);
 
     if (unsupportedRequiredCustomVariables.length > 0) {
@@ -606,7 +607,7 @@ export function TriggerRulesManager({
   };
 
   const handleDelete = async () => {
-    if (isTriggerRulesLocked) return;
+    if (isTriggerRulesLocked || isSelectedSystemRule) return;
     if (!selectedRule) return;
     try {
       await deleteMutation.mutateAsync(selectedRule.id);
@@ -694,7 +695,7 @@ export function TriggerRulesManager({
                             <Switch
                               aria-label={`${item.title} 활성화`}
                               checked={item.active}
-                              disabled={isTriggerRulesLocked || updateMutation.isPending}
+                              disabled={isTriggerRulesLocked || item.rule.branchId === null || updateMutation.isPending}
                               onClick={(event) => event.stopPropagation()}
                               onCheckedChange={(checked) => {
                                 void handleRuleActiveToggle(item.rule, checked);
@@ -743,7 +744,9 @@ export function TriggerRulesManager({
             <DetailPanel data-component="desktop_messages_sections_split-layout_detail-panel-3"
               isLoading={isDetailLoading}
               title={effectiveSelectedRuleId === "new" ? "새 발송 규칙" : selectedRule?.name ?? "발송 규칙"}
-              subtitle={copy.detailSubtitle}
+              subtitle={isSelectedSystemRule
+                ? "서비스 배정 시 제공인력에게 자동 발송되는 읽기 전용 시스템 루틴입니다."
+                : copy.detailSubtitle}
               tabs={
                 <DetailTabs
                   tabs={TRIGGER_RULE_DETAIL_TABS}
@@ -751,7 +754,7 @@ export function TriggerRulesManager({
                   onTabChange={(key) => setActiveDetailTab(key as TriggerRuleDetailTab)}
                 />
               }
-              footer={
+              footer={isSelectedSystemRule ? undefined : (
                 <>
                   {isDetailLoading || selectedRule ? (
                     <Button
@@ -780,7 +783,7 @@ export function TriggerRulesManager({
                     {isSaving ? "저장 중..." : "저장"}
                   </Button>
                 </>
-              }
+              )}
             >
               <DetailTabPanels
                 activeTab={activeDetailTab}
@@ -803,6 +806,7 @@ export function TriggerRulesManager({
                           id="trigger-rule-name"
                           label="규칙 이름"
                           value={formState.name}
+                          disabled={isSelectedSystemRule}
                           onValueChange={(value) =>
                             setFormState((current) => ({ ...current, name: value }))
                           }
