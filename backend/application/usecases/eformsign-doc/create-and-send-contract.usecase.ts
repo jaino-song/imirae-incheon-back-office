@@ -103,7 +103,7 @@ export class CreateAndSendContractUsecase {
         let providerAttempted = false;
         let dispatchIntent: Awaited<ReturnType<EformsignDispatchBoundaryService["claim"]>>["intent"] | undefined;
         try {
-            const assignment = await this.assignmentGuard.assertAssignedClient(branchid, clientId);
+            const assignment = await this.assignmentGuard.assertLiveAssignedClient(branchid, clientId);
             if (this.dispatchBoundary) {
                 // Approval-bound agent calls supply an immutable target version; direct callers
                 // fall back to the current client projection. Hashing the generation keeps

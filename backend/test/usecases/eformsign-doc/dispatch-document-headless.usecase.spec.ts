@@ -20,7 +20,7 @@ function createCredentialBoundary() {
 
 describe("DispatchDocumentHeadlessUsecase", () => {
     it("rejects a malformed customer contact before assignment or headless provider work", async () => {
-        const assignmentGuard = { assertAssignedProvider: jest.fn() };
+        const assignmentGuard = { assertLiveAssignedProvider: jest.fn() };
         const headless = { dispatchCreation: jest.fn() };
         const usecase = new DispatchDocumentHeadlessUsecase(
             { generateDocumentOptions: jest.fn() } as never,
@@ -47,12 +47,12 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             reason: "invalid_customer_phone",
         }));
 
-        expect(assignmentGuard.assertAssignedProvider).not.toHaveBeenCalled();
+        expect(assignmentGuard.assertLiveAssignedProvider).not.toHaveBeenCalled();
         expect(headless.dispatchCreation).not.toHaveBeenCalled();
     });
 
     it.each(["caretaker1Contact", "issuerPhone"])("rejects malformed %s before assignment or headless provider work", async (field) => {
-        const assignmentGuard = { assertAssignedProvider: jest.fn() };
+        const assignmentGuard = { assertLiveAssignedProvider: jest.fn() };
         const headless = { dispatchCreation: jest.fn() };
         const usecase = new DispatchDocumentHeadlessUsecase(
             { generateDocumentOptions: jest.fn() } as never,
@@ -80,7 +80,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             reason: "invalid_provider_phone",
         }));
 
-        expect(assignmentGuard.assertAssignedProvider).not.toHaveBeenCalled();
+        expect(assignmentGuard.assertLiveAssignedProvider).not.toHaveBeenCalled();
         expect(headless.dispatchCreation).not.toHaveBeenCalled();
     });
 
@@ -138,7 +138,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             }),
         };
         const assignmentGuard = {
-            assertAssignedProvider: jest.fn().mockResolvedValue({ scheduleId: 10 }),
+            assertLiveAssignedProvider: jest.fn().mockResolvedValue({ scheduleId: 10 }),
         };
 
         const usecase = new DispatchDocumentHeadlessUsecase(
@@ -220,7 +220,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             findById: jest.fn().mockResolvedValue(null),
         };
         const assignmentGuard = {
-            assertAssignedProvider: jest.fn().mockResolvedValue({ scheduleId: 11 }),
+            assertLiveAssignedProvider: jest.fn().mockResolvedValue({ scheduleId: 11 }),
         };
 
         const usecase = new DispatchDocumentHeadlessUsecase(
@@ -268,7 +268,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
         const getAccessTokenUsecase = { execute: jest.fn() };
         const headlessService = { dispatchCreation: jest.fn() };
         const assignmentGuard = {
-            assertAssignedProvider: jest.fn().mockRejectedValue(
+            assertLiveAssignedProvider: jest.fn().mockRejectedValue(
                 new Error("고객의 제공인력 배정을 먼저 저장해 주세요."),
             ),
         };
@@ -296,7 +296,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             reason: "고객의 제공인력 배정을 먼저 저장해 주세요.",
         }));
 
-        expect(assignmentGuard.assertAssignedProvider).toHaveBeenCalledWith(
+        expect(assignmentGuard.assertLiveAssignedProvider).toHaveBeenCalledWith(
             "branch-1",
             55,
             "010-1111-2222",
@@ -315,7 +315,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             { execute: jest.fn().mockRejectedValue(new Error("not found")) } as never,
             { emit: jest.fn() } as never,
             { findById: jest.fn().mockResolvedValue(null) } as never,
-            { assertAssignedProvider: jest.fn() } as never,
+            { assertLiveAssignedProvider: jest.fn() } as never,
             { findByClientId: jest.fn().mockResolvedValue([]) } as never,
             { execute: jest.fn().mockResolvedValue([]) } as never,
         );
@@ -352,7 +352,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             } as never,
             { emit: jest.fn() } as never,
             { findById: jest.fn().mockResolvedValue(null) } as never,
-            { assertAssignedProvider: jest.fn().mockResolvedValue({ scheduleId: 1 }) } as never,
+            { assertLiveAssignedProvider: jest.fn().mockResolvedValue({ scheduleId: 1 }) } as never,
             { findByClientId: jest.fn().mockResolvedValue([]) } as never,
             {
                 execute: overrides.fetchAll ?? (
@@ -575,7 +575,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             { execute: jest.fn() } as never,
             { emit: jest.fn() } as never,
             { findById: jest.fn() } as never,
-            { assertAssignedProvider: jest.fn() } as never,
+            { assertLiveAssignedProvider: jest.fn() } as never,
             repository as never,
             { execute: jest.fn() } as never,
         );
@@ -604,7 +604,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             { execute: jest.fn() } as never,
             { emit: jest.fn() } as never,
             { findById: jest.fn() } as never,
-            { assertAssignedProvider: jest.fn() } as never,
+            { assertLiveAssignedProvider: jest.fn() } as never,
             { findByClientId: jest.fn() } as never,
             { execute: jest.fn() } as never,
             operationLock as never,

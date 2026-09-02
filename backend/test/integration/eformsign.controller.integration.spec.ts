@@ -55,7 +55,7 @@ describe("EformsignController (Integration)", () => {
         | "findByDocumentIdIncludingPurgePending" | "findDocumentIdsForOtherBranches"
         | "findDisplayFieldsByDocumentIds"
     >>;
-    let assignmentGuard: jest.Mocked<Pick<ContractClientAssignmentGuardService, "assertAssignedProvider">>;
+    let assignmentGuard: jest.Mocked<Pick<ContractClientAssignmentGuardService, "assertLiveAssignedProvider">>;
     let getContractClientCandidateUsecase: jest.Mocked<Pick<
         GetContractClientCandidateUsecase,
         "execute"
@@ -168,7 +168,7 @@ describe("EformsignController (Integration)", () => {
                 {
                     provide: ContractClientAssignmentGuardService,
                     useValue: {
-                        assertAssignedProvider: jest.fn().mockResolvedValue({ scheduleId: 1 }),
+                        assertLiveAssignedProvider: jest.fn().mockResolvedValue({ scheduleId: 1 }),
                     },
                 },
                 {
@@ -317,7 +317,7 @@ describe("EformsignController (Integration)", () => {
     });
 
     it("does not accept caller credentials on the legacy document generation endpoint", async () => {
-        assignmentGuard.assertAssignedProvider.mockRejectedValue(
+        assignmentGuard.assertLiveAssignedProvider.mockRejectedValue(
             new BadRequestException("고객의 제공인력 배정을 먼저 저장해 주세요."),
         );
 
@@ -356,7 +356,7 @@ describe("EformsignController (Integration)", () => {
             });
 
         expect(response.status).toBe(410);
-        expect(assignmentGuard.assertAssignedProvider).not.toHaveBeenCalled();
+        expect(assignmentGuard.assertLiveAssignedProvider).not.toHaveBeenCalled();
         expect(eformsignService.generateDocumentOptions).not.toHaveBeenCalled();
     });
 
@@ -1096,7 +1096,7 @@ describe("EformsignController (Integration)", () => {
                     },
                     {
                         provide: ContractClientAssignmentGuardService,
-                        useValue: { assertAssignedProvider: jest.fn() },
+                        useValue: { assertLiveAssignedProvider: jest.fn() },
                     },
                     {
                         provide: GetContractClientCandidateUsecase,

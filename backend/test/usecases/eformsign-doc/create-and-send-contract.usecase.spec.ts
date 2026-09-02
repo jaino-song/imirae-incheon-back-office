@@ -13,7 +13,7 @@ describe("CreateAndSendContractUsecase", () => {
     it("rejects a malformed persisted client phone before assignment, credentials, or provider work", async () => {
         const createDocument = jest.fn();
         const withCredentials = createBoundary();
-        const assignmentGuard = { assertAssignedClient: jest.fn() };
+        const assignmentGuard = { assertLiveAssignedClient: jest.fn() };
         const usecase = new CreateAndSendContractUsecase(
             { createDocument } as never,
             { findById: jest.fn().mockResolvedValue({
@@ -34,7 +34,7 @@ describe("CreateAndSendContractUsecase", () => {
             error: "고객 연락처가 유효하지 않습니다",
         });
 
-        expect(assignmentGuard.assertAssignedClient).not.toHaveBeenCalled();
+        expect(assignmentGuard.assertLiveAssignedClient).not.toHaveBeenCalled();
         expect(withCredentials.withCredentials).not.toHaveBeenCalled();
         expect(createDocument).not.toHaveBeenCalled();
     });
@@ -49,7 +49,7 @@ describe("CreateAndSendContractUsecase", () => {
             }),
         };
         const assignmentGuard = {
-            assertAssignedClient: jest.fn().mockRejectedValue(
+            assertLiveAssignedClient: jest.fn().mockRejectedValue(
                 new Error("고객의 제공인력 배정을 먼저 저장해 주세요."),
             ),
         };
@@ -69,7 +69,7 @@ describe("CreateAndSendContractUsecase", () => {
             error: "고객의 제공인력 배정을 먼저 저장해 주세요.",
         });
 
-        expect(assignmentGuard.assertAssignedClient).toHaveBeenCalledWith("branch-1", 55);
+        expect(assignmentGuard.assertLiveAssignedClient).toHaveBeenCalledWith("branch-1", 55);
         expect(eformsignClient.createDocument).not.toHaveBeenCalled();
     });
 
@@ -85,7 +85,7 @@ describe("CreateAndSendContractUsecase", () => {
             }) } as never,
             createBoundary() as never,
             { execute: jest.fn().mockRejectedValue(new Error("local db unavailable")) } as never,
-            { assertAssignedClient: jest.fn() } as never,
+            { assertLiveAssignedClient: jest.fn() } as never,
         );
 
         await expect(usecase.execute("branch-1", {
@@ -119,7 +119,7 @@ describe("CreateAndSendContractUsecase", () => {
             }) } as never,
             createBoundary() as never,
             { execute: persistDocument } as never,
-            { assertAssignedClient: jest.fn() } as never,
+            { assertLiveAssignedClient: jest.fn() } as never,
         );
 
         await usecase.execute("branch-1", {
@@ -156,7 +156,7 @@ describe("CreateAndSendContractUsecase", () => {
             }) } as never,
             createBoundary() as never,
             { execute: persistDocument } as never,
-            { assertAssignedClient: jest.fn() } as never,
+            { assertLiveAssignedClient: jest.fn() } as never,
         );
 
         await usecase.execute("branch-1", {
@@ -184,7 +184,7 @@ describe("CreateAndSendContractUsecase", () => {
             }) } as never,
             createBoundary() as never,
             { execute: jest.fn().mockResolvedValue({ documentId: "remote-1" }) } as never,
-            { assertAssignedClient: jest.fn() } as never,
+            { assertLiveAssignedClient: jest.fn() } as never,
         );
 
         await usecase.execute("branch-1", {
@@ -236,7 +236,7 @@ describe("CreateAndSendContractUsecase", () => {
             { findById } as never,
             createBoundary() as never,
             { execute: jest.fn().mockResolvedValue({ documentId: "remote-approved" }) } as never,
-            { assertAssignedClient: jest.fn() } as never,
+            { assertLiveAssignedClient: jest.fn() } as never,
         );
 
         await expect(usecase.execute("branch-1", {
@@ -288,7 +288,7 @@ describe("CreateAndSendContractUsecase", () => {
             }) } as never,
             credentialBoundary as never,
             { execute: jest.fn() } as never,
-            { assertAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
+            { assertLiveAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
             dispatchBoundary as never,
         );
 
@@ -329,7 +329,7 @@ describe("CreateAndSendContractUsecase", () => {
             }) } as never,
             credentialBoundary as never,
             { execute: repairMirror } as never,
-            { assertAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
+            { assertLiveAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
             dispatchBoundary as never,
         );
 
@@ -390,7 +390,7 @@ describe("CreateAndSendContractUsecase", () => {
             }) } as never,
             credentialBoundary as never,
             { execute: repairMirror } as never,
-            { assertAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
+            { assertLiveAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
             dispatchBoundary as never,
         );
 
@@ -435,7 +435,7 @@ describe("CreateAndSendContractUsecase", () => {
             }) } as never,
             createBoundary() as never,
             { execute: persistDocument } as never,
-            { assertAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
+            { assertLiveAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
             dispatchBoundary as never,
         );
 
@@ -487,7 +487,7 @@ describe("CreateAndSendContractUsecase", () => {
             }) } as never,
             createBoundary() as never,
             { execute: jest.fn() } as never,
-            { assertAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
+            { assertLiveAssignedClient: jest.fn().mockResolvedValue({ scheduleId: 13 }) } as never,
             dispatchBoundary as never,
         );
 
