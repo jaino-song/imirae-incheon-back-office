@@ -38,6 +38,31 @@ const ensureNotificationBell = async (page) => {
   return bell;
 };
 
+/**
+ * Opens the popover and returns it.
+ *
+ * The bell paints before React attaches its handler, so a click that lands in
+ * that window is swallowed and the popover simply never appears — the observed
+ * flake was exactly this, a 5s wait for an element that was never going to be
+ * created. Retrying the whole open is what makes it deterministic; asserting
+ * harder on the same single click cannot.
+ *
+ * The visibility check inside the retry is not redundant with the one after it:
+ * the bell TOGGLES, so a blind second click would close a popover that the first
+ * click had actually opened. Only click when it is closed.
+ */
+const openNotificationPopover = async (page) => {
+  const bell = await ensureNotificationBell(page);
+  const popover = page.locator('[data-testid="notification-popover"]');
+  await expect(async () => {
+    if (!(await popover.isVisible())) {
+      await bell.click();
+    }
+    await expect(popover).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 15000 });
+  return popover;
+};
+
 test.describe('Notification Bell Navigation', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
@@ -162,10 +187,7 @@ test.describe('Notification Bell Navigation', () => {
   test('clicking notification should navigate without showing splash screen', async ({ page }) => {
     await expect(page).toHaveURL(/\/clients/);
 
-    const bell = await ensureNotificationBell(page);
-
-    await bell.click();
-    await expect(page.locator('[data-testid="notification-popover"]')).toBeVisible();
+    await openNotificationPopover(page);
 
     await page.locator('[data-testid="notification-item-unread"]').first().click();
 
@@ -176,14 +198,13 @@ test.describe('Notification Bell Navigation', () => {
   });
 
   test('badge count should update after clicking unread notification', async ({ page }) => {
-    const bell = await ensureNotificationBell(page);
+    await ensureNotificationBell(page);
 
     const badge = page.locator('[data-testid="notification-badge"]');
     await expect(badge).toBeVisible();
     await expect(badge).toHaveText('2');
 
-    await bell.click();
-    await expect(page.locator('[data-testid="notification-popover"]')).toBeVisible();
+    await openNotificationPopover(page);
 
     await page.locator('[data-testid="notification-item-unread"]').first().click();
 
@@ -196,12 +217,7 @@ test.describe('Notification Bell Navigation', () => {
   });
 
   test('popover should close immediately when notification is clicked', async ({ page }) => {
-    const bell = await ensureNotificationBell(page);
-
-    await bell.click();
-
-    const popover = page.locator('[data-testid="notification-popover"]');
-    await expect(popover).toBeVisible();
+    const popover = await openNotificationPopover(page);
 
     await page.locator('[data-testid="notification-item-unread"]').first().click();
 

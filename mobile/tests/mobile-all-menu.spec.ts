@@ -94,22 +94,112 @@ test.describe("Mobile nav: center chat + /all menu", () => {
         .locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')
     ).toBeVisible();
 
-    const before = await page.evaluate(() => {
-      const rows = Array.from(document.querySelectorAll('[data-component="mobile_all_page_menu_group_row"]'));
-      const groupTitle = document.querySelector(".menu-group-title")?.getBoundingClientRect();
-      const clientRow = rows[1]?.getBoundingClientRect();
-      const employeeRow = rows[2]?.getBoundingClientRect();
-      const messageRow = rows[6]?.getBoundingClientRect();
-      const alimtalkRow = rows[7]?.getBoundingClientRect();
+    // What this test is about: the skeleton standing in for a fetched value occupies
+    // the same box the value will, so the swap moves nothing. That is a claim about a
+    // row and its neighbours inside one menu group, and it is measured that way —
+    // each row's offset within its own `.menu-group`, plus every group's height.
+    //
+    // Absolute page y was the previous measure and it is the wrong one: it sums every
+    // sub-pixel difference in everything rendered above the row, so a row seven
+    // positions down drifted 2-3px in CI while every row above it held — twice on a
+    // branch whose only change was to this file. The per-group measure is strictly
+    // stronger inside a group (a group's height moves if ANY of its rows changes box)
+    // and stops reporting drift that originates outside it.
+    //
+    // Rows are matched on their `.menu-label` text, exactly. By index the assertions
+    // were checking the wrong rows — rows[6]/rows[7] are 가격표 and 메시지, not the
+    // 메시지/발송 자동화 their names claimed — and by `textContent` a row would also
+    // match on a value or badge that happened to contain the string.
+    const MEASURED_LABELS = [
+      "상담",
+      "고객",
+      "제공인력",
+      "전자문서",
+      "일정 캘린더",
+      "통계 보고서",
+      "가격표",
+      "메시지",
+      "발송 자동화",
+      "알림 설정",
+    ];
 
-      return {
-        groupTitle: groupTitle ? { y: groupTitle.y, height: groupTitle.height } : null,
-        clientRow: clientRow ? { y: clientRow.y, height: clientRow.height } : null,
-        employeeRow: employeeRow ? { y: employeeRow.y, height: employeeRow.height } : null,
-        messageRow: messageRow ? { y: messageRow.y, height: messageRow.height } : null,
-        alimtalkRow: alimtalkRow ? { y: alimtalkRow.y, height: alimtalkRow.height } : null,
-      };
-    });
+    const measureMenu = () =>
+      page.evaluate((labels: string[]) => {
+        const round = (value: number) => Math.round(value * 100) / 100;
+        const rows = Array.from(
+          document.querySelectorAll('[data-component="mobile_all_page_menu_group_row"]'),
+        );
+
+        const measured: Record<
+          string,
+          { offsetInGroup: number; height: number; pageY: number } | null
+        > = {};
+        for (const label of labels) {
+          const row = rows.find(
+            (candidate) => candidate.querySelector(".menu-label")?.textContent?.trim() === label,
+          );
+          const group = row?.closest(".menu-group");
+          if (!row || !group) {
+            measured[label] = null;
+            continue;
+          }
+          const rowRect = row.getBoundingClientRect();
+          const groupRect = group.getBoundingClientRect();
+          measured[label] = {
+            offsetInGroup: round(rowRect.y - groupRect.y),
+            height: round(rowRect.height),
+            // Kept for the diagnostic log below, never asserted on.
+            pageY: round(rowRect.y + window.scrollY),
+          };
+        }
+
+        return {
+          rows: measured,
+          groups: Array.from(document.querySelectorAll(".menu-group")).map((group) => ({
+            height: round(group.getBoundingClientRect().height),
+            titleHeight: round(
+              group.querySelector(".menu-group-title")?.getBoundingClientRect().height ?? -1,
+            ),
+          })),
+        };
+      }, MEASURED_LABELS);
+
+    // The loading-state layout is not final the instant the skeletons appear, and the
+    // baseline must not sample it mid-settle.
+    //
+    // What CI actually showed, from the geometry log below. On the reads that failed,
+    // every row that `.menu-row:first-of-type` exempts from a top border measured
+    // 60px and every other row 61px — 10 of 10, exactly the stylesheet's own intent —
+    // and a moment later every row measured 61px. That 1px lands on rows with no
+    // fetched value at all (가격표, 전자문서, 통계 보고서, 발송 자동화), so it is a
+    // page-wide settle and not the skeleton swap this test is about. It only has to
+    // stop being sampled as the baseline.
+    //
+    // Three consecutive identical reads, at least half a second apart end to end. Two
+    // is not enough: back-to-back reads both land inside the same transient state.
+    const measureSettledMenu = async () => {
+      type MenuGeometry = Awaited<ReturnType<typeof measureMenu>>;
+      let previous: MenuGeometry | undefined;
+      let stableReads = 0;
+
+      await expect(async () => {
+        const current = await measureMenu();
+        stableReads =
+          previous && JSON.stringify(current) === JSON.stringify(previous) ? stableReads + 1 : 0;
+        previous = current;
+        expect(
+          stableReads,
+          "all-menu layout should settle before it is measured",
+        ).toBeGreaterThanOrEqual(2);
+      }).toPass({ intervals: [250, 250, 250, 500, 1000], timeout: 15_000 });
+
+      if (!previous) {
+        throw new Error("All menu loading geometry should be measurable");
+      }
+      return previous;
+    };
+
+    const before = await measureSettledMenu();
 
     releaseClients();
     releaseEmployees();
@@ -128,58 +218,44 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     await expect(page.locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')).toHaveCount(0);
     await expect(page.locator('[data-component="mobile_all_page_menu_group_row_badge-skeleton"]')).toHaveCount(0);
 
-    const after = await page.evaluate(() => {
-      const rows = Array.from(document.querySelectorAll('[data-component="mobile_all_page_menu_group_row"]'));
-      const groupTitle = document.querySelector(".menu-group-title")?.getBoundingClientRect();
-      const clientRow = rows[1]?.getBoundingClientRect();
-      const employeeRow = rows[2]?.getBoundingClientRect();
-      const messageRow = rows[6]?.getBoundingClientRect();
-      const alimtalkRow = rows[7]?.getBoundingClientRect();
+    const after = await measureSettledMenu();
 
-      return {
-        groupTitle: groupTitle ? { y: groupTitle.y, height: groupTitle.height } : null,
-        clientRow: clientRow ? { y: clientRow.y, height: clientRow.height } : null,
-        employeeRow: employeeRow ? { y: employeeRow.y, height: employeeRow.height } : null,
-        messageRow: messageRow ? { y: messageRow.y, height: messageRow.height } : null,
-        alimtalkRow: alimtalkRow ? { y: alimtalkRow.y, height: alimtalkRow.height } : null,
-      };
+    // Printed on every run, pass or fail. The flake this replaced reported a single
+    // number ("3 > 1") with no way to tell which box had grown, so every hypothesis
+    // cost a CI round trip. The absolute pageY values are here for exactly that.
+    console.log(`[all-menu geometry] before ${JSON.stringify(before)}`);
+    console.log(`[all-menu geometry] after  ${JSON.stringify(after)}`);
+
+    expect(after.groups).toHaveLength(before.groups.length);
+    before.groups.forEach((group, index) => {
+      expect(
+        Math.abs(after.groups[index].height - group.height),
+        `menu group ${index} changed height across the loading transition`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(after.groups[index].titleHeight - group.titleHeight),
+        `menu group ${index} title changed height across the loading transition`,
+      ).toBeLessThanOrEqual(1);
     });
 
-    expect(before.groupTitle).not.toBeNull();
-    expect(before.clientRow).not.toBeNull();
-    expect(before.employeeRow).not.toBeNull();
-    expect(before.messageRow).not.toBeNull();
-    expect(before.alimtalkRow).not.toBeNull();
-    expect(after.groupTitle).not.toBeNull();
-    expect(after.clientRow).not.toBeNull();
-    expect(after.employeeRow).not.toBeNull();
-    expect(after.messageRow).not.toBeNull();
-    expect(after.alimtalkRow).not.toBeNull();
-    if (
-      !before.groupTitle ||
-      !before.clientRow ||
-      !before.employeeRow ||
-      !before.messageRow ||
-      !before.alimtalkRow ||
-      !after.groupTitle ||
-      !after.clientRow ||
-      !after.employeeRow ||
-      !after.messageRow ||
-      !after.alimtalkRow
-    ) {
-      throw new Error("All menu loading geometry should be measurable");
-    }
+    for (const label of MEASURED_LABELS) {
+      const beforeRow = before.rows[label];
+      const afterRow = after.rows[label];
+      expect(beforeRow, `${label} row should be measurable while loading`).not.toBeNull();
+      expect(afterRow, `${label} row should be measurable once loaded`).not.toBeNull();
+      if (!beforeRow || !afterRow) {
+        throw new Error(`All menu loading geometry should be measurable for ${label}`);
+      }
 
-    expect(Math.abs(after.groupTitle.y - before.groupTitle.y)).toBeLessThanOrEqual(1);
-    expect(Math.abs(after.groupTitle.height - before.groupTitle.height)).toBeLessThanOrEqual(1);
-    expect(Math.abs(after.clientRow.y - before.clientRow.y)).toBeLessThanOrEqual(1);
-    expect(Math.abs(after.clientRow.height - before.clientRow.height)).toBeLessThanOrEqual(1);
-    expect(Math.abs(after.employeeRow.y - before.employeeRow.y)).toBeLessThanOrEqual(1);
-    expect(Math.abs(after.employeeRow.height - before.employeeRow.height)).toBeLessThanOrEqual(1);
-    expect(Math.abs(after.messageRow.y - before.messageRow.y)).toBeLessThanOrEqual(1);
-    expect(Math.abs(after.messageRow.height - before.messageRow.height)).toBeLessThanOrEqual(1);
-    expect(Math.abs(after.alimtalkRow.y - before.alimtalkRow.y)).toBeLessThanOrEqual(1);
-    expect(Math.abs(after.alimtalkRow.height - before.alimtalkRow.height)).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(afterRow.offsetInGroup - beforeRow.offsetInGroup),
+        `${label} row moved inside its group across the loading transition`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(afterRow.height - beforeRow.height),
+        `${label} row changed height across the loading transition`,
+      ).toBeLessThanOrEqual(1);
+    }
   });
 
   test("all menu has center chat and active /all bottom nav item", async ({ page }) => {

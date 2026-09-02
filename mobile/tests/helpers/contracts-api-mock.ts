@@ -94,6 +94,13 @@ export interface ContractListRequest {
   skip: number;
   statusCategory: string | null;
   search: string;
+  /**
+   * Server-resolved section filter. Since 8601e809b the app sends ONLY this and the
+   * backend resolves the template whitelist itself, so templateId/templateMatch below
+   * are absent on every request the contracts page makes. They stay parsed for direct
+   * callers and for the pre-8601e809b shape.
+   */
+  section: string | null;
   templateId: string | null;
   templateMatch: "include" | "exclude";
   excludeDeleted: boolean;
@@ -125,6 +132,7 @@ function parseListRequest(url: URL): ContractListRequest {
     skip: parsePositiveInteger(searchParams.get("skip"), DEFAULT_SKIP),
     statusCategory: searchParams.get("statusCategory"),
     search: searchParams.get("search")?.trim() ?? "",
+    section: searchParams.get("section"),
     templateId: searchParams.get("templateId"),
     templateMatch: searchParams.get("templateMatch") === "exclude" ? "exclude" : "include",
     excludeDeleted: searchParams.get("excludeDeleted") === "true",
@@ -272,16 +280,46 @@ function createdDateValue(document: ContractMockDocument): number {
   return 0;
 }
 
+/**
+ * Resolves the template filter the way the backend does, because in these tests this
+ * mock IS the backend: `section` wins over any client-supplied templateId, and the
+ * tier ids are server configuration rather than something the request carries.
+ *
+ * `maternity` excludes the tier set rather than including an area_template whitelist.
+ * That is EformsignTemplateScopeService's documented degrade branch, taken when the
+ * branch has no registered contract templates — which is the state a mock without an
+ * area registry is in, and the one the fixtures here are written against.
+ */
+function resolveTemplateFilter(
+  request: ContractListRequest,
+  serviceRecordTemplateIds: readonly string[],
+): { ids: Set<string>; match: "include" | "exclude" } {
+  if (request.section === "maternity") {
+    return { ids: new Set(serviceRecordTemplateIds), match: "exclude" };
+  }
+  if (request.section === "service-records") {
+    return { ids: new Set(serviceRecordTemplateIds), match: "include" };
+  }
+  return {
+    ids: new Set(
+      request.templateId
+        ?.split(",")
+        .map((id) => id.trim())
+        .filter(Boolean) ?? [],
+    ),
+    match: request.templateMatch,
+  };
+}
+
 export function filterContractDocuments(
   documents: readonly ContractMockDocument[],
   searchParams: URLSearchParams,
+  serviceRecordTemplateIds: readonly string[] = DEFAULT_SERVICE_RECORD_TEMPLATE_IDS,
 ): ContractMockDocument[] {
   const request = parseListRequest(new URL(`http://contracts.test/?${searchParams.toString()}`));
-  const templateIds = new Set(
-    request.templateId
-      ?.split(",")
-      .map((id) => id.trim())
-      .filter(Boolean) ?? [],
+  const { ids: templateIds, match: templateMatch } = resolveTemplateFilter(
+    request,
+    serviceRecordTemplateIds,
   );
 
   return documents
@@ -290,7 +328,7 @@ export function filterContractDocuments(
         return true;
       }
       const matchesTemplate = templateIds.has(getTemplateId(document) ?? "");
-      return request.templateMatch === "include" ? matchesTemplate : !matchesTemplate;
+      return templateMatch === "include" ? matchesTemplate : !matchesTemplate;
     })
     .filter(
       (document) =>
@@ -344,6 +382,12 @@ export async function routeContractsApi(
     onStatusCountsRequest,
   }: RouteContractsApiOptions,
 ): Promise<void> {
+  // The tier list is backend configuration, not part of the feedback-template-id
+  // response — `omitTemplateIds` only hides it from the CLIENT. A single-tier
+  // installation is one where the server itself knows one id, so that is what the
+  // section filter above resolves against.
+  const configuredServiceRecordTemplateIds = omitTemplateIds ? [templateId] : templateIds;
+
   await page.route(SERVICE_RECORD_TEMPLATE_ROUTE, async (route) => {
     await route.fulfill({
       status: serviceRecordTemplateStatus,
@@ -362,7 +406,11 @@ export async function routeContractsApi(
   await page.route(STATUS_COUNTS_ROUTE, async (route) => {
     const url = new URL(route.request().url());
     await onStatusCountsRequest?.(parseListRequest(url));
-    const documents = filterContractDocuments(getDocuments(), url.searchParams);
+    const documents = filterContractDocuments(
+      getDocuments(),
+      url.searchParams,
+      configuredServiceRecordTemplateIds,
+    );
     await route.fulfill({
       status: statusCountsStatus,
       contentType: "application/json",
@@ -385,7 +433,11 @@ export async function routeContractsApi(
     await onListRequest?.(request);
     await beforeListResponse?.(request);
 
-    const filteredDocuments = filterContractDocuments(getDocuments(), url.searchParams);
+    const filteredDocuments = filterContractDocuments(
+      getDocuments(),
+      url.searchParams,
+      configuredServiceRecordTemplateIds,
+    );
     const documents = filteredDocuments.slice(request.skip, request.skip + request.limit);
     await route.fulfill({
       status: listStatus,
