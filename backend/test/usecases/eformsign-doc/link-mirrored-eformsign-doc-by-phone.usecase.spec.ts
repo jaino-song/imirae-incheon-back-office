@@ -127,6 +127,9 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
             },
             employee_schedule: {
                 create: jest.fn().mockResolvedValue({ id: 91 }),
+                // No active schedule overlaps by default, so the automatic
+                // assignment path runs the real invariant check.
+                findFirst: jest.fn().mockResolvedValue(null),
             },
         };
         const prisma = {
@@ -574,6 +577,52 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
             }),
             select: { id: true },
         });
+    });
+
+    it("stores the canonical phone on a caretaker it auto-creates", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetailWithProviders(),
+        });
+        const { transaction, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+        transaction.employee.findMany.mockResolvedValue([]);
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        // phone_normalized carries the uniqueness constraint and every phone
+        // lookup; a null here would hide the row from both.
+        expect(transaction.employee.create).toHaveBeenNthCalledWith(1, {
+            data: expect.objectContaining({
+                phone: "010-5555-1111",
+                phoneNormalized: "01055551111",
+            }),
+            select: { id: true },
+        });
+    });
+
+    it("skips the automatic assignment when it would double-book a caretaker", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetailWithProviders(),
+        });
+        const { transaction, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+        transaction.employee.findMany.mockResolvedValue([]);
+        transaction.employee_schedule.findFirst.mockResolvedValue({
+            id: 55,
+            clientId: 12,
+            primaryEmployeeId: 71,
+            secondaryEmployeeId: null,
+        });
+
+        // The conflict skips the assignment; the client is still registered.
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        expect(transaction.employee_schedule.create).not.toHaveBeenCalled();
+        expect(transaction.client.create).toHaveBeenCalled();
     });
 
     it("skips caretaker assignment when the contract has no service dates", async () => {
