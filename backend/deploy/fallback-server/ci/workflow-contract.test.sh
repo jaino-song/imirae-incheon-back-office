@@ -43,5 +43,7 @@ assert_contains "$WORKFLOW" 'count == 1 && value != ""' \
     "LightNode status reader must reject missing or duplicated status keys"
 assert_contains "$WORKFLOW" '::error::LightNode status' \
     "LightNode status assertions must fail with a visible reason"
+assert_contains "$WORKFLOW" 'expect_status lease_mode required' \
+    "LightNode replacement must confirm the deployed runtime contests the scheduler lease (ADR-010)"
 
 echo "Fallback deployment workflow contract tests passed"

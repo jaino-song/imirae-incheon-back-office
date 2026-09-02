@@ -251,6 +251,13 @@ interface EmployeeAssignmentScheduleSource {
     startDate: Date;
     endDate: Date;
     replaced: boolean;
+    /**
+     * Deliberately absent from the fingerprint Pick below. Termination is checked
+     * explicitly in the pre-send fence instead, because widening the fingerprint
+     * would change every schedule's hash at once and cancel every already-pending
+     * assignment job on its next dispatch.
+     */
+    terminatedAt: Date | null;
     primaryEmployeeId: number;
     secondaryEmployeeId: number | null;
     client: { id: number; name: string };
@@ -1081,7 +1088,11 @@ export class MessageTriggerService {
         }
 
         const schedules = await this.prisma.employee_schedule.findMany({
-            where: { branchId, clientId, replaced: false },
+            // A terminated assignment must not be re-armed. This path rebuilds the job
+            // with scheduledFor = now and includePast = true, which skips the past and
+            // IMMEDIATE guards, so without this bound editing a terminated client's name
+            // sends the provider a fresh 배정 안내 for a service that is over.
+            where: { branchId, clientId, replaced: false, terminatedAt: null },
             select: { id: true },
             orderBy: { id: "asc" },
         });
@@ -1118,6 +1129,9 @@ export class MessageTriggerService {
             where: {
                 branchId,
                 replaced: false,
+                // Same re-arm hazard as the per-client sync above: editing the provider's
+                // name or phone must not resurrect a 배정 안내 for a terminated service.
+                terminatedAt: null,
                 OR: [
                     { primaryEmployeeId: employeeId },
                     { secondaryEmployeeId: employeeId },
@@ -2166,6 +2180,7 @@ export class MessageTriggerService {
                 startDate: true,
                 endDate: true,
                 replaced: true,
+                terminatedAt: true,
                 primaryEmployeeId: true,
                 secondaryEmployeeId: true,
                 client: { select: { id: true, name: true } },
@@ -2185,6 +2200,20 @@ export class MessageTriggerService {
         // required for legacy jobs because they predate the source
         // fingerprint and cannot otherwise prove replacement equality.
         if (schedule.replaced) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        // Early termination is terminal in the same way replacement is, and it needs the
+        // same explicit check: terminated_at is deliberately absent from the fingerprint,
+        // because adding a field would change every schedule's hash at once and cancel
+        // every already-pending assignment job on its next dispatch. Until this change,
+        // termination happened to stale these jobs by rewriting end_date — a fingerprint
+        // input. Now that the contracted period is preserved, the hash still matches and
+        // nothing else here would stop the send.
+        if (schedule.terminatedAt) {
             return {
                 kind: "stale",
                 reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,

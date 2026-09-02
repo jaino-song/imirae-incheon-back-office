@@ -35,6 +35,7 @@ import {
 } from "application/policies/employee-assignment-eligibility.policy";
 import {
     assertNoActiveEmployeeScheduleOverlap,
+    employeeScheduleHandoverPeriod,
     employeeScheduleReplacementEndDate,
     lockClientForScheduleWrite,
     lockEmployeesForScheduleWrite,
@@ -866,22 +867,44 @@ export class ClientService {
                 transaction,
                 retainedEmployeeIds,
             );
+            // One handover instant for the whole transaction. The outgoing row has to
+            // end on exactly the day the incoming row starts, so the clock is read
+            // once here rather than per write, where the two could straddle midnight.
+            const handover = currentSchedule
+                ? ((): { outgoingEndDate: Date; startDate: Date; endDate: Date } => {
+                    const outgoingEndDate = employeeScheduleReplacementEndDate(
+                        new Date(),
+                        currentSchedule.startDate,
+                    );
+                    return {
+                        outgoingEndDate,
+                        ...employeeScheduleHandoverPeriod({
+                            replacementAt: outgoingEndDate,
+                            contractStartDate: params.startDate,
+                            contractEndDate: params.endDate,
+                        }),
+                    };
+                })()
+                : null;
+            // A first assignment keeps the contract period; only a handover moves the start.
+            const incomingStartDate = handover?.startDate ?? params.startDate;
+            const incomingEndDate = handover?.endDate ?? params.endDate;
             await assertNoActiveEmployeeScheduleOverlap(transaction, {
                 branchId: branchid,
                 clientId: params.clientId,
                 primaryEmployeeId: newPrimaryEmployeeId,
                 secondaryEmployeeId: newSecondaryEmployeeId,
-                startDate: params.startDate,
-                endDate: params.endDate,
+                startDate: incomingStartDate,
+                endDate: incomingEndDate,
                 replaced: false,
                 excludeScheduleId: currentSchedule?.id,
             });
-            if (currentSchedule) {
+            if (currentSchedule && handover) {
                 await transaction.employee_schedule.update({
                     where: { id: currentSchedule.id },
                     data: {
                         replaced: true,
-                        endDate: employeeScheduleReplacementEndDate(new Date(), currentSchedule.startDate),
+                        endDate: handover.outgoingEndDate,
                     },
                 });
             }
@@ -892,8 +915,8 @@ export class ClientService {
                     primaryEmployeeId: newPrimaryEmployeeId,
                     secondaryEmployeeId: newSecondaryEmployeeId,
                     workAddress: params.workAddress,
-                    startDate: params.startDate,
-                    endDate: params.endDate,
+                    startDate: incomingStartDate,
+                    endDate: incomingEndDate,
                     replaced: false,
                 },
             });
@@ -959,7 +982,9 @@ export class ClientService {
         mergeAndValidateClientServicePeriod(null, { startDate, endDate });
         const derivedDuration = deriveClientDuration(startDate, endDate);
         assertClientDurationMatchesDates(params.duration, derivedDuration);
-        const duration = derivedDuration ?? params.duration ?? null;
+        // A supplied duration is authoritative; the date-derived count is
+        // only a fallback when the caller does not supply one.
+        const duration = params.duration ?? derivedDuration ?? null;
         assertAllowedServiceStatus(params.serviceStatus);
         await assertAllowedClientArea(this.prismaService, branchid, params.areaId);
 
@@ -1577,21 +1602,23 @@ export class ClientService {
         assertClientDurationMatchesDates(params.duration, derivedDuration);
         if (hasDateUpdate && params.duration === null && derivedDuration !== null) {
             throw new BadRequestException(
-                `duration must equal the Korean business-day count (${derivedDuration}) for the submitted service period`,
+                `duration cannot exceed the Korean business-day count (${derivedDuration}) for the submitted service period`,
             );
         }
         if (hasDateUpdate && derivedDuration === null && params.duration !== undefined && params.duration !== null) {
             throw new BadRequestException("duration requires a complete service period");
         }
-        // Complete calendar dates own the persisted duration even when the
-        // caller changes an unrelated profile field. Incomplete periods keep
-        // the explicit policy duration (or null) because no derived count
-        // exists yet.
-        const duration = derivedDuration !== null
-            ? derivedDuration
-            : hasDateUpdate
-                ? null
-                : params.duration;
+        // duration is the contracted session count and is authoritative once
+        // set: a supplied value always wins and is never overwritten by the
+        // date-derived count. When the caller omits duration it is left
+        // untouched (undefined => no column update), except to fill a null
+        // duration once the service period becomes complete, so a client
+        // created without dates still ends up with a persisted count.
+        const duration = params.duration !== undefined
+            ? params.duration
+            : existingClient.duration === null && derivedDuration !== null
+                ? derivedDuration
+                : undefined;
         await this.serviceRecordLifecycleService?.validatePeriodChange({
             clientId: id,
             startDate: startDateUpdate,
@@ -1639,22 +1666,44 @@ export class ClientService {
                         transaction,
                         retainedEmployeeIds,
                     );
+                    // One handover instant for the whole transaction. The outgoing row has to
+                    // end on exactly the day the incoming row starts, so the clock is read
+                    // once here rather than per write, where the two could straddle midnight.
+                    const handover = currentSchedule
+                        ? ((): { outgoingEndDate: Date; startDate: Date; endDate: Date } => {
+                            const outgoingEndDate = employeeScheduleReplacementEndDate(
+                                new Date(),
+                                currentSchedule.startDate,
+                            );
+                            return {
+                                outgoingEndDate,
+                                ...employeeScheduleHandoverPeriod({
+                                    replacementAt: outgoingEndDate,
+                                    contractStartDate: startDate,
+                                    contractEndDate: endDate,
+                                }),
+                            };
+                        })()
+                        : null;
+                    // A first assignment keeps the contract period; only a handover moves the start.
+                    const incomingStartDate = handover?.startDate ?? startDate;
+                    const incomingEndDate = handover?.endDate ?? endDate;
                     await assertNoActiveEmployeeScheduleOverlap(transaction, {
                         branchId: branchid,
                         clientId: id,
                         primaryEmployeeId,
                         secondaryEmployeeId,
-                        startDate,
-                        endDate,
+                        startDate: incomingStartDate,
+                        endDate: incomingEndDate,
                         replaced: false,
                         excludeScheduleId: currentSchedule?.id,
                     });
-                    if (currentSchedule) {
+                    if (currentSchedule && handover) {
                         await transaction.employee_schedule.update({
                             where: { id: currentSchedule.id },
                             data: {
                                 replaced: true,
-                                endDate: employeeScheduleReplacementEndDate(new Date(), currentSchedule.startDate),
+                                endDate: handover.outgoingEndDate,
                             },
                         });
                         replacedScheduleId = currentSchedule.id;
@@ -1666,8 +1715,8 @@ export class ClientService {
                             primaryEmployeeId,
                             secondaryEmployeeId,
                             workAddress: params.address ?? existingClient.address ?? "",
-                            startDate,
-                            endDate,
+                            startDate: incomingStartDate,
+                            endDate: incomingEndDate,
                             replaced: false,
                         },
                     });
@@ -1786,15 +1835,19 @@ export class ClientService {
             });
         }
 
-        // Also mark the current schedule as ended
+        // Also mark the current schedules as terminated. This records the termination
+        // on its own column rather than overwriting end_date: the contracted period
+        // stays readable, and a service terminated before it started can no longer
+        // produce start_date > end_date. Readers that ask "is this assignment live"
+        // filter on terminatedAt, not on the dates.
         await this.prismaService.employee_schedule.updateMany({
-            where: { clientId: clientId, replaced: false },
-            data: { endDate: new Date() },
+            where: { clientId, branchId: branchid, replaced: false, terminatedAt: null },
+            data: { terminatedAt: new Date() },
         });
 
         // Revoke any outstanding service-record links for this client's active assignments
         const activeSchedules = await this.prismaService.employee_schedule.findMany({
-            where: { clientId: clientId, replaced: false },
+            where: { clientId, branchId: branchid, replaced: false },
             select: { id: true },
         });
         for (const activeSchedule of activeSchedules) {

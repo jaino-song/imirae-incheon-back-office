@@ -501,7 +501,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         await capability.execute!(context, { id: existingClient.id, name: existingClient.name });
 
         expect(prisma.employee_schedule.findMany).toHaveBeenCalledWith({
-            where: { branchId: "branch-a", clientId: existingClient.id, replaced: false },
+            where: { branchId: "branch-a", clientId: existingClient.id, replaced: false, terminatedAt: null },
             select: { id: true },
             orderBy: { id: "asc" },
         });

@@ -1,5 +1,6 @@
 import { MessageTriggerSchedulerService } from "application/services/message-trigger-scheduler.service";
 import { MessageTriggerService } from "application/services/message-trigger.service";
+import { createSchedulerLeaseMock } from "../utils/mocks/scheduler-lease.mock";
 
 describe("MessageTriggerSchedulerService", () => {
     const createMockTriggerService = () => ({
@@ -14,6 +15,7 @@ describe("MessageTriggerSchedulerService", () => {
         triggerService = createMockTriggerService();
         scheduler = new MessageTriggerSchedulerService(
             triggerService as unknown as MessageTriggerService,
+            createSchedulerLeaseMock(),
         );
         nowSpy = jest.spyOn(Date, "now");
         nowSpy.mockReturnValue(0);
@@ -56,5 +58,16 @@ describe("MessageTriggerSchedulerService", () => {
 
         releaseFirstRun?.();
         await firstRun;
+    });
+
+    it("skips the run when the scheduler lease is not held", async () => {
+        scheduler = new MessageTriggerSchedulerService(
+            triggerService as unknown as MessageTriggerService,
+            createSchedulerLeaseMock(false),
+        );
+
+        await scheduler.dispatchDueJobs();
+
+        expect(triggerService.dispatchDueJobs).not.toHaveBeenCalled();
     });
 });

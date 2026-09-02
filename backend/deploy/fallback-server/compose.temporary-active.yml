@@ -16,6 +16,10 @@ services:
       NODE_ENV: production
       DATABASE_CONNECTION_MODE: ${DATABASE_CONNECTION_MODE:-shared}
       VALKEY_URL: redis://valkey:6379
+      # Host-level scheduler lease (ADR-010). The lease is only contested while
+      # SCHEDULERS_ENABLED is true; a passive runtime stays in standby.
+      SCHEDULER_LEASE_MODE: "required"
+      SCHEDULER_LEASE_HOLDER_ID: "lightnode"
       SCHEDULERS_ENABLED: "true"
       SERVICE_RECORD_AUTO_FINALIZE_ENABLED: "true"
       CONTRACT_AUTO_FINALIZE_ENABLED: "true"

@@ -15,6 +15,7 @@ import { EformsignDocumentJobService } from "application/services/eformsign-docu
 import { NotificationService } from "application/services/notification.service";
 import { SystemSettingService } from "application/services/system-setting.service";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 import {
     CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS,
     evaluateAutoFinalize,
@@ -56,11 +57,16 @@ export class ContractAutoFinalizeSchedulerService {
         private readonly eformsignDocRepository: IEformsignDocRepository,
         private readonly documentJobService: EformsignDocumentJobService,
         private readonly notificationService: NotificationService,
+        private readonly schedulerLease: SchedulerLeaseService,
         private readonly systemSettingService?: SystemSettingService,
     ) {}
 
     @Cron(CONTRACT_AUTO_FINALIZE_CRON, { timeZone: CONTRACT_AUTO_FINALIZE_TIME_ZONE })
     async autoFinalizeDueContracts(): Promise<void> {
+        if (!this.schedulerLease.holdsLease()) {
+            return;
+        }
+
         if (this.configService.get<string>("CONTRACT_AUTO_FINALIZE_ENABLED") !== "true") {
             return;
         }
@@ -139,8 +145,16 @@ export class ContractAutoFinalizeSchedulerService {
         );
 
         // Strictly serial: a queue failure on one document must not stop the rest.
+        let processedCount = 0;
         for (const contract of due) {
+            if (!this.schedulerLease.holdsLease()) {
+                this.logger.warn(
+                    `[Contract Auto Finalize] scheduler lease lost mid-run; stopping after ${processedCount} items`,
+                );
+                break;
+            }
             await this.enqueueFinalization(contract, todayKst);
+            processedCount += 1;
         }
     }
 

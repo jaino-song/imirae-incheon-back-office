@@ -58,6 +58,13 @@ const timeout = setTimeout(() => finish(1), 5000);
 prisma.$queryRawUnsafe("SELECT 1").then(() => finish(0)).catch(() => finish(1));'
 readonly SCHEDULERS_ENV_FORMAT='{{range .Config.Env}}{{if eq (index (split . "=") 0) "SCHEDULERS_ENABLED"}}{{println .}}{{end}}{{end}}'
 readonly DATABASE_MODE_ENV_FORMAT='{{range .Config.Env}}{{if eq (index (split . "=") 0) "DATABASE_CONNECTION_MODE"}}{{println .}}{{end}}{{end}}'
+# ADR-010: a host that runs schedulers must contest the database lease under a
+# fixed holder id, or a crash on this host waits the full lease TTL before
+# background work resumes. Both keys come from backend.env (compose env_file).
+readonly LEASE_MODE_ENV_FORMAT='{{range .Config.Env}}{{if eq (index (split . "=") 0) "SCHEDULER_LEASE_MODE"}}{{println .}}{{end}}{{end}}'
+readonly LEASE_HOLDER_ENV_FORMAT='{{range .Config.Env}}{{if eq (index (split . "=") 0) "SCHEDULER_LEASE_HOLDER_ID"}}{{println .}}{{end}}{{end}}'
+readonly EXPECTED_LEASE_MODE="required"
+readonly EXPECTED_LEASE_HOLDER="lightsail"
 readonly DIAGNOSTICS_MAX_LOGS="5"
 readonly DIAGNOSTICS_MAX_BYTES_PER_LOG="32768"
 readonly DIAGNOSTICS_MAX_LINES_PER_LOG="200"
@@ -1853,6 +1860,16 @@ status_environment() {
         run_as_root /usr/bin/docker inspect --format "$SCHEDULERS_ENV_FORMAT" "$api_container_id" \
             | /usr/bin/awk -F= '$1 == "SCHEDULERS_ENABLED" { count += 1; if (NF == 2) value = tolower($2); else malformed = 1 } END { if (count == 1 && malformed != 1) print value; else exit 1 }'
     )"
+    # A missing key reads as "missing" rather than aborting: status must still be
+    # able to describe a container that predates ADR-010.
+    lease_mode="$(
+        run_as_root /usr/bin/docker inspect --format "$LEASE_MODE_ENV_FORMAT" "$api_container_id" \
+            | /usr/bin/awk -F= '$1 == "SCHEDULER_LEASE_MODE" { count += 1; if (NF == 2) value = tolower($2); else malformed = 1 } END { if (count == 1 && malformed != 1 && value != "") print value; else exit 1 }'
+    )" || lease_mode="missing"
+    lease_holder="$(
+        run_as_root /usr/bin/docker inspect --format "$LEASE_HOLDER_ENV_FORMAT" "$api_container_id" \
+            | /usr/bin/awk -F= '$1 == "SCHEDULER_LEASE_HOLDER_ID" { count += 1; if (NF == 2) value = $2; else malformed = 1 } END { if (count == 1 && malformed != 1 && value != "") print value; else exit 1 }'
+    )" || lease_holder="missing"
     current_tag="$(read_recorded_tag "$STATE_DIRECTORY/current-image-tag")"
     current_digest="$(read_recorded_digest "$STATE_DIRECTORY/current-image-digest")"
 
@@ -1860,6 +1877,14 @@ status_environment() {
     [[ "$restart_count" == "0" ]] || die "$DEPLOY_ENVIRONMENT API container has restarted."
     [[ "$schedulers_enabled" == "$EXPECTED_SCHEDULERS_ENABLED" ]] \
         || die "$DEPLOY_ENVIRONMENT scheduler ownership is invalid."
+    # Only a host that runs schedulers contests the lease; a standby host (preview)
+    # never touches the row, so its lease keys are irrelevant. This check runs
+    # against the container the deploy just recreated from backend.env, so the
+    # fix is always "add the keys to backend.env and redeploy".
+    if [[ "$EXPECTED_SCHEDULERS_ENABLED" == "true" ]]; then
+        [[ "$lease_mode" == "$EXPECTED_LEASE_MODE" && "$lease_holder" == "$EXPECTED_LEASE_HOLDER" ]] \
+            || die "$DEPLOY_ENVIRONMENT scheduler lease identity is invalid (lease_mode=$lease_mode lease_holder=$lease_holder): backend.env must set SCHEDULER_LEASE_MODE=$EXPECTED_LEASE_MODE and SCHEDULER_LEASE_HOLDER_ID=$EXPECTED_LEASE_HOLDER (ADR-010)."
+    fi
     [[ "$current_tag" != "missing" ]] || die "$DEPLOY_ENVIRONMENT current deployment tag is missing."
     [[ "$image_name" == "$LOCAL_IMAGE_REPOSITORY:$current_tag" ]] \
         || die "$DEPLOY_ENVIRONMENT API image does not match the recorded deployment tag."
@@ -1881,6 +1906,8 @@ status_environment() {
     echo "container_health=$container_health"
     echo "restart_count=$restart_count"
     echo "schedulers_enabled=$schedulers_enabled"
+    echo "lease_mode=$lease_mode"
+    echo "lease_holder=$lease_holder"
     echo "public_health=ok"
 }
 

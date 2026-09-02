@@ -19,6 +19,37 @@ export function employeeScheduleReplacementEndDate(
     return replacementAt;
 }
 
+/**
+ * Period for the schedule that takes over at a handover.
+ *
+ * The handover day is shared: the outgoing schedule ends on it and the incoming
+ * one starts on it, matching `requestReplacement`. Without this the incoming
+ * schedule inherits the client's contract start and every replacement reads as
+ * if the new provider had been there since day one.
+ *
+ * Both bounds are clamped rather than taken raw:
+ * - a handover recorded before the contract even starts keeps the contract start,
+ *   mirroring `employeeScheduleReplacementEndDate`'s guard for the outgoing row;
+ * - a handover on an already-ended contract would otherwise produce start > end,
+ *   which `assertEmployeeScheduleDateRange` rejects and no DB constraint catches.
+ *   The end is pulled up to the handover day instead of being extended by a
+ *   default service period, so finishing a contract does not silently grant the
+ *   incoming provider another year of availability blocks and token lifetime.
+ */
+export function employeeScheduleHandoverPeriod(params: {
+    replacementAt: Date;
+    contractStartDate: Date;
+    contractEndDate: Date;
+}): { startDate: Date; endDate: Date } {
+    const startDate = params.replacementAt.getTime() > params.contractStartDate.getTime()
+        ? params.replacementAt
+        : params.contractStartDate;
+    const endDate = params.contractEndDate.getTime() >= startDate.getTime()
+        ? params.contractEndDate
+        : startDate;
+    return { startDate, endDate };
+}
+
 type ScheduleOverlapParams = {
     branchId: string;
     clientId?: number;
@@ -114,6 +145,10 @@ export async function assertNoActiveEmployeeScheduleOverlap(
         where: {
             branchId: params.branchId,
             replaced: false,
+            // A terminated assignment keeps its contracted end date now that
+            // termination no longer rewrites it, so it would otherwise go on
+            // blocking the employee for the rest of a period they no longer serve.
+            terminatedAt: null,
             startDate: { lte: params.endDate },
             endDate: { gte: params.startDate },
             OR: overlapSubjects,

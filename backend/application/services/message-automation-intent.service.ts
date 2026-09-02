@@ -17,6 +17,7 @@ import {
 import { fulfillClientMessageAutomationIntent } from "./client-message-automation-intent-fulfiller";
 import { MessageTriggerService } from "./message-trigger.service";
 import { ServiceRecordLinkService } from "./service-record-link.service";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 
 const CLAIM_LEASE_MINUTES = 10;
 const RETRY_DELAY_MS = 5 * 60 * 1000;
@@ -50,6 +51,7 @@ export class MessageAutomationIntentService {
         private readonly prisma: PrismaService,
         private readonly triggerService: MessageTriggerService,
         private readonly serviceRecordLinkService: ServiceRecordLinkService,
+        private readonly schedulerLease: SchedulerLeaseService,
     ) {}
 
     async persistClientIntent(
@@ -199,6 +201,10 @@ export class MessageAutomationIntentService {
 
     @Cron("*/5 * * * *", { timeZone: "Asia/Seoul" })
     async reconcilePendingIntents(referenceDate = new Date()): Promise<number> {
+        if (!this.schedulerLease.holdsLease()) {
+            return 0;
+        }
+
         const candidates = await this.prisma.message_trigger_job.findMany({
             where: {
                 ruleId: MESSAGE_AUTOMATION_INTENT_RULE_ID,

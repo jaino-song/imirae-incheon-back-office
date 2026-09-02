@@ -8,6 +8,7 @@ import {
 } from "@babyjamjam/shared/constants/service-record-display";
 import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import { formatDateTimeKo } from "@babyjamjam/shared/utils/date";
+import { getExpectedSessionDateFromRecords } from "@babyjamjam/shared/utils/service-record-schedule";
 
 import { DetailEmptyState, InfoCard, InfoRow } from "@/components/app/v3";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
@@ -17,7 +18,6 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { calcEndDateBusinessDays } from "@/lib/date/business-days";
 import { formatDateForDisplay } from "@/lib/date/format-date-for-display";
 import { cn } from "@/lib/utils";
 import { ServiceRecordErrorBoundary } from "@/lib/observability/service-record-error-boundary";
@@ -1139,7 +1139,7 @@ function buildSessionSlots(
         return {
             sessionIndex,
             record: sessionsByIndex.get(sessionIndex) ?? null,
-            expectedDate: getExpectedSessionDate(startDate, sessionIndex),
+            expectedDate: getExpectedSessionDate(startDate, sessionIndex, sessions),
         };
     });
 }
@@ -1213,10 +1213,12 @@ function partitionSessionsByPeriod(
     return { activeSessions, outsideSessions };
 }
 
-function getExpectedSessionDate(startDate: string | null, sessionIndex: number): string | null {
-    const datePart = datePartOf(startDate);
-    if (!datePart) return null;
-    return calcEndDateBusinessDays(datePart, sessionIndex) || null;
+function getExpectedSessionDate(
+    startDate: string | null,
+    sessionIndex: number,
+    sessions: ServiceRecordSession[],
+): string | null {
+    return getExpectedSessionDateFromRecords(startDate, sessionIndex, sessions);
 }
 
 function datePartOf(value: string | null): string | null {

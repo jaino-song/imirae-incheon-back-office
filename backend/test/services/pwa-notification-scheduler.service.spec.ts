@@ -8,6 +8,7 @@ import {
     MessageTriggerRecipientType,
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
+import { createSchedulerLeaseMock } from "../utils/mocks/scheduler-lease.mock";
 
 describe("PwaNotificationSchedulerService", () => {
     const testFrontendUrl = "https://admin.babyjamjam.com";
@@ -75,6 +76,7 @@ describe("PwaNotificationSchedulerService", () => {
             branchRepository as unknown as IBranchRepository,
             messageTriggerJobRepository as unknown as IMessageTriggerJobRepository,
             systemSettingService as unknown as SystemSettingService,
+            createSchedulerLeaseMock(),
         );
 
         branchRepository.findAllActive.mockResolvedValue([{ id: "branch-1", name: "인천점" }]);
@@ -570,5 +572,20 @@ describe("PwaNotificationSchedulerService", () => {
             ]);
             expect(systemSettingService.setPwaUndeliveredDigestWatermark).not.toHaveBeenCalled();
         });
+    });
+
+    it("skips the run when the scheduler lease is not held", async () => {
+        service = new PwaNotificationSchedulerServiceClass(
+            notificationService as unknown as NotificationService,
+            clientRepository as unknown as IClientRepository,
+            branchRepository as unknown as IBranchRepository,
+            messageTriggerJobRepository as unknown as IMessageTriggerJobRepository,
+            systemSettingService as unknown as SystemSettingService,
+            createSchedulerLeaseMock(false),
+        );
+
+        await service.sendDailySummaryNotifications();
+
+        expect(branchRepository.findAllActive).not.toHaveBeenCalled();
     });
 });

@@ -21,9 +21,12 @@ const STATUS_KEYS = Object.freeze([
   'db_readiness',
   'production_db_identity',
   'public_routing',
+  'runtime_mode',
   'schedulers_enabled',
   'document_jobs_accepting',
   'document_jobs_worker',
+  'lease_mode',
+  'lease_held',
 ]);
 
 const STATUS_KEY_SET = new Set(STATUS_KEYS);

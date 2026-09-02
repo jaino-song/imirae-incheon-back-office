@@ -125,6 +125,7 @@ export class SbEmployeeRepository implements IEmployeeRepository {
             where: {
                 branchId: branchid,
                 replaced: false,
+                terminatedAt: null,
                 endDate: { gte: today },
                 OR: [
                     { primaryEmployeeId: id },
@@ -142,6 +143,7 @@ export class SbEmployeeRepository implements IEmployeeRepository {
             where: {
                 branchId: branchid,
                 replaced: false,
+                terminatedAt: null,
                 endDate: { gte: today },
                 OR: [
                     { primaryEmployeeId: id },
@@ -189,7 +191,9 @@ export class SbEmployeeRepository implements IEmployeeRepository {
                 { primaryEmployeeId: id },
                 { secondaryEmployeeId: id },
             ],
-            AND: [{ OR: [{ replaced: true }, { endDate: { lt: today } }] }],
+            // A terminated assignment is finished work even when its contracted
+            // end date is still in the future, so it belongs in work history.
+            AND: [{ OR: [{ replaced: true }, { terminatedAt: { not: null } }, { endDate: { lt: today } }] }],
         };
         const [schedules, total] = await Promise.all([
             this.prismaService.employee_schedule.findMany({
@@ -244,6 +248,7 @@ export class SbEmployeeRepository implements IEmployeeRepository {
                         startDate: { lte: today },
                         endDate: { gte: today },
                         replaced: false,
+                        terminatedAt: null,
                     },
                     take: 1,
                 },
@@ -252,6 +257,7 @@ export class SbEmployeeRepository implements IEmployeeRepository {
                         startDate: { lte: today },
                         endDate: { gte: today },
                         replaced: false,
+                        terminatedAt: null,
                     },
                     take: 1,
                 },

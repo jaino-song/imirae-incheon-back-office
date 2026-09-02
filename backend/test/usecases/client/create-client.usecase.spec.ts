@@ -51,9 +51,9 @@ describe("CreateClientUsecase", () => {
             expect(result.voucherClient).toBe(true);
         });
 
-        it("should reject a complete-range duration mismatch before repository persistence", async () => {
+        it("should accept a supplied duration smaller than the business-day count and persist it unchanged", async () => {
             const params = {
-                name: "기간 불일치 고객",
+                name: "회차 수 고정 고객",
                 address: null,
                 phone: null,
                 type: null,
@@ -72,8 +72,34 @@ describe("CreateClientUsecase", () => {
                 breastPump: false,
             };
 
+            const result = await usecase.execute(branchId, params);
+
+            expect(result.duration).toBe(1);
+        });
+
+        it("should reject a complete-range duration that exceeds the business-day count before repository persistence", async () => {
+            const params = {
+                name: "기간 초과 고객",
+                address: null,
+                phone: null,
+                type: null,
+                duration: 5,
+                fullPrice: "1000",
+                grant: "0",
+                actualPrice: "1000",
+                startDate: new Date("2024-01-02T00:00:00.000Z"),
+                endDate: new Date("2024-01-05T00:00:00.000Z"),
+                careCenter: false,
+                voucherClient: false,
+                birthday: null,
+                dueDate: null,
+                birthDate: null,
+                serviceStatus: null,
+                breastPump: false,
+            };
+
             expect(() => usecase.execute(branchId, params)).toThrow(
-                "duration must equal the Korean business-day count (4)",
+                "duration cannot exceed the Korean business-day count (4)",
             );
             expect(mockRepository.getAllData()).toHaveLength(0);
         });
