@@ -117,6 +117,11 @@ export class ServiceRecordLinkReconciliationService {
                         is: {
                             branchId: { in: approvedBranchIds },
                             replaced: false,
+                            // A terminated service keeps its contracted start date, so the
+                            // startDate bound below no longer excludes it. Without this the
+                            // 5-minute cron keeps re-issuing a 제공기록지 링크 and a provider
+                            // SMS for a client whose service was already terminated.
+                            terminatedAt: null,
                             startDate: { gte: today },
                             messageTriggerJobs: {
                                 none: {
