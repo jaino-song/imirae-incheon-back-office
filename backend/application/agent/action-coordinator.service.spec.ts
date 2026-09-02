@@ -10,6 +10,8 @@ import { AgentSessionService } from "./agent-session.service";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { ActionCoordinatorService, AgentActionCertainFailureError } from "./action-coordinator.service";
 import { AGENT_ACTION_REPOSITORY } from "domain/repositories/agent-action.repository.interface";
+import { SchedulerLeaseService } from "application/services/scheduler-lease.service";
+import { createSchedulerLeaseMock } from "../../test/utils/mocks/scheduler-lease.mock";
 
 const principal = { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" };
 
@@ -98,6 +100,7 @@ describe("ActionCoordinatorService", () => {
                 { provide: AgentFlagsService, useValue: {} },
                 { provide: AgentActionSweepLockService, useValue: {} },
                 { provide: AGENT_ACTION_REPOSITORY, useValue: {} },
+                { provide: SchedulerLeaseService, useValue: createSchedulerLeaseMock() },
             ],
         }).compile()).rejects.toThrow(new RegExp(expectedMissingDependency));
     });
@@ -113,6 +116,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessions as never,
             actionPersistence(prisma) as never,
+            createSchedulerLeaseMock(),
         );
         const action = await service.propose({ sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" });
         expect(sessions.assertActive).toHaveBeenCalledWith("session-a", { userId: principal.userId, branchId: principal.branchId });
@@ -168,6 +172,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
             actionPersistence(prisma) as never,
+            createSchedulerLeaseMock(),
         );
         const proposalInput = {
             sessionId: "session-a",
@@ -205,6 +210,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessions as never,
             actionPersistence(prisma) as never,
+            createSchedulerLeaseMock(),
         );
 
         await expect(service.propose({ sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" }))
@@ -224,7 +230,7 @@ describe("ActionCoordinatorService", () => {
                     return created;
                 }),
             } };
-            const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence(prisma) as never);
+            const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence(prisma) as never, createSchedulerLeaseMock());
             const input = { sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" };
 
             const first = await service.propose(input);
@@ -249,7 +255,7 @@ describe("ActionCoordinatorService", () => {
                 return created;
             }),
         } };
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence(prisma) as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence(prisma) as never, createSchedulerLeaseMock());
 
         const first = await service.propose({ sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" });
         const second = await service.propose({ sessionId: "session-b", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" });
@@ -276,6 +282,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         const duplicate = await service.propose({
@@ -306,6 +313,7 @@ describe("ActionCoordinatorService", () => {
                 { isAvailable: jest.fn().mockReturnValue(false) } as never,
                 sessionPersistence() as never,
                 actionPersistence(prisma) as never,
+                createSchedulerLeaseMock(),
             );
 
             const replacement = await service.propose({
@@ -339,6 +347,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
             actionPersistence() as never,
+            createSchedulerLeaseMock(),
         );
 
         const duplicate = await service.propose({
@@ -370,6 +379,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
             actionPersistence(prisma) as never,
+            createSchedulerLeaseMock(),
         );
 
         const replacement = await service.propose({
@@ -417,6 +427,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
             actionPersistence(prisma) as never,
+            createSchedulerLeaseMock(),
         );
         const input = { sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" };
 
@@ -489,6 +500,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessions as never,
             actionPersistence(prisma) as never,
+            createSchedulerLeaseMock(),
         );
         const input = { sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" };
 
@@ -565,6 +577,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessions as never,
             actionPersistence(prisma) as never,
+            createSchedulerLeaseMock(),
         );
         const input = { sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" };
 
@@ -614,6 +627,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
             actionPersistence(prisma) as never,
+            createSchedulerLeaseMock(),
         );
         const input = { sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" };
 
@@ -651,6 +665,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
             actionPersistence(prisma) as never,
+            createSchedulerLeaseMock(),
         );
 
         const result = await service.propose({
@@ -673,6 +688,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         await expect(service.approve(action.id, principal, action.capabilityVersion)).rejects.toBeInstanceOf(ConflictException);
@@ -698,6 +714,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         const result = await service.reconcile(uncertain.id, principal);
@@ -743,6 +760,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessions as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         await expect(service.reconcile(uncertain.id, principal)).resolves.toEqual(expect.objectContaining({ status: "succeeded" }));
@@ -787,6 +805,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessions as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         await expect(service.reconcile(uncertain.id, principal)).rejects.toThrow("database unavailable");
@@ -827,6 +846,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessions as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         await expect(service.reconcile(uncertain.id, principal)).resolves.toEqual(expect.objectContaining({ status: "succeeded" }));
@@ -860,6 +880,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessions as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         await expect(service.reconcile(uncertain.id, principal)).resolves.toEqual(expect.objectContaining({ status: "failed" }));
@@ -890,6 +911,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         const result = await service.approve(succeeded.id, principal, succeeded.proposalRevision);
@@ -911,6 +933,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         await expect(service.reconcile("action-a", { userId: "other-user", branchId: "other-branch", globalRole: "admin", branchRole: "admin" })).rejects.toBeInstanceOf(NotFoundException);
@@ -923,7 +946,7 @@ describe("ActionCoordinatorService", () => {
         const proposed = actionRecord();
         const prisma = mutableActionPrisma(proposed);
         const sessions = { upsertActionResultMessage: jest.fn().mockResolvedValue(true) };
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessions as never, actionPersistence() as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessions as never, actionPersistence() as never, createSchedulerLeaseMock());
 
         const result = await service.approve(proposed.id, principal, proposed.proposalRevision);
 
@@ -939,7 +962,7 @@ describe("ActionCoordinatorService", () => {
         definition.execute.mockRejectedValueOnce(new Error("connection dropped"));
         const proposed = actionRecord();
         const prisma = mutableActionPrisma(proposed);
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence(prisma) as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence(prisma) as never, createSchedulerLeaseMock());
 
         const result = await service.approve(proposed.id, principal, proposed.proposalRevision);
 
@@ -952,7 +975,7 @@ describe("ActionCoordinatorService", () => {
         definition.execute.mockRejectedValueOnce(new AgentActionCertainFailureError("duplicate"));
         const proposed = actionRecord();
         const prisma = mutableActionPrisma(proposed);
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence() as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence() as never, createSchedulerLeaseMock());
 
         await expect(service.approve(proposed.id, principal, proposed.proposalRevision)).rejects.toBeInstanceOf(ConflictException);
 
@@ -964,7 +987,7 @@ describe("ActionCoordinatorService", () => {
         const proposed = actionRecord();
         const prisma = mutableActionPrisma(proposed);
         const sessions = { upsertActionResultMessage: jest.fn().mockRejectedValue(new Error("session unavailable")) };
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessions as never, actionPersistence() as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessions as never, actionPersistence() as never, createSchedulerLeaseMock());
 
         await expect(service.approve(proposed.id, principal, proposed.proposalRevision)).rejects.toThrow("session unavailable");
         expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: "executing" }), data: expect.objectContaining({ status: "succeeded" }) }));
@@ -984,7 +1007,7 @@ describe("ActionCoordinatorService", () => {
                 return { count: 1 };
             }),
         } };
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence() as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence() as never, createSchedulerLeaseMock());
 
         const result = await service.approve(current.id, principal, current.proposalRevision);
 
@@ -996,7 +1019,7 @@ describe("ActionCoordinatorService", () => {
         const definition = { ...capability(), classifyOutcome: jest.fn().mockReturnValue({ status: "cancelled", reason: "provider cancelled" }) };
         const proposed = actionRecord();
         const prisma = mutableActionPrisma(proposed);
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence() as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence() as never, createSchedulerLeaseMock());
 
         const result = await service.approve(proposed.id, principal, proposed.proposalRevision);
 
@@ -1008,7 +1031,7 @@ describe("ActionCoordinatorService", () => {
         const definition = { ...capability(), classifyOutcome: jest.fn().mockReturnValue({ status: "failed", reason: "provider rejected" }) };
         const proposed = actionRecord();
         const prisma = mutableActionPrisma(proposed);
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence() as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence() as never, createSchedulerLeaseMock());
 
         await expect(service.approve(proposed.id, principal, proposed.proposalRevision)).rejects.toBeInstanceOf(ConflictException);
 
@@ -1044,6 +1067,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessions as never,
             actionPersistence() as never,
+            createSchedulerLeaseMock(),
         );
 
         const result = await service.approve(proposed.id, principal, proposed.proposalRevision);
@@ -1068,7 +1092,7 @@ describe("ActionCoordinatorService", () => {
             findMany: jest.fn().mockResolvedValue([succeeded]),
             updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         } };
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn() } as never, { isCapabilityEnabled: jest.fn() } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessions as never, actionPersistence() as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn() } as never, { isCapabilityEnabled: jest.fn() } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessions as never, actionPersistence() as never, createSchedulerLeaseMock());
 
         await expect(service.repairTerminalResultParts()).resolves.toBe(1);
 
@@ -1086,7 +1110,7 @@ describe("ActionCoordinatorService", () => {
     it("fails closed for read capabilities and rejects stale approvals", async () => {
         const read = capability("read");
         const prisma = { agent_action: { findUnique: jest.fn(), create: jest.fn(), findFirst: jest.fn() } };
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(read) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence() as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(read) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never, actionPersistence() as never, createSchedulerLeaseMock());
         await expect(service.propose({ sessionId: "session-a", principal, capability: "clients.get", input: { id: 3 }, locale: "ko" })).rejects.toBeInstanceOf(BadRequestException);
         await expect(service.approve("missing", principal, "stale")).rejects.toBeInstanceOf(Error);
     });
@@ -1102,6 +1126,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
             actionPersistence() as never,
+            createSchedulerLeaseMock(),
         );
         await expect(service.approve(action.id, principal, action.proposalRevision)).rejects.toBeInstanceOf(ConflictException);
         expect(definition.execute).not.toHaveBeenCalled();
@@ -1117,6 +1142,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
         await expect(service.approve(action.id, principal, action.proposalRevision)).rejects.toBeInstanceOf(ForbiddenException);
         expect(definition.execute).not.toHaveBeenCalled();
@@ -1135,6 +1161,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
         await expect(service.approve(action.id, principal, action.proposalRevision)).rejects.toBeInstanceOf(ConflictException);
         expect(definition.execute).not.toHaveBeenCalled();
@@ -1155,6 +1182,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         await expect(service.approve(proposed.id, principal, proposed.proposalRevision)).resolves.toEqual(expect.objectContaining({ action: expect.objectContaining({ status: "succeeded" }) }));
@@ -1189,6 +1217,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         await expect(service.approve(action.id, principal, action.proposalRevision)).rejects.toBeInstanceOf(ConflictException);
@@ -1224,6 +1253,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         await expect(service.approve(action.id, principal, action.proposalRevision)).rejects.toBeInstanceOf(ConflictException);
@@ -1247,6 +1277,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessionPersistence() as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         await expect(service.approve(action.id, principal, action.proposalRevision)).rejects.toBeInstanceOf(ConflictException);
@@ -1268,6 +1299,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessions as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         const result = await service.reject(proposed.id, principal, "operator declined");
@@ -1302,6 +1334,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessions as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         await expect(service.expirePending()).resolves.toBe(1);
@@ -1336,6 +1369,7 @@ describe("ActionCoordinatorService", () => {
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
             sessions as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         await expect(service.expirePending()).resolves.toBe(1);
@@ -1383,6 +1417,7 @@ describe("ActionCoordinatorService", () => {
             } as never,
             sessions as never,
         actionPersistence() as never,
+        createSchedulerLeaseMock(),
         );
 
         await expect(service.reconcileUncertainActions()).resolves.toBe(1);
@@ -1429,6 +1464,7 @@ describe("ActionCoordinatorService", () => {
             } as never,
             sessionPersistence() as never,
             actionPersistence() as never,
+            createSchedulerLeaseMock(),
         );
 
         await service.reconcileUncertainActions();
@@ -1442,5 +1478,55 @@ describe("ActionCoordinatorService", () => {
             take: 50,
         }));
         expect(prisma.agent_action.updateMany.mock.calls.length).toBeGreaterThanOrEqual(120);
+    });
+
+    it("skips reconciliation and touches neither the sweep lock nor prisma when this process does not hold the scheduler lease", async () => {
+        const prisma = { agent_action: { findMany: jest.fn() } };
+        const sweepLock = { isAvailable: jest.fn(), runExclusive: jest.fn() };
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn() } as never,
+            { isCapabilityEnabled: jest.fn() } as never,
+            sweepLock as never,
+            sessionPersistence() as never,
+            actionPersistence() as never,
+            createSchedulerLeaseMock(false),
+        );
+
+        await expect(service.reconcileUncertainActions()).resolves.toBe(0);
+        expect(sweepLock.isAvailable).not.toHaveBeenCalled();
+        expect(prisma.agent_action.findMany).not.toHaveBeenCalled();
+    });
+
+    it("skips terminal result-part repair and never touches prisma when this process does not hold the scheduler lease", async () => {
+        const prisma = { agent_action: { findMany: jest.fn() } };
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn() } as never,
+            { isCapabilityEnabled: jest.fn() } as never,
+            { isAvailable: jest.fn() } as never,
+            sessionPersistence() as never,
+            actionPersistence() as never,
+            createSchedulerLeaseMock(false),
+        );
+
+        await expect(service.repairTerminalResultParts()).resolves.toBe(0);
+        expect(prisma.agent_action.findMany).not.toHaveBeenCalled();
+    });
+
+    it("skips the expiry sweep and never touches the sweep lock when this process does not hold the scheduler lease", async () => {
+        const sweepLock = { isAvailable: jest.fn(), runExclusive: jest.fn() };
+        const service = new ActionCoordinatorService(
+            {} as never,
+            { get: jest.fn() } as never,
+            { isCapabilityEnabled: jest.fn() } as never,
+            sweepLock as never,
+            sessionPersistence() as never,
+            actionPersistence() as never,
+            createSchedulerLeaseMock(false),
+        );
+
+        await expect(service.sweepExpired()).resolves.toBe(0);
+        expect(sweepLock.isAvailable).not.toHaveBeenCalled();
     });
 });
