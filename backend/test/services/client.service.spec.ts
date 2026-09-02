@@ -1993,6 +1993,83 @@ describe("ClientService", () => {
                 expect(serviceRecordLinkService.scheduleForServiceStart).toHaveBeenCalledWith(20);
             });
 
+            const arrangeReplacement = (currentScheduleStartDate: Date) => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                prismaService.employee_schedule.findFirst.mockResolvedValue({
+                    id: 10,
+                    clientId: 1,
+                    primaryEmployeeId: 5,
+                    secondaryEmployeeId: null,
+                    startDate: currentScheduleStartDate,
+                });
+                prismaService.employee_schedule.update.mockResolvedValue({});
+                prismaService.employee_schedule.create.mockResolvedValue({ id: 20, clientId: 1 });
+                updateClientUsecase.execute.mockResolvedValue(createClientEntity());
+            };
+
+            const writtenPeriods = () => ({
+                outgoingEndDate: prismaService.employee_schedule.update.mock.calls[0][0].data.endDate as Date,
+                incoming: prismaService.employee_schedule.create.mock.calls[0][0].data as {
+                    startDate: Date;
+                    endDate: Date;
+                },
+            });
+
+            // Regression: the incoming schedule used to inherit the client's contract start,
+            // so every past provider appeared to have started on the contract's first day.
+            it("starts the incoming schedule on the handover day, not the contract start", async () => {
+                jest.useFakeTimers().setSystemTime(new Date("2024-03-15T01:00:00.000Z"));
+                try {
+                    arrangeReplacement(new Date("2024-01-01T00:00:00.000Z"));
+
+                    await service.update(branchId, 1, { primaryEmployeeId: 7 });
+
+                    const { outgoingEndDate, incoming } = writtenPeriods();
+                    expect(incoming.startDate).not.toEqual(new Date("2024-01-01T00:00:00.000Z"));
+                    // The handover day is shared: the outgoing row ends where the incoming row starts.
+                    expect(incoming.startDate).toEqual(outgoingEndDate);
+                    expect(incoming.endDate).toEqual(new Date("2024-06-01"));
+                } finally {
+                    jest.useRealTimers();
+                }
+            });
+
+            it("does not write an inverted range when the contract has already ended", async () => {
+                jest.useFakeTimers().setSystemTime(new Date("2026-09-02T01:00:00.000Z"));
+                try {
+                    arrangeReplacement(new Date("2024-01-01T00:00:00.000Z"));
+
+                    await service.update(branchId, 1, { primaryEmployeeId: 7 });
+
+                    const { incoming } = writtenPeriods();
+                    expect(incoming.startDate.getTime()).toBeLessThanOrEqual(incoming.endDate.getTime());
+                    // Pulled up to the handover day rather than extended by a default service period.
+                    expect(incoming.endDate).toEqual(incoming.startDate);
+                } finally {
+                    jest.useRealTimers();
+                }
+            });
+
+            it("keeps the contract period for a first assignment", async () => {
+                jest.useFakeTimers().setSystemTime(new Date("2024-03-15T01:00:00.000Z"));
+                try {
+                    findClientByIdUsecase.execute.mockResolvedValue(createClientEntity());
+                    prismaService.employee_schedule.findFirst.mockResolvedValue(null);
+                    prismaService.employee_schedule.create.mockResolvedValue({ id: 20, clientId: 1 });
+                    updateClientUsecase.execute.mockResolvedValue(createClientEntity());
+
+                    await service.update(branchId, 1, { primaryEmployeeId: 7 });
+
+                    const incoming = prismaService.employee_schedule.create.mock.calls[0][0].data;
+                    expect(incoming.startDate).toEqual(new Date("2024-01-01"));
+                    expect(incoming.endDate).toEqual(new Date("2024-06-01"));
+                    expect(prismaService.employee_schedule.update).not.toHaveBeenCalled();
+                } finally {
+                    jest.useRealTimers();
+                }
+            });
+
             it("keeps service-record access for the old assignment when replacement creation fails", async () => {
                 const existingClient = createClientEntity();
                 findClientByIdUsecase.execute.mockResolvedValue(existingClient);

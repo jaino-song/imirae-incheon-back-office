@@ -35,6 +35,7 @@ import {
 } from "application/policies/employee-assignment-eligibility.policy";
 import {
     assertNoActiveEmployeeScheduleOverlap,
+    employeeScheduleHandoverPeriod,
     employeeScheduleReplacementEndDate,
     lockClientForScheduleWrite,
     lockEmployeesForScheduleWrite,
@@ -866,22 +867,44 @@ export class ClientService {
                 transaction,
                 retainedEmployeeIds,
             );
+            // One handover instant for the whole transaction. The outgoing row has to
+            // end on exactly the day the incoming row starts, so the clock is read
+            // once here rather than per write, where the two could straddle midnight.
+            const handover = currentSchedule
+                ? ((): { outgoingEndDate: Date; startDate: Date; endDate: Date } => {
+                    const outgoingEndDate = employeeScheduleReplacementEndDate(
+                        new Date(),
+                        currentSchedule.startDate,
+                    );
+                    return {
+                        outgoingEndDate,
+                        ...employeeScheduleHandoverPeriod({
+                            replacementAt: outgoingEndDate,
+                            contractStartDate: params.startDate,
+                            contractEndDate: params.endDate,
+                        }),
+                    };
+                })()
+                : null;
+            // A first assignment keeps the contract period; only a handover moves the start.
+            const incomingStartDate = handover?.startDate ?? params.startDate;
+            const incomingEndDate = handover?.endDate ?? params.endDate;
             await assertNoActiveEmployeeScheduleOverlap(transaction, {
                 branchId: branchid,
                 clientId: params.clientId,
                 primaryEmployeeId: newPrimaryEmployeeId,
                 secondaryEmployeeId: newSecondaryEmployeeId,
-                startDate: params.startDate,
-                endDate: params.endDate,
+                startDate: incomingStartDate,
+                endDate: incomingEndDate,
                 replaced: false,
                 excludeScheduleId: currentSchedule?.id,
             });
-            if (currentSchedule) {
+            if (currentSchedule && handover) {
                 await transaction.employee_schedule.update({
                     where: { id: currentSchedule.id },
                     data: {
                         replaced: true,
-                        endDate: employeeScheduleReplacementEndDate(new Date(), currentSchedule.startDate),
+                        endDate: handover.outgoingEndDate,
                     },
                 });
             }
@@ -892,8 +915,8 @@ export class ClientService {
                     primaryEmployeeId: newPrimaryEmployeeId,
                     secondaryEmployeeId: newSecondaryEmployeeId,
                     workAddress: params.workAddress,
-                    startDate: params.startDate,
-                    endDate: params.endDate,
+                    startDate: incomingStartDate,
+                    endDate: incomingEndDate,
                     replaced: false,
                 },
             });
@@ -1639,22 +1662,44 @@ export class ClientService {
                         transaction,
                         retainedEmployeeIds,
                     );
+                    // One handover instant for the whole transaction. The outgoing row has to
+                    // end on exactly the day the incoming row starts, so the clock is read
+                    // once here rather than per write, where the two could straddle midnight.
+                    const handover = currentSchedule
+                        ? ((): { outgoingEndDate: Date; startDate: Date; endDate: Date } => {
+                            const outgoingEndDate = employeeScheduleReplacementEndDate(
+                                new Date(),
+                                currentSchedule.startDate,
+                            );
+                            return {
+                                outgoingEndDate,
+                                ...employeeScheduleHandoverPeriod({
+                                    replacementAt: outgoingEndDate,
+                                    contractStartDate: startDate,
+                                    contractEndDate: endDate,
+                                }),
+                            };
+                        })()
+                        : null;
+                    // A first assignment keeps the contract period; only a handover moves the start.
+                    const incomingStartDate = handover?.startDate ?? startDate;
+                    const incomingEndDate = handover?.endDate ?? endDate;
                     await assertNoActiveEmployeeScheduleOverlap(transaction, {
                         branchId: branchid,
                         clientId: id,
                         primaryEmployeeId,
                         secondaryEmployeeId,
-                        startDate,
-                        endDate,
+                        startDate: incomingStartDate,
+                        endDate: incomingEndDate,
                         replaced: false,
                         excludeScheduleId: currentSchedule?.id,
                     });
-                    if (currentSchedule) {
+                    if (currentSchedule && handover) {
                         await transaction.employee_schedule.update({
                             where: { id: currentSchedule.id },
                             data: {
                                 replaced: true,
-                                endDate: employeeScheduleReplacementEndDate(new Date(), currentSchedule.startDate),
+                                endDate: handover.outgoingEndDate,
                             },
                         });
                         replacedScheduleId = currentSchedule.id;
@@ -1666,8 +1711,8 @@ export class ClientService {
                             primaryEmployeeId,
                             secondaryEmployeeId,
                             workAddress: params.address ?? existingClient.address ?? "",
-                            startDate,
-                            endDate,
+                            startDate: incomingStartDate,
+                            endDate: incomingEndDate,
                             replaced: false,
                         },
                     });
