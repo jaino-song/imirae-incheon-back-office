@@ -22,6 +22,9 @@
    caller가 완성된 base를 전달하며 `info-card-title` 같은 context-free fallback을 두지 않는다.
    단순 layout wrapper에는 `_div`/`_span` 같은 기계적 이름을 추가하지 않는다.
 
+7. **섹션 페이지와 목록+상세(`SplitLayout`) 화면은 [`docs/ui-rules.md`](../ui-rules.md)의 절차·스캐폴드를 그대로 따른다.**
+   §8 레시피의 prop 규칙과 "자주 나는 실수" 목록에 걸리면 리뷰에서 반려된다.
+
 ## 금지 목록 (page.tsx 기준, ESLint로 강제)
 
 | 금지 | rule | 대신 |

@@ -279,7 +279,262 @@ type-check / eslint: 통과
 
 ---
 
-## 8. 이 문서를 바꿔야 할 때
+## 8. 레시피 — 새 섹션 + 목록/상세(SplitLayout) 화면 만들기
+
+아래 순서를 **그대로** 따른다. 순서를 건너뛰거나 "일단 InfoCard로 보여주고 나중에" 식의 임시 화면을 만들면 반려된다.
+검증된 실물은 `frontend/src/components/app/contracts/ContractAutomationsManager.tsx`(단일 항목, 186줄)와
+`frontend/src/components/app/messages/TriggerRulesManager.tsx`(CRUD 항목)이다. 새 화면은 둘 중 가까운 쪽을 복제해서 시작한다.
+
+### 8.1 절차
+
+| 단계 | 할 일 | 산출물 |
+|---|---|---|
+| 1 | 화면 유형 판정: 항목이 시스템 정의(토글·설정만)인가, 사용자가 만들고 지우는가 | 복제 원본 결정 (`ContractAutomationsManager` / `TriggerRulesManager`) |
+| 2 | API 계약 확정: 조회 응답 shape, 변경 endpoint, 권한(403 여부) | `frontend/src/services/api.ts`에 함수·타입 추가 |
+| 3 | organism 파일 생성 `frontend/src/components/app/<domain>/<Name>Manager.tsx` | §8.2 스캐폴드 |
+| 4 | page.tsx에 `NAV_SECTIONS` 항목 + `<section>` + organism 마운트 (§1.3) | page diff는 10줄 이내 |
+| 5 | 테스트 `__tests__/<Name>Manager.test.tsx` (§5 최소 3건) | 통과 |
+| 6 | `npm run type-check`, `npx eslint <organism> <page>`, `npx jest <folder>` | 모두 통과, 새 경고 0 |
+| 7 | 완료 보고 (§6 형식) | — |
+
+### 8.2 스캐폴드 (그대로 복사해서 이름만 바꾼다)
+
+```tsx
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CalendarCheck } from "lucide-react";                 // 항목 유형 아이콘
+import {
+  AnimatedSlotList, AnimatedSlotListItemContent,
+  DetailEmptyState, DetailPanel, DetailTabPanels, DetailTabs,
+  InfoCard, ListPanel, SplitLayout, SteppedWizardPanelContent,
+} from "@/components/app/v3";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { TitleSelectMolecule } from "@/components/ui/title-select-molecule";
+import { useToast } from "@/hooks/use-toast";
+import { settingsApi, type FooConfig } from "@/services/api";
+
+const QUERY_KEY = ["settings", "foo-policies"] as const;
+const DETAIL_TABS = [
+  { key: "settings", label: "규칙 설정" },
+  { key: "description", label: "동작 설명" },
+] as const;
+
+export interface FooManagerProps { dataComponent: string }
+
+export function FooManager({ dataComponent }: FooManagerProps) {
+  const component = (suffix: string) => `${dataComponent}_${suffix}`;
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  // ── 상태: 선택 / 탭 / draft ───────────────────────────────
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<(typeof DETAIL_TABS)[number]["key"]>("settings");
+  const [draft, setDraft] = useState<FooConfig | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+
+  // ── 데이터 ────────────────────────────────────────────────
+  const query = useQuery({ queryKey: QUERY_KEY, queryFn: settingsApi.getFooPolicies });
+  const mutation = useMutation({
+    mutationFn: settingsApi.updateFooConfig,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      setIsDirty(false);
+      toast({ variant: "success", description: "설정을 저장했어요" });
+    },
+    onError: (e) => toast({ variant: "destructive", description: e instanceof Error ? e.message : "설정을 저장하지 못했어요" }),
+  });
+  const saved = query.data?.foo;
+  useEffect(() => { if (saved && !isDirty) setDraft(saved); }, [saved, isDirty]);
+  const current = draft ?? saved;
+
+  const updateDraft = (patch: Partial<FooConfig>) => { if (current) { setDraft({ ...current, ...patch }); setIsDirty(true); } };
+  const save = () => { if (draft && isDirty) mutation.mutate(draft); };
+  const reset = () => { if (saved) { setDraft(saved); setIsDirty(false); } };
+  const toggle = (enabled: boolean) => { if (saved) mutation.mutate({ ...saved, enabled }); };   // 행 토글은 draft와 무관하게 즉시 저장
+
+  const summary = useMemo(() => saved ? `핵심 속성 A · 핵심 속성 B · 주기` : "설정 불러오는 중", [saved]);
+
+  return (
+    <section data-component={dataComponent} data-slot="foo-manager" className="flex h-full min-h-0 flex-1 flex-col">
+      <SplitLayout data-component={component("split-layout")} hasSelection={selectedId !== null}>
+
+        {/* ── 왼쪽: 목록 ── */}
+        <ListPanel data-component={component("list-panel")} title="자동화" subtitle="이 목록이 무엇인지 한 문장">
+          <AnimatedSlotList
+            data-component={component("list")}
+            items={query.isLoading ? undefined : [{ id: "foo-rule" }]}
+            isLoading={query.isLoading}
+            loadingCount={1}
+            getSlotState={({ item, isLoading }) => ({ isActive: !isLoading && item?.id === selectedId, isInteractive: !isLoading && Boolean(item) })}
+            onSlotClick={(item) => setSelectedId(item.id)}
+            getItemKey={(item) => item.id}
+            render={({ item, isLoading }) => {
+              if (isLoading) return <Skeleton className="h-16 w-full rounded-[18px] bg-v3-dim-white" />;
+              if (!item || !saved) return null;
+              return (
+                <AnimatedSlotListItemContent
+                  dataComponent={component("row")}
+                  icon={CalendarCheck}
+                  title="항목 이름"
+                  subtitle={summary}
+                  status={<Switch aria-label="항목 이름 활성화" checked={saved.enabled} disabled={mutation.isPending}
+                                  onClick={(e) => e.stopPropagation()} onCheckedChange={toggle} />}
+                />
+              );
+            }}
+          />
+        </ListPanel>
+
+        {/* ── 오른쪽: 상세 ── */}
+        {selectedId === null ? (
+          <DetailPanel data-component={component("detail-panel-empty")}
+                       overlay={<DetailEmptyState icon={CalendarCheck} message="왼쪽 목록에서 자동화를 선택하세요" />}>
+            {null}
+          </DetailPanel>
+        ) : (
+          <DetailPanel
+            data-component={component("detail-panel")}
+            isLoading={query.isLoading}
+            title="항목 이름"
+            subtitle="이 상세에서 무엇을 할 수 있는지 한 문장."
+            tabs={<DetailTabs tabs={[...DETAIL_TABS]} activeTab={activeTab} onTabChange={(k) => setActiveTab(k as typeof activeTab)} />}
+            footer={(
+              <>
+                <Button type="button" variant="outline"  size="sm" width="sm" onClick={reset} disabled={!isDirty || mutation.isPending}>되돌리기</Button>
+                <Button type="button" variant="positive" size="sm" width="sm" onClick={save}  disabled={!isDirty || mutation.isPending}>{mutation.isPending ? "저장 중..." : "저장"}</Button>
+              </>
+            )}
+          >
+            <DetailTabPanels
+              activeTab={activeTab} dataComponent={component("detail-tabs")}
+              className="flex min-h-0 flex-1" trackClassName="min-h-0 flex-1" panelClassName="h-full min-h-0"
+              panels={[
+                {
+                  key: "settings",
+                  children: current ? (
+                    <SteppedWizardPanelContent dataComponent={component("form")} flattenStepContent className="py-0" stepContentClassName="justify-start gap-4">
+                      <TitleSelectMolecule id="foo-option" label="옵션 라벨" value={String(current.option)} options={OPTIONS}
+                                           onValueChange={(v) => updateDraft({ option: Number(v) })} dataComponent={component("option")} />
+                      <div className="flex items-center justify-between">
+                        <span>자동화 사용</span>
+                        <Switch aria-label="자동화 사용" checked={current.enabled} onCheckedChange={(enabled) => updateDraft({ enabled })} />
+                      </div>
+                      <InfoCard title="실행 조건" data-component={component("conditions")}>
+                        <div className="space-y-2 text-sm text-v3-text-muted"><p>고정 조건 1</p><p>고정 조건 2</p></div>
+                      </InfoCard>
+                    </SteppedWizardPanelContent>
+                  ) : <Skeleton className="h-32 w-full bg-v3-dim-white" />,
+                },
+                { key: "description", children: <div className="space-y-3 text-sm leading-relaxed text-v3-text-muted"><p>동작 설명.</p></div> },
+              ]}
+            />
+          </DetailPanel>
+        )}
+      </SplitLayout>
+    </section>
+  );
+}
+```
+
+여러 항목을 사용자가 만들고 지우는 화면이면 위 스캐폴드에 `TriggerRulesManager`의 다음 요소를 더한다:
+`ListPanel tabs`(활성화/비활성화 필터), `headerActions={<HeaderActionButton icon={Plus} label="새 규칙" />}`,
+선택 값 `"new"`, footer의 삭제 버튼, `hasChanges`를 `JSON.stringify(normalize(form)) !== JSON.stringify(normalize(saved))`로 계산.
+
+### 8.3 컴포넌트별 필수·금지 prop
+
+**`SplitLayout`** (`frontend/src/components/app/v3/SplitLayout.tsx`)
+
+| prop | 규칙 |
+|---|---|
+| `data-component` | 필수. `component("split-layout")` |
+| `hasSelection` | 필수. `selectedId !== null`. 모바일 폭에서 상세 패널 전환의 기준이므로 `false` 고정 금지 |
+| `children` | 정확히 `ListPanel` 하나 + `DetailPanel` 하나 (순서 고정). 다른 요소를 끼워 넣지 않는다 |
+| `columns`, `activePanel`, `onBack` | 3열 화면(계약서 생성 세션)에서만. 일반 매니저는 쓰지 않는다 |
+
+**`ListPanel`** (`ListPanel.tsx`)
+
+| prop | 규칙 |
+|---|---|
+| `data-component`, `title` | 필수 |
+| `subtitle` | 한 문장 설명. 개수 표기 금지 |
+| `tabs`/`activeTab`/`onTabChange` | 상태 필터가 있을 때만. `TabItem = { label, value }` |
+| `headerActions` | 생성 가능할 때만 `HeaderActionButton` |
+| `searchValue`/`onSearchChange` | 항목 10개 이상일 때만 |
+| `emptyState` | `ListEmptyState`. `children`이 비었을 때 자동 표시 |
+| `disabled` + `disabledOverlay` | 권한 게이트 전용 |
+| `avatar`, `headerPadding`, `className` | 매니저 화면에서 금지 (특수 화면 전용) |
+| `children` | `AnimatedSlotList` 하나. `InfoCard`·`div` 나열 금지 |
+
+**`AnimatedSlotList<T>`** (`AnimatedSlotList.tsx`)
+
+| prop | 규칙 |
+|---|---|
+| `items`, `isLoading` | 필수. 로딩 중엔 `items={undefined}` |
+| `loadingCount` | 예상 개수(1~5) |
+| `getSlotState` | `{ isActive: 선택됨, isInteractive: 클릭 가능 }` 반환. 선택 하이라이트는 이 경로로만 |
+| `onSlotClick` | 선택 setter. 행 내부에 `onClick div`를 따로 두지 않는다 |
+| `getItemKey` | 필수 (`item.id`) |
+| `render` | `isLoading`이면 `Skeleton`, 아니면 `AnimatedSlotListItemContent` 하나만 반환 |
+| `hasMore`/`onLoadMore`/`isFetchingMore` | 무한 스크롤 목록일 때만 |
+| `slotClassName`, `itemVariant` | 금지 (시각 변형은 컴포넌트 내부 책임) |
+
+**`AnimatedSlotListItemContent`** (`AnimatedSlotListItemContent.tsx`)
+
+| prop | 규칙 |
+|---|---|
+| `dataComponent`, `icon`, `title` | 필수. `icon`은 lucide 컴포넌트 참조(`CalendarCheck`), JSX 아님 |
+| `subtitle` | ` · ` 구분 요약 문자열 |
+| `status` | `Switch` 또는 `StatusBadge` 하나. `Switch`에는 `aria-label` + `onClick={(e) => e.stopPropagation()}` 필수 (행 선택과 분리) |
+| `meta` | 날짜·카운트 같은 보조 텍스트 하나 |
+| `*ClassName` 계열 | 금지 |
+
+**`DetailPanel`** (`DetailPanel.tsx`)
+
+| prop | 규칙 |
+|---|---|
+| `data-component` | 필수. 빈 상태와 선택 상태의 값이 달라야 한다 (`detail-panel-empty` / `detail-panel`) |
+| `title`, `subtitle` | 선택 시 필수 |
+| `isLoading` | 쿼리 로딩 전달 |
+| `tabs` | `DetailTabs` 엘리먼트 (2종 이상 내용일 때) |
+| `footer` | `Button`만. 순서: 보조(되돌리기/삭제) → 주(저장). `variant`는 `outline`/`positive`/`destructive` |
+| `overlay` | 선택 없음일 때 `DetailEmptyState`; 이때 `children`은 `{null}` |
+| `emptyState` | `overlay`와 혼용 금지. 하나만 |
+| `badges*`, `trailing`, `stepper`, `headerAction`, `backAction` | 문서 상세 화면 전용. 설정 매니저에서 쓰지 않는다 |
+| `children` | `DetailTabPanels` 또는 `SteppedWizardPanelContent` 하나 |
+
+**`DetailTabs` / `DetailTabPanels`** (`DetailTabs.tsx`, `DetailTabPanels.tsx`)
+
+| prop | 규칙 |
+|---|---|
+| `tabs` | `{ key, label }[]`를 `as const` 상수로 선언. 라벨은 "규칙 설정", "미리보기", "동작 설명" 같은 명사형 |
+| `activeTab`/`onTabChange` | 두 컴포넌트에 같은 상태를 넘긴다 |
+| `panels` | `tabs`와 `key` 1:1 |
+| `DetailTabPanels` className 3종 | `className="flex min-h-0 flex-1" trackClassName="min-h-0 flex-1" panelClassName="h-full min-h-0"` 고정 (스크롤 영역 확보) |
+
+**`ListEmptyState` / `DetailEmptyState`**: `message` 필수, `icon`은 행과 같은 아이콘. `className` 금지.
+
+**`SectionNav`** (`SectionNav.tsx`): `items`는 `readonly SectionNavItem[]` (`{ id, label, icon, disabled? }`), `activeId`, `onSelect`. `footer`는 페이지 전역 액션이 있을 때만.
+
+### 8.4 자주 나는 실수 (이 목록에 있으면 리뷰에서 바로 반려)
+
+1. `ListPanel` 안에 `InfoCard`/`InfoRow`를 나열해 "목록"이라고 부른다 → 행은 `AnimatedSlotListItemContent`.
+2. `SplitLayout hasSelection={false}` 고정 → 선택 상태를 넘겨야 모바일 폭에서 상세로 전환된다.
+3. `DetailPanel`을 `DetailEmptyState`만 넣고 끝낸다 → 선택 시 렌더될 실제 상세를 만든다.
+4. 설정값을 상수 배열에 하드코딩 → 서버 조회(`useQuery`) + 저장(`useMutation`).
+5. `ListPanel avatar`에 아이콘 박스 → 아이콘은 행의 `icon`.
+6. page.tsx에 상수·시각 클래스·컴포넌트 정의 → organism으로 이동.
+7. 행의 `Switch`에 `stopPropagation` 누락 → 토글할 때 행이 같이 선택된다.
+8. `DetailTabPanels`의 className 3종 누락 → 패널이 스크롤되지 않고 잘린다.
+9. 빈 상태·선택 상태 `DetailPanel`의 `data-component`가 같다 → 각각 `detail-panel-empty` / `detail-panel`.
+10. 토스트 문구를 "성공적으로 저장되었습니다"처럼 쓴다 → "저장했어요" / "저장하지 못했어요".
+11. 자유 입력(`TitleTextInputMolecule`)으로 일수·횟수를 받는다 → 옵션이 정해진 값은 `TitleSelectMolecule`.
+12. 테스트 없이 커밋 → §5 최소 3건.
+
+## 9. 이 문서를 바꿔야 할 때
 
 - `TriggerRulesManager`의 패턴이 바뀌면 이 문서 §2를 같은 커밋에서 갱신한다.
 - 새 v3 컴포넌트가 이 화면 유형에 들어오면 §2.1 뼈대와 §6 체크리스트에 추가한다.
