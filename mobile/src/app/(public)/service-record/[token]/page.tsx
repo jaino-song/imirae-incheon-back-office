@@ -321,7 +321,7 @@ export default function ServiceRecordPage() {
     const [scheduleChangeModalOpen, setScheduleChangeModalOpen] = useState(false);
     const [scheduleChangeBusy, setScheduleChangeBusy] = useState(false);
     const [errorNotificationMessage, setErrorNotificationMessage] = useState<string | null>(null);
-    const [pendingServiceDate, setPendingServiceDate] = useState<string | null>(null);
+    const [pendingServiceDate, setPendingServiceDate] = useState<{ next: string; shift: number } | null>(null);
 
     const navigateTo = useCallback((
         nextScreen: Screen,
@@ -675,11 +675,21 @@ export default function ServiceRecordPage() {
             // already blocks the date picker from offering an earlier date.
             return;
         }
-        setPendingServiceDate(next);
+        // Compute the shift here, outside render, so an unsupported year (or
+        // any other throw from the business-days calendar) can be caught and
+        // the change simply ignored instead of crashing the wizard mid-render.
+        let shift: number | null;
+        try {
+            shift = getServiceDateShiftBusinessDays(expected, next);
+        } catch {
+            shift = null;
+        }
+        if (shift === null) return;
+        setPendingServiceDate({ next, shift });
     }
 
     function confirmServiceDateChange() {
-        if (pendingServiceDate) setField("_date", pendingServiceDate);
+        if (pendingServiceDate) setField("_date", pendingServiceDate.next);
         setPendingServiceDate(null);
     }
 
@@ -1053,7 +1063,7 @@ export default function ServiceRecordPage() {
                 open={pendingServiceDate !== null}
                 title={`${day}회차 제공일을 변경할까요?`}
                 description={pendingServiceDate
-                    ? `${day}회차의 서비스 제공일을 ${monthDayKo(defaultDate(day))}에서 ${monthDayKo(pendingServiceDate)}로 변경하시겠어요? ${getServiceDateShiftBusinessDays(defaultDate(day), pendingServiceDate)} 영업일 만큼 서비스 종료 날짜가 미뤄집니다.`
+                    ? `${day}회차의 서비스 제공일을 ${monthDayKo(defaultDate(day))}에서 ${monthDayKo(pendingServiceDate.next)}로 변경하시겠어요? ${pendingServiceDate.shift} 영업일 만큼 서비스 종료 날짜가 미뤄집니다.`
                     : ""}
                 cancelLabel="취소"
                 confirmLabel="확인"
