@@ -61,6 +61,10 @@ function requiredSessionCount(params: {
     endDate: Date | null;
     fallback: number | null;
 }): number | null {
+    // The stored count (fallback) is authoritative once set; the
+    // date-derived business-day count is only used when no count is
+    // stored yet.
+    if (params.fallback !== null) return params.fallback;
     const startDate = isoDate(params.startDate);
     const endDate = isoDate(params.endDate);
     if (!startDate || !endDate) return params.fallback;
@@ -165,15 +169,14 @@ export class ServiceRecordLifecycleService {
             endDate: client.endDate,
             fallback: client.duration,
         });
-        // The client header and lifecycle case must agree on the same
-        // canonical business-day count. Schedule-change and webhook callers
-        // may update the header before invoking this method; repair a stale
-        // duration on that same transaction connection when available.
+        // duration is the contracted session count and is authoritative
+        // once set; it must never be rewritten to match a later end-date
+        // change (e.g. a postponed session extending the period). Fill it
+        // in only when the client has no duration stored yet, so a client
+        // header created without one still ends up with a persisted count.
         if (
-            client.startDate
-            && client.endDate
+            client.duration === null
             && sessionCount !== null
-            && client.duration !== sessionCount
             && typeof db.client.updateMany === "function"
         ) {
             await db.client.updateMany({
@@ -512,19 +515,20 @@ export class ServiceRecordLifecycleService {
             endDate: params.endDate,
         }, tx);
 
-        // Contract completion changes the authoritative service period. Read
-        // the current start date inside the same transaction and persist the
-        // derived Korean business-day duration together with the end date so
-        // no caller can leave the client header and lifecycle case divergent.
-        // A few legacy unit-test transaction doubles do not expose findUnique;
-        // those retain the historical end-date-only update shape.
+        // duration is authoritative once set on the client (per the contract
+        // lifecycle: duration/requiredSessionCount drive the schedule, not
+        // the reverse). Only derive and write it here when the client has no
+        // duration yet; otherwise this sync must leave duration untouched and
+        // only move the end date. A few legacy unit-test transaction doubles
+        // do not expose findUnique; those retain the historical
+        // end-date-only update shape.
         let duration: number | null | undefined;
         if (typeof tx.client.findUnique === "function") {
             const currentClient = await tx.client.findUnique({
                 where: { id: params.clientId },
-                select: { startDate: true },
+                select: { startDate: true, duration: true },
             });
-            if (currentClient) {
+            if (currentClient && currentClient.duration === null) {
                 if (!currentClient.startDate) {
                     duration = null;
                 } else {

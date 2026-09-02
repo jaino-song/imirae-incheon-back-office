@@ -23,7 +23,10 @@ is not serving production traffic**.
   `VERIFYING` incident or reconciles `DNS_COMMITTING` against live DNS; it never
   promotes a route from state alone.
 - Scheduler, auto-finalizer, eFormsign document-job intake/workers, unlocked
-  reconciliation, and Aligo are hard-disabled in Compose.
+  reconciliation, and Aligo are hard-disabled in Compose. On top of those gates,
+  background work runs only on the host holding the `scheduler_lease` row
+  (ADR-010); `status` prints `lease_mode=` / `lease_held=` from
+  `/health/lease`.
 - The Fallback runtime connects to the Production DB only and must pass the
   Production DB identity hash gate before status or release activation. The
   approved project-reference digest is kept separately from `backend.env` in

@@ -21,12 +21,12 @@ import type {
     SignatureDocStatus,
 } from "@babyjamjam/shared/types/service-record";
 import { formatBirthdayYYMMDD } from "@babyjamjam/shared/utils/birthday";
-import { calcEndDateBusinessDays } from "@babyjamjam/shared/utils/business-days";
 import {
     formatDateForDisplay,
     formatDateTimeKo,
     parseDateForDisplay,
 } from "@babyjamjam/shared/utils/date";
+import { getExpectedSessionDateFromRecords } from "@babyjamjam/shared/utils/service-record-schedule";
 
 import { InfoCard, InfoRow } from "@/components/app/mobile-redesign/detail-sheet";
 import { ApprovalTwoButtonModal } from "@/components/app/ui/ApprovalTwoButtonModal";
@@ -731,15 +731,17 @@ function buildSessionSlots(assignment: ServiceRecordAssignment): SessionSlot[] {
         return {
             sessionIndex,
             record: sessionsByIndex.get(sessionIndex) ?? null,
-            expectedDate: getExpectedSessionDate(assignment.startDate, sessionIndex),
+            expectedDate: getExpectedSessionDate(assignment.startDate, sessionIndex, assignment.sessions),
         };
     });
 }
 
-function getExpectedSessionDate(startDate: string, sessionIndex: number): string | null {
-    const datePart = datePartOf(startDate);
-    if (!datePart) return null;
-    return calcEndDateBusinessDays(datePart, sessionIndex) || null;
+function getExpectedSessionDate(
+    startDate: string,
+    sessionIndex: number,
+    sessions: ServiceRecordSession[],
+): string | null {
+    return getExpectedSessionDateFromRecords(startDate, sessionIndex, sessions);
 }
 
 function endDateExpiry(endDate: string): string | null {

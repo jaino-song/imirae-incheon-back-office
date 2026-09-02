@@ -12,6 +12,7 @@ import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.ent
 import { MessageTriggerRuleEntity } from "domain/entities/message-trigger-rule.entity";
 
 import { MessageExternalAgentCapabilitiesProvider } from "./message-external-agent-capabilities.provider";
+import { createSchedulerLeaseMock } from "../../../test/utils/mocks/scheduler-lease.mock";
 
 const principal = { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" };
 const context = { principal, sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a" };
@@ -237,6 +238,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             {} as never,
             { assertActive: jest.fn().mockResolvedValue(undefined) } as never,
             actionRepository as never,
+            createSchedulerLeaseMock(),
         );
 
         await coordinator.propose({
@@ -519,6 +521,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
                 upsertActionResultMessage: jest.fn().mockResolvedValue(true),
             } as never,
             actionRepository as never,
+            createSchedulerLeaseMock(),
         );
 
         const action = await coordinator.propose({

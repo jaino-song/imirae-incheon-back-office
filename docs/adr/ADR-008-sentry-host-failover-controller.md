@@ -272,7 +272,9 @@ Automatic failover must remain disarmed until each blocker is cleared:
 - Automatic Fallback-to-AWS failback or automatic DNS oscillation.
 - Active-active operation, scheduler/worker ownership transfer, or enabling
   document jobs, eformsign reconciliation, auto-finalization, or Aligo on the
-  Fallback Server.
+  Fallback Server. (Scheduler ownership is now decided by the database lease in
+  ADR-010; letting the controller rely on it instead of the passive gates is a
+  separate follow-up.)
 - Changing `NEXT_PUBLIC_API_BASE_URL`, the Vercel frontend deployment, the
   database schema, Prisma schema, database route, or tenant/auth boundaries.
 - Database migrations, AWS infrastructure changes, Cloudflare load-balancer

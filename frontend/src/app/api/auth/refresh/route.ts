@@ -11,6 +11,12 @@ interface RefreshResponse {
     refreshToken?: unknown;
 }
 
+// Upstream answered, but without a usable token pair. The session cannot be
+// recovered, so this must surface as 401 (and clear cookies) rather than as a
+// transient 502 — the browser interceptor only redirects to /login on a 401,
+// and a 502 would strand the tab issuing 401s forever.
+class UnrecoverableRefreshError extends Error {}
+
 function isAutoLoginEnabled(value: string | undefined): boolean {
     return value !== "0" && value !== "false";
 }
@@ -31,7 +37,7 @@ export async function POST(request: NextRequest) {
         const accessToken = response.data.accessToken;
         const rotatedRefreshToken = response.data.refreshToken;
         if (typeof accessToken !== "string" || typeof rotatedRefreshToken !== "string") {
-            throw new Error("Auth refresh response is missing tokens");
+            throw new UnrecoverableRefreshError("Auth refresh response is missing tokens");
         }
 
         const cookieStore = await cookies();
@@ -47,7 +53,9 @@ export async function POST(request: NextRequest) {
         result.headers.set("Cache-Control", "no-store, max-age=0");
         return result;
     } catch (error) {
-        const status = getUpstreamErrorStatus(error);
+        const status = error instanceof UnrecoverableRefreshError
+            ? 401
+            : getUpstreamErrorStatus(error);
         logUpstreamError("refresh app session", error);
 
         if (status === 401) {

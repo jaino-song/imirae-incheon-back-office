@@ -251,8 +251,13 @@ api.interceptors.response.use(
                 captureApiError(refreshError);
                 if ((refreshError as AxiosError | undefined)?.response?.status === 401) {
                     await redirectToLoginOnce();
+                    return Promise.reject(refreshError);
                 }
-                return Promise.reject(refreshError);
+                // The refresh failed for a transient reason (upstream 502, network drop),
+                // so the session may well still be valid — don't force a logout. But reject
+                // with the caller's own 401 instead of an unrelated refresh status, so the
+                // query sees the error for the endpoint it actually requested.
+                return Promise.reject(err);
             }
         }
 

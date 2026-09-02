@@ -1,6 +1,7 @@
 import { NotificationCleanupSchedulerService } from "application/services/notification-cleanup-scheduler.service";
 import { CleanupNotificationsUsecase } from "application/usecases/notification/cleanup-notifications.usecase";
 import { IBranchRepository } from "domain/repositories/branch.repository.interface";
+import { createSchedulerLeaseMock } from "../utils/mocks/scheduler-lease.mock";
 
 describe("NotificationCleanupSchedulerService", () => {
     const createMockCleanupUsecase = () => ({
@@ -23,6 +24,7 @@ describe("NotificationCleanupSchedulerService", () => {
         scheduler = new NotificationCleanupSchedulerService(
             cleanupUsecase as unknown as CleanupNotificationsUsecase,
             branchRepository as unknown as IBranchRepository,
+            createSchedulerLeaseMock(),
         );
     });
 
@@ -90,6 +92,38 @@ describe("NotificationCleanupSchedulerService", () => {
 
                 await expect(scheduler.cleanupOldNotifications()).resolves.not.toThrow();
             });
+        });
+
+        it("skips the run when the scheduler lease is not held", async () => {
+            scheduler = new NotificationCleanupSchedulerService(
+                cleanupUsecase as unknown as CleanupNotificationsUsecase,
+                branchRepository as unknown as IBranchRepository,
+                createSchedulerLeaseMock(false),
+            );
+
+            await scheduler.cleanupOldNotifications();
+
+            expect(branchRepository.findAllActive).not.toHaveBeenCalled();
+        });
+
+        it("stops when the lease is lost mid-run", async () => {
+            const schedulerLease = createSchedulerLeaseMock(false);
+            schedulerLease.holdsLease.mockReturnValueOnce(true).mockReturnValueOnce(true);
+            scheduler = new NotificationCleanupSchedulerService(
+                cleanupUsecase as unknown as CleanupNotificationsUsecase,
+                branchRepository as unknown as IBranchRepository,
+                schedulerLease,
+            );
+            branchRepository.findAllActive.mockResolvedValue([
+                { id: "org-1", name: "Org 1" },
+                { id: "org-2", name: "Org 2" },
+            ]);
+            cleanupUsecase.execute.mockResolvedValue(5);
+
+            await scheduler.cleanupOldNotifications();
+
+            expect(cleanupUsecase.execute).toHaveBeenCalledTimes(1);
+            expect(cleanupUsecase.execute).toHaveBeenCalledWith("org-1", 30);
         });
     });
 });

@@ -1738,24 +1738,37 @@ describe("ClientService", () => {
                 }));
             });
 
-            it("clears duration when a date patch leaves the service period incomplete", async () => {
+            it("leaves duration untouched when a date patch leaves the service period incomplete", async () => {
+                // duration is authoritative once set: clearing endDate must
+                // not silently wipe out the stored session count anymore.
                 const existingClient = createClientEntity();
                 findClientByIdUsecase.execute.mockResolvedValue(existingClient);
 
                 await service.update(branchId, 1, { endDate: null });
 
-                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-                    where: { id: 1, branchId },
-                    data: expect.objectContaining({ endDate: null, duration: null }),
-                }));
+                const { data } = prismaService.client.updateMany.mock.calls[0][0];
+                expect(data.endDate).toBeNull();
+                expect(data.duration).toBeUndefined();
             });
 
-            it("rejects a duration-only mismatch when the existing service period is complete", async () => {
+            it("accepts a supplied duration smaller than the business-day count and persists it unchanged", async () => {
                 const existingClient = createClientEntity();
                 findClientByIdUsecase.execute.mockResolvedValue(existingClient);
 
-                await expect(service.update(branchId, 1, { duration: 1 }))
-                    .rejects.toThrow("duration must equal the Korean business-day count (102)");
+                await service.update(branchId, 1, { duration: 1 });
+
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    where: { id: 1, branchId },
+                    data: expect.objectContaining({ duration: 1 }),
+                }));
+            });
+
+            it("rejects a duration that exceeds the business-day count when the existing service period is complete", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await expect(service.update(branchId, 1, { duration: 103 }))
+                    .rejects.toThrow("duration cannot exceed the Korean business-day count (102)");
                 expect(prismaService.$transaction).not.toHaveBeenCalled();
                 expect(prismaService.client.updateMany).not.toHaveBeenCalled();
             });
@@ -1991,6 +2004,83 @@ describe("ClientService", () => {
                 });
                 expect(serviceRecordLinkService.revoke).toHaveBeenCalledWith(10);
                 expect(serviceRecordLinkService.scheduleForServiceStart).toHaveBeenCalledWith(20);
+            });
+
+            const arrangeReplacement = (currentScheduleStartDate: Date) => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                prismaService.employee_schedule.findFirst.mockResolvedValue({
+                    id: 10,
+                    clientId: 1,
+                    primaryEmployeeId: 5,
+                    secondaryEmployeeId: null,
+                    startDate: currentScheduleStartDate,
+                });
+                prismaService.employee_schedule.update.mockResolvedValue({});
+                prismaService.employee_schedule.create.mockResolvedValue({ id: 20, clientId: 1 });
+                updateClientUsecase.execute.mockResolvedValue(createClientEntity());
+            };
+
+            const writtenPeriods = () => ({
+                outgoingEndDate: prismaService.employee_schedule.update.mock.calls[0][0].data.endDate as Date,
+                incoming: prismaService.employee_schedule.create.mock.calls[0][0].data as {
+                    startDate: Date;
+                    endDate: Date;
+                },
+            });
+
+            // Regression: the incoming schedule used to inherit the client's contract start,
+            // so every past provider appeared to have started on the contract's first day.
+            it("starts the incoming schedule on the handover day, not the contract start", async () => {
+                jest.useFakeTimers().setSystemTime(new Date("2024-03-15T01:00:00.000Z"));
+                try {
+                    arrangeReplacement(new Date("2024-01-01T00:00:00.000Z"));
+
+                    await service.update(branchId, 1, { primaryEmployeeId: 7 });
+
+                    const { outgoingEndDate, incoming } = writtenPeriods();
+                    expect(incoming.startDate).not.toEqual(new Date("2024-01-01T00:00:00.000Z"));
+                    // The handover day is shared: the outgoing row ends where the incoming row starts.
+                    expect(incoming.startDate).toEqual(outgoingEndDate);
+                    expect(incoming.endDate).toEqual(new Date("2024-06-01"));
+                } finally {
+                    jest.useRealTimers();
+                }
+            });
+
+            it("does not write an inverted range when the contract has already ended", async () => {
+                jest.useFakeTimers().setSystemTime(new Date("2026-09-02T01:00:00.000Z"));
+                try {
+                    arrangeReplacement(new Date("2024-01-01T00:00:00.000Z"));
+
+                    await service.update(branchId, 1, { primaryEmployeeId: 7 });
+
+                    const { incoming } = writtenPeriods();
+                    expect(incoming.startDate.getTime()).toBeLessThanOrEqual(incoming.endDate.getTime());
+                    // Pulled up to the handover day rather than extended by a default service period.
+                    expect(incoming.endDate).toEqual(incoming.startDate);
+                } finally {
+                    jest.useRealTimers();
+                }
+            });
+
+            it("keeps the contract period for a first assignment", async () => {
+                jest.useFakeTimers().setSystemTime(new Date("2024-03-15T01:00:00.000Z"));
+                try {
+                    findClientByIdUsecase.execute.mockResolvedValue(createClientEntity());
+                    prismaService.employee_schedule.findFirst.mockResolvedValue(null);
+                    prismaService.employee_schedule.create.mockResolvedValue({ id: 20, clientId: 1 });
+                    updateClientUsecase.execute.mockResolvedValue(createClientEntity());
+
+                    await service.update(branchId, 1, { primaryEmployeeId: 7 });
+
+                    const incoming = prismaService.employee_schedule.create.mock.calls[0][0].data;
+                    expect(incoming.startDate).toEqual(new Date("2024-01-01"));
+                    expect(incoming.endDate).toEqual(new Date("2024-06-01"));
+                    expect(prismaService.employee_schedule.update).not.toHaveBeenCalled();
+                } finally {
+                    jest.useRealTimers();
+                }
             });
 
             it("keeps service-record access for the old assignment when replacement creation fails", async () => {
@@ -2941,8 +3031,8 @@ describe("ClientService", () => {
                     endDate: expect.any(Date),
                 });
                 expect(prismaService.employee_schedule.updateMany).toHaveBeenCalledWith({
-                    where: { clientId: 1, replaced: false },
-                    data: { endDate: expect.any(Date) },
+                    where: { clientId: 1, branchId, replaced: false, terminatedAt: null },
+                    data: { terminatedAt: expect.any(Date) },
                 });
                 expect(result.serviceStatus).toBe("terminated");
             });
@@ -2985,6 +3075,38 @@ describe("ClientService", () => {
 
                 // Assert
                 expect(triggerService.syncClientRulesForClient).toHaveBeenCalledWith(branchId, 1, false);
+            });
+
+            // Regression: termination used to close schedules by overwriting end_date,
+            // which destroyed the contracted period and wrote start_date > end_date
+            // whenever the service was terminated before it began.
+            it("records termination on its own column instead of overwriting end_date", async () => {
+                const mockClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(mockClient);
+                updateClientUsecase.execute.mockResolvedValue(mockClient);
+                prismaService.employee_schedule.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+
+                await service.terminateService(branchId, 1);
+
+                const call = prismaService.employee_schedule.updateMany.mock.calls[0][0];
+                expect(call.data).toEqual({ terminatedAt: expect.any(Date) });
+                expect(call.data).not.toHaveProperty("endDate");
+            });
+
+            it("scopes the schedule write to the branch and skips already-terminated rows", async () => {
+                const mockClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(mockClient);
+                updateClientUsecase.execute.mockResolvedValue(mockClient);
+                prismaService.employee_schedule.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+
+                await service.terminateService(branchId, 1);
+
+                expect(prismaService.employee_schedule.updateMany.mock.calls[0][0].where).toEqual({
+                    clientId: 1,
+                    branchId,
+                    replaced: false,
+                    terminatedAt: null,
+                });
             });
         });
 

@@ -184,7 +184,7 @@ export class DispatchDocumentHeadlessUsecase {
         let latestProgressStep: EformsignHeadlessProgressStep | undefined;
         let dispatchIntent: Awaited<ReturnType<EformsignDispatchBoundaryService["claim"]>>["intent"] | undefined;
         try {
-            const assignment = await this.assignmentGuard.assertAssignedProvider(
+            const assignment = await this.assignmentGuard.assertLiveAssignedProvider(
                 branchId,
                 params.clientId,
                 params.contractData.caretaker1Contact,

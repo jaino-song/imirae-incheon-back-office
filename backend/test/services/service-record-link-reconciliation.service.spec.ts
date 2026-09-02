@@ -6,6 +6,7 @@ import {
 } from "domain/constants/service-record-link-message";
 import { MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON } from "domain/constants/message-automation-policy";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { createSchedulerLeaseMock } from "../utils/mocks/scheduler-lease.mock";
 
 describe("ServiceRecordLinkReconciliationService", () => {
     const createPrisma = () => ({
@@ -41,6 +42,7 @@ describe("ServiceRecordLinkReconciliationService", () => {
         const service = new ServiceRecordLinkReconciliationService(
             prisma as unknown as PrismaService,
             linkService as never,
+            createSchedulerLeaseMock(),
         );
 
         await expect(
@@ -101,6 +103,7 @@ describe("ServiceRecordLinkReconciliationService", () => {
         const service = new ServiceRecordLinkReconciliationService(
             prisma as unknown as PrismaService,
             linkService as never,
+            createSchedulerLeaseMock(),
         );
 
         await expect(service.reconcileMissingJobs()).resolves.toBe(0);
@@ -117,6 +120,7 @@ describe("ServiceRecordLinkReconciliationService", () => {
         const service = new ServiceRecordLinkReconciliationService(
             prisma as unknown as PrismaService,
             linkService as never,
+            createSchedulerLeaseMock(),
         );
 
         await expect(service.reconcileMissingJobs()).resolves.toBe(0);
@@ -139,6 +143,7 @@ describe("ServiceRecordLinkReconciliationService", () => {
         const service = new ServiceRecordLinkReconciliationService(
             prisma as unknown as PrismaService,
             linkService as never,
+            createSchedulerLeaseMock(),
         );
 
         await expect(
@@ -160,6 +165,7 @@ describe("ServiceRecordLinkReconciliationService", () => {
         const service = new ServiceRecordLinkReconciliationService(
             prisma as unknown as PrismaService,
             linkService as never,
+            createSchedulerLeaseMock(),
         );
 
         await expect(service.reconcileMissingJobs()).resolves.toBe(1);
@@ -208,6 +214,7 @@ describe("ServiceRecordLinkReconciliationService", () => {
         const service = new ServiceRecordLinkReconciliationService(
             prisma as unknown as PrismaService,
             linkService as never,
+            createSchedulerLeaseMock(),
         );
 
         for (const currentReferenceDate of [
@@ -239,8 +246,23 @@ describe("ServiceRecordLinkReconciliationService", () => {
         const service = new ServiceRecordLinkReconciliationService(
             prisma as unknown as PrismaService,
             linkService as never,
+            createSchedulerLeaseMock(),
         );
 
         await expect(service.reconcileMissingJobs()).resolves.toBe(0);
+    });
+
+    it("skips the run when the scheduler lease is not held", async () => {
+        const prisma = createPrisma();
+        const linkService = createLinkService();
+        const service = new ServiceRecordLinkReconciliationService(
+            prisma as unknown as PrismaService,
+            linkService as never,
+            createSchedulerLeaseMock(false),
+        );
+
+        await service.repairMissingJobs();
+
+        expect(prisma.branch.findMany).not.toHaveBeenCalled();
     });
 });

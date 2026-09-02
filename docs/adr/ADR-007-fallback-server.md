@@ -64,7 +64,8 @@ Node.js 20+, Vercel rehearsal, and arm/disarm gates in
    recovery time and configuration drift.
 2. **Run the Fallback Server active-active with AWS.** Rejected because current
    singleton schedulers and document workers do not have a cross-host ownership
-   lease.
+   lease. (ADR-010 later added that lease; the passive Compose gates remain in
+   place as the first line of defence.)
 3. **Copy the Lightsail Systems Manager operator.** Rejected because its IAM,
    managed-node, protected-host, and production/preview assumptions are AWS and
    host specific.
@@ -95,7 +96,8 @@ Node.js 20+, Vercel rehearsal, and arm/disarm gates in
 ## Risks
 
 - **Split-brain provider mutations:** mitigated by fixed passive overrides in
-  Compose and runtime inspection in the operator.
+  Compose and runtime inspection in the operator, and since ADR-010 by the
+  database scheduler lease that lets only one host run background work.
 - **Ambiguous eformsign completion:** mitigated by reconciliation before retry.
 - **Mutable or incorrect image:** mitigated by digest pull plus embedded revision
   verification.

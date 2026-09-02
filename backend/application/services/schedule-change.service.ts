@@ -287,6 +287,19 @@ export class ScheduleChangeService {
                 });
                 if (!record) throw new NotFoundException("Service record not found");
 
+                // Lock the client/employee rows before touching any
+                // service_record_day rows so this transaction acquires locks
+                // in the same order as the entry-service upsertSession
+                // extension path (client -> employees, then day rows).
+                // Locking after the day writes (as before) could deadlock
+                // against a concurrent upsertSession run that locks the
+                // client/employees first and then waits on these day rows.
+                await lockClientForScheduleWrite(tx, branchId, schedule.clientId);
+                await lockEmployeesForScheduleWrite(tx, branchId, [
+                    schedule.primaryEmployeeId,
+                    schedule.secondaryEmployeeId,
+                ]);
+
                 const pendingRequest = await tx.schedule_change_request.findFirst({
                     where: { scheduleId, status: "pending" },
                 });
@@ -355,11 +368,6 @@ export class ScheduleChangeService {
                     });
                 }
 
-                await lockClientForScheduleWrite(tx, branchId, schedule.clientId);
-                await lockEmployeesForScheduleWrite(tx, branchId, [
-                    schedule.primaryEmployeeId,
-                    schedule.secondaryEmployeeId,
-                ]);
                 if (schedule.startDate) {
                     await assertNoActiveEmployeeScheduleOverlap(tx, {
                         branchId,
@@ -465,6 +473,19 @@ export class ScheduleChangeService {
                 const record = await tx.service_record_case.findUnique({ where: { clientId: request.clientId } });
                 if (!record) throw new NotFoundException("Service record not found");
 
+                // Lock the client/employee rows before touching any
+                // service_record_day rows so this transaction acquires locks
+                // in the same order as the entry-service upsertSession
+                // extension path (client -> employees, then day rows).
+                // Locking after the day writes (as before) could deadlock
+                // against a concurrent upsertSession run that locks the
+                // client/employees first and then waits on these day rows.
+                await lockClientForScheduleWrite(tx, request.branchId, request.clientId);
+                await lockEmployeesForScheduleWrite(tx, request.branchId, [
+                    schedule.primaryEmployeeId,
+                    schedule.secondaryEmployeeId,
+                ]);
+
                 const days = await tx.service_record_day.findMany({
                     where: { serviceRecordCaseId: record.id },
                     orderBy: { caseSessionIndex: "asc" },
@@ -523,11 +544,6 @@ export class ScheduleChangeService {
                 }
 
                 const newEndDate = toDbDate(target.newEndDate);
-                await lockClientForScheduleWrite(tx, request.branchId, request.clientId);
-                await lockEmployeesForScheduleWrite(tx, request.branchId, [
-                    schedule.primaryEmployeeId,
-                    schedule.secondaryEmployeeId,
-                ]);
                 if (schedule.startDate) {
                     await assertNoActiveEmployeeScheduleOverlap(tx, {
                         branchId: request.branchId,

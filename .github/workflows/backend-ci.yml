@@ -73,6 +73,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # database-patches.yml re-executes its whole migration block on every push, so a
+      # statement that raises on its second run aborts the step and silently stops every
+      # LATER migration from ever applying — which is how add_scheduler_lease kept
+      # add_employee_schedule_terminated_at out of the dev database while the code that
+      # reads that column was already merged.
+      #
+      # This gate sits in the required job on purpose. The sibling workflow-contract test
+      # (which checks that every migration is WIRED) runs only in `shared contracts` and
+      # `backend full flow e2e`, and neither is a required check on dev, preview or main —
+      # so a violation there reports red and merges anyway.
+      - name: Migration idempotency gate
+        run: node --test scripts/ci/migration-idempotency.test.mjs
+
       - name: Verify vendored agent contracts
         run: |
           pnpm --filter @babyjamjam/shared run build:backend-runtime
@@ -560,6 +573,8 @@ jobs:
           container_health="$(read_status_value container_health)"
           restart_count="$(read_status_value restart_count)"
           schedulers_enabled="$(read_status_value schedulers_enabled)"
+          lease_mode="$(read_status_value lease_mode)"
+          lease_holder="$(read_status_value lease_holder)"
           public_health="$(read_status_value public_health)"
           db_route="$(read_status_value db_route)"
           runtime_route="$(read_status_value runtime_route)"
@@ -571,6 +586,11 @@ jobs:
           [[ "$container_health" == "healthy" ]]
           [[ "$restart_count" == "0" ]]
           [[ "$schedulers_enabled" == "$EXPECTED_SCHEDULERS_ENABLED" ]]
+          # ADR-010: the scheduler-owning host must contest the lease as `lightsail`.
+          if [[ "$EXPECTED_SCHEDULERS_ENABLED" == "true" ]]; then
+            [[ "$lease_mode" == "required" ]]
+            [[ "$lease_holder" == "lightsail" ]]
+          fi
           [[ "$public_health" == "ok" ]]
           [[ "$db_route" == "shared" || "$db_route" == "direct" ]]
           [[ "$runtime_route" == "$db_route" ]]
@@ -583,6 +603,8 @@ jobs:
             "container_health=$container_health" \
             "restart_count=$restart_count" \
             "schedulers_enabled=$schedulers_enabled" \
+            "lease_mode=$lease_mode" \
+            "lease_holder=$lease_holder" \
             "public_health=$public_health" \
             "db_route=$db_route" \
             "runtime_route=$runtime_route" \
@@ -690,6 +712,10 @@ jobs:
           expect_status container_health healthy
           expect_status restart_count 0
           expect_status public_routing fallback
+          # ADR-010: a temporary-active fallback contests the lease. Only asserted
+          # after replace (the pre-replace release may predate /health/lease), and
+          # only the mode: lease_held may legitimately be false while Lightsail holds it.
+          expect_status lease_mode required
           curl --fail --silent --show-error --connect-timeout 3 --max-time 10 \
             https://api.babyjamjam.com/health/ready >/dev/null
           printf '%s\n' \
@@ -699,4 +725,5 @@ jobs:
             "container_health=healthy" \
             "restart_count=0" \
             "public_routing=fallback" \
-            "schedulers_enabled=true"
+            "schedulers_enabled=true" \
+            "lease_mode=required"

@@ -516,6 +516,11 @@ model employee_schedule {
   startDate               DateTime                   @map("start_date") @db.Date
   endDate                 DateTime                   @map("end_date") @db.Date
   replaced                Boolean                    @default(false)
+  /// When the client's service was terminated early. Null means not terminated.
+  /// Termination records itself here instead of overwriting end_date, so the
+  /// contracted period survives and a service terminated before it started
+  /// cannot produce start_date > end_date.
+  terminatedAt            DateTime?                  @map("terminated_at") @db.Timestamptz(6)
   clientId                Int                        @map("client_id")
   secondaryEmployeeId     Int?                       @map("secondary_employee_id") @db.SmallInt
   branchId                String?                    @map("branch_id") @db.Uuid
@@ -657,6 +662,19 @@ model system_setting {
   key       String   @id
   value     String
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+}
+
+// Single-row host-level lease for background schedulers. Exactly one process
+// may hold `background-owner` at a time; every @Cron/@Interval entry point
+// checks SchedulerLeaseService.holdsLease() before doing work. Not
+// branch-scoped (no branch_id) — it is infrastructure, not tenant data.
+model scheduler_lease {
+  name       String   @id @db.VarChar(64)
+  holderId   String   @map("holder_id") @db.VarChar(64)
+  instanceId String   @map("instance_id") @db.VarChar(64)
+  acquiredAt DateTime @map("acquired_at") @db.Timestamptz(6)
+  renewedAt  DateTime @map("renewed_at") @db.Timestamptz(6)
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(6)
 }
 
 // Append-only authority mutation ledger. Identity fields are scalar snapshots

@@ -5,6 +5,7 @@ import {
     IMessageLogRepository,
 } from "domain/repositories/message-log.repository.interface";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 import { SmsRetryService } from "./sms-retry.service";
 import {
     isTransientPrismaConnectivityError,
@@ -32,10 +33,15 @@ export class MessageRetrySchedulerService {
         @Inject(MESSAGE_LOG_REPOSITORY)
         private readonly logRepository: IMessageLogRepository,
         private readonly smsRetryService: SmsRetryService,
+        private readonly schedulerLease: SchedulerLeaseService,
     ) {}
 
     @Cron("*/5 * * * *", { timeZone: "Asia/Seoul" })
     async retryFailedMessages(): Promise<void> {
+        if (!this.schedulerLease.holdsLease()) {
+            return;
+        }
+
         const runToken = this.executionGuard.tryStart();
         if (!runToken) {
             return;
@@ -47,7 +53,15 @@ export class MessageRetrySchedulerService {
 
             this.logger.log(`[Retry] Found ${pendingLogs.length} messages to retry`);
 
+            let processedCount = 0;
             for (const log of pendingLogs) {
+                if (!this.schedulerLease.holdsLease()) {
+                    this.logger.warn(
+                        `[Retry] scheduler lease lost mid-run; stopping after ${processedCount} items`,
+                    );
+                    break;
+                }
+                processedCount += 1;
                 try {
                     if (log.variables["retrySafety"] === "uncertain"
                         || log.providerAcceptanceState === "started"

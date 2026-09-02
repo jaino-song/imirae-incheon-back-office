@@ -534,6 +534,15 @@ export function FooManager({ dataComponent }: FooManagerProps) {
 11. 자유 입력(`TitleTextInputMolecule`)으로 일수·횟수를 받는다 → 옵션이 정해진 값은 `TitleSelectMolecule`.
 12. 테스트 없이 커밋 → §5 최소 3건.
 
+## 8.5 모바일(m.admin) 차이점 — 브라우저 API는 Next 프록시를 거친다
+
+모바일 앱의 `api` 클라이언트는 브라우저에서 `baseURL: "/api"`를 쓴다 (`mobile/src/lib/api/client.ts`). 즉 **백엔드에 엔드포인트가 있어도 `mobile/src/app/api/<path>/route.ts` 핸들러가 없으면 404**다. 데스크톱(`frontend/`)은 백엔드를 직접 호출하므로 같은 화면이 데스크톱에서만 동작하는 사고가 난다.
+
+- 사고 (2026-09-02): 계약서 `자동화` 섹션을 모바일에 이식했을 때 `settingsApi`만 추가하고 `/api/settings/contract-automation-policies` 프록시를 빠뜨려 "자동화 설정을 불러오지 못했습니다"가 떴다. PR #604 → 후속 수정.
+- 규칙: 모바일에서 새 `settingsApi`/도메인 API 함수를 추가할 때는 **같은 커밋에** `mobile/src/app/api/<same path>/route.ts`를 추가한다. 형식은 이웃 파일 복제 — GET은 `message-automation-policies/route.ts`, 검증이 있는 PUT은 `message-automation-policies/past-trigger/route.ts` (`zod` 스키마로 백엔드 DTO 범위를 그대로 반복).
+- 테스트: `mobile/src/app/api/settings/__tests__/`에 401·400·프록시 성공 케이스를 둔다 (`contract-automation-policies.route.test.ts` 참고).
+- 모바일 화면 조립은 §8이 아니라 `MessagesTriggersPage` 패턴(`MobileDetailSheet` + `ListCard` + `ListItemRow` + `MobileDetailPage` 에디터)을 따른다. 데스크톱 `SplitLayout` 계열은 모바일에 없다.
+
 ## 9. 이 문서를 바꿔야 할 때
 
 - `TriggerRulesManager`의 패턴이 바뀌면 이 문서 §2를 같은 커밋에서 갱신한다.

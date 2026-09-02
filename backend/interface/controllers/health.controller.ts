@@ -9,6 +9,7 @@ import {
 } from "@nestjs/common";
 import type { Response } from "express";
 
+import { SchedulerLeaseMode, SchedulerLeaseService } from "application/services/scheduler-lease.service";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { ReadinessService } from "infrastructure/health/readiness.service";
 
@@ -18,6 +19,12 @@ interface HealthResponse {
 
 interface ReadinessResponse {
     status: "ok" | "unavailable";
+}
+
+interface LeaseResponse {
+    mode: SchedulerLeaseMode;
+    holderId: string;
+    held: boolean;
 }
 
 @Controller()
@@ -30,6 +37,7 @@ export class HealthController {
         @Inject(PrismaService)
         private readonly prisma: PrismaService | undefined,
         private readonly readiness: ReadinessService,
+        private readonly schedulerLease: SchedulerLeaseService,
     ) {}
 
     @Get("health")
@@ -60,5 +68,17 @@ export class HealthController {
             response.status(HttpStatus.SERVICE_UNAVAILABLE);
             return { status: "unavailable" };
         }
+    }
+
+    /**
+     * Which host runs background schedulers right now (ADR-010). Always 200: this is
+     * an observation, not a readiness signal — a passive host is healthy AND not holding.
+     */
+    @Get("health/lease")
+    @Header("Cache-Control", "no-store")
+    getLease(@Res({ passthrough: true }) response: Response): LeaseResponse {
+        response.setHeader("Cache-Control", "no-store");
+        const snapshot = this.schedulerLease.snapshot();
+        return { mode: snapshot.mode, holderId: snapshot.holderId, held: snapshot.held };
     }
 }

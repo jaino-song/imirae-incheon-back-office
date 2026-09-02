@@ -20,6 +20,7 @@ import { CapabilityRegistryService } from "./capability-registry.service";
 import { AgentFlagsService } from "./agent-flags.service";
 import { AgentActionSweepLockService } from "infrastructure/locking/agent-action-sweep-lock.service";
 import { AgentSessionService } from "./agent-session.service";
+import { SchedulerLeaseService } from "application/services/scheduler-lease.service";
 import type { AgentReconciliationOutcome } from "./capability.types";
 
 const APPROVAL_PENDING_STATUSES: AgentActionStatus[] = ["proposed", "approved"];
@@ -152,6 +153,7 @@ export class ActionCoordinatorService {
         private readonly sweepLock: AgentActionSweepLockService,
         private readonly sessions: AgentSessionService,
         @Inject(AGENT_ACTION_REPOSITORY) private readonly actionRepository: IAgentActionRepository,
+        private readonly schedulerLease: SchedulerLeaseService,
     ) {}
 
     async propose(input: AgentActionProposalInput): Promise<AgentActionEntity> {
@@ -718,6 +720,7 @@ export class ActionCoordinatorService {
      */
     @Cron("*/5 * * * *")
     async reconcileUncertainActions(): Promise<number> {
+        if (!this.schedulerLease.holdsLease()) return 0;
         if (!this.sweepLock.isAvailable()) return 0;
         return this.sweepLock.runExclusive(async (lease) => {
             if (!lease.isHeld()) return 0;
@@ -858,6 +861,7 @@ export class ActionCoordinatorService {
 
     @Cron("*/5 * * * *")
     async repairTerminalResultParts(): Promise<number> {
+        if (!this.schedulerLease.holdsLease()) return 0;
         const records = await this.prisma.agent_action.findMany({
             where: { status: { in: TERMINAL_STATUSES }, resultPartPersistedAt: null },
             orderBy: { updatedAt: "asc" },
@@ -878,6 +882,7 @@ export class ActionCoordinatorService {
 
     @Cron(CronExpression.EVERY_MINUTE)
     async sweepExpired(): Promise<number> {
+        if (!this.schedulerLease.holdsLease()) return 0;
         if (!this.sweepLock.isAvailable()) return 0;
         return this.sweepLock.runExclusive((lease) => lease.isHeld() ? this.expirePending() : Promise.resolve(0));
     }
