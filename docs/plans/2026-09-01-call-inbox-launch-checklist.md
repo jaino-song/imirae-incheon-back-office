@@ -7,13 +7,15 @@
 
 ## 0. 코드 반영 (개발자 확인 필요)
 
-- [ ] `call-inbox-productionization` → `dev` 머지 (머지 전 `git merge dev`로 최신 dev 반영·체크 재실행)
+- [x] `call-inbox-productionization` → `dev` 머지 (머지 전 `git merge dev`로 최신 dev 반영·체크 재실행) — 2026-09-02 PR #597 `6269b89a6`
 - [ ] CI green 확인 — 특히 **auth-e2e enforce leg** (`.github/workflows/backend-ci.yml:128-142`). 로컬에 docker가 없어 transitive-tenant-isolation 스펙의 런타임 실행은 CI가 유일한 검증 지점이다.
   - 2026-09-02 결과 (PR #597): 첫 실행(`15bdc5177`)에서 `enforce` leg가 이 브랜치와 무관한 **AI 에이전트 런타임**의 기존 결함(BJJ-301: e2e 가드 mock의 `setBranchId` 누락 + `agent_session`/`agent_action` 미고정 쓰기 5곳)을 잡아냈고, 같은 PR의 `b892c3aab`에서 수정 → **observe·enforce 두 leg 모두 green**. 통화 인박스·tenant 격리 스펙은 두 실행 모두 통과.
 - [ ] **GitHub branch protection required check에 auth-e2e leg 추가 검토**: auth-e2e job이 matrix로 바뀌어 표시 이름이 `auth e2e · observe · …` / `auth e2e · enforce · …` 두 개가 됐다. 2026-09-02 확인 결과 dev의 required check는 `backend · type-check · lint · test`, `frontend · type-check · lint · test · build`, `type-check · lint · test · build` 세 개뿐이라 옛 auth-e2e 이름은 걸려 있지 않다(머지 막힘 없음). 두 leg가 이제 green이므로 required에 추가할지 결정할 것.
 - [ ] 새 `backend call-inbox e2e · local stubs` job도 required check에 추가 검토 (`.github/workflows/backend-full-flow-ci.yml`)
-- [ ] release train으로 `preview` → `main` 승격 (열려 있는 #591 트레인 합류 또는 후속 트레인)
-- [ ] Lightsail 배포 완료 확인 (api.babyjamjam.com 헬스체크)
+- [x] release train으로 `preview` → `main` 승격 — 2026-09-02 후속 트레인: #600(main→dev 역병합) → #592(dev→preview `0d75fd287`, preview DB 패치가 `20260831185406_add_call_record_raw_transcript` 적용) → #606(preview→main `aa7ad0294`).
+  - 중간에 발견·수정한 결함: `12fd60a38`(8/27) 이후 모든 릴리스의 `/health/ready`가 **항상 503**이었다 — `HealthController`의 prisma 파라미터가 `PrismaService | undefined` 유니언이라 DI 메타데이터가 `Object`로 지워지고 `@Optional()`이 `undefined`를 주입. #591 배포(`b51f63c75`)가 이 때문에 LightNode에서 롤백됐고, #602(main)·#603(dev)로 `@Inject(PrismaService)` 명시 + DI 회귀 테스트 추가. CI에는 `/health/ready`를 호출하는 잡이 없어 잡히지 않았다.
+- [x] 프로덕션 배포 완료 확인 — 2026-09-02 `aa7ad0294` LightNode 폴백 호스트에 replace 성공(`deploy LightNode fallback backend` green), `https://api.babyjamjam.com/health/ready` 200. (프로덕션은 현재 Lightsail이 아니라 LightNode 폴백이 서빙; 이미지는 하나이고 리졸버가 대상을 고른다.)
+  - 남은 운영자 항목: `database-patches.yml`의 `apply production database patches`는 GitHub `Production` 환경 승인 대기(`aa7ad0294` 실행, 적용 대상은 위 마이그레이션 1개). preview push의 `deploy Lightsail backend`가 AWS OIDC `AssumeRoleWithWebIdentity` 미승인으로 실패한다 — IAM 신뢰 정책이 `preview` ref를 허용하지 않는 것으로 보이며 릴리스 코드와 무관.
 
 ## 1. 환경변수
 
