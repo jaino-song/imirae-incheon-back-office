@@ -40,6 +40,7 @@ describe("MessageTriggerService", () => {
         startDate: Date;
         endDate: Date;
         replaced: boolean;
+        terminatedAt: Date | null;
         primaryEmployeeId: number;
         secondaryEmployeeId: number | null;
         client: { id: number; name: string };
@@ -1687,6 +1688,10 @@ describe("MessageTriggerService", () => {
         ["end date", { endDate: new Date("2026-08-16T00:00:00.000Z") }],
         ["work address", { workAddress: "서울 강남구" }],
         ["replacement state", { replaced: true }],
+        // Termination is NOT a fingerprint input, so this case only passes because the
+        // fence checks terminatedAt explicitly. Until the contracted period was
+        // preserved, terminating rewrote end_date and staled the job by accident.
+        ["termination", { terminatedAt: new Date("2026-07-20T00:00:00.000Z") }],
         ["employee assignment", {
             primaryEmployeeId: 31,
             primaryEmployee: { id: 31, name: "박신규", phone: "010-2222-3333" },
@@ -2633,6 +2638,7 @@ describe("MessageTriggerService", () => {
         startDate: new Date("2026-07-15T00:00:00.000Z"),
         endDate: new Date("2026-08-15T00:00:00.000Z"),
         replaced: false,
+        terminatedAt: null,
         primaryEmployeeId: 30,
         secondaryEmployeeId: null,
         client: { id: 1, name: "김산모" },
@@ -2727,7 +2733,7 @@ describe("MessageTriggerService", () => {
         await sync.service.syncEmployeeAssignmentRulesForClient(branchId, 1);
 
         expect(sync.prisma.employee_schedule.findMany).toHaveBeenCalledWith({
-            where: { branchId, clientId: 1, replaced: false },
+            where: { branchId, clientId: 1, replaced: false, terminatedAt: null },
             select: { id: true },
             orderBy: { id: "asc" },
         });
@@ -2758,6 +2764,7 @@ describe("MessageTriggerService", () => {
             where: {
                 branchId,
                 replaced: false,
+                terminatedAt: null,
                 OR: [
                     { primaryEmployeeId: 30 },
                     { secondaryEmployeeId: 30 },

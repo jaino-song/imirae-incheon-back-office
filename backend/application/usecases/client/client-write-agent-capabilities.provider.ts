@@ -617,7 +617,10 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
 
         try {
             const activeSchedules = await this.prisma.employee_schedule.findMany({
-                where: { branchId, clientId, replaced: false },
+                // Mirrors the guard in MessageTriggerService's per-client sync: a
+                // terminated assignment must not queue a refresh intent that would
+                // re-arm the 배정 안내 for a service that is over.
+                where: { branchId, clientId, replaced: false, terminatedAt: null },
                 select: { id: true },
                 orderBy: { id: "asc" },
             });
