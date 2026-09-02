@@ -281,8 +281,21 @@ test("PR-controlled frontend and mobile lanes use explicit read-only permissions
     const e2eText = e2eJob.join("\n");
 
     assert.doesNotMatch(verifyJob, /pull-requests:\s+/, "mobile verify must not receive an unnecessary pull-requests token scope");
-    assert.match(e2eText, /^    permissions:\n      contents: read\n      pull-requests: read$/m, "mobile E2E must scope PR file-list access to its own job");
-    assert.match(e2eText, /repos\/\$\{\{ github\.repository \}\}\/pulls\/\$\{\{ github\.event\.pull_request\.number \}\}\/files/);
+
+    // The scope and the call that needs it must appear together. The job used to read
+    // the PR's changed files to pick which specs to run; it now runs the whole suite,
+    // so it must no longer carry a token scope it does not use. Stating the invariant
+    // as an equivalence keeps it true in both directions if that ever comes back.
+    const readsPrFileList = /repos\/\$\{\{ github\.repository \}\}\/pulls\/\$\{\{ github\.event\.pull_request\.number \}\}\/files/.test(e2eText);
+    const holdsPrScope = /^ {6}pull-requests: read$/m.test(e2eText);
+    assert.equal(
+        holdsPrScope,
+        readsPrFileList,
+        readsPrFileList
+            ? "mobile E2E must scope PR file-list access to its own job"
+            : "mobile E2E no longer reads the PR file list, so it must not hold pull-requests: read",
+    );
+    assert.match(e2eText, /^    permissions:\n      contents: read$/m, "mobile E2E must explicitly declare read-only permissions");
 });
 
 test("database failover validation has no OIDC token while deploy jobs retain OIDC", async () => {
