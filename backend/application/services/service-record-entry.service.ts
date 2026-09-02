@@ -223,7 +223,12 @@ export class ServiceRecordEntryService {
             // session, no admin approval needed.
             const serviceDateIso = toIso(serviceDate);
             const currentEndIso = record.endDate ? toIso(record.endDate) : null;
-            const requiredEndIso = addBusinessDaysKr(serviceDateIso, total - sessionIndex);
+            let requiredEndIso: string;
+            try {
+                requiredEndIso = addBusinessDaysKr(serviceDateIso, total - sessionIndex);
+            } catch {
+                throw new BadRequestException("서비스 제공일자를 계산할 수 없습니다. 날짜를 확인해 주세요.");
+            }
             if (currentEndIso && requiredEndIso > currentEndIso) {
                 const newEndDate = new Date(`${requiredEndIso}T00:00:00.000Z`);
                 await lockClientForScheduleWrite(tx, ctx.branchId, schedule.clientId);
