@@ -3018,8 +3018,8 @@ describe("ClientService", () => {
                     endDate: expect.any(Date),
                 });
                 expect(prismaService.employee_schedule.updateMany).toHaveBeenCalledWith({
-                    where: { clientId: 1, replaced: false },
-                    data: { endDate: expect.any(Date) },
+                    where: { clientId: 1, branchId, replaced: false, terminatedAt: null },
+                    data: { terminatedAt: expect.any(Date) },
                 });
                 expect(result.serviceStatus).toBe("terminated");
             });
@@ -3062,6 +3062,38 @@ describe("ClientService", () => {
 
                 // Assert
                 expect(triggerService.syncClientRulesForClient).toHaveBeenCalledWith(branchId, 1, false);
+            });
+
+            // Regression: termination used to close schedules by overwriting end_date,
+            // which destroyed the contracted period and wrote start_date > end_date
+            // whenever the service was terminated before it began.
+            it("records termination on its own column instead of overwriting end_date", async () => {
+                const mockClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(mockClient);
+                updateClientUsecase.execute.mockResolvedValue(mockClient);
+                prismaService.employee_schedule.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+
+                await service.terminateService(branchId, 1);
+
+                const call = prismaService.employee_schedule.updateMany.mock.calls[0][0];
+                expect(call.data).toEqual({ terminatedAt: expect.any(Date) });
+                expect(call.data).not.toHaveProperty("endDate");
+            });
+
+            it("scopes the schedule write to the branch and skips already-terminated rows", async () => {
+                const mockClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(mockClient);
+                updateClientUsecase.execute.mockResolvedValue(mockClient);
+                prismaService.employee_schedule.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+
+                await service.terminateService(branchId, 1);
+
+                expect(prismaService.employee_schedule.updateMany.mock.calls[0][0].where).toEqual({
+                    clientId: 1,
+                    branchId,
+                    replaced: false,
+                    terminatedAt: null,
+                });
             });
         });
 

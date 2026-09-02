@@ -516,6 +516,11 @@ model employee_schedule {
   startDate               DateTime                   @map("start_date") @db.Date
   endDate                 DateTime                   @map("end_date") @db.Date
   replaced                Boolean                    @default(false)
+  /// When the client's service was terminated early. Null means not terminated.
+  /// Termination records itself here instead of overwriting end_date, so the
+  /// contracted period survives and a service terminated before it started
+  /// cannot produce start_date > end_date.
+  terminatedAt            DateTime?                  @map("terminated_at") @db.Timestamptz(6)
   clientId                Int                        @map("client_id")
   secondaryEmployeeId     Int?                       @map("secondary_employee_id") @db.SmallInt
   branchId                String?                    @map("branch_id") @db.Uuid
