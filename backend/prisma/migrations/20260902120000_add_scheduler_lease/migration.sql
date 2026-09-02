@@ -3,7 +3,10 @@
 -- UPDATE ... WHERE ... RETURNING, so this table needs no seed to work — the
 -- seed row below only makes the lease visible to operators before the first
 -- host acquires it.
-CREATE TABLE "scheduler_lease" (
+-- Idempotent by construction: the database-patches workflow re-executes this
+-- whole block on every push, so a bare CREATE TABLE fails every run after the
+-- first and blocks every later migration in the block from ever applying.
+CREATE TABLE IF NOT EXISTS "scheduler_lease" (
     "name" VARCHAR(64) NOT NULL,
     "holder_id" VARCHAR(64) NOT NULL,
     "instance_id" VARCHAR(64) NOT NULL,
