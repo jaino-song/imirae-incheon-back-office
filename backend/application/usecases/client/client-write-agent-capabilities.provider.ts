@@ -272,7 +272,7 @@ async function validateClientWrite(
             && (updates.startDate !== undefined || updates.endDate !== undefined);
         if (hasDateUpdate && derivedDuration !== null && updates.duration === null) {
             throw new BadRequestException(
-                `duration must equal the Korean business-day count (${derivedDuration}) for the submitted service period`,
+                `duration cannot exceed the Korean business-day count (${derivedDuration}) for the submitted service period`,
             );
         }
         if (hasDateUpdate && derivedDuration === null && updates.duration !== undefined && updates.duration !== null) {

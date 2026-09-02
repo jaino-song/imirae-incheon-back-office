@@ -515,19 +515,20 @@ export class ServiceRecordLifecycleService {
             endDate: params.endDate,
         }, tx);
 
-        // Contract completion changes the authoritative service period. Read
-        // the current start date inside the same transaction and persist the
-        // derived Korean business-day duration together with the end date so
-        // no caller can leave the client header and lifecycle case divergent.
-        // A few legacy unit-test transaction doubles do not expose findUnique;
-        // those retain the historical end-date-only update shape.
+        // duration is authoritative once set on the client (per the contract
+        // lifecycle: duration/requiredSessionCount drive the schedule, not
+        // the reverse). Only derive and write it here when the client has no
+        // duration yet; otherwise this sync must leave duration untouched and
+        // only move the end date. A few legacy unit-test transaction doubles
+        // do not expose findUnique; those retain the historical
+        // end-date-only update shape.
         let duration: number | null | undefined;
         if (typeof tx.client.findUnique === "function") {
             const currentClient = await tx.client.findUnique({
                 where: { id: params.clientId },
-                select: { startDate: true },
+                select: { startDate: true, duration: true },
             });
-            if (currentClient) {
+            if (currentClient && currentClient.duration === null) {
                 if (!currentClient.startDate) {
                     duration = null;
                 } else {

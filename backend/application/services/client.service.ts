@@ -1579,7 +1579,7 @@ export class ClientService {
         assertClientDurationMatchesDates(params.duration, derivedDuration);
         if (hasDateUpdate && params.duration === null && derivedDuration !== null) {
             throw new BadRequestException(
-                `duration must equal the Korean business-day count (${derivedDuration}) for the submitted service period`,
+                `duration cannot exceed the Korean business-day count (${derivedDuration}) for the submitted service period`,
             );
         }
         if (hasDateUpdate && derivedDuration === null && params.duration !== undefined && params.duration !== null) {

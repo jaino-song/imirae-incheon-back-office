@@ -92,21 +92,27 @@ describe("ServiceRecordLifecycleService", () => {
     });
 
     it("keeps the stored client duration as the required session count even when the period is longer", async () => {
+        // Regression test for the incident: an earlier "repair" path
+        // rewrote client.duration to match the date-derived count whenever
+        // it disagreed with the stored value, silently shrinking a
+        // 15-session contract to whatever the (postponed) period implied.
         // duration is the contracted session count and is authoritative
-        // once set: a later end date (e.g. a postponed session extending
-        // the period) must not shrink or grow the persisted count.
+        // once set: a longer period (2026-08-10 -> 2026-09-03 is 18 Korean
+        // business days) must not shrink or grow the persisted count, and
+        // must never trigger a client.updateMany repair write.
         const record = { id: "case-1" };
         const prisma = {
             client: {
                 findUnique: jest.fn().mockResolvedValue({
                     id: 1,
                     branchId: "branch-1",
-                    startDate: date("2026-08-03"),
-                    endDate: date("2026-08-10"),
+                    startDate: date("2026-08-10"),
+                    endDate: date("2026-09-03"),
                     duration: 15,
                     serviceStatus: "in_progress",
                     employeeSchedules: [],
                 }),
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
             },
             service_record_case: {
                 findUnique: jest.fn().mockResolvedValue(null),
@@ -118,6 +124,7 @@ describe("ServiceRecordLifecycleService", () => {
 
         await service.ensureForClient(1);
 
+        expect(prisma.client.updateMany).not.toHaveBeenCalled();
         expect(prisma.service_record_case.upsert).toHaveBeenCalledWith(expect.objectContaining({
             create: expect.objectContaining({ requiredSessionCount: 15 }),
             update: expect.objectContaining({ requiredSessionCount: 15 }),
@@ -200,7 +207,7 @@ describe("ServiceRecordLifecycleService", () => {
         expect(ensureSpy).toHaveBeenCalledWith(1, transactionClient);
     });
 
-    it("persists the canonical business-day duration with a contract end-date sync", async () => {
+    it("persists the canonical business-day duration with a contract end-date sync when the client has no duration yet", async () => {
         const transactionClient = {
             service_record_case: {
                 findUnique: jest.fn().mockResolvedValue(null),
@@ -208,6 +215,7 @@ describe("ServiceRecordLifecycleService", () => {
             client: {
                 findUnique: jest.fn().mockResolvedValue({
                     startDate: date("2026-08-03"),
+                    duration: null,
                 }),
                 updateMany: jest.fn().mockResolvedValue({ count: 1 }),
             },
@@ -228,6 +236,49 @@ describe("ServiceRecordLifecycleService", () => {
         expect(transactionClient.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
             data: { endDate: date("2026-08-10"), duration: 6 },
         }));
+    });
+
+    it("leaves duration untouched when syncing a contract end date and the client already has a stored duration", async () => {
+        // duration is authoritative once set: a contract sync must only move
+        // endDate, never re-derive and overwrite the contracted count.
+        const transactionClient = {
+            service_record_case: {
+                findUnique: jest.fn().mockResolvedValue(null),
+            },
+            client: {
+                findUnique: jest.fn().mockResolvedValue({
+                    startDate: date("2026-08-10"),
+                    duration: 15,
+                }),
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+        };
+        const prisma = {
+            $transaction: jest.fn((callback: (tx: typeof transactionClient) => Promise<unknown>) =>
+                callback(transactionClient)),
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+        jest.spyOn(service, "ensureForClient").mockResolvedValue(null);
+
+        // 2026-09-03 is later than the 15th Korean business day after
+        // 2026-08-10 (an 18-business-day span), the same postponement shape
+        // that triggers automatic end-date extension in upsertSession.
+        await service.syncEndDateFromContract({
+            branchId: rawQueryBranchId,
+            clientId: 1,
+            endDate: date("2026-09-03"),
+        });
+
+        expect(transactionClient.client.updateMany).toHaveBeenCalledWith({
+            where: {
+                id: 1,
+                OR: [
+                    { branchId: rawQueryBranchId },
+                    { branchId: null },
+                ],
+            },
+            data: { endDate: date("2026-09-03") },
+        });
     });
 
     it("does not let a stale mirror version update a client after the parent-row fence loses", async () => {

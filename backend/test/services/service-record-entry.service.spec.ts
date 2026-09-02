@@ -104,17 +104,31 @@ function createHarness(options: {
     const schedule = options.schedule ?? { primaryEmployee: { name: "제공자" } };
     const scheduleUpdate = jest.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve({ ...schedule, ...data }));
+    // Track the extension's end-date write separately from the object
+    // `service_record_case.findUnique` returns, and only surface it to a
+    // *subsequent* findUnique call after `ensureForClient` has run (the
+    // point at which upsertSession performs its post-extension re-read).
+    // A prior version of this harness mutated `transactionRecord` in place
+    // and had every findUnique call resolve that same shared object, so the
+    // extended end date was visible even if the re-read line were deleted
+    // entirely -- the mutation checks below exist to guard against that.
+    let pendingEndDate: Date | undefined;
+    let visibleEndDate = transactionRecord.endDate as Date | undefined;
     const clientUpdate = jest.fn().mockImplementation(({ data }: { data: { endDate?: Date } }) => {
-        // Mutate the same object `service_record_case.findUnique` resolves so
-        // the extension's re-read sees the just-extended end date, mirroring
-        // a real transaction reading its own uncommitted write back.
-        if (data.endDate !== undefined) transactionRecord.endDate = data.endDate;
+        if (data.endDate !== undefined) pendingEndDate = data.endDate;
         return Promise.resolve({});
+    });
+    const caseFindUnique = jest.fn().mockImplementation(() =>
+        Promise.resolve({ ...transactionRecord, endDate: visibleEndDate }));
+    const ensureForClientInner = options.ensureForClient ?? jest.fn().mockResolvedValue(null);
+    const ensureForClient = jest.fn(async (...args: unknown[]) => {
+        if (pendingEndDate !== undefined) visibleEndDate = pendingEndDate;
+        return ensureForClientInner(...(args as [number, unknown]));
     });
     const transactionClient = {
         $queryRaw: jest.fn().mockResolvedValue([{ id: CASE_ID }]),
         service_record_case: {
-            findUnique: jest.fn().mockResolvedValue(transactionRecord),
+            findUnique: caseFindUnique,
         },
         employee_schedule: {
             findUnique: jest.fn().mockResolvedValue(schedule),
@@ -139,7 +153,7 @@ function createHarness(options: {
     };
     const lifecycle = {
         recompute: jest.fn().mockResolvedValue(transactionRecord),
-        ensureForClient: options.ensureForClient ?? jest.fn().mockResolvedValue(null),
+        ensureForClient,
     };
     const tokenService = {
         extendExpiryForCase: options.extendExpiryForCase ?? jest.fn().mockResolvedValue(undefined),
@@ -571,6 +585,127 @@ describe("ServiceRecordEntryService.upsertSession", () => {
         // requiredSessionCount is never touched by the extension.
         expect(transactionRecord.requiredSessionCount).toBe(1);
         expect(upsert).toHaveBeenCalled();
+    });
+
+    it("extends the end date by the correct remaining-session count mid-contract (requiredSessionCount 15, session 13)", async () => {
+        // Regression coverage for the extension arithmetic: n = total -
+        // sessionIndex is the number of Korean business days still owed
+        // AFTER this session. total=15, sessionIndex=13 -> n=2, so saving
+        // session 13 on 2026-08-31 (the current end date) must push the end
+        // date to 2026-09-02 (2 business days later), not 2026-09-01 or
+        // 2026-09-03.
+        const transactionRecord = createRecord({
+            requiredSessionCount: 15,
+            endDate: new Date("2026-08-31T00:00:00.000Z"),
+        });
+        const schedule = {
+            id: 10,
+            clientId: 100,
+            primaryEmployeeId: 20,
+            secondaryEmployeeId: null,
+            startDate: new Date("2026-07-01T00:00:00.000Z"),
+            endDate: new Date("2026-08-31T00:00:00.000Z"),
+            replaced: false,
+            primaryEmployee: { name: "제공자" },
+        };
+        const ensureForClient = jest.fn().mockResolvedValue(null);
+        const extendExpiryForCase = jest.fn().mockResolvedValue(undefined);
+        const { service, transactionClient, scheduleUpdate, clientUpdate } = createHarness({
+            existing: null,
+            transactionRecord,
+            schedule,
+            ensureForClient,
+            extendExpiryForCase,
+        });
+        transactionClient.service_record_day.findUnique.mockImplementation(
+            ({ where }: { where: { serviceRecordCaseId_caseSessionIndex: { caseSessionIndex: number } } }) => {
+                const idx = where.serviceRecordCaseId_caseSessionIndex.caseSessionIndex;
+                if (idx === 12) {
+                    return Promise.resolve(createDay({
+                        caseSessionIndex: 12,
+                        sessionIndex: 12,
+                        serviceDate: new Date("2026-08-28T00:00:00.000Z"),
+                        locked: true,
+                    }));
+                }
+                return Promise.resolve(null);
+            },
+        );
+        const newEndDate = new Date("2026-09-02T00:00:00.000Z");
+
+        const result = await service.upsertSession(
+            context,
+            13,
+            createDto({ serviceDate: "2026-08-31T00:00:00.000Z" }),
+            false,
+        );
+
+        expect(result).toEqual(expect.objectContaining({ sessionIndex: 13 }));
+        expect(scheduleUpdate).toHaveBeenCalledWith({
+            where: { id: 10 },
+            data: { endDate: newEndDate },
+        });
+        expect(clientUpdate).toHaveBeenCalledWith({
+            where: { id: 100 },
+            data: { endDate: newEndDate },
+        });
+        expect(extendExpiryForCase).toHaveBeenCalledWith(
+            CASE_ID,
+            getServiceRecordTokenExpiresAt(newEndDate),
+            expect.anything(),
+        );
+        expect(transactionRecord.requiredSessionCount).toBe(15);
+    });
+
+    it("re-reads the case after extending the end date instead of relying on a stale snapshot", async () => {
+        // requiredSessionCount 15, old endDate 2026-08-31. Saving session 14
+        // at service date 2026-09-01 extends the end date to 2026-09-02 (1
+        // remaining business day). The save's own "cannot exceed the end
+        // date" guard runs AFTER the extension and must see the NEW end
+        // date: 2026-09-01 exceeds the OLD end date (2026-08-31) but not the
+        // new one, so this save must succeed. If the post-extension re-read
+        // is ever dropped, this guard would compare against the stale
+        // 2026-08-31 snapshot and wrongly reject the save.
+        const transactionRecord = createRecord({
+            requiredSessionCount: 15,
+            endDate: new Date("2026-08-31T00:00:00.000Z"),
+        });
+        const schedule = {
+            id: 10,
+            clientId: 100,
+            primaryEmployeeId: 20,
+            secondaryEmployeeId: null,
+            startDate: new Date("2026-07-01T00:00:00.000Z"),
+            endDate: new Date("2026-08-31T00:00:00.000Z"),
+            replaced: false,
+            primaryEmployee: { name: "제공자" },
+        };
+        const { service, transactionClient } = createHarness({
+            existing: null,
+            transactionRecord,
+            schedule,
+        });
+        transactionClient.service_record_day.findUnique.mockImplementation(
+            ({ where }: { where: { serviceRecordCaseId_caseSessionIndex: { caseSessionIndex: number } } }) => {
+                const idx = where.serviceRecordCaseId_caseSessionIndex.caseSessionIndex;
+                if (idx === 13) {
+                    return Promise.resolve(createDay({
+                        caseSessionIndex: 13,
+                        sessionIndex: 13,
+                        serviceDate: new Date("2026-08-31T00:00:00.000Z"),
+                        locked: true,
+                    }));
+                }
+                return Promise.resolve(null);
+            },
+        );
+
+        await expect(service.upsertSession(
+            context,
+            14,
+            createDto({ serviceDate: "2026-09-01T00:00:00.000Z" }),
+            false,
+        )).resolves.toEqual(expect.objectContaining({ sessionIndex: 14 }));
     });
 
     it("does not extend the end date when the service date fits within the current schedule", async () => {
