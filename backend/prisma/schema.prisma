@@ -659,6 +659,19 @@ model system_setting {
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 }
 
+// Single-row host-level lease for background schedulers. Exactly one process
+// may hold `background-owner` at a time; every @Cron/@Interval entry point
+// checks SchedulerLeaseService.holdsLease() before doing work. Not
+// branch-scoped (no branch_id) — it is infrastructure, not tenant data.
+model scheduler_lease {
+  name       String   @id @db.VarChar(64)
+  holderId   String   @map("holder_id") @db.VarChar(64)
+  instanceId String   @map("instance_id") @db.VarChar(64)
+  acquiredAt DateTime @map("acquired_at") @db.Timestamptz(6)
+  renewedAt  DateTime @map("renewed_at") @db.Timestamptz(6)
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(6)
+}
+
 // Append-only authority mutation ledger. Identity fields are scalar snapshots
 // so deleting a user or branch never erases historical actor/target context.
 model admin_audit_event {
