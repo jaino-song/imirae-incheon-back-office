@@ -99,6 +99,35 @@ describe("SystemSettingService", () => {
         });
     });
 
+    describe("contract auto-finalize config", () => {
+        it("defaults missing or invalid values", async () => {
+            getSettingUsecase.execute.mockResolvedValue("{invalid");
+            await expect(service.getContractAutoFinalizeConfig("branch-1")).resolves.toEqual({
+                enabled: true,
+                graceDays: 0,
+                maxAttempts: 3,
+            });
+        });
+
+        it("clamps and persists the branch-scoped config", async () => {
+            const entity = new SystemSettingEntity(
+                "branch:branch-1:contract_automation:auto_finalize",
+                JSON.stringify({ enabled: false, graceDays: 30, maxAttempts: 10 }),
+                new Date(),
+            );
+            updateSettingUsecase.execute.mockResolvedValue(entity);
+            await service.setContractAutoFinalizeConfig("branch-1", {
+                enabled: false,
+                graceDays: 99,
+                maxAttempts: 0,
+            });
+            expect(updateSettingUsecase.execute).toHaveBeenCalledWith(
+                "branch:branch-1:contract_automation:auto_finalize",
+                JSON.stringify({ enabled: false, graceDays: 30, maxAttempts: 1 }),
+            );
+        });
+    });
+
     describe("ribbon compare-and-set", () => {
         it("persists only when the approved ribbon version still matches", async () => {
             const entity = new SystemSettingEntity("ribbon_config", "{}", new Date());

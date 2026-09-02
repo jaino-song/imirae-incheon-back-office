@@ -9,6 +9,8 @@ import {
     DEFAULT_RIBBON_CONFIG,
     MessageAutomationPastTriggerConfig,
     DEFAULT_MESSAGE_AUTOMATION_PAST_TRIGGER_CONFIG,
+    ContractAutoFinalizeConfig,
+    DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG,
 } from "domain/entities/system-setting.entity";
 import { SystemSettingAuditContext } from "domain/repositories/system-setting.repository.interface";
 
@@ -38,6 +40,10 @@ export class SystemSettingService {
 
     private getMessageAutomationPastTriggerConfigKey(branchId: string): string {
         return `branch:${branchId}:message_automation:past_trigger`;
+    }
+
+    private getContractAutoFinalizeConfigKey(branchId: string): string {
+        return `branch:${branchId}:contract_automation:auto_finalize`;
     }
 
     private getClientAutoRegistrationKey(branchId: string): string {
@@ -144,6 +150,26 @@ export class SystemSettingService {
         const key = this.getMessageAutomationPastTriggerConfigKey(branchId);
         const value = JSON.stringify(normalized);
         const auditContext = this.auditContext(actor, "system_setting.message_automation.updated", branchId);
+        return auditContext
+            ? this.updateSettingUsecase.execute(key, value, auditContext)
+            : this.updateSettingUsecase.execute(key, value);
+    }
+
+    async getContractAutoFinalizeConfig(branchId: string): Promise<ContractAutoFinalizeConfig> {
+        const value = await this.getSettingUsecase.execute(this.getContractAutoFinalizeConfigKey(branchId));
+        return this.parseContractAutoFinalizeConfig(value);
+    }
+
+    async setContractAutoFinalizeConfig(
+        branchId: string,
+        config: ContractAutoFinalizeConfig,
+        actor?: AdminAuditActor,
+    ): Promise<SystemSettingEntity> {
+        actor = actor ?? currentAdminAuditActor();
+        const normalized = this.normalizeContractAutoFinalizeConfig(config);
+        const key = this.getContractAutoFinalizeConfigKey(branchId);
+        const value = JSON.stringify(normalized);
+        const auditContext = this.auditContext(actor, "system_setting.contract_automation.updated", branchId);
         return auditContext
             ? this.updateSettingUsecase.execute(key, value, auditContext)
             : this.updateSettingUsecase.execute(key, value);
@@ -349,6 +375,31 @@ export class SystemSettingService {
         return {
             sendIntervalMinutes: Math.min(Math.max(sendIntervalMinutes ?? 1, 1), 1440),
             ruleOrder: [...new Set(ruleOrder)],
+        };
+    }
+
+    private parseContractAutoFinalizeConfig(value: string | null): ContractAutoFinalizeConfig {
+        if (!value) return DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG;
+        try {
+            return this.normalizeContractAutoFinalizeConfig(JSON.parse(value));
+        } catch {
+            return DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG;
+        }
+    }
+
+    private normalizeContractAutoFinalizeConfig(config: unknown): ContractAutoFinalizeConfig {
+        if (typeof config !== "object" || config === null) return DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG;
+        const candidate = config as Partial<ContractAutoFinalizeConfig>;
+        return {
+            enabled: typeof candidate.enabled === "boolean"
+                ? candidate.enabled
+                : DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG.enabled,
+            graceDays: Number.isInteger(candidate.graceDays)
+                ? Math.min(Math.max(candidate.graceDays as number, 0), 30)
+                : DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG.graceDays,
+            maxAttempts: Number.isInteger(candidate.maxAttempts)
+                ? Math.min(Math.max(candidate.maxAttempts as number, 1), 10)
+                : DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG.maxAttempts,
         };
     }
 
