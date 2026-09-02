@@ -1262,6 +1262,8 @@ model call_record {
   fileName             String        @map("file_name")
   recordedAt           DateTime?     @map("recorded_at") @db.Timestamptz(6)
   transcript           Json
+  transcriptRaw        Json?         @map("transcript_raw")
+  sttMeta              Json?         @map("stt_meta")
   summary              Json?
   category             String?
   callerName           String?       @map("caller_name")

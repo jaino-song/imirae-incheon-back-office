@@ -276,10 +276,14 @@ describe("ClientServiceRecordsTab", () => {
 
         fireEvent.click(screen.getByRole("button", { name: "링크 수동 전송" }));
 
-        const sendingButton = screen.getByRole("button", { name: "발송 중..." });
+        // The label stays put while sending; only the busy state and spinner change,
+        // so the button keeps its width and position.
+        const sendingButton = screen.getByRole("button", { name: "링크 수동 전송" });
         expect(sendingButton).toBeDisabled();
+        expect(sendingButton).toHaveAttribute("aria-busy", "true");
         expect(sendingButton).not.toHaveAttribute("data-width", "lg");
-        expect(screen.getByText(/서비스 시작일 15:00에 자동 발송됩니다/)).toBeInTheDocument();
+        const hint = screen.getByText(/서비스 시작일 15:00에 자동 발송됩니다/);
+        expect(hint.parentElement).not.toHaveAttribute("aria-hidden", "true");
 
         resolveSend({
             ok: true,
@@ -306,7 +310,10 @@ describe("ClientServiceRecordsTab", () => {
 
         const resendButton = screen.getByRole("button", { name: "메시지 재전송" });
         expect(resendButton).toHaveAttribute("data-width", "lg");
-        expect(screen.queryByText(/서비스 시작일 15:00에 자동 발송됩니다/)).not.toBeInTheDocument();
+        expect(resendButton).not.toHaveAttribute("aria-busy", "true");
+        // The hint stays mounted so its collapse can animate; it is hidden, not removed.
+        const collapsedHint = screen.getByText(/서비스 시작일 15:00에 자동 발송됩니다/);
+        expect(collapsedHint.parentElement).toHaveAttribute("aria-hidden", "true");
     });
 
     it("labels rejected manual sends as failures while preserving the server detail", async () => {

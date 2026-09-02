@@ -280,6 +280,7 @@ export interface MessageTemplateVariable {
   optionType?: MessageTemplateVariableOptionType;
   options?: string[];
   dataSource?: string;
+  fallback?: string;
   min?: number;
   max?: number;
 }

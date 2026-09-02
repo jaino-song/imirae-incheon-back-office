@@ -18,23 +18,26 @@ export class BankAccountInfoService {
         private readonly deleteBankAccountInfoUsecase: DeleteBankAccountInfoUsecase,
     ) {}
 
-    create(params: { area: string, bankName: string, accNum: string }): Promise<BankAccountInfoEntity> {
-        return this.createBankAccountInfoUsecase.execute(params.area, params.bankName, params.accNum);
+    // branchId is required on every method: an optional parameter would make
+    // the branch scoping fail open by signature (a forgotten argument becomes
+    // an unscoped query).
+    create(params: { area: string, bankName: string, accNum: string }, branchId: string): Promise<BankAccountInfoEntity> {
+        return this.createBankAccountInfoUsecase.execute(params.area, params.bankName, params.accNum, branchId);
     }
-    
-    findAll(branchId?: string): Promise<BankAccountInfoEntity[]> {
+
+    findAll(branchId: string): Promise<BankAccountInfoEntity[]> {
         return this.listBankAccountInfoUsecase.execute(branchId);
     }
 
-    findByArea(area: string, branchId?: string): Promise<BankAccountInfoEntity | null> {
+    findByArea(area: string, branchId: string): Promise<BankAccountInfoEntity | null> {
         return this.findBankAccountInfoByAreaUsecase.execute(area, branchId);
     }
 
-    update(area: string, params: { bankName?: string | null, accNum?: string | null }): Promise<BankAccountInfoEntity> {
-        return this.updateBankAccountInfoUsecase.execute(area, params);
+    update(area: string, params: { bankName?: string | null, accNum?: string | null }, branchId: string): Promise<BankAccountInfoEntity> {
+        return this.updateBankAccountInfoUsecase.execute(area, params, branchId);
     }
 
-    delete(area: string) {
-        return this.deleteBankAccountInfoUsecase.execute(area);
+    delete(area: string, branchId: string) {
+        return this.deleteBankAccountInfoUsecase.execute(area, branchId);
     }
 }

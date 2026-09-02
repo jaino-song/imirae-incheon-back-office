@@ -30,6 +30,7 @@ describe("ContractAutoFinalizeSchedulerService", () => {
     };
     let documentJobService: { enqueueFinalizeDocument: jest.Mock };
     let notificationService: { sendToBranchUsers: jest.Mock };
+    let systemSettingService: { getContractAutoFinalizeConfig: jest.Mock };
     let service: ContractAutoFinalizeSchedulerService;
 
     beforeEach(() => {
@@ -49,11 +50,15 @@ describe("ContractAutoFinalizeSchedulerService", () => {
             }),
         };
         notificationService = { sendToBranchUsers: jest.fn().mockResolvedValue({ sent: 1, failed: 0 }) };
+        systemSettingService = {
+            getContractAutoFinalizeConfig: jest.fn().mockResolvedValue({ enabled: true, graceDays: 0, maxAttempts: 3 }),
+        };
         service = new ContractAutoFinalizeSchedulerService(
             { get: (key: string) => configValues[key] } as never,
             repository as never,
             documentJobService as never,
             notificationService as never,
+            systemSettingService as never,
         );
     });
 
@@ -207,5 +212,31 @@ describe("ContractAutoFinalizeSchedulerService", () => {
         expect(documentJobService.enqueueFinalizeDocument).not.toHaveBeenCalled();
         expect(repository.recordAutoFinalizeFailure).not.toHaveBeenCalled();
         expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
+    });
+
+    it("skips disabled branches while enqueuing enabled branches", async () => {
+        const disabled = contract({ documentId: "disabled", branchId: "branch-disabled" });
+        const enabled = contract({ documentId: "enabled", branchId: "branch-enabled" });
+        repository.findReviewStageContracts.mockResolvedValue([disabled, enabled]);
+        systemSettingService.getContractAutoFinalizeConfig.mockImplementation(async (branchId: string) => ({
+            enabled: branchId !== "branch-disabled",
+            graceDays: 0,
+            maxAttempts: 3,
+        }));
+
+        await service.autoFinalizeDueContracts();
+
+        expect(documentJobService.enqueueFinalizeDocument.mock.calls.map(([input]) => input.documentId)).toEqual(["enabled"]);
+        expect(systemSettingService.getContractAutoFinalizeConfig).toHaveBeenCalledTimes(2);
+    });
+
+    it("uses a branch max-attempts budget for terminal notifications", async () => {
+        systemSettingService.getContractAutoFinalizeConfig.mockResolvedValue({ enabled: true, graceDays: 0, maxAttempts: 1 });
+        repository.findReviewStageContracts.mockResolvedValue([contract({ documentId: "doc-1", autoFinalizeAttempts: 1 })]);
+
+        await service.recordTerminalFailure("doc-1", "vendor 500", 1);
+
+        expect(notificationService.sendToBranchUsers).toHaveBeenCalledTimes(1);
+        expect(notificationService.sendToBranchUsers.mock.calls[0][2]).toContain("1회");
     });
 });

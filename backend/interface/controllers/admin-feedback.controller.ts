@@ -1,8 +1,10 @@
 import {
     Controller,
+    ForbiddenException,
     Get,
     Param,
     Query,
+    Request,
     UseGuards,
     NotFoundException,
     ParseIntPipe,
@@ -29,12 +31,15 @@ export class AdminFeedbackController {
     async listFeedback(
         @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
         @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
-        @Query('type') type?: 'positive' | 'negative',
+        @Query('type') type: 'positive' | 'negative' | undefined,
+        @Request() req: any,
     ): Promise<PaginatedFeedbackDto> {
+        const branchId = this.requireBranchId(req);
         const { data, total } = await this.feedbackRepository.findManyWithPagination({
             page,
             limit,
             type,
+            branchId,
         });
 
         const feedbackItems: FeedbackItemDto[] = data.map((feedback: any) => ({
@@ -67,13 +72,15 @@ export class AdminFeedbackController {
     }
 
     @Get('stats')
-    async getStats(): Promise<FeedbackStatsDto> {
-        return this.feedbackRepository.getStats();
+    async getStats(@Request() req: any): Promise<FeedbackStatsDto> {
+        const branchId = this.requireBranchId(req);
+        return this.feedbackRepository.getStats(branchId);
     }
 
     @Get(':id')
-    async getFeedbackDetail(@Param('id') id: string): Promise<FeedbackDetailDto> {
-        const feedback = await this.feedbackRepository.findById(id);
+    async getFeedbackDetail(@Param('id') id: string, @Request() req: any): Promise<FeedbackDetailDto> {
+        const branchId = this.requireBranchId(req);
+        const feedback = await this.feedbackRepository.findById(id, branchId);
 
         if (!feedback) {
             throw new NotFoundException('Feedback not found');
@@ -106,5 +113,17 @@ export class AdminFeedbackController {
                 })),
             },
         };
+    }
+
+    // The caller's branch comes only from the JWT-derived session (request.user.branchId,
+    // populated by JwtStrategy once POST /auth/select-branch has run) — never from a
+    // client-supplied value. Fail closed rather than let an unresolved branch reach a Prisma
+    // query, where an `undefined` filter key would silently be dropped and become "no filter".
+    private requireBranchId(req: any): string {
+        const branchId = req.user?.branchId;
+        if (!branchId) {
+            throw new ForbiddenException('Branch selection required');
+        }
+        return branchId;
     }
 }

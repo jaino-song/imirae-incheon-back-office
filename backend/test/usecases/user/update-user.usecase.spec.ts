@@ -79,6 +79,31 @@ describe("UpdateUserUsecase", () => {
             ).rejects.toThrow(ForbiddenException);
         });
 
+        it("should throw ForbiddenException when an owner caller attempts to grant role 'owner'", async () => {
+            const existingUser = UserFactory.create({ id: "user_1", role: "admin" });
+            mockRepository.setData([existingUser]);
+
+            await expect(
+                usecase.execute("user_1", { role: "owner", callerRole: "owner" }),
+            ).rejects.toThrow(ForbiddenException);
+
+            const persisted = await mockRepository.findById("user_1");
+            expect(persisted?.role).toBe("admin");
+            expect(mockRepository.clearBranchOwnershipsCalls).toEqual([]);
+        });
+
+        it.each(["admin", "manager", "user"])(
+            "should allow an owner to assign the allowlisted role '%s'",
+            async (role) => {
+                const existingUser = UserFactory.create({ id: "user_1", role: "user" });
+                mockRepository.setData([existingUser]);
+
+                const result = await usecase.execute("user_1", { role, callerRole: "owner" });
+
+                expect(result.role).toBe(role);
+            },
+        );
+
         it("should throw ForbiddenException when the target user's role is 'owner'", async () => {
             const existingUser = UserFactory.create({ id: "user_1", role: "owner" });
             mockRepository.setData([existingUser]);

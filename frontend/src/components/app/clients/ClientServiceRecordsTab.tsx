@@ -6,7 +6,7 @@ import {
     getServiceRecordStatusMeta,
     getSignatureStatusVariant,
 } from "@babyjamjam/shared/constants/service-record-display";
-import { ChevronDown, RefreshCw } from "lucide-react";
+import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import { formatDateTimeKo } from "@babyjamjam/shared/utils/date";
 
 import { DetailEmptyState, InfoCard, InfoRow } from "@/components/app/v3";
@@ -572,24 +572,38 @@ function LinkStatusCard({
                 value={<TokenVerificationValue assignment={assignment} />}
                 isRefreshing={isRefreshing}
             />
-            <div className="mt-[calc(14px*var(--glint-ui-scale,1))] flex flex-wrap items-center justify-end gap-[calc(12px*var(--glint-ui-scale,1))]">
-                {!usesResendLayout && (
-                    <p className="min-w-[200px] flex-1 text-[calc(11.5px*var(--glint-ui-scale,1))] leading-6 text-v3-text-muted">
+            <div className="mt-[calc(14px*var(--glint-ui-scale,1))] flex flex-col items-end">
+                {/* Stays mounted and collapses so the button glides up instead of jumping. */}
+                <div
+                    aria-hidden={usesResendLayout}
+                    className={cn(
+                        "grid w-full transition-[grid-template-rows,opacity] duration-500 ease-out motion-reduce:transition-none",
+                        usesResendLayout ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr]",
+                    )}
+                >
+                    <p className="overflow-hidden pb-[calc(12px*var(--glint-ui-scale,1))] text-[calc(11.5px*var(--glint-ui-scale,1))] leading-6 text-v3-text-muted">
                         서비스 시작일 15:00에 자동 발송됩니다. 지금 바로 보내려면 수동 전송하세요.
                     </p>
-                )}
+                </div>
                 <Button
                     type="button"
                     variant="positive"
                     size="sm"
                     width={usesResendLayout ? "lg" : undefined}
+                    // Explicit idle width so the switch to w-full interpolates instead of snapping from auto.
+                    className={cn(
+                        "shrink-0 duration-500 ease-out motion-reduce:transition-none",
+                        !usesResendLayout && "w-[calc(118px*var(--glint-ui-scale,1))]",
+                    )}
                     disabled={isPending}
+                    aria-busy={isPending}
                     onClick={onSendLink}
                     data-component={isResend
                         ? `${dataComponent}_actions_resend`
                         : `${dataComponent}_actions_send`}
                 >
-                    {isPending ? "발송 중..." : isResend ? "메시지 재전송" : "링크 수동 전송"}
+                    {isPending && <Loader2 aria-hidden className="animate-spin" />}
+                    {isResend ? "메시지 재전송" : "링크 수동 전송"}
                 </Button>
             </div>
         </InfoCard>

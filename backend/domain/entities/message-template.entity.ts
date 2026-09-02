@@ -7,6 +7,7 @@ export interface TemplateVariable {
     optionType?: "custom" | "dataSource";
     options?: string[];
     dataSource?: string;
+    fallback?: string;
     min?: number;
     max?: number;
 }

@@ -1,6 +1,14 @@
 import { CallProcessingService } from "application/services/call-processing.service";
 import { CALL_EXTRACTION_PROMPT_VERSION } from "application/services/call-extraction.prompt";
 import { CallExtractionResult } from "domain/ports/call-extraction.port";
+import { DEFAULT_CALL_EXTRACTION_MODEL } from "infrastructure/api/gemini-call-extraction.adapter";
+
+const STUB_SUMMARY = {
+    inquiry_type: "신규상담",
+    customer_info: "확인되지 않음",
+    key_content: "요약 테스트",
+    result_action: "확인되지 않음",
+};
 
 describe("CallProcessingService", () => {
     const prisma = {
@@ -10,6 +18,7 @@ describe("CallProcessingService", () => {
         $transaction: jest.fn(),
     };
     const extractionPort = { extract: jest.fn() };
+    const refinementPort = { refine: jest.fn() };
     let service: CallProcessingService;
 
     const record = {
@@ -30,6 +39,7 @@ describe("CallProcessingService", () => {
             callerPhoneCandidates: [],
             requestSummary: "요약",
             proposals: [],
+            summary: STUB_SUMMARY,
             ...partial,
         };
     }
@@ -41,7 +51,12 @@ describe("CallProcessingService", () => {
         prisma.call_record.updateMany.mockResolvedValue({ count: 1 });
         prisma.client_draft.createMany.mockResolvedValue({ count: 1 });
         prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<void>) => fn(prisma));
-        service = new CallProcessingService(prisma as never, extractionPort as never);
+        service = new CallProcessingService(
+            prisma as never,
+            extractionPort as never,
+            refinementPort as never,
+            { get: jest.fn() } as never,
+        );
     });
 
     it("OTHER: updates record, creates no draft (parking-call fixture)", async () => {
@@ -55,7 +70,7 @@ describe("CallProcessingService", () => {
         expect(prisma.client_draft.createMany).not.toHaveBeenCalled();
         expect(prisma.call_record.updateMany).toHaveBeenCalledWith(expect.objectContaining({
             where: expect.objectContaining({ id: "rec-1" }),
-            data: expect.objectContaining({ category: "OTHER", processingStatus: "EXTRACTED" }),
+            data: expect.objectContaining({ category: "OTHER", processingStatus: "EXTRACTED", summary: STUB_SUMMARY }),
         }));
     });
 
@@ -84,9 +99,12 @@ describe("CallProcessingService", () => {
             { field: "duration", value: 10, evidence: "10일이요", confidence: "high" },
             { field: "careCenter", value: false, evidence: "조리원은 안 가요", confidence: "high" },
         ]);
-        expect(draftData.extractionMeta).toEqual(expect.objectContaining({ promptVersion: CALL_EXTRACTION_PROMPT_VERSION }));
+        expect(draftData.extractionMeta).toEqual(expect.objectContaining({
+            promptVersion: CALL_EXTRACTION_PROMPT_VERSION,
+            model: DEFAULT_CALL_EXTRACTION_MODEL,
+        }));
         expect(prisma.call_record.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-            data: expect.objectContaining({ callerPhone: "01048217763", callerName: "김서연" }),
+            data: expect.objectContaining({ callerPhone: "01048217763", callerName: "김서연", summary: STUB_SUMMARY }),
         }));
     });
 
@@ -274,6 +292,96 @@ describe("CallProcessingService", () => {
                 processingStatus: "FAILED",
                 failureReason: expect.stringContaining("persistence"),
             }),
+        }));
+    });
+
+    it("refine: extraction receives the transcript RETURNED BY THE REFINE PORT, not record.transcript", async () => {
+        prisma.call_record.findUnique.mockResolvedValue({
+            ...record,
+            transcript: [{ speaker: "1", text: "stale raw text still sitting in transcript" }],
+            transcriptRaw: [
+                { speaker: "1", text: "raw text" },
+                { speaker: "2", text: "reply" },
+            ],
+            sttMeta: { sttModel: "gemini-3.5-transcribe", diarized: true, vocabularyVersion: "v1" },
+        });
+        const refinedTranscript = [
+            { speaker: "아이미래로", text: "정제된 텍스트" },
+            { speaker: "고객", text: "정제된 답변" },
+        ];
+        refinementPort.refine.mockResolvedValue({ transcript: refinedTranscript });
+        extractionPort.extract.mockResolvedValue(extraction({ category: "OTHER" }));
+
+        await service.processCallRecord("rec-1");
+
+        expect(refinementPort.refine).toHaveBeenCalledWith({
+            segments: [
+                { speaker: "1", text: "raw text" },
+                { speaker: "2", text: "reply" },
+            ],
+            diarized: true,
+            fileName: record.fileName,
+        });
+        expect(extractionPort.extract).toHaveBeenCalledWith(expect.objectContaining({
+            transcript: refinedTranscript,
+        }));
+    });
+
+    it("refine: a diarized:true claim over a single-speaker transcript is downgraded to diarized:false (cross-check)", async () => {
+        // diarized is caller-supplied (n8n computes it, and its fallback wiring
+        // can mislabel a non-diarized retry as diarized) — the service must
+        // derive the fact from the transcript instead of trusting the flag.
+        prisma.call_record.findUnique.mockResolvedValue({
+            ...record,
+            transcriptRaw: [
+                { speaker: "", text: "첫 발화" },
+                { speaker: "", text: "둘째 발화" },
+            ],
+            sttMeta: { sttModel: "gemini-3.5-transcribe", diarized: true, vocabularyVersion: "v1" },
+        });
+        refinementPort.refine.mockResolvedValue({
+            transcript: [
+                { speaker: "화자", text: "첫 발화" },
+                { speaker: "화자", text: "둘째 발화" },
+            ],
+        });
+        extractionPort.extract.mockResolvedValue(extraction({ category: "OTHER" }));
+
+        await service.processCallRecord("rec-1");
+
+        expect(refinementPort.refine).toHaveBeenCalledWith(expect.objectContaining({
+            diarized: false,
+        }));
+    });
+
+    it("refine failure: marks FAILED with a refine:-prefixed failureReason and never reaches extraction", async () => {
+        prisma.call_record.findUnique.mockResolvedValue({
+            ...record,
+            transcriptRaw: [{ speaker: "1", text: "raw text" }],
+            sttMeta: { sttModel: "gemini-3.5-transcribe", diarized: true, vocabularyVersion: "v1" },
+        });
+        refinementPort.refine.mockRejectedValue(new Error("Gemini refinement failed (500)"));
+
+        await expect(service.processCallRecord("rec-1")).resolves.toBe("failed");
+
+        expect(extractionPort.extract).not.toHaveBeenCalled();
+        expect(prisma.call_record.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+            data: expect.objectContaining({
+                processingStatus: "FAILED",
+                failureReason: expect.stringMatching(/^refine: /),
+            }),
+        }));
+    });
+
+    it("legacy record (no transcriptRaw): refine port is NOT called, extraction runs on record.transcript", async () => {
+        // The default `record` fixture above carries no transcriptRaw field.
+        extractionPort.extract.mockResolvedValue(extraction({ category: "OTHER" }));
+
+        await service.processCallRecord("rec-1");
+
+        expect(refinementPort.refine).not.toHaveBeenCalled();
+        expect(extractionPort.extract).toHaveBeenCalledWith(expect.objectContaining({
+            transcript: record.transcript,
         }));
     });
 });

@@ -1,3 +1,5 @@
+import { CALL_TERM_CORRECTIONS, CALL_VOCABULARY } from "domain/constants/call-vocabulary";
+
 // v3: birthDate joined the proposal fields, so drafts extracted before this
 // could not carry an actual delivery date.
 export const CALL_EXTRACTION_PROMPT_VERSION = "v3";
@@ -24,14 +26,18 @@ export function buildCallExtractionPrompt(input: {
         .map((turn) => `[${turn.speaker}] ${turn.text}`)
         .join("\n");
 
+    const correctionPairs = Object.entries(CALL_TERM_CORRECTIONS)
+        .map(([wrong, right]) => `${wrong}→${right}`)
+        .join(", ");
+
     return `# Role
 당신은 '아이미래로'(산후도우미·산모신생아 건강관리 업체)의 통화 분석 전문가입니다.
-정제된 통화 스크립트를 읽고 (1) 통화를 분류하고 (2) 고객/서비스 정보를 구조화하여 추출합니다.
+정제된 통화 스크립트를 읽고 (1) 통화를 분류하고 (2) 고객/서비스 정보를 구조화하여 추출하고 (3) 통화를 요약합니다.
 
 # 용어 참고 (STT 잔여 오류 보정)
-산우도우미→산후도우미, 구리원/조류원→조리원, 알루사님→관리사님, 재앙절개→제왕절개,
-단퇴→단태아, 쌍/쌍둥→쌍둥이, A가/가형→A가형, A라/라형→A라형, A 통합→A-통합형,
-나비/라비→납입(결제 문맥). 날짜·금액·전화번호 숫자는 절대 변형 금지.
+${correctionPairs}
+표준 어휘: ${CALL_VOCABULARY.phrases.join(", ")}
+날짜·금액·전화번호 숫자는 절대 변형 금지.
 
 # 분류 (category)
 - NEW_CONSULTATION: 산후도우미 서비스를 새로 시작하려는 문의/상담 (예약, 견적, 정부지원 문의 포함)
@@ -59,6 +65,14 @@ export function buildCallExtractionPrompt(input: {
   evidence(근거가 된 발화 인용, 원문 그대로), confidence("high" | "low").
 - 언급되지 않은 필드는 proposals에 포함하지 마십시오. "해당 없음"도 포함 금지.
 - 추측은 confidence "low"로 표시 (예: "부평구청 근처" → address, low).
+
+# 요약 (summary)
+아래 네 항목을 모두 한국어 문자열로 채우십시오. 빈 문자열은 금지이며, 파악되지 않은 항목은
+"확인되지 않음"과 같이 명시적으로 표기하십시오.
+- inquiry_type: 문의 유형을 짧은 명사구로 (예: "신규 상담 문의", "관리사 교체 요청").
+- customer_info: 통화에서 파악된 고객 정보 (이름, 연락처, 자녀/출산 관련 정보 등)를 한국어로 요약.
+- key_content: 통화의 핵심 내용을 한국어 문장으로 요약.
+- result_action: 상담 중 안내되었거나 예정된 조치를 한국어 문장으로 (예: "견적 안내 후 문자 발송 예정").
 
 # 입력
 파일명: ${input.fileName}
@@ -89,6 +103,16 @@ export const CALL_EXTRACTION_RESPONSE_SCHEMA = {
                 required: ["field", "value", "evidence", "confidence"],
             },
         },
+        summary: {
+            type: "OBJECT",
+            properties: {
+                inquiry_type: { type: "STRING" },
+                customer_info: { type: "STRING" },
+                key_content: { type: "STRING" },
+                result_action: { type: "STRING" },
+            },
+            required: ["inquiry_type", "customer_info", "key_content", "result_action"],
+        },
     },
-    required: ["category", "callerPhoneCandidates", "requestSummary", "proposals"],
+    required: ["category", "callerPhoneCandidates", "requestSummary", "proposals", "summary"],
 } as const;

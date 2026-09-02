@@ -9,7 +9,7 @@ export class ListBankAccountInfoUsecase {
         private readonly bankAccountInfoRepository: IBankAccountInfoRepository,
     ) {}
 
-    execute(branchId?: string): Promise<BankAccountInfoEntity[]> {
+    execute(branchId: string): Promise<BankAccountInfoEntity[]> {
         return this.bankAccountInfoRepository.findAll(branchId);
     }
 

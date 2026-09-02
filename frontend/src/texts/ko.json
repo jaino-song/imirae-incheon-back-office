@@ -56,7 +56,13 @@
     "required-label": "필수 입력",
     "option-settings": "옵션 설정",
     "no-variables-hint": "내용에 {{변수}}를 입력하면 자동으로 감지되어 설정창이 나타납니다.",
-    "preview": "실시간 미리보기"
+    "preview": "실시간 미리보기",
+    "fallback-label": "값이 없을 때 (대체 문구)",
+    "fallback-hint": "발송 시 값이 비어 있으면 이 문구로 대체됩니다.",
+    "insert-variable": "변수 삽입",
+    "byte-count-sms": "SMS",
+    "byte-count-lms": "LMS 자동 전환",
+    "body-too-long": "메시지가 최대 길이(2,000자)를 초과했습니다."
   },
   "header": {
     "companyName": "아가잼잼",

@@ -26,7 +26,7 @@ describe("MessageRetrySchedulerService", () => {
         );
 
     const createMockLogRepository = () => ({
-        findPendingRetries: jest.fn(),
+        findPendingRetriesSystemScope: jest.fn(),
         update: jest.fn(),
     });
 
@@ -54,7 +54,7 @@ describe("MessageRetrySchedulerService", () => {
     it("retries SMS and terminates legacy Alimtalk retries", async () => {
         const smsLog = createLog("aligo_sms");
         const alimtalkLog = createLog("aligo_alimtalk");
-        logRepository.findPendingRetries.mockResolvedValue([smsLog, alimtalkLog]);
+        logRepository.findPendingRetriesSystemScope.mockResolvedValue([smsLog, alimtalkLog]);
 
         await scheduler.retryFailedMessages();
 
@@ -66,7 +66,7 @@ describe("MessageRetrySchedulerService", () => {
 
     it("does not resend uncertain Aligo SMS and marks it for provider-history/manual verification", async () => {
         const uncertainLog = createLog("aligo_sms", "uncertain");
-        logRepository.findPendingRetries.mockResolvedValue([uncertainLog]);
+        logRepository.findPendingRetriesSystemScope.mockResolvedValue([uncertainLog]);
 
         await scheduler.retryFailedMessages();
 
@@ -80,7 +80,7 @@ describe("MessageRetrySchedulerService", () => {
 
     it("continues retrying provider-rejected Aligo SMS logs", async () => {
         const providerRejectedLog = createLog("aligo_sms", "provider-rejected");
-        logRepository.findPendingRetries.mockResolvedValue([providerRejectedLog]);
+        logRepository.findPendingRetriesSystemScope.mockResolvedValue([providerRejectedLog]);
 
         await scheduler.retryFailedMessages();
 
@@ -90,7 +90,7 @@ describe("MessageRetrySchedulerService", () => {
 
     it("terminates unsupported message providers instead of retrying forever", async () => {
         const unsupportedLog = createLog("legacy_provider");
-        logRepository.findPendingRetries.mockResolvedValue([unsupportedLog]);
+        logRepository.findPendingRetriesSystemScope.mockResolvedValue([unsupportedLog]);
 
         await scheduler.retryFailedMessages();
 
@@ -104,30 +104,30 @@ describe("MessageRetrySchedulerService", () => {
             new Error("Timed out fetching a new connection from the connection pool"),
             { code: "P2024" },
         );
-        logRepository.findPendingRetries.mockRejectedValue(prismaError);
+        logRepository.findPendingRetriesSystemScope.mockRejectedValue(prismaError);
 
         await scheduler.retryFailedMessages();
         await scheduler.retryFailedMessages();
 
-        expect(logRepository.findPendingRetries).toHaveBeenCalledTimes(1);
+        expect(logRepository.findPendingRetriesSystemScope).toHaveBeenCalledTimes(1);
     });
 
     it("clears a stale lock and starts a fresh run", async () => {
         let releaseFirstRun: (() => void) | undefined;
-        logRepository.findPendingRetries.mockImplementationOnce(
+        logRepository.findPendingRetriesSystemScope.mockImplementationOnce(
             () =>
                 new Promise((resolve) => {
                     releaseFirstRun = () => resolve([]);
                 }),
         );
-        logRepository.findPendingRetries.mockResolvedValueOnce([]);
+        logRepository.findPendingRetriesSystemScope.mockResolvedValueOnce([]);
 
         const firstRun = scheduler.retryFailedMessages();
 
         nowSpy.mockReturnValue(16 * 60 * 1000);
         await scheduler.retryFailedMessages();
 
-        expect(logRepository.findPendingRetries).toHaveBeenCalledTimes(2);
+        expect(logRepository.findPendingRetriesSystemScope).toHaveBeenCalledTimes(2);
 
         releaseFirstRun?.();
         await firstRun;

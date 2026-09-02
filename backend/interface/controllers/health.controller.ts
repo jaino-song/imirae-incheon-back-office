@@ -3,6 +3,7 @@ import {
     Get,
     Header,
     HttpStatus,
+    Inject,
     Optional,
     Res,
 } from "@nestjs/common";
@@ -22,7 +23,12 @@ interface ReadinessResponse {
 @Controller()
 export class HealthController {
     constructor(
-        @Optional() private readonly prisma: PrismaService | undefined,
+        // The union type compiles to `Object` in design:paramtypes, so Nest
+        // needs the explicit token; without it @Optional() silently injects
+        // undefined and every readiness probe answers 503.
+        @Optional()
+        @Inject(PrismaService)
+        private readonly prisma: PrismaService | undefined,
         private readonly readiness: ReadinessService,
     ) {}
 

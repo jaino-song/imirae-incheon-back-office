@@ -23,6 +23,11 @@ import {
 import { TenantGuard, CurrentTenant } from "infrastructure/tenant";
 import { MessageSenderApprovalService } from "application/services/message-sender-approval.service";
 import { runWithAdminAuditActor } from "application/services/admin-audit-context";
+import {
+    ContractAutomationPoliciesResponseDto,
+    ContractAutoFinalizeConfigDto,
+    UpdateContractAutoFinalizeConfigDto,
+} from "interface/dto/contract-automation-policy.dto";
 
 type SettingsTenant = {
     userId?: string;
@@ -113,6 +118,32 @@ export class SystemSettingController {
             },
         ));
         return MessageAutomationPastTriggerConfigDto.from(JSON.parse(entity.value));
+    }
+
+    @Get("contract-automation-policies")
+    @UseGuards(TenantGuard)
+    async getContractAutomationPolicies(
+        @CurrentTenant() tenant?: { branchId?: string },
+    ): Promise<ContractAutomationPoliciesResponseDto> {
+        const config = await this.systemSettingService.getContractAutoFinalizeConfig(tenant?.branchId ?? "");
+        return ContractAutomationPoliciesResponseDto.from(config);
+    }
+
+    @Put("contract-automation-policies/auto-finalize")
+    @UseGuards(TenantGuard, OwnerOrAdminGuard)
+    async updateContractAutoFinalizeConfig(
+        @CurrentTenant() tenant: SettingsTenant,
+        @Body() dto: UpdateContractAutoFinalizeConfigDto,
+    ): Promise<ContractAutoFinalizeConfigDto> {
+        const entity = await runWithAdminAuditActor({
+            userId: tenant.userId,
+            globalRole: tenant.globalRole,
+            branchRole: tenant.branchRole,
+        }, () => this.systemSettingService.setContractAutoFinalizeConfig(
+            tenant.branchId ?? "",
+            { enabled: dto.enabled, graceDays: dto.graceDays, maxAttempts: dto.maxAttempts },
+        ));
+        return ContractAutoFinalizeConfigDto.from(JSON.parse(entity.value));
     }
 
     @Get("client-registration-policy")
