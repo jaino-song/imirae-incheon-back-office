@@ -1,12 +1,14 @@
 import { BadRequestException, ConflictException } from "@nestjs/common";
 import { validate } from "class-validator";
 
+import { EMPLOYEE_SCHEDULE_OVERLAP_CODE } from "application/policies/employee-schedule-invariants.policy";
 import { ServiceRecordEntryService } from "application/services/service-record-entry.service";
 import {
     SERVICE_RECORD_CASE_STATUS,
     ServiceRecordLifecycleService,
 } from "application/services/service-record-lifecycle.service";
 import { ServiceRecordTokenService } from "application/services/service-record-token.service";
+import { getServiceRecordTokenExpiresAt } from "domain/constants/service-record-link-message";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { UpsertSessionDto } from "interface/dto/service-record-entry.dto";
 
@@ -84,6 +86,10 @@ function createHarness(options: {
     existing?: ReturnType<typeof createDay> | null;
     transactionRecord?: ReturnType<typeof createRecord>;
     updateSignature?: (args: Record<string, unknown>) => Promise<{ count: number }>;
+    schedule?: Record<string, unknown>;
+    employeeScheduleFindFirst?: jest.Mock;
+    ensureForClient?: jest.Mock;
+    extendExpiryForCase?: jest.Mock;
 } = {}) {
     const aggregate = createRecord();
     const existing = options.existing === undefined ? null : options.existing;
@@ -95,13 +101,28 @@ function createHarness(options: {
     const updateMany = jest.fn(options.updateSignature ?? (() => Promise.resolve({
         count: existing?.clientSignature ? 0 : 1,
     })));
+    const schedule = options.schedule ?? { primaryEmployee: { name: "제공자" } };
+    const scheduleUpdate = jest.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve({ ...schedule, ...data }));
+    const clientUpdate = jest.fn().mockImplementation(({ data }: { data: { endDate?: Date } }) => {
+        // Mutate the same object `service_record_case.findUnique` resolves so
+        // the extension's re-read sees the just-extended end date, mirroring
+        // a real transaction reading its own uncommitted write back.
+        if (data.endDate !== undefined) transactionRecord.endDate = data.endDate;
+        return Promise.resolve({});
+    });
     const transactionClient = {
         $queryRaw: jest.fn().mockResolvedValue([{ id: CASE_ID }]),
         service_record_case: {
             findUnique: jest.fn().mockResolvedValue(transactionRecord),
         },
         employee_schedule: {
-            findUnique: jest.fn().mockResolvedValue({ primaryEmployee: { name: "제공자" } }),
+            findUnique: jest.fn().mockResolvedValue(schedule),
+            update: scheduleUpdate,
+            ...(options.employeeScheduleFindFirst ? { findFirst: options.employeeScheduleFindFirst } : {}),
+        },
+        client: {
+            update: clientUpdate,
         },
         service_record_day: {
             findUnique: jest.fn().mockResolvedValue(existing),
@@ -116,14 +137,30 @@ function createHarness(options: {
         $transaction: jest.fn((callback: (tx: typeof transactionClient) => Promise<unknown>) =>
             callback(transactionClient)),
     };
-    const lifecycle = { recompute: jest.fn().mockResolvedValue(transactionRecord) };
+    const lifecycle = {
+        recompute: jest.fn().mockResolvedValue(transactionRecord),
+        ensureForClient: options.ensureForClient ?? jest.fn().mockResolvedValue(null),
+    };
+    const tokenService = {
+        extendExpiryForCase: options.extendExpiryForCase ?? jest.fn().mockResolvedValue(undefined),
+    };
     const service = new ServiceRecordEntryService(
         prisma as unknown as PrismaService,
-        {} as ServiceRecordTokenService,
+        tokenService as unknown as ServiceRecordTokenService,
         lifecycle as unknown as ServiceRecordLifecycleService,
     );
 
-    return { service, prisma, transactionClient, upsert, updateMany, lifecycle };
+    return {
+        service,
+        prisma,
+        transactionClient,
+        upsert,
+        updateMany,
+        lifecycle,
+        tokenService,
+        scheduleUpdate,
+        clientUpdate,
+    };
 }
 
 function createConcurrentHarness() {
@@ -476,6 +513,135 @@ describe("ServiceRecordEntryService.upsertSession", () => {
         expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
             update: expect.objectContaining({ locked: false }),
         }));
+    });
+
+    it("extends the schedule and client end date, re-syncs the case, and extends the token when a session date runs past the current end date", async () => {
+        // A single-session case (requiredSessionCount 1) keeps the math
+        // simple: the required end date for session 1 is the service date
+        // itself. Saving it later than the current end date must postpone
+        // the schedule/client/case/token end dates while leaving the
+        // contracted session count untouched.
+        const transactionRecord = createRecord({
+            requiredSessionCount: 1,
+            endDate: new Date("2026-07-05T00:00:00.000Z"),
+        });
+        const schedule = {
+            id: 10,
+            clientId: 100,
+            primaryEmployeeId: 20,
+            secondaryEmployeeId: null,
+            startDate: new Date("2026-07-01T00:00:00.000Z"),
+            endDate: new Date("2026-07-05T00:00:00.000Z"),
+            replaced: false,
+            primaryEmployee: { name: "제공자" },
+        };
+        const ensureForClient = jest.fn().mockResolvedValue(null);
+        const extendExpiryForCase = jest.fn().mockResolvedValue(undefined);
+        const { service, scheduleUpdate, clientUpdate, upsert } = createHarness({
+            existing: null,
+            transactionRecord,
+            schedule,
+            ensureForClient,
+            extendExpiryForCase,
+        });
+        const newEndDate = new Date("2026-07-10T00:00:00.000Z");
+
+        const result = await service.upsertSession(
+            context,
+            1,
+            createDto({ serviceDate: "2026-07-10T00:00:00.000Z" }),
+            false,
+        );
+
+        expect(result).toEqual(expect.objectContaining({ sessionIndex: 1 }));
+        expect(scheduleUpdate).toHaveBeenCalledWith({
+            where: { id: 10 },
+            data: { endDate: newEndDate },
+        });
+        expect(clientUpdate).toHaveBeenCalledWith({
+            where: { id: 100 },
+            data: { endDate: newEndDate },
+        });
+        expect(ensureForClient).toHaveBeenCalledWith(100, expect.anything());
+        expect(extendExpiryForCase).toHaveBeenCalledWith(
+            CASE_ID,
+            getServiceRecordTokenExpiresAt(newEndDate),
+            expect.anything(),
+        );
+        // requiredSessionCount is never touched by the extension.
+        expect(transactionRecord.requiredSessionCount).toBe(1);
+        expect(upsert).toHaveBeenCalled();
+    });
+
+    it("does not extend the end date when the service date fits within the current schedule", async () => {
+        const schedule = {
+            id: 10,
+            clientId: 100,
+            primaryEmployeeId: 20,
+            secondaryEmployeeId: null,
+            startDate: new Date("2026-07-01T00:00:00.000Z"),
+            endDate: new Date("2026-07-31T00:00:00.000Z"),
+            replaced: false,
+            primaryEmployee: { name: "제공자" },
+        };
+        const ensureForClient = jest.fn().mockResolvedValue(null);
+        const extendExpiryForCase = jest.fn().mockResolvedValue(undefined);
+        const existing = createDay({ locked: false, clientSignature: null, clientSignedAt: null });
+        const { service, scheduleUpdate, clientUpdate } = createHarness({
+            existing,
+            schedule,
+            ensureForClient,
+            extendExpiryForCase,
+        });
+
+        await service.upsertSession(context, 1, createDto({ notes: "정상 범위" }), false);
+
+        expect(scheduleUpdate).not.toHaveBeenCalled();
+        expect(clientUpdate).not.toHaveBeenCalled();
+        expect(ensureForClient).not.toHaveBeenCalled();
+        expect(extendExpiryForCase).not.toHaveBeenCalled();
+    });
+
+    it("rejects the upsert with a Korean conflict message when extending the end date would overlap another active schedule", async () => {
+        const transactionRecord = createRecord({
+            requiredSessionCount: 1,
+            endDate: new Date("2026-07-05T00:00:00.000Z"),
+        });
+        const schedule = {
+            id: 10,
+            clientId: 100,
+            primaryEmployeeId: 20,
+            secondaryEmployeeId: null,
+            startDate: new Date("2026-07-01T00:00:00.000Z"),
+            endDate: new Date("2026-07-05T00:00:00.000Z"),
+            replaced: false,
+            primaryEmployee: { name: "제공자" },
+        };
+        const employeeScheduleFindFirst = jest.fn().mockResolvedValue({
+            id: 99,
+            clientId: 100,
+            primaryEmployeeId: 20,
+            secondaryEmployeeId: null,
+        });
+        const { service, upsert } = createHarness({
+            existing: null,
+            transactionRecord,
+            schedule,
+            employeeScheduleFindFirst,
+        });
+
+        await expect(service.upsertSession(
+            context,
+            1,
+            createDto({ serviceDate: "2026-07-10T00:00:00.000Z" }),
+            false,
+        )).rejects.toMatchObject({
+            response: {
+                code: EMPLOYEE_SCHEDULE_OVERLAP_CODE,
+                message: "다음 배정 일정과 겹쳐 종료일을 연장할 수 없습니다. 관리자에게 문의해 주세요.",
+            },
+        });
+        expect(upsert).not.toHaveBeenCalled();
     });
 });
 

@@ -75,7 +75,7 @@ describe("AdminServiceRecordService", () => {
         serviceRecordTokens: [],
     });
 
-    it("maps the current total from actual service dates even when the stored count is stale", async () => {
+    it("keeps the stored session count as the total even when the period is longer than its business-day span", async () => {
         const prisma = createPrisma();
         prisma.service_record_case.findFirst.mockResolvedValue({
             id: "case-1",
@@ -108,7 +108,10 @@ describe("AdminServiceRecordService", () => {
 
         const overview = await service.getClientOverview("branch-1", 100);
 
-        expect(overview.record?.totalSessions).toBe(6);
+        // requiredSessionCount (15) is the contracted count and is
+        // authoritative; the 6-business-day span for the current dates is
+        // no longer used to override it.
+        expect(overview.record?.totalSessions).toBe(15);
     });
 
     it("derives link status for none, scheduled, sent, and failed assignments", async () => {

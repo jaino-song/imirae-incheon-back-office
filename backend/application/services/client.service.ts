@@ -959,7 +959,9 @@ export class ClientService {
         mergeAndValidateClientServicePeriod(null, { startDate, endDate });
         const derivedDuration = deriveClientDuration(startDate, endDate);
         assertClientDurationMatchesDates(params.duration, derivedDuration);
-        const duration = derivedDuration ?? params.duration ?? null;
+        // A supplied duration is authoritative; the date-derived count is
+        // only a fallback when the caller does not supply one.
+        const duration = params.duration ?? derivedDuration ?? null;
         assertAllowedServiceStatus(params.serviceStatus);
         await assertAllowedClientArea(this.prismaService, branchid, params.areaId);
 
@@ -1583,15 +1585,17 @@ export class ClientService {
         if (hasDateUpdate && derivedDuration === null && params.duration !== undefined && params.duration !== null) {
             throw new BadRequestException("duration requires a complete service period");
         }
-        // Complete calendar dates own the persisted duration even when the
-        // caller changes an unrelated profile field. Incomplete periods keep
-        // the explicit policy duration (or null) because no derived count
-        // exists yet.
-        const duration = derivedDuration !== null
-            ? derivedDuration
-            : hasDateUpdate
-                ? null
-                : params.duration;
+        // duration is the contracted session count and is authoritative once
+        // set: a supplied value always wins and is never overwritten by the
+        // date-derived count. When the caller omits duration it is left
+        // untouched (undefined => no column update), except to fill a null
+        // duration once the service period becomes complete, so a client
+        // created without dates still ends up with a persisted count.
+        const duration = params.duration !== undefined
+            ? params.duration
+            : existingClient.duration === null && derivedDuration !== null
+                ? derivedDuration
+                : undefined;
         await this.serviceRecordLifecycleService?.validatePeriodChange({
             clientId: id,
             startDate: startDateUpdate,

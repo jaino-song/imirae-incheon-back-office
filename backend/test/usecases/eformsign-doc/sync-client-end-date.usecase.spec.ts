@@ -3,7 +3,7 @@ import { SyncClientEndDateUsecase } from "application/usecases/eformsign-doc/syn
 import { ClientEntity } from "domain/entities/client.entity";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
-import { countBusinessDaysKr, UnsupportedKoreanHolidayYearError } from "domain/utils/business-days";
+import { UnsupportedKoreanHolidayYearError } from "domain/utils/business-days";
 
 describe("SyncClientEndDateUsecase", () => {
     const branchId = "test-branch";
@@ -143,7 +143,9 @@ describe("SyncClientEndDateUsecase", () => {
 
         const updatedClient = clientRepository.update.mock.calls[0][1] as ClientEntity;
         expect(updatedClient.endDate?.toISOString()).toBe("2026-05-17T00:00:00.000Z");
-        expect(updatedClient.duration).toBe(countBusinessDaysKr("2026-05-01", "2026-05-17"));
+        // duration (15) is authoritative once set: syncing endDate from the
+        // contract must not silently re-derive and overwrite it.
+        expect(updatedClient.duration).toBe(15);
         expect(result).toEqual({
             clientId: 7,
             endDate: new Date("2026-05-17T00:00:00.000Z"),

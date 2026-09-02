@@ -1738,24 +1738,37 @@ describe("ClientService", () => {
                 }));
             });
 
-            it("clears duration when a date patch leaves the service period incomplete", async () => {
+            it("leaves duration untouched when a date patch leaves the service period incomplete", async () => {
+                // duration is authoritative once set: clearing endDate must
+                // not silently wipe out the stored session count anymore.
                 const existingClient = createClientEntity();
                 findClientByIdUsecase.execute.mockResolvedValue(existingClient);
 
                 await service.update(branchId, 1, { endDate: null });
 
-                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-                    where: { id: 1, branchId },
-                    data: expect.objectContaining({ endDate: null, duration: null }),
-                }));
+                const { data } = prismaService.client.updateMany.mock.calls[0][0];
+                expect(data.endDate).toBeNull();
+                expect(data.duration).toBeUndefined();
             });
 
-            it("rejects a duration-only mismatch when the existing service period is complete", async () => {
+            it("accepts a supplied duration smaller than the business-day count and persists it unchanged", async () => {
                 const existingClient = createClientEntity();
                 findClientByIdUsecase.execute.mockResolvedValue(existingClient);
 
-                await expect(service.update(branchId, 1, { duration: 1 }))
-                    .rejects.toThrow("duration must equal the Korean business-day count (102)");
+                await service.update(branchId, 1, { duration: 1 });
+
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    where: { id: 1, branchId },
+                    data: expect.objectContaining({ duration: 1 }),
+                }));
+            });
+
+            it("rejects a duration that exceeds the business-day count when the existing service period is complete", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await expect(service.update(branchId, 1, { duration: 103 }))
+                    .rejects.toThrow("duration cannot exceed the Korean business-day count (102)");
                 expect(prismaService.$transaction).not.toHaveBeenCalled();
                 expect(prismaService.client.updateMany).not.toHaveBeenCalled();
             });
