@@ -164,7 +164,42 @@ test.describe("Mobile nav: center chat + /all menu", () => {
         };
       }, MEASURED_LABELS);
 
-    const before = await measureMenu();
+    // The loading-state layout is not final the instant the skeletons appear, and the
+    // baseline must not sample it mid-settle.
+    //
+    // What CI actually showed, from the geometry log below. On the reads that failed,
+    // every row that `.menu-row:first-of-type` exempts from a top border measured
+    // 60px and every other row 61px — 10 of 10, exactly the stylesheet's own intent —
+    // and a moment later every row measured 61px. That 1px lands on rows with no
+    // fetched value at all (가격표, 전자문서, 통계 보고서, 발송 자동화), so it is a
+    // page-wide settle and not the skeleton swap this test is about. It only has to
+    // stop being sampled as the baseline.
+    //
+    // Three consecutive identical reads, at least half a second apart end to end. Two
+    // is not enough: back-to-back reads both land inside the same transient state.
+    const measureSettledMenu = async () => {
+      type MenuGeometry = Awaited<ReturnType<typeof measureMenu>>;
+      let previous: MenuGeometry | undefined;
+      let stableReads = 0;
+
+      await expect(async () => {
+        const current = await measureMenu();
+        stableReads =
+          previous && JSON.stringify(current) === JSON.stringify(previous) ? stableReads + 1 : 0;
+        previous = current;
+        expect(
+          stableReads,
+          "all-menu layout should settle before it is measured",
+        ).toBeGreaterThanOrEqual(2);
+      }).toPass({ intervals: [250, 250, 250, 500, 1000], timeout: 15_000 });
+
+      if (!previous) {
+        throw new Error("All menu loading geometry should be measurable");
+      }
+      return previous;
+    };
+
+    const before = await measureSettledMenu();
 
     releaseClients();
     releaseEmployees();
@@ -183,7 +218,7 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     await expect(page.locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')).toHaveCount(0);
     await expect(page.locator('[data-component="mobile_all_page_menu_group_row_badge-skeleton"]')).toHaveCount(0);
 
-    const after = await measureMenu();
+    const after = await measureSettledMenu();
 
     // Printed on every run, pass or fail. The flake this replaced reported a single
     // number ("3 > 1") with no way to tell which box had grown, so every hypothesis
