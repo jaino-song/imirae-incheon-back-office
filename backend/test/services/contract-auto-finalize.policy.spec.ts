@@ -6,7 +6,11 @@ import {
 describe("evaluateAutoFinalize", () => {
     const context = { sinceDate: "2026-08-08", todayKst: "2026-08-10" };
 
-    function verdict(contractEndDate: string | null, attempts = 0, ctx = context) {
+    function verdict(
+        contractEndDate: string | null,
+        attempts = 0,
+        ctx: { sinceDate: string; todayKst: string; graceDays?: number; maxAttempts?: number } = context,
+    ) {
         return evaluateAutoFinalize(
             { contractEndDate, autoFinalizeAttempts: attempts },
             ctx,
@@ -57,6 +61,21 @@ describe("evaluateAutoFinalize", () => {
     it("keeps retrying below the budget", () => {
         expect(verdict("2026-08-09", CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS - 1)).toEqual({
             eligible: true,
+        });
+    });
+
+    it("waits until the grace period has passed", () => {
+        expect(verdict("2026-08-10", 0, { ...context, todayKst: "2026-08-11", graceDays: 2 })).toEqual({
+            eligible: false,
+            reason: "end-date-not-passed",
+        });
+        expect(verdict("2026-08-10", 0, { ...context, todayKst: "2026-08-12", graceDays: 2 })).toEqual({ eligible: true });
+    });
+
+    it("uses a branch-specific attempt budget", () => {
+        expect(verdict("2026-08-09", 1, { ...context, maxAttempts: 1 })).toEqual({
+            eligible: false,
+            reason: "attempts-exhausted",
         });
     });
 });

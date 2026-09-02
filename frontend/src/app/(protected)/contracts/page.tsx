@@ -22,6 +22,7 @@ import {
   MapPin,
   Briefcase,
   Bell,
+  Workflow,
 } from "lucide-react";
 import {
   useContractClientCandidate,
@@ -64,6 +65,7 @@ import {
   SectionNav,
 } from "@/components/app/v3";
 import { ContractStatsBar } from "@/components/app/contracts/ContractStatsBar";
+import { ContractAutomationsManager } from "@/components/app/contracts/ContractAutomationsManager";
 import type { StatusType } from "@/components/app/v3";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { ClientFormDialog } from "@/components/app/clients/ClientFormDialog";
@@ -439,6 +441,7 @@ const NAV_SECTIONS = [
   { id: "caregiver", label: "제공인력 계약서", icon: Briefcase, disabled: true },
   { id: "documents", label: "전자문서 목록", icon: FileText, disabled: true },
   { id: "notifications", label: "알림 설정", icon: Bell, disabled: true },
+  { id: "automations", label: "자동화", icon: Workflow },
 ] as const;
 
 type SectionId = (typeof NAV_SECTIONS)[number]["id"];
@@ -1068,6 +1071,10 @@ export default function ContractsPage() {
                 </DetailPanel>
               </SplitLayout>
             </section>
+          ) : null}
+
+          {activeSection === "automations" ? (
+            <ContractAutomationsManager dataComponent="desktop_contracts_sections_section-content_automations-section" />
           ) : null}
         </div>
       </div>
