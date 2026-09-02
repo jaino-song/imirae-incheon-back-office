@@ -10,6 +10,7 @@ import { SignaturePad } from "@/components/app/service-record/SignaturePad";
 import { DEFAULT_PROVIDER_NAME, ProviderInfo } from "@/components/service-record/provider-info";
 import { isBusinessDayKr, isoDateInKorea, nextBusinessDayKr } from "@/lib/date/business-days";
 import {
+    getServiceDateShiftBusinessDays,
     isDayButtonDisabled,
     isServiceDateMismatch,
 } from "@/lib/service-records/page-helpers";
@@ -320,6 +321,7 @@ export default function ServiceRecordPage() {
     const [scheduleChangeModalOpen, setScheduleChangeModalOpen] = useState(false);
     const [scheduleChangeBusy, setScheduleChangeBusy] = useState(false);
     const [errorNotificationMessage, setErrorNotificationMessage] = useState<string | null>(null);
+    const [pendingServiceDate, setPendingServiceDate] = useState<string | null>(null);
 
     const navigateTo = useCallback((
         nextScreen: Screen,
@@ -662,6 +664,29 @@ export default function ServiceRecordPage() {
         }
     }
 
+    function handleServiceDateChange(next: string) {
+        const expected = defaultDate(day);
+        if (next === expected) {
+            setField("_date", next);
+            return;
+        }
+        if (next < expected) {
+            // Only reachable by typing into the field; the `min` attribute
+            // already blocks the date picker from offering an earlier date.
+            return;
+        }
+        setPendingServiceDate(next);
+    }
+
+    function confirmServiceDateChange() {
+        if (pendingServiceDate) setField("_date", pendingServiceDate);
+        setPendingServiceDate(null);
+    }
+
+    function cancelServiceDateChange() {
+        setPendingServiceDate(null);
+    }
+
     /* ───────────────────────── rendering ───────────────────────── */
 
     const setField = (k: string, v: unknown) => setDraft((d) => ({ ...d, [k]: v }));
@@ -911,7 +936,7 @@ export default function ServiceRecordPage() {
                         {!editing && pageIdx === 0 && (
                             <div data-component="mobile_service-record_wizard_body_service-date-field" className="fld">
                                 <label className="lab">제공일자</label>
-                                <input type="date" className="in dateinput" value={currentServiceDate} min={day <= 1 ? (ctx?.startDate?.slice(0, 10) ?? undefined) : defaultDate(day)} onChange={(e) => setField("_date", e.target.value)} />
+                                <input type="date" className="in dateinput" value={currentServiceDate} min={day <= 1 ? (ctx?.startDate?.slice(0, 10) ?? undefined) : defaultDate(day)} onChange={(e) => handleServiceDateChange(e.target.value)} />
                             </div>
                         )}
                         {!editing && hasServiceDateMismatch && (
@@ -1022,6 +1047,21 @@ export default function ServiceRecordPage() {
                 }}
                 onCancel={closeScheduleChangeModal}
                 onConfirm={submitScheduleChangeRequest}
+            />
+            <MobileTwoButtonModal
+                data-component="mobile_service-record_service-date-change-modal"
+                open={pendingServiceDate !== null}
+                title={`${day}회차 제공일을 변경할까요?`}
+                description={pendingServiceDate
+                    ? `${day}회차의 서비스 제공일을 ${monthDayKo(defaultDate(day))}에서 ${monthDayKo(pendingServiceDate)}로 변경하시겠어요? ${getServiceDateShiftBusinessDays(defaultDate(day), pendingServiceDate)} 영업일 만큼 서비스 종료 날짜가 미뤄집니다.`
+                    : ""}
+                cancelLabel="취소"
+                confirmLabel="확인"
+                onOpenChange={(open) => {
+                    if (!open) cancelServiceDateChange();
+                }}
+                onCancel={cancelServiceDateChange}
+                onConfirm={confirmServiceDateChange}
             />
             <NotificationOneButtonModal
                 open={errorNotificationMessage !== null}
