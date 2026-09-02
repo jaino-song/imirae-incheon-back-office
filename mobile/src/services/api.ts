@@ -54,6 +54,16 @@ export interface ServiceRecordTemplateIdResponse {
     templateIds?: string[];
 }
 
+export interface ContractAutoFinalizeConfig {
+    enabled: boolean;
+    graceDays: number;
+    maxAttempts: number;
+}
+
+export interface ContractAutomationPoliciesResponse {
+    autoFinalize: ContractAutoFinalizeConfig;
+}
+
 const HEADLESS_DISPATCH_TIMEOUT_MS = 180_000;
 const HEADLESS_FINALIZE_TIMEOUT_MS = 180_000;
 const MAX_PROVIDER_FINALIZE_STEPS = 3;
@@ -522,6 +532,16 @@ export const settingsApi = {
     },
     getMessageAutomationPolicies: async (): Promise<MessageAutomationPoliciesResponse> => {
         const { data } = await api.get("/settings/message-automation-policies");
+        return data;
+    },
+    getContractAutomationPolicies: async (): Promise<ContractAutomationPoliciesResponse> => {
+        const { data } = await api.get("/settings/contract-automation-policies");
+        return data;
+    },
+    updateContractAutoFinalizeConfig: async (
+        config: ContractAutoFinalizeConfig,
+    ): Promise<ContractAutoFinalizeConfig> => {
+        const { data } = await api.put("/settings/contract-automation-policies/auto-finalize", config);
         return data;
     },
     updateMessageAutomationPastTriggerConfig: async (
