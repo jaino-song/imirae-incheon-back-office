@@ -145,6 +145,10 @@ export async function assertNoActiveEmployeeScheduleOverlap(
         where: {
             branchId: params.branchId,
             replaced: false,
+            // A terminated assignment keeps its contracted end date now that
+            // termination no longer rewrites it, so it would otherwise go on
+            // blocking the employee for the rest of a period they no longer serve.
+            terminatedAt: null,
             startDate: { lte: params.endDate },
             endDate: { gte: params.startDate },
             OR: overlapSubjects,

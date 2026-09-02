@@ -195,6 +195,7 @@ describe("SbEmployeeRepository", () => {
                 where: {
                     branchId,
                     replaced: false,
+                    terminatedAt: null,
                     endDate: { gte: expect.any(Date) },
                     OR: [
                         { primaryEmployeeId: 7 },
@@ -271,7 +272,7 @@ describe("SbEmployeeRepository", () => {
                         { primaryEmployeeId: 7 },
                         { secondaryEmployeeId: 7 },
                     ],
-                    AND: [{ OR: [{ replaced: true }, { endDate: { lt: expect.any(Date) } }] }],
+                    AND: [{ OR: [{ replaced: true }, { terminatedAt: { not: null } }, { endDate: { lt: expect.any(Date) } }] }],
                 },
                 skip: 10,
                 take: 10,
@@ -339,7 +340,7 @@ describe("SbEmployeeRepository", () => {
 
                 const expectedCutoff = new Date("2026-07-17T00:00:00.000Z");
                 const expectedWhere = expect.objectContaining({
-                    AND: [{ OR: [{ replaced: true }, { endDate: { lt: expectedCutoff } }] }],
+                    AND: [{ OR: [{ replaced: true }, { terminatedAt: { not: null } }, { endDate: { lt: expectedCutoff } }] }],
                 });
                 expect(employeeScheduleModel.findMany.mock.calls[0]?.[0]?.where).toEqual(expectedWhere);
                 expect(employeeScheduleModel.count.mock.calls[0]?.[0]?.where).toEqual(expectedWhere);
@@ -434,6 +435,7 @@ describe("SbEmployeeRepository", () => {
                                 startDate: { lte: expect.any(Date) },
                                 endDate: { gte: expect.any(Date) },
                                 replaced: false,
+                                terminatedAt: null,
                             },
                             take: 1,
                         },
@@ -442,6 +444,7 @@ describe("SbEmployeeRepository", () => {
                                 startDate: { lte: expect.any(Date) },
                                 endDate: { gte: expect.any(Date) },
                                 replaced: false,
+                                terminatedAt: null,
                             },
                             take: 1,
                         },
@@ -619,6 +622,7 @@ describe("SbEmployeeRepository", () => {
                 where: {
                     branchId,
                     replaced: false,
+                    terminatedAt: null,
                     endDate: { gte: expect.any(Date) },
                     OR: [
                         { primaryEmployeeId: 3 },

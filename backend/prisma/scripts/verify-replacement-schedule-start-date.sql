@@ -10,6 +10,7 @@ DECLARE
     _damaged bigint;
     _deferred bigint;
     _inverted bigint;
+    _unflagged bigint;
     _unmirrored bigint;
 BEGIN
     IF to_regclass('public.employee_schedule') IS NULL THEN
@@ -20,6 +21,13 @@ BEGIN
     END IF;
     IF to_regclass('public.message_trigger_job') IS NULL THEN
         RAISE EXCEPTION 'message_trigger_job table is missing';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'employee_schedule'
+          AND column_name = 'terminated_at'
+    ) THEN
+        RAISE EXCEPTION 'employee_schedule.terminated_at is missing';
     END IF;
 
     WITH chain AS (
@@ -58,6 +66,18 @@ BEGIN
     WHERE "start_date" > "end_date";
     IF _inverted > 0 THEN
         RAISE EXCEPTION '% employee_schedule row(s) have an inverted date range', _inverted;
+    END IF;
+
+    SELECT count(*) INTO _unflagged
+    FROM "employee_schedule" s
+    JOIN "client" c ON c."id" = s."client_id"
+    WHERE c."service_status" = 'terminated'
+      AND c."end_date" IS NOT NULL
+      AND s."replaced" = false
+      AND s."terminated_at" IS NULL;
+    IF _unflagged > 0 THEN
+        RAISE EXCEPTION
+            '% schedule(s) of terminated clients are missing terminated_at', _unflagged;
     END IF;
 
     SELECT count(*) INTO _unmirrored

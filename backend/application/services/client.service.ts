@@ -1831,15 +1831,19 @@ export class ClientService {
             });
         }
 
-        // Also mark the current schedule as ended
+        // Also mark the current schedules as terminated. This records the termination
+        // on its own column rather than overwriting end_date: the contracted period
+        // stays readable, and a service terminated before it started can no longer
+        // produce start_date > end_date. Readers that ask "is this assignment live"
+        // filter on terminatedAt, not on the dates.
         await this.prismaService.employee_schedule.updateMany({
-            where: { clientId: clientId, replaced: false },
-            data: { endDate: new Date() },
+            where: { clientId, branchId: branchid, replaced: false, terminatedAt: null },
+            data: { terminatedAt: new Date() },
         });
 
         // Revoke any outstanding service-record links for this client's active assignments
         const activeSchedules = await this.prismaService.employee_schedule.findMany({
-            where: { clientId: clientId, replaced: false },
+            where: { clientId, branchId: branchid, replaced: false },
             select: { id: true },
         });
         for (const activeSchedule of activeSchedules) {
