@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { MessageTriggerService } from "./message-trigger.service";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 import {
     isTransientPrismaConnectivityError,
     summarizePrismaError,
@@ -22,10 +23,17 @@ export class MessageTriggerSchedulerService {
         cooldownMs: DB_COOLDOWN_MS,
     });
 
-    constructor(private readonly triggerService: MessageTriggerService) {}
+    constructor(
+        private readonly triggerService: MessageTriggerService,
+        private readonly schedulerLease: SchedulerLeaseService,
+    ) {}
 
     @Cron("*/1 * * * *", { timeZone: "Asia/Seoul" })
     async dispatchDueJobs(): Promise<void> {
+        if (!this.schedulerLease.holdsLease()) {
+            return;
+        }
+
         const runToken = this.executionGuard.tryStart();
         if (!runToken) {
             return;

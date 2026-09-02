@@ -6,6 +6,7 @@ import {
 } from "application/services/contract-auto-finalize-scheduler.service";
 import type { ReviewStageContract } from "domain/repositories/eformsign-doc.repository.interface";
 import { isoDateInKorea } from "domain/utils/business-days";
+import { createSchedulerLeaseMock } from "../utils/mocks/scheduler-lease.mock";
 
 function contract(overrides: Partial<ReviewStageContract> = {}): ReviewStageContract {
     return {
@@ -58,6 +59,7 @@ describe("ContractAutoFinalizeSchedulerService", () => {
             repository as never,
             documentJobService as never,
             notificationService as never,
+            createSchedulerLeaseMock(),
             systemSettingService as never,
         );
     });
@@ -212,6 +214,43 @@ describe("ContractAutoFinalizeSchedulerService", () => {
         expect(documentJobService.enqueueFinalizeDocument).not.toHaveBeenCalled();
         expect(repository.recordAutoFinalizeFailure).not.toHaveBeenCalled();
         expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
+    });
+
+    it("skips the run when the scheduler lease is not held", async () => {
+        service = new ContractAutoFinalizeSchedulerService(
+            { get: (key: string) => configValues[key] } as never,
+            repository as never,
+            documentJobService as never,
+            notificationService as never,
+            createSchedulerLeaseMock(false),
+        );
+
+        await service.autoFinalizeDueContracts();
+
+        expect(repository.findReviewStageContracts).not.toHaveBeenCalled();
+    });
+
+    it("stops when the lease is lost mid-run", async () => {
+        const schedulerLease = createSchedulerLeaseMock(false);
+        schedulerLease.holdsLease.mockReturnValueOnce(true).mockReturnValueOnce(true);
+        service = new ContractAutoFinalizeSchedulerService(
+            { get: (key: string) => configValues[key] } as never,
+            repository as never,
+            documentJobService as never,
+            notificationService as never,
+            schedulerLease,
+        );
+        repository.findReviewStageContracts.mockResolvedValue([
+            contract({ documentId: "doc-1" }),
+            contract({ documentId: "doc-2" }),
+        ]);
+
+        await service.autoFinalizeDueContracts();
+
+        expect(documentJobService.enqueueFinalizeDocument).toHaveBeenCalledTimes(1);
+        expect(documentJobService.enqueueFinalizeDocument).toHaveBeenCalledWith(
+            expect.objectContaining({ documentId: "doc-1" }),
+        );
     });
 
     it("skips disabled branches while enqueuing enabled branches", async () => {

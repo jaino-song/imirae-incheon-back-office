@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { TenantModule } from "infrastructure/tenant/tenant.module";
 import { ServiceRecordEntryModule } from "module/service-record-entry.module";
 import { EformsignWebhookModule } from "module/eformsign-webhook.module";
+import { SchedulerLeaseModule } from "module/scheduler-lease.module";
 import { ServiceRecordEntryService } from "application/services/service-record-entry.service";
 import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
 import { ServiceRecordFinalizationService } from "application/services/service-record-finalization.service";
@@ -78,7 +79,7 @@ const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
         moduleRef = await Test.createTestingModule({
             // TenantModule is @Global in the real app — imported here so guards on
             // transitively-imported controllers (SystemSettingModule etc.) resolve.
-            imports: [ConfigModule.forRoot({ isGlobal: true }), TenantModule, ServiceRecordEntryModule, EformsignWebhookModule],
+            imports: [ConfigModule.forRoot({ isGlobal: true }), TenantModule, ServiceRecordEntryModule, EformsignWebhookModule, SchedulerLeaseModule],
         }).compile();
 
         prisma = moduleRef.get(PrismaService, { strict: false });

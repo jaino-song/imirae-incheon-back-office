@@ -7,6 +7,7 @@ import {
 } from "infrastructure/database/prisma-error.utils";
 import { captureServiceRecordError } from "infrastructure/observability/service-record-sentry";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 import { ServiceRecordFinalizationService } from "./service-record-finalization.service";
 
 const MAX_RUN_MS = 10 * 60 * 1000;
@@ -27,10 +28,15 @@ export class ServiceRecordFinalizationSchedulerService {
     constructor(
         private readonly configService: ConfigService,
         private readonly finalizationService: ServiceRecordFinalizationService,
+        private readonly schedulerLease: SchedulerLeaseService,
     ) {}
 
     @Cron("* * * * *", { timeZone: "Asia/Seoul" })
     async finalizeDueServiceRecords(): Promise<void> {
+        if (!this.schedulerLease.holdsLease()) {
+            return;
+        }
+
         if (this.configService.get<string>("SERVICE_RECORD_AUTO_FINALIZE_ENABLED") !== "true") {
             return;
         }

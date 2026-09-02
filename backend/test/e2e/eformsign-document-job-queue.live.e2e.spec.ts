@@ -12,6 +12,7 @@ import {
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { TenantModule } from "infrastructure/tenant/tenant.module";
 import { EformsignDocModule } from "module/eformsign-doc.module";
+import { SchedulerLeaseModule } from "module/scheduler-lease.module";
 
 const LIVE = process.env["LIVE_E2E"] === "1";
 const RUN_ID = Date.now().toString(36);
@@ -97,7 +98,7 @@ const buildContract = (employeeName: string, employeePhone: string): ContractDat
         expect(process.env["EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED"]).toBe("true");
 
         moduleRef = await Test.createTestingModule({
-            imports: [ConfigModule.forRoot({ isGlobal: true }), TenantModule, EformsignDocModule],
+            imports: [ConfigModule.forRoot({ isGlobal: true }), TenantModule, EformsignDocModule, SchedulerLeaseModule],
         }).compile();
 
         prisma = moduleRef.get(PrismaService, { strict: false });

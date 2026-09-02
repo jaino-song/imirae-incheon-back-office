@@ -6,6 +6,7 @@ import {
     CallProcessingService,
 } from "application/services/call-processing.service";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 import {
     isTransientPrismaConnectivityError,
     summarizePrismaError,
@@ -33,10 +34,15 @@ export class CallExtractionRetrySchedulerService {
     constructor(
         private readonly prismaService: PrismaService,
         private readonly processingService: CallProcessingService,
+        private readonly schedulerLease: SchedulerLeaseService,
     ) {}
 
     @Cron("*/10 * * * *", { timeZone: "Asia/Seoul" })
     async retryFailedExtractions(): Promise<void> {
+        if (!this.schedulerLease.holdsLease()) {
+            return;
+        }
+
         const runToken = this.executionGuard.tryStart();
         if (!runToken) return;
 

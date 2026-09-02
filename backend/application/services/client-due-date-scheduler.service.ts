@@ -4,6 +4,7 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 import { MessageTriggerService } from "./message-trigger.service";
 import { MessageAutomationIntentService } from "./message-automation-intent.service";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 import { ServiceRecordLifecycleService } from "./service-record-lifecycle.service";
 import {
     isTransientPrismaConnectivityError,
@@ -36,6 +37,7 @@ export class ClientDueDateSchedulerService {
 
     constructor(
         private readonly prisma: PrismaService,
+        private readonly schedulerLease: SchedulerLeaseService,
         @Optional() private readonly triggerService?: MessageTriggerService,
         @Optional() private readonly serviceRecordLifecycleService?: ServiceRecordLifecycleService,
         @Optional() private readonly messageAutomationIntentService?: MessageAutomationIntentService,
@@ -43,6 +45,10 @@ export class ClientDueDateSchedulerService {
 
     @Cron("0 * * * *", { timeZone: KOREA_TIME_ZONE })
     async syncUpcomingDueDatesToStartDates(): Promise<void> {
+        if (!this.schedulerLease.holdsLease()) {
+            return;
+        }
+
         const runToken = this.executionGuard.tryStart();
         if (!runToken) {
             return;
@@ -84,6 +90,12 @@ export class ClientDueDateSchedulerService {
 
         let updatedCount = 0;
         for (const client of candidates) {
+            if (!this.schedulerLease.holdsLease()) {
+                this.logger.warn(
+                    `[Client Due Date] scheduler lease lost mid-run; stopping after ${updatedCount} clients`,
+                );
+                break;
+            }
             const result = this.serviceRecordLifecycleService || this.messageAutomationIntentService
                 ? await this.prisma.$transaction(async (tx) => {
                     const updated = await tx.client.updateMany({
