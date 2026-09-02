@@ -28,6 +28,7 @@ readonly IMAGE_REPOSITORY="ghcr.io/jaino-song/babyjamjam-admin-backend"
 readonly LOCAL_IMAGE_REPOSITORY="babyjamjam-backend"
 readonly PROJECT_NAME="babyjamjam-fallback-server"
 readonly LOOPBACK_READY_URL="http://127.0.0.1:3101/health/ready"
+readonly LOOPBACK_LEASE_URL="http://127.0.0.1:3101/health/lease"
 readonly COMPOSE_ENV_FILE="/dev/null"
 readonly SHA_PATTERN='^[0-9a-f]{40}$'
 readonly DIGEST_PATTERN='^sha256:[0-9a-f]{64}$'
@@ -544,6 +545,26 @@ wait_until_ready() {
     return 1
 }
 
+# Thin wrapper so tests can stub the curl call without overriding the
+# absolute-path binary invocation itself.
+lease_curl() {
+    /usr/bin/curl "$@"
+}
+
+# Display-only lease observation for `status`. The endpoint arrived with ADR-010,
+# so a release that predates it (or a momentary loopback failure) must degrade to
+# "unknown" rather than fail status: the CI deployer runs `status` against the OLD
+# release before replacing it.
+lease_status_fields() {
+    local body mode held
+    if body="$(lease_curl --fail --silent --show-error --connect-timeout 2 --max-time 5 "$LOOPBACK_LEASE_URL" 2>/dev/null)"; then
+        mode="$(printf '%s' "$body" | sed -nE 's/.*"mode":"([a-z]*)".*/\1/p')"
+        held="$(printf '%s' "$body" | sed -nE 's/.*"held":(true|false).*/\1/p')"
+    fi
+    printf 'lease_mode=%s\n' "${mode:-unknown}"
+    printf 'lease_held=%s\n' "${held:-unknown}"
+}
+
 verify_passive_runtime() {
     local commit_sha="$1"
     local container_id
@@ -885,6 +906,7 @@ status_release() {
     local restart_count
     local running_image_id
     local runtime_mode expiry now
+    local lease_fields
 
     validate_env_file
     validate_production_db_identity
@@ -932,6 +954,8 @@ status_release() {
         die "Fallback runtime mode is invalid."
     fi
 
+    lease_fields="$(lease_status_fields)"
+
     printf '%s\n' \
         "environment=fallback-server" \
         "current_tag=$commit_sha" \
@@ -944,7 +968,8 @@ status_release() {
         "runtime_mode=$runtime_mode" \
         "schedulers_enabled=$([[ "$runtime_mode" == temporary-active ]] && printf true || printf false)" \
         "document_jobs_accepting=$([[ "$runtime_mode" == temporary-active ]] && printf true || printf false)" \
-        "document_jobs_worker=$([[ "$runtime_mode" == temporary-active ]] && printf true || printf false)"
+        "document_jobs_worker=$([[ "$runtime_mode" == temporary-active ]] && printf true || printf false)" \
+        "$lease_fields"
 }
 
 rollback_release() {
