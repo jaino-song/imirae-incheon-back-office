@@ -164,6 +164,12 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         // interactive transaction on the shared production pool. The data-
         // modifying CTE depends on locked_rule, so PostgreSQL acquires the rule
         // lock before it can claim the pending job.
+        // The production schema already carries
+        // message_trigger_job_processing_claim_token_check
+        // (status <> 'processing' OR claim_token IS NOT NULL) from the claim-token
+        // migration that reached the database ahead of this branch. A claim that
+        // leaves claim_token NULL is rejected by PostgreSQL and every manual
+        // send-link surfaces as a 500, so the claim mints a token here.
         const claimed = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
             WITH candidate_job AS MATERIALIZED (
                 SELECT job.rule_id
@@ -182,7 +188,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 FOR UPDATE OF rule
             )
             UPDATE "message_trigger_job" AS job
-            SET status = 'processing', updated_at = now()
+            SET status = 'processing', claim_token = gen_random_uuid()::text, updated_at = now()
             FROM locked_rule AS rule
             WHERE job.id = ${id}
               AND job.rule_id = rule.id
