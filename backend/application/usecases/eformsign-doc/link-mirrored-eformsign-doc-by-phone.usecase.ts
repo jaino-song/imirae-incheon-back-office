@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, Optional } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, Logger, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
 
@@ -34,7 +34,25 @@ import {
     assertClientDurationMatchesDates,
     deriveClientDuration,
 } from "application/usecases/client/client-write-validation";
+import {
+    assertNoActiveEmployeeScheduleOverlap,
+    EMPLOYEE_SCHEDULE_OVERLAP_CODE,
+    lockEmployeesForScheduleWrite,
+} from "application/policies/employee-schedule-invariants.policy";
 import { PrismaService } from "infrastructure/database/prisma.service";
+
+/**
+ * The schedule invariant policy signals a double-booking with a
+ * ConflictException whose payload carries EMPLOYEE_SCHEDULE_OVERLAP_CODE.
+ * Only that shape is recoverable here; anything else propagates.
+ */
+function isEmployeeScheduleOverlapError(error: unknown): boolean {
+    if (!(error instanceof ConflictException)) return false;
+    const response = error.getResponse();
+    return typeof response === "object"
+        && response !== null
+        && (response as { code?: unknown }).code === EMPLOYEE_SCHEDULE_OVERLAP_CODE;
+}
 
 const AUTO_REGISTRATION_ELIGIBLE_STATUS_CODES = new Set([
     // 001 is only a temporary save. Start from the first durable document state.
@@ -680,6 +698,37 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
         );
         if (secondaryEmployeeId === primaryEmployeeId) secondaryEmployeeId = null;
 
+        // Automatic assignment is subject to the same no-double-booking
+        // invariant as every manual create/update/replacement path: lock the
+        // employees, then reject an overlapping active schedule. A conflict
+        // skips the assignment instead of failing the whole auto-registration
+        // — the client is still created, and the ambiguity is left to an
+        // operator, exactly as an ambiguous provider match already is.
+        await lockEmployeesForScheduleWrite(
+            transaction,
+            params.branchId,
+            [primaryEmployeeId, secondaryEmployeeId],
+        );
+        try {
+            await assertNoActiveEmployeeScheduleOverlap(transaction, {
+                branchId: params.branchId,
+                clientId: params.clientId,
+                primaryEmployeeId,
+                secondaryEmployeeId,
+                startDate,
+                endDate,
+                replaced: false,
+            });
+        } catch (error) {
+            if (!isEmployeeScheduleOverlapError(error)) throw error;
+            this.logger.warn(
+                `[EFORMSIGN_SCHEDULE_OVERLAP] 지점 ${params.branchId}에서 제공인력 `
+                + `${primaryEmployeeId}${secondaryEmployeeId === null ? "" : `·${secondaryEmployeeId}`}`
+                + `의 기존 배정과 기간이 겹쳐 계약서 자동 배정을 건너뜁니다.`,
+            );
+            return null;
+        }
+
         const schedule = await transaction.employee_schedule.create({
             data: {
                 primaryEmployeeId,
@@ -738,6 +787,10 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             data: {
                 name: providerName,
                 phone: formatNormalizedKoreanPhone(phone),
+                // The uniqueness constraint and every phone lookup operate on
+                // phone_normalized. Leaving it null would make this row invisible
+                // to findByPhone and exempt from duplicate enforcement.
+                phoneNormalized: phone,
                 workArea: ["미지정"],
                 grade: DEFAULT_EMPLOYEE_GRADE,
                 openToNextWork: true,

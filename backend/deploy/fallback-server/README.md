@@ -244,6 +244,52 @@ expiry/linkage. This minimizes interruption to the final container recreate and
 health wait; it is not a two-container blue-green deployment and must not be
 reported as mathematically zero downtime.
 
+## Conditional `main` CI replacement on LightNode
+
+`main` CI publishes one immutable backend image, then resolves exactly one
+production target from the current `api.babyjamjam.com` A-record set. The
+canonical A-record hash must match either the protected Lightsail identity or
+the protected LightNode identity. Unknown, mixed, missing, or changed routing
+fails closed before either deployment job starts. Preview remains on Lightsail.
+
+When LightNode owns the public route, the workflow joins the tailnet as an
+ephemeral `tag:ci` node and connects only as `babyjamjam-ci-deployer`. That user
+must not belong to the Docker group. Its single authorized key must use
+`restrict,command="/usr/local/sbin/babyjamjam-fallback-ci-ssh-dispatch"` so it
+cannot open a shell, allocate a TTY, forward connections, or choose another
+sudo command. The dispatcher permits only:
+
+```text
+status
+replace <tag> <digest>
+```
+
+The wrapper rechecks public routing, active runtime health, Production DB
+identity, singleton scheduler/document-worker ownership, the immutable release,
+and a root-owned opt-in authority artifact before delegating to
+`replace-temporary-active`. Image preload, final API recreate, readiness, and
+automatic rollback remain owned by the existing operator.
+
+Automatic replacement is disabled until a separately approved root operation:
+
+1. provisions the dedicated SSH user and key outside this repository;
+2. writes `/opt/babyjamjam-fallback-server/automatic-deploy-authority` as
+   `root:root` mode `0400` with the exact value
+   `github-main-lightnode-auto-deploy-v1`;
+3. writes the canonical active LightNode A-record SHA-256 to
+   `/opt/babyjamjam-fallback-server/approved-public-routing.sha256` as
+   `root:root` mode `0400` without printing the address;
+4. runs `ci/install-ci-deployer.sh` as root;
+5. configures the GitHub secrets `FALLBACK_DNS_SHA256`,
+   `LIGHTSAIL_DNS_SHA256`, `LIGHTNODE_CI_HOST`,
+   `LIGHTNODE_CI_SSH_PRIVATE_KEY`, `LIGHTNODE_CI_KNOWN_HOSTS`,
+   `TS_OAUTH_CLIENT_ID`, and `TS_OAUTH_SECRET` plus a least-privilege Tailscale
+   ACL for `tag:ci` to reach only the deployer's SSH endpoint.
+
+Removing the opt-in authority file disables replacement at the host even if CI
+credentials still exist. Do not fall back to root SSH or widen port 22 when the
+ephemeral tailnet connection is unavailable.
+
 Aligo
 values are never interpolated by Compose: Docker reads them only from the
 root-owned `backend.env` at active container runtime.

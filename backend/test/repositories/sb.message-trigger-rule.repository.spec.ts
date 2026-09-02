@@ -83,6 +83,27 @@ describe("SbMessageTriggerRuleRepository", () => {
         jest.clearAllMocks();
     });
 
+    it("findAll includes the fixed global automation alongside branch rules", async () => {
+        messageTriggerRuleModel.findMany.mockResolvedValue([
+            createRow(),
+            createRow({
+                id: "system:service_record_link",
+                branchId: null,
+                name: "제공기록지 작성 링크",
+                recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+                templateKey: MessageTriggerTemplateKey.SERVICE_RECORD_LINK,
+            }),
+        ]);
+
+        const result = await repository.findAll("branch-1");
+
+        expect(messageTriggerRuleModel.findMany).toHaveBeenCalledWith({
+            where: { OR: [{ branchId: "branch-1" }, { branchId: null }] },
+            orderBy: { createdAt: "desc" },
+        });
+        expect(result.map((rule) => rule.branchId)).toEqual(["branch-1", null]);
+    });
+
     it("findInactiveDefaultRules queries inactive defaults oldest updated first with default limit", async () => {
         messageTriggerRuleModel.findMany.mockResolvedValue([createRow()]);
 
