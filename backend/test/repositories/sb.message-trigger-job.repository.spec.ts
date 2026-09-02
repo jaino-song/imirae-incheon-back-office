@@ -260,23 +260,26 @@ describe("SbMessageTriggerJobRepository", () => {
         jest.useRealTimers();
     });
 
-    it("claimPendingWithRuleFence locks the rule before claiming and refuses a stale rule", async () => {
-        queryRaw
-            .mockResolvedValueOnce([{ rule_id: "rule-1", branch_id: "branch-1" }])
-            .mockResolvedValueOnce([{ id: "rule-1", jobs_stale: false }])
-            .mockResolvedValueOnce([{ id: "job-1", claim_token: "claim-a" }]);
+    it("claimPendingWithRuleFence atomically locks the rule and claims the pending job", async () => {
+        queryRaw.mockResolvedValueOnce([{ id: "job-1", claim_token: "claim-a" }]);
 
         await expect(repository.claimPendingWithRuleFence("job-1", "branch-1")).resolves.toBe("claim-a");
-        expect(queryRaw).toHaveBeenCalledTimes(3);
-        expect(getSqlText(queryRaw.mock.calls[1][0])).toContain('FROM "message_trigger_rule"');
-        expect(getSqlText(queryRaw.mock.calls[1][0])).toContain("FOR UPDATE");
-        expect(getSqlText(queryRaw.mock.calls[2][0])).toContain('UPDATE "message_trigger_job"');
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        expect(queryRaw).toHaveBeenCalledTimes(1);
+        const sqlText = getSqlText(queryRaw.mock.calls[0][0]).replace(/\s+/g, " ");
+        expect(sqlText).toContain("WITH candidate_job AS");
+        expect(sqlText).toContain("FOR UPDATE OF rule");
+        expect(sqlText).toContain('UPDATE "message_trigger_job" AS job');
+        // The database enforces (status <> 'processing' OR claim_token IS NOT NULL);
+        // a claim that does not mint a token is rejected and surfaces as a 500.
+        expect(sqlText).toContain("claim_token = gen_random_uuid()::text");
+        // The minted token is the CAS fence for every later write on this job.
+        expect(sqlText).toContain("RETURNING job.id, job.claim_token");
 
         queryRaw.mockReset();
-        queryRaw.mockResolvedValueOnce([{ rule_id: "rule-1", branch_id: "branch-1" }])
-            .mockResolvedValueOnce([{ id: "rule-1", jobs_stale: true }]);
+        queryRaw.mockResolvedValueOnce([]);
         await expect(repository.claimPendingWithRuleFence("job-1", "branch-1")).resolves.toBeNull();
-        expect(queryRaw).toHaveBeenCalledTimes(2);
+        expect(queryRaw).toHaveBeenCalledTimes(1);
     });
 
     it("uses the claim token as a CAS so a stale completion cannot overwrite a newer claim", async () => {
@@ -299,25 +302,14 @@ describe("SbMessageTriggerJobRepository", () => {
     });
 
     it("claims a branch job through a global rule without widening the job branch fence", async () => {
-        queryRaw
-            .mockResolvedValueOnce([{
-                rule_id: "system:service_record_link",
-                branch_id: "branch-1",
-            }])
-            .mockResolvedValueOnce([{
-                id: "system:service_record_link",
-                jobs_stale: false,
-                branch_id: null,
-            }])
-            .mockResolvedValueOnce([{ id: "job-1", claim_token: "claim-b" }]);
+        queryRaw.mockResolvedValueOnce([{ id: "job-1", claim_token: "claim-b" }]);
 
         await expect(repository.claimPendingWithRuleFence("job-1", "branch-1")).resolves.toBe("claim-b");
 
-        const ruleFenceSql = getSqlText(queryRaw.mock.calls[1][0]);
-        const jobClaimSql = getSqlText(queryRaw.mock.calls[2][0]);
-        expect(ruleFenceSql).toContain("OR branch_id IS NULL");
-        expect(jobClaimSql).toContain("branch_id = ");
-        expect(jobClaimSql).not.toContain("OR branch_id IS NULL");
+        const sqlText = getSqlText(queryRaw.mock.calls[0][0]).replace(/\s+/g, " ");
+        expect(sqlText).toContain("rule.branch_id IS NULL");
+        expect(sqlText).toContain("job.branch_id = ");
+        expect(sqlText).not.toContain("job.branch_id IS NULL");
     });
 
     it("hasActiveJobsBefore uses updatedAt as the generation fence when a dedupe row is reactivated", async () => {

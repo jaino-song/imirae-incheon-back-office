@@ -345,7 +345,18 @@ export class NotificationService {
                     emailTemplateContext,
                 );
                 if (userDeliveryKey && claimToken) {
-                    await this.completePwaDigestDelivery(userDeliveryKey, claimToken, "sent");
+                    // The push notifications landed, but an email-provider
+                    // failure leaves this digest only partly delivered.
+                    // Record it as "uncertain", the same terminal state a
+                    // failed push recipient gets: claimPwaDigestDelivery
+                    // refuses to re-claim either status, so this does not
+                    // re-send anything — it stops the record from claiming a
+                    // delivery that did not fully happen.
+                    await this.completePwaDigestDelivery(
+                        userDeliveryKey,
+                        claimToken,
+                        emailStatus === "failed" ? "uncertain" : "sent",
+                    );
                 }
                 return emailStatus;
             } catch (error) {

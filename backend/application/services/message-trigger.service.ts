@@ -1170,9 +1170,17 @@ export class MessageTriggerService {
             );
         };
 
+        // Provisioning asks whether THIS branch already has its default, so it
+        // may only consider rules the branch owns. findAll also returns the
+        // global system rules — and system:message_automation_intent carries
+        // the client-greeting tuple as its bookkeeping marker, so matching
+        // against a global rule would convince every branch it already had a
+        // default it never got.
+        const ownsRule = (rule: MessageTriggerRuleEntity): boolean => rule.branchId === branchId;
+
         // Once a provisioned default exists, admin edits must be respected. Template-key-only
         // matching prevents an edited default from being silently recreated with the old tuple.
-        const existing = rules.find(matchesDefault);
+        const existing = rules.filter(ownsRule).find(matchesDefault);
         if (existing) return { rules, created: null };
 
         let created: MessageTriggerRuleEntity;
@@ -1195,7 +1203,7 @@ export class MessageTriggerService {
             }
 
             const latestRules = await this.ruleRepository.findAll(branchId);
-            const existingAfterRace = latestRules.find(matchesDefault);
+            const existingAfterRace = latestRules.filter(ownsRule).find(matchesDefault);
             if (existingAfterRace) {
                 return { rules: latestRules, created: null };
             }

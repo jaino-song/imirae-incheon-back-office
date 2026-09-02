@@ -90,6 +90,18 @@ describe("shared message presentation contract", () => {
     })).failureReason).toBe("등록인증되지 않은 발신번호입니다.");
   });
 
+  it("keeps the employee as recipient when an employee message also carries client context", () => {
+    expect(normalizeMessageHistoryPresentation(historyRecord({
+      recipientType: "PRIMARY_EMPLOYEE",
+      recipientName: "고원경",
+      clientName: "이보배",
+      employeeName: "고원경",
+    }))).toMatchObject({
+      recipientName: "고원경",
+      recipientListLabel: "고원경",
+    });
+  });
+
   it("shares channel, timestamp, failure, status, and navigation copy", () => {
     const record = historyRecord({ provider: "aligo_alimtalk", templateKey: "SERVICE_INFO" });
 

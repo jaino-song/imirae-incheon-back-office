@@ -20,4 +20,14 @@ be duplicated on another host during the operation.
 
 Approval checkpoints are separate: purchase; host/firewall provisioning; Aligo allow-list; active artifact; stable API DNS/TLS cutover; controlled no-send synthetic smoke; rollback; irreversible Release. None is authorized by this document.
 
+Conditional `main` CI replacement is a separate opt-in authority. It may be
+installed only after the dedicated non-Docker SSH user, root-owned automation
+authority, protected LightNode routing hash, Tailscale ACL, and GitHub secrets
+have been approved. CI must resolve one exclusive production target: when the
+route hash is LightNode it may call only the restricted CI wrapper; when the
+route hash is Lightsail it may call only the existing SSM deployment; an unknown
+or mixed hash deploys nowhere. The wrapper must preserve the bounded approval,
+singleton scheduler/document-worker ownership, preload-before-recreate order,
+and automatic rollback contract of `replace-temporary-active`.
+
 For failback, verify AWS health and reconciliation, restore the protected `api.babyjamjam.com` DNS value, and confirm public HTTPS on AWS before stopping Fallback. Then revoke the LightNode Aligo egress, disable Caddy, revoke Tailscale device/auth material, stop and confirm API absence, scrub, **Release** (not Stop), and confirm billing ended. Never image a host after runtime secrets or a production container existed: Docker Config.Env/deleted-block history can retain them. Golden images are allowed only before secret injection; otherwise Release without imaging. A recreated instance/public IP requires new Aligo registration and approval hash.

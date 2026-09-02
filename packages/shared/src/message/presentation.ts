@@ -296,10 +296,19 @@ export function normalizeMessageHistoryPresentation(
   const title = getMessageHistoryTitle(record);
   const fallbackRecipientName = options.recipientNameFallback?.trim() ?? "";
   const fallbackListLabel = options.recipientListLabelFallback?.trim() ?? fallbackRecipientName;
-  const registeredClientName = record.clientName?.trim()
-    || (record.clientId !== null ? record.recipientName?.trim() : "")
+  const isEmployeeRecipient = record.recipientType === "PRIMARY_EMPLOYEE"
+    || record.recipientType === "SECONDARY_EMPLOYEE";
+  const resolvedRecipientName = record.recipientName?.trim()
+    || (isEmployeeRecipient ? record.employeeName?.trim() : record.clientName?.trim())
+    || record.employeeName?.trim()
     || fallbackRecipientName
     || "";
+  const registeredClientName = isEmployeeRecipient
+    ? resolvedRecipientName
+    : record.clientName?.trim()
+      || (record.clientId !== null ? record.recipientName?.trim() : "")
+      || fallbackRecipientName
+      || "";
   const failureReason = record.status === "failed"
     ? formatMessageFailureReason(record.errorMessage)
     : "";
@@ -308,11 +317,7 @@ export function normalizeMessageHistoryPresentation(
     id: record.id,
     title,
     templateLabel,
-    recipientName: record.recipientName?.trim()
-      || record.clientName?.trim()
-      || record.employeeName?.trim()
-      || fallbackRecipientName
-      || "-",
+    recipientName: resolvedRecipientName || "-",
     recipientPhone: record.recipientPhone?.trim() || record.receiver,
     recipientListLabel: registeredClientName || fallbackListLabel || record.receiver,
     channelLabel: getMessageChannelLabel(record.provider),
