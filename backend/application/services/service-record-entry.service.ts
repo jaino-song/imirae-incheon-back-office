@@ -6,7 +6,15 @@ import {
     ConflictException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import {
+    assertNoActiveEmployeeScheduleOverlap,
+    EMPLOYEE_SCHEDULE_OVERLAP_CODE,
+    lockClientForScheduleWrite,
+    lockEmployeesForScheduleWrite,
+} from "application/policies/employee-schedule-invariants.policy";
+import { getServiceRecordTokenExpiresAt } from "domain/constants/service-record-link-message";
 import { SERVICE_RECORD_TEXT_LIMITS } from "domain/constants/service-record-text-limits";
+import { addBusinessDaysKr } from "domain/utils/business-days";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { SaveServiceHeaderDto, UpsertSessionDto } from "interface/dto/service-record-entry.dto";
 
@@ -177,13 +185,14 @@ export class ServiceRecordEntryService {
                 throw new NotFoundException("Service record not found");
             }
 
-            const [record, schedule] = await Promise.all([
+            const [initialRecord, schedule] = await Promise.all([
                 tx.service_record_case.findUnique({ where: { id: aggregate.id } }),
                 tx.employee_schedule.findUnique({
                     where: { id: ctx.scheduleId },
                     include: { primaryEmployee: true },
                 }),
             ]);
+            let record = initialRecord;
             if (!record) throw new NotFoundException("Service record not found");
             if (!schedule) throw new NotFoundException("Assignment not found");
             if ([
@@ -206,6 +215,70 @@ export class ServiceRecordEntryService {
             if (record.startDate && serviceDate < record.startDate) {
                 throw new BadRequestException("Service date cannot precede the service start date.");
             }
+
+            // A postponed session (a later serviceDate than originally
+            // scheduled) can push the remaining sessions past the current
+            // end date. requiredSessionCount stays fixed; the end date
+            // extends automatically so the case can still fit every
+            // session, no admin approval needed.
+            const serviceDateIso = toIso(serviceDate);
+            const currentEndIso = record.endDate ? toIso(record.endDate) : null;
+            const requiredEndIso = addBusinessDaysKr(serviceDateIso, total - sessionIndex);
+            if (currentEndIso && requiredEndIso > currentEndIso) {
+                const newEndDate = new Date(`${requiredEndIso}T00:00:00.000Z`);
+                await lockClientForScheduleWrite(tx, ctx.branchId, schedule.clientId);
+                await lockEmployeesForScheduleWrite(tx, ctx.branchId, [
+                    schedule.primaryEmployeeId,
+                    schedule.secondaryEmployeeId,
+                ]);
+                if (schedule.startDate) {
+                    try {
+                        await assertNoActiveEmployeeScheduleOverlap(tx, {
+                            branchId: ctx.branchId,
+                            clientId: schedule.clientId,
+                            primaryEmployeeId: schedule.primaryEmployeeId,
+                            secondaryEmployeeId: schedule.secondaryEmployeeId,
+                            startDate: schedule.startDate,
+                            endDate: newEndDate,
+                            replaced: schedule.replaced,
+                            excludeScheduleId: schedule.id,
+                        });
+                    } catch (error) {
+                        if (error instanceof ConflictException) {
+                            const response = error.getResponse();
+                            const code = typeof response === "object" && response !== null && "code" in response
+                                ? (response as { code?: unknown }).code
+                                : undefined;
+                            if (code === EMPLOYEE_SCHEDULE_OVERLAP_CODE) {
+                                throw new ConflictException({
+                                    code: EMPLOYEE_SCHEDULE_OVERLAP_CODE,
+                                    message: "다음 배정 일정과 겹쳐 종료일을 연장할 수 없습니다. 관리자에게 문의해 주세요.",
+                                });
+                            }
+                        }
+                        throw error;
+                    }
+                }
+                await tx.employee_schedule.update({
+                    where: { id: schedule.id },
+                    data: { endDate: newEndDate },
+                });
+                await tx.client.update({
+                    where: { id: schedule.clientId },
+                    data: { endDate: newEndDate },
+                });
+                await this.lifecycleService.ensureForClient(schedule.clientId, tx);
+                await this.tokenService.extendExpiryForCase(
+                    record.id,
+                    getServiceRecordTokenExpiresAt(newEndDate),
+                    tx,
+                );
+                this.logger.log(
+                    `Service-record session ${sessionIndex} for case ${record.id} extended end date ${currentEndIso} -> ${requiredEndIso}`,
+                );
+                record = await tx.service_record_case.findUnique({ where: { id: record.id } }) ?? record;
+            }
+
             if (record.endDate && serviceDate > record.endDate) {
                 throw new BadRequestException("Service date cannot exceed the service end date.");
             }

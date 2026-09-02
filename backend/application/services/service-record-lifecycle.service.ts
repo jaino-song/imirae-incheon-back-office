@@ -61,6 +61,10 @@ function requiredSessionCount(params: {
     endDate: Date | null;
     fallback: number | null;
 }): number | null {
+    // The stored count (fallback) is authoritative once set; the
+    // date-derived business-day count is only used when no count is
+    // stored yet.
+    if (params.fallback !== null) return params.fallback;
     const startDate = isoDate(params.startDate);
     const endDate = isoDate(params.endDate);
     if (!startDate || !endDate) return params.fallback;
@@ -165,15 +169,14 @@ export class ServiceRecordLifecycleService {
             endDate: client.endDate,
             fallback: client.duration,
         });
-        // The client header and lifecycle case must agree on the same
-        // canonical business-day count. Schedule-change and webhook callers
-        // may update the header before invoking this method; repair a stale
-        // duration on that same transaction connection when available.
+        // duration is the contracted session count and is authoritative
+        // once set; it must never be rewritten to match a later end-date
+        // change (e.g. a postponed session extending the period). Fill it
+        // in only when the client has no duration stored yet, so a client
+        // header created without one still ends up with a persisted count.
         if (
-            client.startDate
-            && client.endDate
+            client.duration === null
             && sessionCount !== null
-            && client.duration !== sessionCount
             && typeof db.client.updateMany === "function"
         ) {
             await db.client.updateMany({

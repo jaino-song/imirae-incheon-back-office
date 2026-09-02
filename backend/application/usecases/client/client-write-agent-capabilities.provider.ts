@@ -224,6 +224,23 @@ async function validateClientServicePeriod(
     }
 }
 
+/**
+ * Resolve the duration to persist on an update: duration is the contracted
+ * session count and authoritative once set, so a supplied value (including
+ * an explicit null clear) always wins over the date-derived count. When the
+ * caller omits duration, it is left untouched (`undefined`, no field
+ * change) unless the existing client has no duration yet and the period is
+ * now complete, in which case the derived count fills it.
+ */
+function resolveClientDuration(
+    existingDuration: number | null,
+    suppliedDuration: number | null | undefined,
+    derivedDuration: number | null,
+): number | null | undefined {
+    if (suppliedDuration !== undefined) return suppliedDuration;
+    return existingDuration === null && derivedDuration !== null ? derivedDuration : undefined;
+}
+
 async function validateClientWrite(
     prisma: PrismaService,
     repository: Pick<IClientRepository, "findByPhone">,
@@ -375,7 +392,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                                 address: input.address ?? null,
                                 phone: input.phone,
                                 type: normalizedPricing.type,
-                                duration: derivedDuration ?? input.duration ?? null,
+                                duration: input.duration ?? derivedDuration ?? null,
                                 fullPrice: normalizedPricing.fullPrice,
                                 grant: normalizedPricing.grant,
                                 actualPrice: normalizedPricing.actualPrice,
@@ -446,7 +463,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         clientId: existing.id,
                         startDate: parsedUpdates.startDate,
                         endDate: parsedUpdates.endDate,
-                        duration: derivedDuration ?? parsedUpdates.duration,
+                        duration: resolveClientDuration(existing.duration, parsedUpdates.duration, derivedDuration),
                     });
                     return {
                         targetVersion: clientAgentTargetVersion(existing),
@@ -481,7 +498,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         birthDate: parseClientDate(updates.birthDate),
                     };
                     const derivedDuration = await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, parsedUpdates);
-                    const duration = derivedDuration ?? parsedUpdates.duration;
+                    const duration = resolveClientDuration(existing.duration, parsedUpdates.duration, derivedDuration);
                     await validateClientServicePeriod(this.serviceRecordLifecycleService, {
                         clientId: existing.id,
                         startDate: parsedUpdates.startDate,
@@ -521,7 +538,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         birthDate: parseClientDate(updates.birthDate),
                     };
                     const derivedDuration = await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, parsedUpdates);
-                    const duration = derivedDuration ?? parsedUpdates.duration;
+                    const duration = resolveClientDuration(existing.duration, parsedUpdates.duration, derivedDuration);
                     try {
                         const result = await this.prisma.$transaction(async (transaction) => {
                             await validateClientServicePeriod(this.serviceRecordLifecycleService, {

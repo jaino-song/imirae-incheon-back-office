@@ -81,15 +81,27 @@ function deriveCreatedClientDuration(
     if (derivedDuration === null) {
         throw new Error("서비스 기간을 계산할 수 없습니다.");
     }
+    // duration is the contracted session count and is authoritative once
+    // set; the derived business-day count only needs to be large enough to
+    // contain it (a postponed session extends the end date while the count
+    // stays fixed), so a supplied duration is rejected only when it cannot
+    // fit (null, non-integer, or exceeding the derived count). A supplied
+    // value that fits is otherwise kept as-is; an omitted one falls back to
+    // the derived count.
     if (
         suppliedDuration !== undefined
-        && (!Number.isSafeInteger(suppliedDuration) || suppliedDuration !== derivedDuration)
+        && (
+            suppliedDuration === null
+            || !Number.isSafeInteger(suppliedDuration)
+            || suppliedDuration < 1
+            || suppliedDuration > derivedDuration
+        )
     ) {
         throw new Error(
-            `duration must equal the Korean business-day count (${derivedDuration}) for the submitted service period`,
+            `duration cannot exceed the Korean business-day count (${derivedDuration}) for the submitted service period`,
         );
     }
-    return derivedDuration;
+    return suppliedDuration ?? derivedDuration;
 }
 
 export class ClientEntity {
@@ -192,37 +204,27 @@ export class ClientEntity {
         const hasServiceDateUpdate = props.startDate !== undefined || props.endDate !== undefined;
         const nextStartDate = props.startDate === undefined ? this.startDate : props.startDate;
         const nextEndDate = props.endDate === undefined ? this.endDate : props.endDate;
-        const hadIncompleteServicePeriod = !this.startDate || !this.endDate;
         let derivedDuration: number | null | undefined;
 
         // Validate and derive the complete service-period patch before
         // mutating any field. This keeps an invalid date/duration proposal from
         // partially changing the in-memory aggregate.
         if (nextStartDate && nextEndDate) {
-            // Date-derived duration is the write authority for every mutation
-            // while the period is complete, including unrelated profile
-            // updates. A caller may repeat the canonical value but cannot
-            // replace it (or clear it with null).
+            // duration is the contracted session count and authoritative
+            // once set. A supplied value must fit within the Korean
+            // business-day count for the (possibly patched) period —
+            // deriveCreatedClientDuration validates that and returns it
+            // unchanged; an omitted value returns the raw derived count,
+            // used below only to fill a still-null duration.
             derivedDuration = deriveCreatedClientDuration(nextStartDate, nextEndDate, props.duration);
-            if (
-                hasServiceDateUpdate
-                && props.duration === undefined
-                && hadIncompleteServicePeriod
-                && this.duration !== null
-                && this.duration !== derivedDuration
-            ) {
-                throw new Error(
-                    `duration must equal the Korean business-day count (${derivedDuration}) for the submitted service period`,
-                );
-            }
         } else if (hasServiceDateUpdate) {
-            // A complete date range is the only authoritative source for a
-            // duration. Clearing either endpoint therefore clears any old
-            // persisted duration instead of leaving a stale value behind.
+            // An explicit non-null duration requires a complete service
+            // period. An omitted duration is left as-is: it no longer
+            // depends on a complete range (a pre-booking may carry one),
+            // so clearing a date must not silently wipe out a stored count.
             if (props.duration !== undefined && props.duration !== null) {
                 throw new Error("duration requires a complete service period");
             }
-            derivedDuration = null;
         }
 
         if (props.name !== undefined) this.name = props.name;
@@ -233,12 +235,14 @@ export class ClientEntity {
             this.phoneNormalized = phoneNormalized;
         }
         if (props.type !== undefined) this.type = props.type;
-        if (nextStartDate && nextEndDate) {
-            this.duration = derivedDuration!;
-        } else if (hasServiceDateUpdate) {
-            this.duration = null;
-        } else if (props.duration !== undefined) {
+        // A supplied duration always wins. An omitted one is left
+        // untouched, except to fill a still-null duration once the
+        // service period is complete, so a client created without dates
+        // still ends up with a persisted count.
+        if (props.duration !== undefined) {
             this.duration = props.duration;
+        } else if (nextStartDate && nextEndDate && this.duration === null) {
+            this.duration = derivedDuration!;
         }
         if (props.fullPrice !== undefined) this.fullPrice = normalizeKoreanWon(props.fullPrice);
         if (props.grant !== undefined) this.grant = normalizeKoreanWon(props.grant);

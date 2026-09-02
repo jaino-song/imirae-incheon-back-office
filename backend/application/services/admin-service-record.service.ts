@@ -68,6 +68,11 @@ function servicePeriodSessionCount(
     endDate: Date | null | undefined,
     fallback: number | null,
 ): number {
+    // The stored session count is authoritative once set; the period may
+    // be longer than its business-day span (e.g. a postponed session
+    // extended the end date while the count stayed fixed), so only derive
+    // from the dates when no count is stored.
+    if (fallback !== null) return fallback;
     const startDateIso = isoDate(startDate);
     const endDateIso = isoDate(endDate);
     if (!startDateIso || !endDateIso) return fallback ?? 0;
