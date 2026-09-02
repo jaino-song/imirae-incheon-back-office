@@ -100,6 +100,8 @@ assert_contains "$WORKFLOW" 'StandardErrorContent' "failed SSM deployments must 
 assert_contains "$WORKFLOW" 'SSM deployment error unavailable' "malformed SSM errors must fail closed"
 assert_contains "$WORKFLOW" 'max-concurrency[[:space:]]+1' "SSM must execute on at most one target at a time"
 assert_contains "$WORKFLOW" 'schedulers_enabled' "deployment verification must check scheduler ownership"
+assert_contains "$WORKFLOW" 'lease_holder" == "lightsail"' \
+    "deployment verification must check the scheduler lease identity when schedulers are enabled (ADR-010)"
 assert_not_contains "$WORKFLOW" '^  approve-lightsail-production:' "production deployment must not require a manual approval job"
 assert_contains "$WORKFLOW" 'AWS_PREVIEW_DEPLOY_ROLE_ARN' "preview must use a branch-scoped repository variable"
 assert_contains "$WORKFLOW" 'AWS_PRODUCTION_DEPLOY_ROLE_ARN' "production must use a branch-scoped repository variable"
@@ -187,6 +189,8 @@ assert_contains "$CI_OPERATOR" 'acquire_lock' "deploy and reconcile must use the
 assert_contains "$CI_OPERATOR" 'db_reconcile()' "reconcile must be implemented by the CI operator"
 assert_contains "$CI_OPERATOR" 'up -d --no-build --no-deps --force-recreate api' "route changes must recreate only the API service without a protected-path build"
 assert_contains "$CI_OPERATOR" 'EXPECTED_SCHEDULERS_ENABLED' "route verification must enforce scheduler ownership"
+assert_contains "$CI_OPERATOR" 'SCHEDULER_LEASE_HOLDER_ID' \
+    "status must enforce the scheduler lease identity on the scheduler-owning host (ADR-010)"
 assert_contains "$CI_OPERATOR" 'run_public_liveness_check' "route verification must preserve the public liveness check"
 assert_contains "$CI_OPERATOR" 'sharedOk' "reconcile output must expose only safe shared probe status"
 assert_contains "$CI_OPERATOR" 'directOk' "reconcile output must expose only safe direct probe status"
