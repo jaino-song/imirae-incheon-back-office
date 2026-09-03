@@ -20,6 +20,7 @@ export class MessageTriggerRuleEntity {
         public updatedAt: Date,
         public isDefault = false,
         public jobsStale = false,
+        public isLockedByGlobal = false,
     ) {}
 
     static create(params: {

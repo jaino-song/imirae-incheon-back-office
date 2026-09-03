@@ -64,3 +64,8 @@ export class UpdateMessageTriggerRuleDto {
     @IsEnum(MessageTriggerTemplateKey)
     templateKey?: MessageTriggerTemplateKey;
 }
+
+export class UpdateMessageTriggerRuleBranchActivationDto {
+    @IsBoolean()
+    isActive!: boolean;
+}

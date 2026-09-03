@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from "@nestjs/common";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
@@ -11,6 +11,7 @@ import {
 import {
     CreateMessageTriggerRuleDto,
     UpdateMessageTriggerRuleDto,
+    UpdateMessageTriggerRuleBranchActivationDto,
 } from "interface/dto/message-trigger.dto";
 import { parseInteger } from "interface/parse-integer";
 import { SmsProviderReconciliationDto } from "interface/dto/sms-provider-reconciliation.dto";
@@ -111,6 +112,15 @@ export class MessageTriggerController {
         @Body() dto: UpdateMessageTriggerRuleDto,
     ) {
         return this.triggerService.updateRule(tenant.branchId ?? "", id, dto);
+    }
+
+    @Put("message-trigger-rules/:id/branch-activation")
+    updateBranchActivation(
+        @CurrentTenant() tenant: { branchId?: string },
+        @Param("id") id: string,
+        @Body() dto: UpdateMessageTriggerRuleBranchActivationDto,
+    ) {
+        return this.triggerService.updateRuleBranchActivation(tenant.branchId ?? "", id, dto.isActive);
     }
 
     @Delete("message-trigger-rules/:id")

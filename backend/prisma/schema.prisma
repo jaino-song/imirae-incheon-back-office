@@ -613,6 +613,7 @@ model branch {
   messageTemplates              message_template[]
   messageLogs                   message_log[]
   messageTriggerRules           message_trigger_rule[]
+  messageTriggerRuleBranchOverrides message_trigger_rule_branch_override[]
   messageTriggerJobs            message_trigger_job[]
   notifications                 notification[]
   eformsignDocumentJobs         eformsign_document_job[]
@@ -1011,10 +1012,24 @@ model message_trigger_rule {
   updatedAt     DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
   branch        branch?               @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   jobs          message_trigger_job[]
+  branchOverrides message_trigger_rule_branch_override[]
 
   @@index([branchId], map: "idx_message_trigger_rule_branch")
   @@index([branchId, isActive], map: "idx_message_trigger_rule_active")
   @@index([eventType], map: "idx_message_trigger_rule_event_type")
+}
+
+model message_trigger_rule_branch_override {
+  branchId  String   @map("branch_id") @db.Uuid
+  ruleId    String   @map("rule_id")
+  isActive  Boolean  @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  branch    branch               @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  rule      message_trigger_rule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@id([branchId, ruleId])
+  @@map("message_trigger_rule_branch_override")
 }
 
 model message_trigger_job {

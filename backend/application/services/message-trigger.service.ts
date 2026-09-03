@@ -41,6 +41,12 @@ import {
     IMessageTriggerRuleRepository,
 } from "domain/repositories/message-trigger-rule.repository.interface";
 import {
+    MESSAGE_TRIGGER_RULE_BRANCH_OVERRIDE_REPOSITORY,
+    IMessageTriggerRuleBranchOverrideRepository,
+} from "domain/repositories/message-trigger-rule-branch-override.repository.interface";
+import { isRuleActiveForBranch } from "domain/utils/message-trigger-rule-activation";
+import { SERVICE_RECORD_LINK_BRANCH_DISABLED_REASON, SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON } from "domain/constants/service-record-link-message";
+import {
     MESSAGE_TRIGGER_JOB_REPOSITORY,
     IMessageTriggerJobRepository,
 } from "domain/repositories/message-trigger-job.repository.interface";
@@ -110,6 +116,12 @@ const MS_PER_MINUTE = 60 * 1000;
 // The authorization fence only validates the current claim/source and commits
 // a short CAS before any provider path opens another Prisma connection.
 const CLAIM_DISPATCH_AUTHORIZATION_TIMEOUT_MS = 5_000;
+const DEFAULT_OVERRIDE_REPOSITORY: IMessageTriggerRuleBranchOverrideRepository = {
+    findOne: async () => null,
+    findAllByBranch: async () => [],
+    upsert: async (branchId, ruleId, isActive) => ({ branchId, ruleId, isActive }),
+    cancelJobsForBranchRule: async () => undefined,
+};
 
 function normalizeMessageTriggerOffsetDays(
     offsetType: MessageTriggerOffsetType,
@@ -346,6 +358,9 @@ export class MessageTriggerService {
         private readonly templateAutomationLock: MessageTemplateAutomationLockService,
         @Optional()
         private readonly systemSettingService?: SystemSettingService,
+        @Inject(MESSAGE_TRIGGER_RULE_BRANCH_OVERRIDE_REPOSITORY)
+        private readonly overrideRepository: IMessageTriggerRuleBranchOverrideRepository =
+            DEFAULT_OVERRIDE_REPOSITORY,
     ) {}
 
     async listRules(branchId: string): Promise<MessageTriggerRuleEntity[]> {
@@ -353,6 +368,14 @@ export class MessageTriggerService {
             return [];
         }
         const rules = await this.ruleRepository.findAll(branchId);
+        const overrides = await this.overrideRepository.findAllByBranch(branchId);
+        const overrideMap = new Map(overrides.map((override) => [override.ruleId, override]));
+        for (const rule of rules) {
+            if (rule.branchId === null) {
+                rule.isLockedByGlobal = !rule.isActive;
+                rule.isActive = isRuleActiveForBranch(rule.isActive, overrideMap.get(rule.id)?.isActive);
+            }
+        }
         if (!(await this.messageSenderApprovalService.isApproved(branchId))) {
             return rules;
         }
@@ -549,6 +572,16 @@ export class MessageTriggerService {
             throw new NotFoundException(`Trigger rule ${id} not found`);
         }
         return rule;
+    }
+
+    async updateRuleBranchActivation(branchId: string, id: string, isActive: boolean): Promise<MessageTriggerRuleEntity> {
+        await this.ensureTriggerSchemaReady();
+        const rule = await this.prisma.message_trigger_rule.findUnique({ where: { id }, select: { id: true, branchId: true, isActive: true } });
+        if (!rule || rule.branchId !== null) throw new NotFoundException(`Trigger rule ${id} not found`);
+        if (isActive && !rule.isActive) throw new ConflictException("Global rule is disabled");
+        await this.overrideRepository.upsert(branchId, id, isActive);
+        if (!isActive) await this.overrideRepository.cancelJobsForBranchRule(branchId, id, SERVICE_RECORD_LINK_BRANCH_DISABLED_REASON, SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON);
+        return (await this.listRules(branchId)).find((item) => item.id === id) ?? (await this.getRule(branchId, id));
     }
 
     listTemplates(params: {
