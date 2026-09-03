@@ -339,6 +339,61 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
             expect(progressService.emit).not.toHaveBeenCalledWith("p-1", "sent");
         });
 
+        /**
+         * The dispatch boundary keys its business key on the local row's
+         * updatedDate, so an advanced document whose projection still names the
+         * consumed generation refuses the very next click as
+         * "dispatch_already_accepted". The refresh must therefore be awaited
+         * before the caller is told to come back and finish the step.
+         */
+        it("refreshes the local projection before returning an advanced step", async () => {
+            const fetchDocumentWorkflowState = jest.fn()
+                .mockResolvedValueOnce({
+                    statusCode: "060",
+                    stepType: "05",
+                    stepIndex: "3",
+                    stepName: "제공기관 확인",
+                })
+                .mockResolvedValueOnce({
+                    statusCode: "070",
+                    stepType: "06",
+                    stepIndex: "4",
+                    stepName: "제공기관 검토",
+                });
+            const documentMirrorService = {
+                syncDocument: jest.fn().mockResolvedValue({ status: "synced" }),
+            };
+            const usecase = new FinalizeDocumentHeadlessUsecase(
+                {
+                    generateStaffCompletionOptions: jest.fn().mockResolvedValue({ mode: { type: "02" } }),
+                    fetchDocumentStatusCode: jest.fn(),
+                    fetchDocumentWorkflowState,
+                } as never,
+                {
+                    dispatchFinalize: jest.fn().mockImplementation(async ({ onProgress }) => {
+                        onProgress?.("client-started");
+                        onProgress?.("creating");
+                        return { ok: false, reason: "gate timeout", durationMs: 31_000 };
+                    }),
+                } as never,
+                createCredentialBoundary() as never,
+                { emit: jest.fn() } as never,
+                undefined,
+                documentMirrorService as never,
+            );
+
+            await expect(usecase.execute({ documentId: "doc-1" }, TEST_PRINCIPAL))
+                .resolves.toEqual({ ok: true, completed: false, durationMs: 31_000 });
+            // Awaited, not queued: asserting after the call resolves would pass
+            // for a fire-and-forget sync too.
+            expect(documentMirrorService.syncDocument).toHaveBeenCalledTimes(1);
+            expect(documentMirrorService.syncDocument).toHaveBeenCalledWith(
+                "doc-1",
+                expect.anything(),
+                expect.objectContaining({ force: true }),
+            );
+        });
+
         it("treats a terminal rejection as failure instead of workflow advancement", async () => {
             const fetchDocumentWorkflowState = jest.fn()
                 .mockResolvedValueOnce({

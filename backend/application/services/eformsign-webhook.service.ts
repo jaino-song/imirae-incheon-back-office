@@ -63,6 +63,11 @@ const DOCUMENT_STATUS = {
     DOC_ACCEPT_APPROVAL: "doc_accept_approval",        // 결재 승인
     DOC_REJECT_APPROVAL: "doc_reject_approval",        // 결재 거부
 
+    // Reviewer actions (제공기관 검토) — see mapStatus for why these matter
+    DOC_REQUEST_REVIEWER: "doc_request_reviewer",      // 검토 요청
+    DOC_ACCEPT_REVIEWER: "doc_accept_reviewer",        // 검토 완료
+    DOC_REJECT_REVIEWER: "doc_reject_reviewer",        // 검토 반려
+
     // Final states
     DOC_COMPLETE: "doc_complete",                   // 문서 완료
     DOC_DECLINE: "doc_decline",                     // 거부됨
@@ -117,7 +122,7 @@ export interface EformsignWebhookProcessResult {
 
 const COMPLETED_STATUS_CODES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
 const REJECTED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045", "047", "049", "061", "071", "080", "099"]);
-const UNASSIGNED_REVIEW_STATUS_DETAILS: Record<string, string> = {
+const REVIEW_STAGE_STATUS_DETAILS: Record<string, string> = {
     "070": "검토 요청",
     "071": "검토 반려",
     "072": "검토 완료",
@@ -1100,7 +1105,7 @@ export class EformsignWebhookService {
 
     private mapUnassignedStatus(status: string): { statusType: string; statusDetail: string } {
         const statusType = normalizeEformsignStatusCode(status);
-        const statusDetail = UNASSIGNED_REVIEW_STATUS_DETAILS[statusType];
+        const statusDetail = REVIEW_STAGE_STATUS_DETAILS[statusType];
         if (statusDetail) {
             return { statusType, statusDetail };
         }
@@ -1147,7 +1152,13 @@ export class EformsignWebhookService {
         localStatusType: string,
         mirroredDocument?: EformsignApiDocumentResponse | null,
     ): Promise<void> {
-        if (localStatusType !== "060") {
+        // A cheap pre-filter that avoids a vendor read on irrelevant events;
+        // isReviewRequiredStatus below is the real test. 070 belongs here now
+        // that mapStatus projects the reviewer request as 070 instead of
+        // collapsing it to 060 — without it the fix would silently take the
+        // "검토 필요" push away from the very event that needs it. 071/072 stay
+        // out: isReviewRequiredStatus rejects them as terminal anyway.
+        if (localStatusType !== "060" && localStatusType !== "070") {
             return;
         }
 
@@ -1248,6 +1259,26 @@ export class EformsignWebhookService {
                 return { statusType: "060", statusDetail: "결재 승인" };
             case DOCUMENT_STATUS.DOC_TEMPSAVE_PARTICIPANT:
                 return { statusType: "060", statusDetail: "임시 저장" };
+
+            // Reviewer stage (제공기관 검토). These fell through to the default
+            // below, which collapses every unknown status to 060 — so a branch
+            // owned row could not reach 070 through a webhook at all, and once
+            // the mirror had advanced to 070 the resulting 060 update was
+            // discarded as stale by isCurrentMirrorStatus. The projection then
+            // sat at the participant stage for the whole review, and only the
+            // 6-hourly reconcile sweep ever corrected it. Codes match
+            // normalizeEformsignStatusCode's table; details match
+            // REVIEW_STAGE_STATUS_DETAILS, shared with mapUnassignedStatus so the
+            // two paths cannot label the same stage differently.
+            case DOCUMENT_STATUS.DOC_REQUEST_REVIEWER:
+            case DOCUMENT_STATUS.DOC_ACCEPT_REVIEWER:
+            case DOCUMENT_STATUS.DOC_REJECT_REVIEWER: {
+                const statusType = normalizeEformsignStatusCode(status);
+                return {
+                    statusType,
+                    statusDetail: REVIEW_STAGE_STATUS_DETAILS[statusType] ?? status,
+                };
+            }
 
             // Default - pending
             default:
