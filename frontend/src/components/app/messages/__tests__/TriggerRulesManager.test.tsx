@@ -8,6 +8,7 @@ import {
   useCreateMessageTriggerRule,
   useDeleteMessageTriggerRule,
   useUpdateMessageTriggerRule,
+  useUpdateMessageTriggerRuleBranchActivation,
 } from "@/features/message-triggers/hooks/use-message-triggers";
 
 jest.mock("@tanstack/react-query", () => ({
@@ -71,6 +72,7 @@ jest.mock("@/features/message-triggers/hooks/use-message-triggers", () => ({
   useCreateMessageTriggerRule: jest.fn(),
   useUpdateMessageTriggerRule: jest.fn(),
   useDeleteMessageTriggerRule: jest.fn(),
+  useUpdateMessageTriggerRuleBranchActivation: jest.fn(),
 }));
 
 const mockedUseQuery = jest.mocked(useQuery);
@@ -79,6 +81,7 @@ const mockedUseMessageTriggerTemplates = jest.mocked(useMessageTriggerTemplates)
 const mockedUseCreateMessageTriggerRule = jest.mocked(useCreateMessageTriggerRule);
 const mockedUseUpdateMessageTriggerRule = jest.mocked(useUpdateMessageTriggerRule);
 const mockedUseDeleteMessageTriggerRule = jest.mocked(useDeleteMessageTriggerRule);
+const mockedUseUpdateMessageTriggerRuleBranchActivation = jest.mocked(useUpdateMessageTriggerRuleBranchActivation);
 
 type QueryOptions = {
   queryKey?: readonly unknown[];
@@ -191,6 +194,11 @@ beforeEach(() => {
     isPending: false,
     mutateAsync: jest.fn(),
   } as unknown as ReturnType<typeof useDeleteMessageTriggerRule>);
+
+  mockedUseUpdateMessageTriggerRuleBranchActivation.mockReturnValue({
+    isPending: false,
+    mutateAsync: jest.fn(),
+  } as unknown as ReturnType<typeof useUpdateMessageTriggerRuleBranchActivation>);
 });
 
 describe("TriggerRulesManager", () => {
@@ -405,7 +413,7 @@ describe("TriggerRulesManager", () => {
     });
   });
 
-  it("shows a global service-record automation as read-only", async () => {
+  it("keeps global service-record content read-only while allowing branch activation", async () => {
     mockSettingsQueries({ providerEnabled: true, senderApproved: true });
     mockedUseMessageTriggerRules.mockReturnValue({
       data: [
@@ -426,15 +434,79 @@ describe("TriggerRulesManager", () => {
       isLoading: false,
     } as unknown as ReturnType<typeof useMessageTriggerRules>);
 
+    const branchActivationMutation = jest.fn().mockResolvedValue(undefined);
+    const contentMutation = jest.fn();
+    mockedUseUpdateMessageTriggerRule.mockReturnValue({
+      isPending: false,
+      mutateAsync: contentMutation,
+    } as unknown as ReturnType<typeof useUpdateMessageTriggerRule>);
+    mockedUseUpdateMessageTriggerRuleBranchActivation.mockReturnValue({
+      isPending: false,
+      mutateAsync: branchActivationMutation,
+    } as unknown as ReturnType<typeof useUpdateMessageTriggerRuleBranchActivation>);
     render(<TriggerRulesManager dataComponent="desktop_messages_sections_section-content_triggers-section_trigger-rules" />);
 
     expect(screen.getByText("제공기록지 작성 링크")).toBeInTheDocument();
     expect(screen.getByText("시스템 자동화 · 서비스 시작 · 시작 당일 · 주 담당 직원")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "제공기록지 작성 링크 활성화" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "제공기록지 작성 링크 활성화" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("switch", { name: "제공기록지 작성 링크 활성화" }));
+    expect(branchActivationMutation).toHaveBeenCalledWith({
+      id: "system:service_record_link",
+      dto: { isActive: false },
+    });
+    expect(contentMutation).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("제공기록지 작성 링크"));
     expect(await screen.findByLabelText("규칙 이름")).toBeDisabled();
     expect(screen.queryByRole("button", { name: "삭제" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "저장" })).not.toBeInTheDocument();
+  });
+
+  it("disables a global rule toggle when globally locked", () => {
+    mockSettingsQueries({ providerEnabled: true, senderApproved: true });
+    mockedUseMessageTriggerRules.mockReturnValue({
+      data: [{
+        id: "system:locked",
+        branchId: null,
+        name: "잠긴 시스템 규칙",
+        isActive: true,
+        isLockedByGlobal: true,
+        eventType: "SERVICE_START",
+        offsetType: "SAME_DAY",
+        offsetDays: 0,
+        recipientType: "PRIMARY_EMPLOYEE",
+        templateKey: "SERVICE_RECORD_LINK",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+      }],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMessageTriggerRules>);
+
+    render(<TriggerRulesManager dataComponent="desktop_messages_sections_section-content_triggers-section_trigger-rules" />);
+    expect(screen.getByRole("switch", { name: "잠긴 시스템 규칙 활성화" })).toBeDisabled();
+  });
+
+  it("uses the existing update mutation for branch-owned activation", () => {
+    mockSettingsQueries({ providerEnabled: true, senderApproved: true });
+    const mutateAsync = jest.fn().mockResolvedValue(undefined);
+    mockedUseUpdateMessageTriggerRule.mockReturnValue({
+      isPending: false,
+      mutateAsync,
+    } as unknown as ReturnType<typeof useUpdateMessageTriggerRule>);
+
+    render(<TriggerRulesManager dataComponent="desktop_messages_sections_section-content_triggers-section_trigger-rules" />);
+    fireEvent.click(screen.getByRole("switch", { name: "서비스 시작 안내 활성화" }));
+    expect(mutateAsync).toHaveBeenCalledWith({
+      id: "rule-1",
+      dto: {
+        name: "서비스 시작 안내",
+        isActive: false,
+        eventType: "SERVICE_START",
+        offsetType: "BEFORE_DAYS",
+        offsetDays: 3,
+        recipientType: "CLIENT",
+        templateKey: "SERVICE_INFO",
+      },
+    });
   });
 
   it("shows every required auto-filled variable for the selected template", async () => {
