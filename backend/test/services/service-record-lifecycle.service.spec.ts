@@ -3,6 +3,10 @@ import {
     SERVICE_RECORD_CASE_STATUS,
     ServiceRecordLifecycleService,
 } from "application/services/service-record-lifecycle.service";
+import {
+    getServiceRecordFinalizationDueAt,
+    getServiceRecordTokenExpiresAt,
+} from "domain/constants/service-record-link-message";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 const date = (value: string) => new Date(`${value}T00:00:00.000Z`);
@@ -164,6 +168,61 @@ describe("ServiceRecordLifecycleService", () => {
             create: expect.objectContaining({ requiredSessionCount: 6 }),
             update: expect.objectContaining({ requiredSessionCount: 6 }),
         }));
+    });
+
+    it("keeps finalizationDueAt at end date 20:00 KST while extending the active token's expiresAt by the grace period", async () => {
+        // finalizationDueAt drives AWAITING_COMPLETION / auto-finalization
+        // timing and must stay pinned to the end date itself; the caregiver
+        // link's expiresAt is a separate, later value (end date + grace).
+        const record = { id: "case-1" };
+        const newEndDate = date("2026-09-09");
+        const prisma = {
+            client: {
+                findUnique: jest.fn().mockResolvedValue({
+                    id: 1,
+                    branchId: "branch-1",
+                    startDate: date("2026-08-10"),
+                    endDate: newEndDate,
+                    duration: 10,
+                    serviceStatus: "in_progress",
+                    employeeSchedules: [],
+                }),
+            },
+            service_record_case: {
+                findUnique: jest.fn().mockResolvedValue({
+                    status: SERVICE_RECORD_CASE_STATUS.IN_PROGRESS,
+                    endDate: date("2026-09-02"),
+                }),
+                upsert: jest.fn().mockResolvedValue(record),
+            },
+            service_record_token: {
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+        jest.spyOn(service, "recompute").mockResolvedValue(record as never);
+
+        await service.ensureForClient(1);
+
+        const finalizationDueAt = getServiceRecordFinalizationDueAt(newEndDate);
+        const tokenExpiresAt = getServiceRecordTokenExpiresAt(newEndDate);
+
+        // The two values diverge once the grace period is non-zero.
+        expect(finalizationDueAt.getTime()).not.toBe(tokenExpiresAt.getTime());
+        expect(finalizationDueAt.toISOString()).toBe("2026-09-09T11:00:00.000Z");
+        expect(tokenExpiresAt.toISOString()).toBe("2026-09-16T11:00:00.000Z");
+
+        expect(prisma.service_record_case.upsert).toHaveBeenCalledWith(expect.objectContaining({
+            update: expect.objectContaining({ finalizationDueAt }),
+        }));
+        expect(prisma.service_record_token.updateMany).toHaveBeenCalledWith({
+            where: {
+                serviceRecordCaseId: record.id,
+                active: true,
+                revokedAt: null,
+            },
+            data: { expiresAt: tokenExpiresAt },
+        });
     });
 
     it("persists a contract end date and aggregate refresh in one transaction", async () => {

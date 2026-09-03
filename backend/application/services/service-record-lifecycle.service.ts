@@ -1,6 +1,9 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { getServiceRecordTokenExpiresAt } from "domain/constants/service-record-link-message";
+import {
+    getServiceRecordFinalizationDueAt,
+    getServiceRecordTokenExpiresAt,
+} from "domain/constants/service-record-link-message";
 import { EFORMSIGN_COMPLETED_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { countBusinessDaysKr } from "domain/utils/business-days";
@@ -162,6 +165,9 @@ export class ServiceRecordLifecycleService {
             existing && isoDate(existing.endDate) !== isoDate(client.endDate),
         );
         const finalizationDueAt = client.endDate
+            ? getServiceRecordFinalizationDueAt(client.endDate)
+            : null;
+        const tokenExpiresAt = client.endDate
             ? getServiceRecordTokenExpiresAt(client.endDate)
             : null;
         const sessionCount = requiredSessionCount({
@@ -262,14 +268,14 @@ export class ServiceRecordLifecycleService {
             await this.linkLegacyDays(record.id, client.employeeSchedules, db);
         }
 
-        if (endDateChanged && finalizationDueAt) {
+        if (endDateChanged && tokenExpiresAt) {
             await db.service_record_token.updateMany({
                 where: {
                     serviceRecordCaseId: record.id,
                     active: true,
                     revokedAt: null,
                 },
-                data: { expiresAt: finalizationDueAt },
+                data: { expiresAt: tokenExpiresAt },
             });
         }
 
