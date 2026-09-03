@@ -772,7 +772,7 @@ describe("SMS system-template variable coverage", () => {
         serviceRecordUrl: "fixture-serviceRecordUrl",
         // Normally injected by the delivery-time payload enricher, not derived from the
         // client record; the fixture supplies it directly so SERVICE_END_NOTICE renders here.
-        receiptUrl: "https://m.admin.babyjamjam.com/receipt/efr_test",
+        receiptUrl: "fixture-receiptUrl",
     };
 
     const smsTemplateCases = Object.values(MESSAGE_TRIGGER_TEMPLATE_CATALOG)
@@ -888,6 +888,26 @@ describe("SMS system-template variable coverage", () => {
             expect(logRepository.save).not.toHaveBeenCalled();
         },
     );
+
+    it("cancels SERVICE_END_NOTICE without a provider call when receiptUrl is missing entirely", async () => {
+        // receiptUrl is injected by the delivery-time payload enricher (a later task), not
+        // derived here — confirm the delivery service still refuses to send when it's absent,
+        // not just when it's blank.
+        const { aligoService, logRepository, service } = createDeliveryHarness();
+        const { receiptUrl: _receiptUrl, ...variablesWithoutReceiptUrl } = allTemplateVariables;
+        const job = createJob(
+            MessageTriggerTemplateKey.SERVICE_END_NOTICE,
+            MessageTriggerRecipientType.CLIENT,
+            variablesWithoutReceiptUrl,
+        );
+
+        await expect(service.sendJob(job)).resolves.toBe(false);
+
+        expect(job.status).toBe("canceled");
+        expect(job.cancelReason).toContain("receiptUrl");
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+        expect(logRepository.save).not.toHaveBeenCalled();
+    });
 
     it("cancels a template with an unresolved required custom variable", async () => {
         const { aligoService, logRepository, service } = createDeliveryHarness();

@@ -139,7 +139,7 @@ export const MESSAGE_RECIPIENT_LABELS: Readonly<Record<MessageTriggerRecipientTy
 };
 
 const SMS_HISTORY_PROVIDERS = new Set(["aligo_sms", "sms"]);
-const SMS_DELIVERY_TEMPLATE_KEYS = new Set(["service_record_link_sms", "client_greeting_sms"]);
+const SMS_DELIVERY_TEMPLATE_KEYS = new Set(["service_record_link_sms", "client_greeting_sms", "service_end_notice_sms"]);
 const INTERNAL_KEY_PATTERN = /^[a-z0-9_-]+$/i;
 
 function getVariableValue(variables: Record<string, string> | undefined, key: string): string | null {

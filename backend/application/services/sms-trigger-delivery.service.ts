@@ -19,6 +19,7 @@ import {
     SERVICE_END_NOTICE_SMS_AUTOMATION_KEY,
     SERVICE_END_NOTICE_SMS_LOG_TEMPLATE_KEY,
     SERVICE_END_NOTICE_SMS_TITLE,
+    SERVICE_END_NOTICE_SMS_TRIGGER_TYPE,
 } from "domain/constants/service-end-notice-message";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
 import { TriggerJobDeferredError } from "domain/errors/trigger-job-deferred.error";
@@ -190,7 +191,7 @@ export const SMS_TEMPLATE_DELIVERY: Partial<Record<MessageTriggerTemplateKey, Sm
     [MessageTriggerTemplateKey.SERVICE_END_NOTICE]: {
         smsLogTemplateKey: SERVICE_END_NOTICE_SMS_LOG_TEMPLATE_KEY,
         automationKey: SERVICE_END_NOTICE_SMS_AUTOMATION_KEY,
-        triggerType: "service_end_notice",
+        triggerType: SERVICE_END_NOTICE_SMS_TRIGGER_TYPE,
         title: SERVICE_END_NOTICE_SMS_TITLE,
         systemTemplateKey: SystemTemplateKey.SERVICE_END_NOTICE,
     },

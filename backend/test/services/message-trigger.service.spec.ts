@@ -2518,6 +2518,36 @@ describe("MessageTriggerService", () => {
         [MessageTriggerTemplateKey.SERVICE_END_NOTICE]: ["receiptUrl"],
     };
 
+    // Tripwire: today buildClientTemplateVariables does NOT produce receiptUrl for
+    // SERVICE_END_NOTICE (a later delivery-time enricher task injects it into the job
+    // payload). If a future change makes the builder start supplying it, this must fail
+    // so DELIVERY_TIME_VARIABLES above is consciously updated rather than silently stale.
+    it("does not derive receiptUrl for SERVICE_END_NOTICE from the client record today", () => {
+        const { internals } = createService();
+        const rule = createRule({
+            eventType: MessageTriggerEventType.SERVICE_START,
+            offsetType: MessageTriggerOffsetType.BEFORE_DAYS,
+            offsetDays: 7,
+            templateKey: MessageTriggerTemplateKey.SERVICE_END_NOTICE,
+        });
+
+        const variables = internals.buildClientTemplateVariables(rule, {
+            name: "자동발송 테스트",
+            phone: "010-6621-1878",
+            type: "A가1형",
+            duration: 10,
+            startDate: new Date("2026-08-31T00:00:00.000Z"),
+            endDate: new Date("2026-09-11T00:00:00.000Z"),
+            createdAt: new Date("2026-08-24T00:00:00.000Z"),
+            fullPrice: "3000000",
+            grant: "2000000",
+            actualPrice: "1000000",
+            area: { bankAccountInfo: { bankName: "신한은행", accNum: "110-123-456789" } },
+        });
+
+        expect(variables["receiptUrl"]).toBeUndefined();
+    });
+
     it.each(CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS)(
         "builds every required %s variable from a complete client record",
         (templateKey) => {
