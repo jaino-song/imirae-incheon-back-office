@@ -3,6 +3,7 @@ import {
     isProviderReviewStep,
     type EformsignListDoc,
 } from "application/utils/eformsign-document-list";
+import { MIRROR_UNASSIGNED_KEY } from "application/utils/eformsign-list-doc-from-mirror";
 import {
     assertSupportedKoreanHolidayYear,
     isBusinessDayKr,
@@ -15,10 +16,15 @@ import {
  * snapshots — the review window moves with the calendar). The backend is the
  * authority; clients map this to a label/variant and display it.
  *
- * Byte-identical copy of the rule in
- * packages/shared/src/constants/eformsign-doc-status.ts. The backend domain
- * surface re-exports the same versioned business-day module from the generated
- * backend runtime package. Parity is pinned by
+ * Copy of the rule in packages/shared/src/constants/eformsign-doc-status.ts,
+ * with exactly one deliberate divergence: only this side can see whether a
+ * mirrored row is claimed, so only this side resolves "unassigned". The shared
+ * resolver excludes that value from its return type for the same reason — it is
+ * the fallback for payloads that predate display_status and has no mirror to
+ * consult. Everything else must stay identical.
+ *
+ * The backend domain surface re-exports the same versioned business-day module
+ * from the generated backend runtime package. Parity is pinned by
  * backend/test/utils/eformsign-doc-display-status.spec.ts, which mirrors the
  * shared test fixtures — change both files together.
  */
@@ -26,6 +32,7 @@ export type EformsignDocDisplayStatus =
     | "pending"
     | "signed"
     | "review"
+    | "unassigned"
     | "completed"
     | "expired"
     | "unknown";
@@ -91,6 +98,12 @@ export function resolveEformsignDocDisplayStatus(
     if (category === "expired") return "expired";
     if (category === "unknown") return "unknown";
     if (!isProviderReviewStep(document)) return "pending";
+
+    // Only here, where the alternatives are "review" and "signed" — both of
+    // which promise a provider review that this row cannot receive. An
+    // unassigned document at an earlier step stays "pending", which is already
+    // true of it and asks nothing of anyone.
+    if (document[MIRROR_UNASSIGNED_KEY] === true) return "unassigned";
 
     const contractEndDate = typeof document["contract_end_date"] === "string"
         ? document["contract_end_date"]
