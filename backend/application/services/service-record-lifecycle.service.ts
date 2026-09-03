@@ -161,9 +161,6 @@ export class ServiceRecordLifecycleService {
         if (!branchId || !client.startDate) return null;
 
         const existing = await db.service_record_case.findUnique({ where: { clientId } });
-        const endDateChanged = Boolean(
-            existing && isoDate(existing.endDate) !== isoDate(client.endDate),
-        );
         const finalizationDueAt = client.endDate
             ? getServiceRecordFinalizationDueAt(client.endDate)
             : null;
@@ -268,12 +265,16 @@ export class ServiceRecordLifecycleService {
             await this.linkLegacyDays(record.id, client.employeeSchedules, db);
         }
 
-        if (endDateChanged && tokenExpiresAt) {
+        if (tokenExpiresAt) {
+            // Raise expiresAt to the new grace-adjusted value, but never lower it —
+            // a later-reissued token (see resolveExpiry in service-record-link.service.ts)
+            // may already carry a further-out expiresAt and must not be clawed back.
             await db.service_record_token.updateMany({
                 where: {
                     serviceRecordCaseId: record.id,
                     active: true,
                     revokedAt: null,
+                    expiresAt: { lt: tokenExpiresAt },
                 },
                 data: { expiresAt: tokenExpiresAt },
             });
