@@ -101,6 +101,7 @@ import {
   extractReRequestEvents,
 } from "@/lib/eformsign/document-details";
 import { resolveDocumentCustomerName } from "@/lib/eformsign/display-name";
+import { describeReceiptLinkError } from "@/lib/receipt-link";
 import { formatIsoDateInput } from "@/lib/date/format-iso-input";
 import { useAllVoucherPriceInfos } from "@/hooks/useVoucherData";
 import { inferVoucherDurationFromAmounts } from "@/lib/voucher/duration";
@@ -1168,6 +1169,7 @@ function ContractDetail({
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>("document");
   const [isReRequestDialogOpen, setIsReRequestDialogOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [receiptSendTarget, setReceiptSendTarget] = useState<{ id: string; customerName: string } | null>(null);
   const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [isFinalizeOpen, setIsFinalizeOpen] = useState(false);
   const [isServiceRecordFinalizeConfirmOpen, setIsServiceRecordFinalizeConfirmOpen] = useState(false);
@@ -1527,6 +1529,25 @@ function ContractDetail({
         variant: "destructive",
         title: "최종 확인을 마치지 못했어요",
         description: error instanceof Error ? error.message : "잠시 후 다시 시도해 주세요",
+      });
+    },
+  });
+
+  const sendReceiptLink = useMutation({
+    mutationFn: (documentId: string) => eformsignApi.sendReceiptLink(documentId),
+    onSuccess: (result) => {
+      setReceiptSendTarget(null);
+      toast({
+        variant: "success",
+        title: "서비스 종료 안내 발송 예약",
+        description: `${result.clientName} 산모님께 1분 내 발송됩니다. 링크는 30일간 유효합니다.`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        variant: "destructive",
+        title: "영수증 문자를 보내지 못했습니다",
+        description: describeReceiptLinkError(error),
       });
     },
   });
@@ -2258,7 +2279,44 @@ function ContractDetail({
             : undefined
         }
         isReviewConfirming={isFinalizePending}
+        onSendReceiptLink={() => setReceiptSendTarget({ id: detailedDocument.id, customerName })}
+        isSendingReceiptLink={sendReceiptLink.isPending}
       />
+      <Dialog
+        open={receiptSendTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !sendReceiptLink.isPending) {
+            setReceiptSendTarget(null);
+          }
+        }}
+      >
+        <DialogContent data-component={`${dataComponent}_dialogs_receipt-send-confirm`}>
+          <DialogHeader>
+            <DialogTitle>서비스 종료 안내 문자를 보낼까요?</DialogTitle>
+            <DialogDescription>
+              {receiptSendTarget?.customerName ? `${receiptSendTarget.customerName} 산모님께 ` : ""}
+              본인부담금 영수증 링크가 담긴 문자를 1분 내 발송합니다. 링크는 30일간 유효하며, 산모님이 생년월일로 본인 확인 후 열람합니다.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setReceiptSendTarget(null)}
+              disabled={sendReceiptLink.isPending}
+            >
+              취소
+            </Button>
+            <Button
+              variant="positive"
+              onClick={() => receiptSendTarget && sendReceiptLink.mutate(receiptSendTarget.id)}
+              disabled={sendReceiptLink.isPending}
+              data-component={`${dataComponent}_dialogs_receipt-send-confirm_submit`}
+            >
+              {sendReceiptLink.isPending ? "발송 예약 중…" : "발송하기"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DetailPanel>
   );
 }
