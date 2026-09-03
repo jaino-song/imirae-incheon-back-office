@@ -93,8 +93,9 @@ export class SbReceiptLinkTokenRepository implements IReceiptLinkTokenRepository
         return toRecord(row);
     }
 
-    // Cross-branch by design: see the class comment above. Covers both the
-    // verify() access-token mint and the periodic post-lock-window reset.
+    // Cross-branch by design: see the class comment above. This is the verify()
+    // access-token mint's only caller — the post-lock-window reset now happens inside
+    // reserveVerificationAttempt's own SQL, not here.
     async update(id: string, data: UpdateReceiptLinkTokenData): Promise<ReceiptLinkTokenRecord> {
         return runSystemScope(async () => {
             const row = await this.prisma.receipt_link_token.update({
