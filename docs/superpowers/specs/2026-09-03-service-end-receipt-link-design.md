@@ -122,7 +122,7 @@
 | branch_id | uuid | |
 | client_id | int | FK client, SetNull |
 | eformsign_doc_id | int | FK eformsign_doc |
-| link_token | varchar unique | `efr_` + 32바이트 base64url, 평문 저장(제공기록지와 동일 정책) |
+| link_token_hash | varchar unique | sha256(`efr_` + 32바이트 base64url 평문). 평문은 URL에만 존재(제공기록지 `linkTokenHash`와 동일 정책) |
 | expected_birthday_hash | varchar | sha256(`RECEIPT_LINK_HASH_SALT` + YYMMDD) |
 | access_token_hash | varchar null | sha256(accessToken) |
 | verified_at | timestamptz null | |
@@ -134,7 +134,6 @@
 | storage_path | varchar | |
 | content_sha256 | varchar | |
 | byte_size | int | |
-| message_log_id | int null | |
 | source | varchar | `auto_trigger` \| `manual` |
 | created_by | uuid null | 수동 발송 직원 |
 | created_at | timestamptz | |

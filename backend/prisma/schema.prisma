@@ -272,6 +272,7 @@ model client {
   messageLogs            message_log[]
   messageTriggerJobs     message_trigger_job[]
   serviceRecordCase      service_record_case?
+  receiptLinkTokens      receipt_link_token[]
 
   @@unique([branchId, phoneNormalized], map: "client_branch_phone_normalized_key")
   @@index([areaId], map: "idx_client_area")
@@ -382,6 +383,7 @@ model eformsign_doc {
   serviceRecordSnapshotChunk service_record_snapshot_chunk?
   branch                     branch?                        @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   files                      eformsign_doc_file[]
+  receiptLinkTokens          receipt_link_token[]
 
   @@unique([serviceRecordCaseId, snapshotVersion, snapshotChunkIndex], map: "uniq_eformsign_doc_service_record_chunk")
   @@index([branchId], map: "idx_eformsign_doc_branch")
@@ -637,6 +639,7 @@ model branch {
   owner                         user?                             @relation(fields: [ownerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   userBranches                  user_branch[]
   chatSessions                  chat_session[]
+  receiptLinkTokens             receipt_link_token[]
 
   @@index([isActive], map: "idx_branch_is_active")
   @@index([ownerId], map: "idx_branch_owner")
@@ -1324,4 +1327,35 @@ model client_draft {
 
   @@index([branchId, status], map: "idx_client_draft_branch_status")
   @@index([clientId], map: "idx_client_draft_client")
+}
+
+model receipt_link_token {
+  id                   String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId             String        @map("branch_id") @db.Uuid
+  clientId             Int?          @map("client_id")
+  eformsignDocId       Int           @map("eformsign_doc_id")
+  jobId                String?       @map("job_id")
+  linkTokenHash        String        @unique @map("link_token_hash")
+  accessTokenHash      String?       @unique @map("access_token_hash")
+  expectedBirthdayHash String        @map("expected_birthday_hash")
+  verifiedAt           DateTime?     @map("verified_at") @db.Timestamptz(6)
+  failedAttempts       Int           @default(0) @map("failed_attempts")
+  lockedAt             DateTime?     @map("locked_at") @db.Timestamptz(6)
+  expiresAt            DateTime      @map("expires_at") @db.Timestamptz(6)
+  active               Boolean       @default(true)
+  revokedAt            DateTime?     @map("revoked_at") @db.Timestamptz(6)
+  storagePath          String        @map("storage_path")
+  contentSha256        String        @map("content_sha256") @db.Char(64)
+  byteSize             Int           @map("byte_size")
+  source               String
+  createdBy            String?       @map("created_by") @db.Uuid // Deliberately no FK to user: the audit value must survive user deletion.
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  branch               branch        @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  client               client?       @relation(fields: [clientId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  eformsignDoc         eformsign_doc @relation(fields: [eformsignDocId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([eformsignDocId, active], map: "idx_receipt_link_token_doc_active")
+  @@index([jobId], map: "idx_receipt_link_token_job")
+  @@index([expiresAt], map: "idx_receipt_link_token_expires")
+  @@index([branchId], map: "idx_receipt_link_token_branch")
 }
