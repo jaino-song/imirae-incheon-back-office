@@ -240,9 +240,14 @@ describe("ContractAutoFinalizeSchedulerService", () => {
             notificationService as never,
             schedulerLease,
         );
+        // No systemSettingService is wired above, so the scheduler falls back to
+        // DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG (7-day grace). Push the end date
+        // well past that grace window so this stays "due" regardless of the
+        // configured default, keeping the test focused on lease-loss behavior.
+        const pastGraceEndDate = isoDateInKorea(new Date(Date.now() - 10 * 24 * 60 * 60 * 1000));
         repository.findReviewStageContracts.mockResolvedValue([
-            contract({ documentId: "doc-1" }),
-            contract({ documentId: "doc-2" }),
+            contract({ documentId: "doc-1", contractEndDate: pastGraceEndDate }),
+            contract({ documentId: "doc-2", contractEndDate: pastGraceEndDate }),
         ]);
 
         await service.autoFinalizeDueContracts();
