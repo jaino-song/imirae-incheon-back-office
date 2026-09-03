@@ -222,6 +222,7 @@ const TRIGGER_TEMPLATE_MESSAGE_FALLBACKS: Record<TriggerTemplateKey, string> = {
 #{고객명}님, 모니터링 설문 부탁드립니다.`,
   INFO: `[아이미래 인천]
 안내드립니다.`,
+  SERVICE_END_NOTICE: "{{name}}산모님, 본인부담금 영수증은 아래 링크에서 내려받으실 수 있습니다.\n{{receiptUrl}}",
 };
 
 function toFormState(rule: MessageTriggerRule | null): RuleFormState {
