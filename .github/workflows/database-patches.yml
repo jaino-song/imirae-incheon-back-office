@@ -925,6 +925,7 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902000000_repair_replacement_schedule_start_date/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902120000_add_scheduler_lease/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903000000_add_employee_schedule_terminated_at/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903193000_add_message_trigger_rule_branch_override/migration.sql
 
       # Runs after the post-lease patches: it asserts phone_normalized columns
       # those patches create.
@@ -1444,6 +1445,7 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902000000_repair_replacement_schedule_start_date/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902120000_add_scheduler_lease/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903000000_add_employee_schedule_terminated_at/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903193000_add_message_trigger_rule_branch_override/migration.sql
 
       # Runs after the post-lease patches: it asserts phone_normalized columns
       # those patches create.
