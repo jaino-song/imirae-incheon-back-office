@@ -112,7 +112,9 @@ wait_for_runs_to_complete() {
         local -a urls=()
 
         for id in "${ids[@]}"; do
-            line="$(refresh_run_status "$id")"
+            # A transient API failure must not fail the gate: treat the run as
+            # not yet completed and poll again.
+            line="$(refresh_run_status "$id" 2>/dev/null || echo "unknown -")"
             status="${line%% *}"
             conclusion="${line#* }"
             final_statuses+=("$id $status $conclusion")
