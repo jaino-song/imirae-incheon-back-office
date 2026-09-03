@@ -198,6 +198,15 @@ export class ReceiptLinkTokenService {
             RECEIPT_LINK_LOCK_MS,
             RECEIPT_LINK_MAX_FAILED_ATTEMPTS,
         );
+        if (reservation.outcome === "unusable") {
+            // The row was active and unexpired as of the initial read above, but the atomic
+            // reservation's own WHERE (active AND expires_at > now) found it no longer
+            // qualifies as of THIS now — e.g. revoked or expired in the gap between the two.
+            // Re-read to report the actual terminal reason instead of a bare "not found".
+            const freshRow = await this.findRow(linkToken);
+            const freshUnusable = this.unusableReason(freshRow, now);
+            return { ok: false, reason: freshUnusable ?? "not_found" };
+        }
         if (reservation.outcome === "locked") {
             return { ok: false, reason: "locked", lockedUntil: reservation.lockedUntil.toISOString() };
         }

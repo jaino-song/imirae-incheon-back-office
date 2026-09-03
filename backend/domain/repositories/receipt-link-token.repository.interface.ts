@@ -57,14 +57,20 @@ export interface ExpiredReceiptLinkToken {
 
 /**
  * Outcome of `reserveVerificationAttempt`. `"locked"` means the token was already inside an
- * earlier lock window when the reservation ran — the row was left untouched and no attempt was
- * consumed. `"recorded"` means the write happened (a fresh increment, a post-window reset to 1,
- * or both plus a newly-set `lockedAt` when the write's own count reached `maxAttempts`) and
- * carries the authoritative post-write state the caller must act on.
+ * earlier lock window when the reservation ran — the row's values are unchanged (the statement
+ * still writes them and takes the row lock; it just writes back the pre-write value) and no
+ * attempt was consumed. `"recorded"` means the write happened (a fresh increment, a post-window
+ * reset to 1, or both plus a newly-set `lockedAt` when the write's own count reached
+ * `maxAttempts`) and carries the authoritative post-write state the caller must act on.
+ * `"unusable"` means the reservation targeted a row that is no longer eligible to be verified
+ * at all — inactive (revoked/replaced) or past its expiry — as of this same write; the caller
+ * must re-read the token's status to report the correct terminal reason (`expired`/`revoked`/
+ * `not_found`) rather than treating this as a plain "not found".
  */
 export type ReserveVerificationAttemptResult =
     | { outcome: "locked"; lockedUntil: Date }
-    | { outcome: "recorded"; failedAttempts: number; lockedAt: Date | null; expectedBirthdayHash: string };
+    | { outcome: "recorded"; failedAttempts: number; lockedAt: Date | null; expectedBirthdayHash: string }
+    | { outcome: "unusable" };
 
 export interface IReceiptLinkTokenRepository {
     /** The token this hash belongs to, with its branch and client display names, or null if no
@@ -86,8 +92,11 @@ export interface IReceiptLinkTokenRepository {
      * database write as the increment — never from a value the caller read before this call.
      * Semantics, evaluated against the row's state as of this write (never a caller-supplied
      * snapshot):
+     *  - The row is no longer active or has already expired (as of `now`) → no counter write;
+     *    returns `{ outcome: "unusable" }`.
      *  - Still inside an earlier lock window (`lockedAt` set and `lockedAt + lockWindowMs > now`)
-     *    → the row is left untouched; returns `{ outcome: "locked", lockedUntil }`.
+     *    → the values are unchanged (the statement still writes them and takes the row lock, it
+     *    just writes back the pre-write value); returns `{ outcome: "locked", lockedUntil }`.
      *  - `lockedAt` set but its window has elapsed → resets the counter to 1 and clears
      *    `lockedAt`, in this same write.
      *  - Otherwise → increments the counter by 1; if the new count reaches `maxAttempts`, also

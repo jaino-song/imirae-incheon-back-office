@@ -56,6 +56,13 @@ export class ReceiptLinkManualSendService {
         const doc = await this.docRepository.findByDocumentId(params.branchId, params.documentId);
         if (!doc) throw new NotFoundException({ reason: "document_not_found" });
         if (!doc.clientId) throw new BadRequestException({ reason: "document_not_linked", message: "계약서에 연결된 산모가 없습니다" });
+        // M4: an eformsign_doc row with no numeric id can never be pinned via preflight's
+        // eformsignDocId param (see ReceiptLinkIssueService.findExplicitContractDocument), so
+        // silently falling through to the auto-derivation path would pick a DIFFERENT document
+        // than the one the caller is looking at — surface this explicitly instead.
+        if (doc.id === undefined) {
+            throw new BadRequestException({ reason: "no_contract_document", message: "선택한 문서를 찾을 수 없습니다" });
+        }
 
         let preflight;
         try {

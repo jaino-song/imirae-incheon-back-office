@@ -128,7 +128,7 @@ export class SbReceiptLinkTokenRepository implements IReceiptLinkTokenRepository
                 WITH before AS (
                     SELECT id, locked_at, failed_attempts, expected_birthday_hash
                     FROM receipt_link_token
-                    WHERE id = ${id}::uuid
+                    WHERE id = ${id}::uuid AND active AND expires_at > ${now}::timestamptz
                     FOR UPDATE
                 )
                 UPDATE receipt_link_token t
@@ -160,10 +160,15 @@ export class SbReceiptLinkTokenRepository implements IReceiptLinkTokenRepository
             `);
             const row = rows[0];
             if (!row) {
-                throw new Error(`reserveVerificationAttempt: receipt_link_token ${id} not found`);
+                // The CTE's WHERE (id AND active AND expires_at > now) matched zero rows: the
+                // token is missing, already inactive, or expired as of this same `now`. The
+                // caller re-reads the row to report the correct terminal reason.
+                return { outcome: "unusable" };
             }
             if (row.wasLocked) {
-                // Untouched: t.locked_at above equals the pre-write value in this branch.
+                // Values unchanged: the statement still writes t.locked_at/failed_attempts
+                // above, it just writes back the pre-write value in this branch (see the row
+                // lock the CTE's FOR UPDATE holds for the duration of the write).
                 return { outcome: "locked", lockedUntil: new Date(row.lockedAt!.getTime() + lockWindowMs) };
             }
             return {
