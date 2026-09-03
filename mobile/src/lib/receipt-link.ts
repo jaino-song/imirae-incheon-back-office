@@ -13,10 +13,14 @@ export const RECEIPT_LINK_SEND_FALLBACK_MESSAGE = "영수증 문자 발송에 �
 export function describeReceiptLinkError(error: unknown): string {
   const reason = (error as { response?: { data?: { reason?: string; message?: string } } })?.response?.data
     ?.reason;
-  const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+  const message = (error as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
   const mappedReasonMessage =
     reason && Object.prototype.hasOwnProperty.call(RECEIPT_LINK_REASON_MESSAGES, reason)
       ? RECEIPT_LINK_REASON_MESSAGES[reason]
       : undefined;
-  return mappedReasonMessage || message || RECEIPT_LINK_SEND_FALLBACK_MESSAGE;
+  // Only use the server's own message when it's a non-empty string — some 4xx bodies
+  // (e.g. nest's global validation pipe) send `message` as a string[] or object, which
+  // must never render directly (parity with frontend/src/lib/receipt-link.ts).
+  return mappedReasonMessage || (typeof message === "string" && message ? message : undefined) ||
+    RECEIPT_LINK_SEND_FALLBACK_MESSAGE;
 }

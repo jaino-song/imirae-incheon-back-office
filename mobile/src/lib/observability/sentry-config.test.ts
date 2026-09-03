@@ -36,6 +36,15 @@ describe("mobile service-record Sentry scope", () => {
     ).toBe("/api/admin/service-records/client/[Filtered]");
   });
 
+  it("redacts the receipt-link token from URLs", () => {
+    expect(sanitizeSentryUrl("/receipt/efr_SECRET")).toBe("/receipt/[Filtered]");
+    expect(sanitizeSentryUrl("/api/receipt/efr_SECRET/status")).not.toContain("efr_SECRET");
+    expect(sanitizeSentryUrl("/api/receipt/efr_SECRET/image")).not.toContain("efr_SECRET");
+    expect(sanitizeSentryUrl("https://mobile.example.com/api/receipt/efr_SECRET/image")).toBe(
+      "https://mobile.example.com/api/receipt/[Filtered]/image",
+    );
+  });
+
   it("drops unrelated errors and keeps service-record route errors", () => {
     const options = getSentryRuntimeOptions();
 

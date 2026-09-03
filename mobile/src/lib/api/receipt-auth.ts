@@ -30,7 +30,7 @@ export function setReceiptAccessCookie(response: NextResponse, linkToken: string
         maxAge: RECEIPT_COOKIE_MAX_AGE_SECONDS,
         path: receiptApiPath(linkToken),
         sameSite: "lax",
-        secure: getServerRuntimeConfig().isProductionNodeEnv,
+        secure: getServerRuntimeConfig().isSecureCookieEnv,
     });
 }
 

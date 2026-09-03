@@ -1239,6 +1239,12 @@ function ContractDetailContent({
   const contractNum = contractNumber(doc);
   const name = contractDisplayName(doc, undefined, true);
   const resolvedCustomerName = metadata?.clientName.trim() || customerName(doc);
+  // The receipt-send confirm copy reads "고객 미지정 산모님께 ..." if the shared
+  // placeholder leaks through unmapped — blank it so the existing no-name fallback
+  // ("본인부담금 영수증 링크가...") renders instead (parity with
+  // frontend/src/app/(protected)/contracts/page.tsx's onSendReceiptLink mapping).
+  const receiptSendCustomerName =
+    resolvedCustomerName === UNKNOWN_CUSTOMER_NAME ? "" : resolvedCustomerName;
   const customerPhone =
     metadata?.clientPhone?.trim() ||
     contractRecipientPhone(doc) ||
@@ -1621,7 +1627,7 @@ function ContractDetailContent({
           if (!isSendingReceiptLink) setIsReceiptSendConfirmOpen(open);
         }}
         title="서비스 종료 안내 문자를 보낼까요?"
-        description={`${resolvedCustomerName ? `${resolvedCustomerName} 산모님께 ` : ""}본인부담금 영수증 링크가 담긴 문자를 1분 내 발송합니다. 링크는 30일간 유효하며, 산모님이 생년월일로 본인 확인 후 열람합니다.`}
+        description={`${receiptSendCustomerName ? `${receiptSendCustomerName} 산모님께 ` : ""}본인부담금 영수증 링크가 담긴 문자를 1분 내 발송합니다. 링크는 30일간 유효하며, 산모님이 생년월일로 본인 확인 후 열람합니다.`}
         approvalLabel="발송하기"
         pendingLabel="발송 예약 중"
         onApprove={handleSendReceiptLink}

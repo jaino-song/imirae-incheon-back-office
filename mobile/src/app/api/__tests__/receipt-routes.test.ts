@@ -4,14 +4,23 @@
 import { AxiosError } from "axios";
 import { NextRequest } from "next/server";
 import { serverAPIClient } from "@/lib/api/server";
+import { getServerRuntimeConfig } from "@/lib/env";
 import { POST as verify } from "../receipt/[token]/verify/route";
 import { GET as image } from "../receipt/[token]/image/route";
 import { GET as status } from "../receipt/[token]/status/route";
 
 jest.mock("@/lib/api/server", () => ({ serverAPIClient: { get: jest.fn(), post: jest.fn() } }));
+// Stubbed the same way mobile/src/app/(shell)/(auth)/callback/actions.test.ts stubs
+// @/lib/env: a jest.fn() so each test can set isSecureCookieEnv independently. Needs a
+// default return value because mobile/src/lib/api/route-utils.ts also calls
+// getServerRuntimeConfig() at module-import time (for its own secureCookies config).
+jest.mock("@/lib/env", () => ({
+    getServerRuntimeConfig: jest.fn(() => ({ isProductionNodeEnv: false, isSecureCookieEnv: false })),
+}));
 
 const mockGet = serverAPIClient.get as jest.Mock;
 const mockPost = serverAPIClient.post as jest.Mock;
+const mockRuntimeConfig = getServerRuntimeConfig as jest.Mock;
 const params = { params: Promise.resolve({ token: "efr_t" }) };
 
 // serverAPIClient's validateStatus rejects every 4xx, so the backend always
@@ -24,6 +33,7 @@ describe("receipt BFF routes", () => {
     beforeEach(() => {
         mockGet.mockReset();
         mockPost.mockReset();
+        mockRuntimeConfig.mockReturnValue({ isSecureCookieEnv: false });
     });
 
     it("status proxies the backend payload with no-store", async () => {
@@ -45,6 +55,35 @@ describe("receipt BFF routes", () => {
         expect((await response.json()).branchName).toBe("인천 아이미래로");
     });
 
+    it("status projects an explicit field allowlist, dropping clientName/phone from an over-broad backend body", async () => {
+        mockGet.mockResolvedValue({
+            status: 200,
+            data: {
+                ok: true,
+                state: "pending",
+                branchName: "인천 아이미래로",
+                remainingAttempts: 5,
+                lockedUntil: null,
+                expiresAt: "2026-10-03T00:00:00.000Z",
+                clientName: "김산모",
+                phone: "010-1234-5678",
+            },
+        });
+        const response = await status(new NextRequest("http://localhost/api/receipt/efr_t/status"), params);
+        const body = await response.json();
+        expect(Object.keys(body).sort()).toEqual(
+            ["branchName", "expiresAt", "lockedUntil", "ok", "remainingAttempts", "state"].sort(),
+        );
+        expect(body).toEqual({
+            ok: true,
+            state: "pending",
+            branchName: "인천 아이미래로",
+            expiresAt: "2026-10-03T00:00:00.000Z",
+            remainingAttempts: 5,
+            lockedUntil: null,
+        });
+    });
+
     it("status passes a 410 expired body through verbatim", async () => {
         mockGet.mockRejectedValue(axiosClientError(410, { reason: "expired" }));
         const response = await status(new NextRequest("http://localhost/api/receipt/efr_t/status"), params);
@@ -53,6 +92,7 @@ describe("receipt BFF routes", () => {
     });
 
     it("verify sets the HttpOnly access cookie and never returns the access token to the browser", async () => {
+        mockRuntimeConfig.mockReturnValue({ isSecureCookieEnv: false });
         mockPost.mockResolvedValue({ status: 200, data: { ok: true, accessToken: "efra_secret", clientName: "김산모" } });
         const request = new NextRequest("http://localhost/api/receipt/efr_t/verify", {
             method: "POST",
@@ -71,9 +111,21 @@ describe("receipt BFF routes", () => {
         const maxAgeMatch = cookie.match(/Max-Age=(\d+)/i);
         expect(maxAgeMatch).not.toBeNull();
         expect(Number(maxAgeMatch?.[1])).toBeLessThanOrEqual(30 * 24 * 60 * 60);
-        // Secure is intentionally not asserted here: it's derived from
-        // getServerRuntimeConfig().isProductionNodeEnv, which reflects this test
-        // process's NODE_ENV rather than a stubbable runtime config value.
+        // isSecureCookieEnv: false → no Secure attribute.
+        expect(cookie).not.toMatch(/;\s*Secure/i);
+    });
+
+    it("verify's access cookie carries Secure when isSecureCookieEnv is true (production or Vercel preview)", async () => {
+        mockRuntimeConfig.mockReturnValue({ isSecureCookieEnv: true });
+        mockPost.mockResolvedValue({ status: 200, data: { ok: true, accessToken: "efra_secret", clientName: "김산모" } });
+        const request = new NextRequest("http://localhost/api/receipt/efr_t/verify", {
+            method: "POST",
+            body: JSON.stringify({ birthday: "940315" }),
+            headers: { "content-type": "application/json" },
+        });
+        const response = await verify(request, params);
+        const cookie = response.headers.get("set-cookie") ?? "";
+        expect(cookie).toMatch(/;\s*Secure/i);
     });
 
     it("verify passes 401/423 bodies through", async () => {

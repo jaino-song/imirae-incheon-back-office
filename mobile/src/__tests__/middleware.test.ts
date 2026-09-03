@@ -52,6 +52,31 @@ describe("middleware API route protection", () => {
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
+  it("allows the receipt status BFF route without a session", async () => {
+    const response = await middleware(createRequest("/api/receipt/efr_x/status"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("allows the public receipt page without a session", async () => {
+    const response = await middleware(createRequest("/receipt/efr_x"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("does not treat the receipt-links send route as public — it requires a session", async () => {
+    // Regression guard for a mutant that simplifies isRouteMatch() to a bare
+    // `pathname.startsWith(route)`: "/api/receipt-links/send".startsWith("/api/receipt")
+    // is true, which would wrongly make this protected admin route public. The real
+    // isRouteMatch() requires an exact match or a "/" boundary after the route prefix.
+    const response = await middleware(createRequest("/api/receipt-links/send"));
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "Authentication required" });
+  });
+
   it("does not allow the legacy token callback as a public API route", async () => {
     const response = await middleware(createRequest("/api/auth/callback"));
 
