@@ -4,6 +4,31 @@ import {
   describeReceiptLinkError,
 } from "@/lib/receipt-link";
 
+// M4: pins the exact seven reason keys — copied from
+// frontend/src/lib/__tests__/receipt-link.test.ts so the mobile twin can't silently drift
+// out of sync with the desktop constant (same keys, same strings).
+describe("RECEIPT_LINK_REASON_MESSAGES", () => {
+  it("declares exactly the seven backend reason codes, no more, no less", () => {
+    expect(Object.keys(RECEIPT_LINK_REASON_MESSAGES).sort()).toEqual(
+      [
+        "not_voucher_client",
+        "missing_birthday",
+        "no_contract_document",
+        "document_not_linked",
+        "document_not_found",
+        "pdf_unavailable",
+        "missing_phone",
+      ].sort(),
+    );
+  });
+
+  it("uses the literal Korean copy for missing_phone", () => {
+    expect(RECEIPT_LINK_REASON_MESSAGES.missing_phone).toBe(
+      "산모 연락처가 없거나 형식이 올바르지 않습니다.",
+    );
+  });
+});
+
 describe("describeReceiptLinkError", () => {
   it("prefers the mapped reason message over a server message", () => {
     const error = {
