@@ -72,7 +72,7 @@ determine_expected() {
 lookup_runs() {
     local out
     out="$("$GH_BIN" api \
-        "repos/$GITHUB_REPOSITORY/actions/workflows/database-patches.yml/runs?head_sha=$HEAD_SHA&event=push&per_page=20" \
+        "repos/$GITHUB_REPOSITORY/actions/workflows/database-patches.yml/runs?head_sha=$HEAD_SHA&branch=$REF_NAME&event=push&per_page=20" \
         --jq '.workflow_runs[] | "\(.id) \(.status) \(.conclusion // "-")"' 2>/dev/null || true)"
 
     if [[ -z "$out" ]]; then
@@ -132,7 +132,7 @@ wait_for_runs_to_complete() {
             for entry in "${final_statuses[@]}"; do
                 read -r id status conclusion <<<"$entry"
                 if [[ "$status" != completed ]]; then
-                    error "Database Patches run $id timed out waiting; fix or approve it, then re-run the failed jobs of this workflow."
+                    error "Database Patches run $id timed out waiting; fix or approve the Database Patches run, then re-run the failed jobs of the Backend CI workflow."
                 fi
             done
             exit 1
@@ -140,7 +140,7 @@ wait_for_runs_to_complete() {
 
         echo "Waiting for Database Patches run(s) to complete: ${urls[*]}"
         sleep "$POLL_SECONDS"
-        elapsed=$((elapsed + POLL_SECONDS))
+        elapsed=$(( elapsed + (POLL_SECONDS > 0 ? POLL_SECONDS : 1) ))
     done
 
     local -a failed=()
@@ -154,7 +154,7 @@ wait_for_runs_to_complete() {
     if [[ "${#failed[@]}" -gt 0 ]]; then
         for entry in "${failed[@]}"; do
             read -r id status conclusion <<<"$entry"
-            error "Database Patches run $id concluded $conclusion; fix or approve it, then re-run the failed jobs of this workflow."
+            error "Database Patches run $id concluded $conclusion; fix or approve the Database Patches run, then re-run the failed jobs of the Backend CI workflow."
         done
         exit 1
     fi
@@ -178,7 +178,7 @@ main() {
         local elapsed=0
         while [[ -z "$runs_output" && "$elapsed" -lt "$APPEAR_TIMEOUT_SECONDS" ]]; do
             sleep "$POLL_SECONDS"
-            elapsed=$((elapsed + POLL_SECONDS))
+            elapsed=$(( elapsed + (POLL_SECONDS > 0 ? POLL_SECONDS : 1) ))
             runs_output="$(lookup_runs)"
         done
 
