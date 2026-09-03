@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { AligoService } from "application/services/aligo.service";
 import {
+    SMS_DELIVERY_CONFIG_VERSION,
     SMS_TEMPLATE_DELIVERY,
     SmsTriggerDeliveryService,
 } from "application/services/sms-trigger-delivery.service";
@@ -20,6 +21,13 @@ import { MessageLogEntity } from "domain/entities/message-log.entity";
 import { IMessageLogRepository } from "domain/repositories/message-log.repository.interface";
 
 describe("SmsTriggerDeliveryService", () => {
+    // F7: adding a new template key to the catalog cannot change an existing key's configHash —
+    // the routing/mapping shape for already-shipped templates hasn't changed, so bumping this
+    // version needlessly forces re-approval of every staged snapshot across the whole system.
+    it("SMS_DELIVERY_CONFIG_VERSION stays at v1 (adding a template key alone must not force a version bump)", () => {
+        expect(SMS_DELIVERY_CONFIG_VERSION).toBe("sms-template-delivery-v1");
+    });
+
     const branchId = "branch-1";
 
     const captureError = async (promise: Promise<unknown>): Promise<unknown> => {
