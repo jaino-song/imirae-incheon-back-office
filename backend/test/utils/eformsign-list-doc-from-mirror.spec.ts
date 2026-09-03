@@ -1,6 +1,9 @@
 import { enrichMirrorPage } from "application/services/eformsign-mirror-list.service";
 import { documentCustomerNameValue } from "application/utils/eformsign-document-customer-name";
-import { eformsignListDocFromMirror } from "application/utils/eformsign-list-doc-from-mirror";
+import {
+    eformsignListDocFromMirror,
+    MIRROR_UNASSIGNED_KEY,
+} from "application/utils/eformsign-list-doc-from-mirror";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 
 function persistedMirrorRow() {
@@ -100,6 +103,23 @@ describe("eformsignListDocFromMirror", () => {
 
         expect(document.created_date).toBe(Date.parse("2026-07-01T00:00:00.000Z"));
         expect(document["updated_date"]).toBe(Date.parse("2026-07-02T00:00:00.000Z"));
+    });
+
+    it("flags an unclaimed row, and only an unclaimed one, so the display status can see it", () => {
+        // Headquarters lists documents with no client attached, and the finalize
+        // path refuses them. Without this flag the resolver had no way to tell
+        // them apart from a claimed row at the same step, so it answered
+        // "review" and the list drew a button that could only return 403.
+        const unclaimed = eformsignListDocFromMirror(createMirrorDocument());
+        const claimed = eformsignListDocFromMirror(
+            EformsignDocEntity.reconstitute({ ...persistedMirrorRow(), clientId: 42 }),
+        );
+
+        expect(unclaimed[MIRROR_UNASSIGNED_KEY]).toBe(true);
+        expect(MIRROR_UNASSIGNED_KEY in claimed).toBe(false);
+        // The page enrichment must carry it through — the controller resolves
+        // the display status from the enriched document, not this one.
+        expect(enrichMirrorPage([unclaimed])[0]![MIRROR_UNASSIGNED_KEY]).toBe(true);
     });
 
     it("leaves the customer name out until the page is enriched", () => {

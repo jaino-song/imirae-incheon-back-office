@@ -31,6 +31,12 @@ export type ContractDocDisplayStatus =
     | "pending"
     | "signed"
     | "review"
+    /**
+     * At the provider review step with no client attached, so the review cannot
+     * proceed. Only the backend can produce this — it is the only side that can
+     * see whether the row is claimed. See the resolver's return type below.
+     */
+    | "unassigned"
     | "completed"
     | "expired"
     | "unknown";
@@ -39,10 +45,21 @@ export const CONTRACT_DOC_DISPLAY_STATUS_LABELS = {
     pending: "서명 대기",
     signed: "서명 완료",
     review: "검토 필요",
+    unassigned: "고객 등록 필요",
     completed: "계약 완료",
     expired: "기간 만료",
     unknown: "알 수 없음",
 } as const satisfies Record<ContractDocDisplayStatus, string>;
+
+/**
+ * Every label a display status can carry, derived from the map so the two
+ * cannot drift. Wider than ContractDocStatusLabel above, which is deliberately
+ * only what the client-side resolver can produce: that one sees neither
+ * "알 수 없음" nor "고객 등록 필요", and saying it could would be a lie the
+ * compiler would then enforce everywhere.
+ */
+export type ContractDocDisplayStatusLabel =
+    (typeof CONTRACT_DOC_DISPLAY_STATUS_LABELS)[ContractDocDisplayStatus];
 
 export function isContractDocDisplayStatus(value: unknown): value is ContractDocDisplayStatus {
     return typeof value === "string" && value in CONTRACT_DOC_DISPLAY_STATUS_LABELS;
@@ -123,7 +140,11 @@ export function resolveContractDocDisplayStatus(params: {
     currentStatus: { step_type?: string | null; step_name?: string | null } | null | undefined;
     contractEndDate: string | null | undefined;
     now?: Date;
-}): Exclude<ContractDocDisplayStatus, "unknown"> {
+    // "unassigned" is excluded deliberately, not by omission: whether a row is
+    // claimed lives only in the local mirror, so this client-side fallback
+    // cannot decide it and must not pretend to. A payload carrying
+    // display_status gets the backend's answer, which can be "unassigned".
+}): Exclude<ContractDocDisplayStatus, "unknown" | "unassigned"> {
     if (params.category === "completed") return "completed";
     if (params.category === "expired") return "expired";
     if (!isProviderReviewWorkflowStep(params.currentStatus)) return "pending";
