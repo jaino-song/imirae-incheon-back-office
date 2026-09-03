@@ -2,7 +2,9 @@ import { INestApplication } from "@nestjs/common";
 import { Test, TestingModule } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
 import { EformsignWebhookService } from "application/services/eformsign-webhook.service";
+import { EformsignWebhookEventWriter } from "application/services/eformsign-webhook-event.service";
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
+import { EFORMSIGN_WEBHOOK_OUTCOME } from "domain/constants/eformsign-webhook-outcome.constants";
 import { WebhookGuard } from "infrastructure/auth/webhook.guard";
 import { EformsignWebhookController } from "interface/controllers/eformsign-webhook.controller";
 import { EformsignWebhookPayloadDto } from "interface/dto/eformsign-webhook.dto";
@@ -12,10 +14,12 @@ import request from "supertest";
 
 describe("EformsignWebhookController (Integration)", () => {
     let app: INestApplication;
+    let controller: EformsignWebhookController;
     let webhookService: jest.Mocked<Pick<
         EformsignWebhookService,
         "processWebhook" | "publishCompletionEvent" | "publishLocalDocumentChange"
     >>;
+    let webhookEventWriter: jest.Mocked<Pick<EformsignWebhookEventWriter, "append">>;
     let documentMirrorService: jest.Mocked<Pick<
         EformsignDocumentMirrorService,
         | "syncDocument"
@@ -81,6 +85,9 @@ describe("EformsignWebhookController (Integration)", () => {
             isDocumentReady: jest.fn().mockResolvedValue(true),
             markDocumentsDeleted: jest.fn().mockResolvedValue(undefined),
         };
+        const mockWebhookEventWriter = {
+            append: jest.fn().mockResolvedValue(undefined),
+        };
         const mockConfigService = {
             get: jest.fn((key: string) => {
                 switch (key) {
@@ -106,6 +113,10 @@ describe("EformsignWebhookController (Integration)", () => {
                     useValue: mockDocumentMirrorService,
                 },
                 {
+                    provide: EformsignWebhookEventWriter,
+                    useValue: mockWebhookEventWriter,
+                },
+                {
                     provide: ConfigService,
                     useValue: mockConfigService,
                 },
@@ -121,12 +132,124 @@ describe("EformsignWebhookController (Integration)", () => {
         app.useGlobalPipes(new GlobalValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
         await app.init();
 
+        controller = moduleFixture.get(EformsignWebhookController);
         webhookService = moduleFixture.get(EformsignWebhookService);
+        webhookEventWriter = moduleFixture.get(EformsignWebhookEventWriter);
         documentMirrorService = moduleFixture.get(EformsignDocumentMirrorService);
     });
 
     afterEach(async () => {
         await app.close();
+    });
+
+    it("records a completion rejected by the mirror as one stale-mirror delivery", async () => {
+        documentMirrorService.getStoredDetail.mockResolvedValue({
+            ...mirroredDocument,
+            current_status: {
+                ...mirroredDocument.current_status,
+                status_type: "070",
+            },
+        });
+
+        await expect(controller.handleWebhook(payload)).resolves.toEqual({ success: true });
+
+        expect(webhookService.processWebhook).not.toHaveBeenCalled();
+        expect(webhookEventWriter.append).toHaveBeenCalledTimes(1);
+        expect(webhookEventWriter.append).toHaveBeenCalledWith(expect.objectContaining({
+            webhookId: "webhook-1",
+            eventType: "document",
+            companyId: "company-1",
+            documentId: "doc-1",
+            rawStatus: "doc_complete",
+            sourceUpdatedDate: new Date(1780000000000),
+            outcome: EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_STALE_MIRROR,
+            outcomeReason: "mirror is 070",
+        }));
+    });
+
+    it("records an older delivery as one stale-event drop", async () => {
+        const stalePayload: EformsignWebhookPayloadDto = {
+            ...payload,
+            document: {
+                ...payload.document!,
+                status: "doc_decline",
+                updated_date: mirroredDocument.updated_date - 1,
+            },
+        };
+
+        await expect(controller.handleWebhook(stalePayload)).resolves.toEqual({ success: true });
+
+        expect(webhookService.processWebhook).not.toHaveBeenCalled();
+        expect(webhookEventWriter.append).toHaveBeenCalledTimes(1);
+        expect(webhookEventWriter.append).toHaveBeenCalledWith(expect.objectContaining({
+            webhookId: "webhook-1",
+            documentId: "doc-1",
+            rawStatus: "doc_decline",
+            sourceUpdatedDate: new Date(mirroredDocument.updated_date - 1),
+            outcome: EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_STALE_EVENT,
+            outcomeReason: "mirror is newer",
+        }));
+    });
+
+    it("records an unavailable local mirror as one mirror-failed delivery", async () => {
+        documentMirrorService.getStoredDetail.mockResolvedValue(null);
+        const inProgressPayload: EformsignWebhookPayloadDto = {
+            ...payload,
+            document: {
+                ...payload.document!,
+                status: "doc_request_participant",
+            },
+        };
+
+        await expect(controller.handleWebhook(inProgressPayload)).resolves.toEqual({ success: true });
+
+        expect(webhookService.processWebhook).not.toHaveBeenCalled();
+        expect(webhookEventWriter.append).toHaveBeenCalledTimes(1);
+        expect(webhookEventWriter.append).toHaveBeenCalledWith(expect.objectContaining({
+            webhookId: "webhook-1",
+            documentId: "doc-1",
+            rawStatus: "doc_request_participant",
+            outcome: EFORMSIGN_WEBHOOK_OUTCOME.MIRROR_FAILED,
+            outcomeReason: "local mirror is unavailable",
+        }));
+    });
+
+    it("leaves one ledger row for a delivery that proceeds to processWebhook", async () => {
+        webhookService.processWebhook.mockImplementationOnce(async () => {
+            await webhookEventWriter.append({
+                webhookId: payload.webhook_id,
+                eventType: payload.event_type,
+                companyId: payload.company_id,
+                documentId: payload.document?.id,
+                rawStatus: payload.document?.status,
+                outcome: EFORMSIGN_WEBHOOK_OUTCOME.COMPLETION_CLAIMED,
+            });
+            return {
+                completionClaim: "claimed",
+                completionBranchId: "branch-1",
+            };
+        });
+
+        await expect(controller.handleWebhook(payload)).resolves.toEqual({ success: true });
+
+        expect(webhookService.processWebhook).toHaveBeenCalledTimes(1);
+        expect(webhookEventWriter.append).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the early-return response unchanged when ledger append rejects", async () => {
+        documentMirrorService.getStoredDetail.mockResolvedValue({
+            ...mirroredDocument,
+            current_status: {
+                ...mirroredDocument.current_status,
+                status_type: "070",
+            },
+        });
+        webhookEventWriter.append.mockRejectedValueOnce(new Error("ledger unavailable"));
+
+        await expect(controller.handleWebhook(payload)).resolves.toEqual({ success: true });
+
+        expect(webhookEventWriter.append).toHaveBeenCalledTimes(1);
+        expect(webhookService.processWebhook).not.toHaveBeenCalled();
     });
 
     it("mirrors a completion webhook before claiming and publishing it", async () => {

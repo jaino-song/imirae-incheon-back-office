@@ -1,5 +1,11 @@
 import { Body, Controller, Post, HttpCode, HttpStatus, Logger, ServiceUnavailableException, UseGuards } from "@nestjs/common";
+import { EformsignWebhookEventWriter } from "application/services/eformsign-webhook-event.service";
 import { EformsignWebhookService } from "application/services/eformsign-webhook.service";
+import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
+import {
+    EFORMSIGN_WEBHOOK_OUTCOME,
+    type EformsignWebhookOutcome,
+} from "domain/constants/eformsign-webhook-outcome.constants";
 import { EformsignWebhookPayloadDto } from "interface/dto/eformsign-webhook.dto";
 import { WebhookGuard } from "infrastructure/auth/webhook.guard";
 import { captureServiceRecordError } from "infrastructure/observability/service-record-sentry";
@@ -11,6 +17,15 @@ import { createEformsignGlobalWorkerPrincipal } from "application/services/eform
 const COMPLETED_EFORMSIGN_STATUS_TYPES = new Set([
     "003", "012", "022", "032", "050", "062", "072", "092",
 ]);
+
+type WebhookMirrorSyncResult =
+    | { ready: true; ownershipChanged: boolean }
+    | {
+        ready: false;
+        ownershipChanged: false;
+        dropOutcome: EformsignWebhookOutcome;
+        dropReason: string;
+    };
 
 /**
  * Controller for handling eformsign webhook callbacks
@@ -29,6 +44,7 @@ export class EformsignWebhookController {
     constructor(
         private readonly webhookService: EformsignWebhookService,
         private readonly documentMirrorService: EformsignDocumentMirrorService,
+        private readonly webhookEventWriter: EformsignWebhookEventWriter,
     ) {}
 
     @Post()
@@ -52,6 +68,12 @@ export class EformsignWebhookController {
                             requireCompletionReady: true,
                         });
                     if (!mirrorSync.ready) {
+                        await this.recordDroppedWebhook(
+                            payload,
+                            documentId,
+                            mirrorSync.dropOutcome,
+                            mirrorSync.dropReason,
+                        );
                         return { success: true };
                     }
                     const mirroredDocument =
@@ -60,6 +82,16 @@ export class EformsignWebhookController {
                         !mirroredDocument
                         || !this.isWebhookCurrentEnough(payload, mirroredDocument.updated_date)
                     ) {
+                        await this.recordDroppedWebhook(
+                            payload,
+                            documentId,
+                            mirroredDocument
+                                ? EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_STALE_EVENT
+                                : EFORMSIGN_WEBHOOK_OUTCOME.MIRROR_FAILED,
+                            mirroredDocument
+                                ? "mirror is newer"
+                                : "local mirror is unavailable",
+                        );
                         return { success: true };
                     }
                     const result = await this.webhookService.processWebhook(payload, {
@@ -81,6 +113,12 @@ export class EformsignWebhookController {
                 } else {
                     const mirrorAvailable = await this.syncWebhookDocument(documentId, payload);
                     if (!mirrorAvailable.ready) {
+                        await this.recordDroppedWebhook(
+                            payload,
+                            documentId,
+                            mirrorAvailable.dropOutcome,
+                            mirrorAvailable.dropReason,
+                        );
                         return { success: true };
                     }
                     const mirroredDocument =
@@ -89,9 +127,21 @@ export class EformsignWebhookController {
                         this.logger.warn(
                             `Skipping webhook ${payload.webhook_id}; local mirror is unavailable for ${documentId}`,
                         );
+                        await this.recordDroppedWebhook(
+                            payload,
+                            documentId,
+                            EFORMSIGN_WEBHOOK_OUTCOME.MIRROR_FAILED,
+                            "local mirror is unavailable",
+                        );
                         return { success: true };
                     }
                     if (!this.isWebhookCurrentEnough(payload, mirroredDocument.updated_date)) {
+                        await this.recordDroppedWebhook(
+                            payload,
+                            documentId,
+                            EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_STALE_EVENT,
+                            "mirror is newer",
+                        );
                         return { success: true };
                     }
                     await this.webhookService.processWebhook(payload, {
@@ -127,7 +177,7 @@ export class EformsignWebhookController {
         documentId: string,
         payload: EformsignWebhookPayloadDto,
         options: { requireCompletionReady?: boolean } = {},
-    ): Promise<{ ready: boolean; ownershipChanged: boolean }> {
+    ): Promise<WebhookMirrorSyncResult> {
         try {
             const syncResult = await this.documentMirrorService.syncDocument(
                 documentId,
@@ -156,7 +206,16 @@ export class EformsignWebhookController {
                     this.logger.log(
                         `Ignoring stale completion webhook; mirror ${documentId} is ${mirroredStatusType}`,
                     );
-                    return { ready: false, ownershipChanged: false };
+                    return {
+                        ready: false,
+                        ownershipChanged: false,
+                        dropOutcome: mirroredDocument
+                            ? EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_STALE_MIRROR
+                            : EFORMSIGN_WEBHOOK_OUTCOME.MIRROR_FAILED,
+                        dropReason: mirroredDocument
+                            ? `mirror is ${mirroredStatusType}`
+                            : "local mirror is unavailable",
+                    };
                 }
                 if (!(await this.documentMirrorService.isDocumentReady(documentId))) {
                     throw new Error(
@@ -183,7 +242,38 @@ export class EformsignWebhookController {
             this.logger.warn(
                 `Stored deletion tombstone for eformsign document ${documentId}`,
             );
-            return { ready: false, ownershipChanged: false };
+            return {
+                ready: false,
+                ownershipChanged: false,
+                dropOutcome: EFORMSIGN_WEBHOOK_OUTCOME.DOCUMENT_NOT_FOUND,
+                dropReason: sanitizeEformsignErrorMessage(error),
+            };
+        }
+    }
+
+    private async recordDroppedWebhook(
+        payload: EformsignWebhookPayloadDto,
+        documentId: string,
+        outcome: EformsignWebhookOutcome,
+        outcomeReason: string,
+    ): Promise<void> {
+        try {
+            await this.webhookEventWriter.append({
+                webhookId: payload.webhook_id,
+                eventType: payload.event_type,
+                companyId: payload.company_id,
+                documentId,
+                rawStatus: payload.document?.status
+                    ?? payload.ready_document_pdf?.document_status
+                    ?? null,
+                sourceUpdatedDate: webhookSourceUpdatedAt(payload),
+                outcome,
+                outcomeReason,
+            });
+        } catch {
+            this.logger.warn(
+                `Failed to record dropped eformsign webhook ${payload.webhook_id}`,
+            );
         }
     }
 
@@ -221,6 +311,10 @@ function isCompletionWebhook(payload: EformsignWebhookPayloadDto): boolean {
 }
 
 function webhookUpdatedAt(payload: EformsignWebhookPayloadDto): Date {
+    return webhookSourceUpdatedAt(payload) ?? new Date();
+}
+
+function webhookSourceUpdatedAt(payload: EformsignWebhookPayloadDto): Date | null {
     const timestamp = payload.document?.updated_date;
     if (typeof timestamp === "number" && Number.isFinite(timestamp)) {
         const date = new Date(timestamp);
@@ -228,5 +322,5 @@ function webhookUpdatedAt(payload: EformsignWebhookPayloadDto): Date {
             return date;
         }
     }
-    return new Date();
+    return null;
 }
