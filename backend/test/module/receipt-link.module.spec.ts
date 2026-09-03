@@ -13,7 +13,10 @@ import { ReceiptLinkManualSendService } from "application/services/receipt-link-
 import { ReceiptLinkTokenService } from "application/services/receipt-link-token.service";
 import { ReceiptLinkAdminController } from "interface/controllers/receipt-link-admin.controller";
 import { ReceiptLinkController } from "interface/controllers/receipt-link.controller";
+import { EformsignDocModule } from "module/eformsign-doc.module";
+import { MessageModule } from "module/message.module";
 import { ReceiptLinkModule } from "module/receipt-link.module";
+import { SystemSettingModule } from "module/system-setting.module";
 
 // app.module.ts cannot be imported directly in this jest project: it transitively imports
 // `nanoid` (an ESM-only package) via infrastructure/database/repositories/chat-feedback.repository.ts,
@@ -43,6 +46,15 @@ describe("ReceiptLinkModule wiring", () => {
 
         expect(controllers).toContain(ReceiptLinkController);
         expect(controllers).toContain(ReceiptLinkAdminController);
+    });
+
+    // Deleting MessageModule here is boot-breaking (the enricher injects
+    // SmsTriggerPayloadEnricherRegistry, which only MessageModule provides) yet no default-suite
+    // spec DI-compiles this module, so pin the non-global imports explicitly.
+    it("imports MessageModule, EformsignDocModule and SystemSettingModule", () => {
+        const imports = Reflect.getMetadata("imports", ReceiptLinkModule) as unknown[];
+
+        expect(imports).toEqual(expect.arrayContaining([MessageModule, EformsignDocModule, SystemSettingModule]));
     });
 
     it("is imported by AppModule", () => {
