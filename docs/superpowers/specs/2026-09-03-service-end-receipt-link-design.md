@@ -57,7 +57,7 @@
 |---|---|---|
 | 1 | 산모 로드, `voucherClient` 확인 | `not_voucher_client` |
 | 2 | `birthday` 6자리 존재·형식 확인 | `missing_birthday` |
-| 3 | 계약 문서 선택: `client.eDocId`로 조회 → 없으면 `findByClientId` 중 `createdDate` 최신 | `no_contract_document` |
+| 3 | 계약 문서 선택: 수동 발송은 직원이 고른 문서(잡 payload에 문서 id를 실어 발송 시점에도 같은 문서), 자동 발송은 `client.eDocId`로 조회 → 없으면 `findByClientId` 중 `createdDate` 최신. 어느 쪽이든 `documentKind = contract`이고 그 산모의 문서여야 한다 | `no_contract_document` |
 | 4 | 미러 PDF 로드, 없으면 `syncMissingDocumentFile` 재동기화 | `pdf_unavailable` |
 | 5 | `PdfPageRasterizer.renderPage(pdf, 7)` → PNG | `render_failed` |
 | 6 | Storage 업로드 `receipts/{branchId}/{eformsignDocId}/{sha256}.png` (내용 해시 경로 — 같은 PNG는 재업로드하지 않는다) | `upload_failed` |
@@ -70,7 +70,7 @@
 
 ### 4.2 산모 열람 흐름 (m.admin public)
 
-1. `GET /receipt/{token}` 페이지 진입 → BFF `GET /api/receipt/{token}/status` → 백엔드 `GET /receipt-links/:token/status` → 200 `{ ok: true, state: "active" | "locked", branchName, expiresAt, remainingAttempts, lockedUntil }`(명시적 프로젝션 — 산모 이름·번호는 절대 포함하지 않는다) / 404 `{ reason: "not_found" }` / 410 `{ reason: "expired" | "revoked" }`. 페이지는 404·410을 각각 `not_found`·`expired` 화면으로 그린다(`revoked`도 만료 화면 — 별도 문구는 승인된 카피에 없다).
+1. `GET /receipt/{token}` 페이지 진입 → BFF `GET /api/receipt/{token}/status` → 백엔드 `GET /receipt-links/:token/status` → 200 `{ ok: true, state: "pending" | "verified", branchName, expiresAt, remainingAttempts, lockedUntil }`(잠금 중에도 `state`는 `pending`이고 `lockedUntil`이 채워진다)(명시적 프로젝션 — 산모 이름·번호는 절대 포함하지 않는다) / 404 `{ reason: "not_found" }` / 410 `{ reason: "expired" | "revoked" }`. 페이지는 404·410을 각각 `not_found`·`expired` 화면으로 그린다(`revoked`도 만료 화면 — 별도 문구는 승인된 카피에 없다).
 2. 생년월일 6자리 입력 → BFF `POST /api/receipt/{token}/verify { birthday }` → 백엔드 검증 → 성공 시 `{ ok: true, accessToken, clientName }` → BFF는 `accessToken`을 HttpOnly 쿠키에만 넣고 브라우저에는 `{ ok: true, clientName }`만 돌려준다(산모 이름은 이 응답에서 처음 노출된다). 8자리 입력은 그대로 보내고 백엔드 `normalizeBirthdayInput`이 뒤 6자리로 축약한다.
 3. `<img src="/api/receipt/{token}/image">` → BFF가 쿠키의 accessToken을 헤더로 붙여 백엔드 `GET /receipt-links/:token/image` 호출 → `image/png`, `Content-Disposition: inline`, `Cache-Control: private, no-store`.
 4. "이미지 저장" 버튼 = 같은 URL에 `?download=1` → `Content-Disposition: attachment; filename="영수증_{산모명}.png"`(RFC 5987 `filename*` 병기). 저장 방법 안내 문단은 두지 않는다(§5.6 목업 확정).
@@ -123,7 +123,7 @@
 | client_id | int | FK client, SetNull |
 | eformsign_doc_id | int | FK eformsign_doc |
 | job_id | text null | 발급을 유발한 `message_trigger_job.id` — 재시도 시 같은 잡의 활성 토큰 재사용에 쓴다 |
-| link_token_hash | varchar unique | sha256(`efr_` + 32바이트 base64url 평문). 평문은 URL에만 존재(제공기록지 `linkTokenHash`와 동일 정책) |
+| link_token_hash | varchar unique | sha256(`efr_` + 32바이트 base64url 평문). 이 테이블은 해시만 저장한다. 평문은 URL로서 `message_trigger_job.payload.templateVariables.receiptUrl`·`buttonUrl`과 `message_log`(variables·messageBody)에 남는다 — `serviceRecordUrl`과 같은 정책이며, 지점 관리자만 볼 수 있는 화면이다 |
 | expected_birthday_hash | varchar | sha256(`RECEIPT_LINK_HASH_SALT` + YYMMDD) |
 | access_token_hash | varchar null unique | sha256(accessToken) |
 | verified_at | timestamptz null | |
@@ -145,7 +145,7 @@
 
 - 의존성: `pdfjs-dist`(legacy Node 빌드) + `@napi-rs/canvas`(prebuilt, apt 불필요). `backend/package.json`에만 추가.
 - 입력: PDF Buffer, 페이지 번호(1-base). 출력: PNG Buffer, `{ width, height }`.
-- 스케일: 페이지 폭이 약 1240px이 되도록(A4 150dpi 상당). 상한 4MB, 초과 시 스케일 0.75로 재시도.
+- 스케일: 페이지 폭이 1240px이 되도록(A4 150dpi 상당). 파일 크기 상한은 두지 않는다(스파이크 실측 약 220KB).
 - 페이지 수 < 7이면 `render_failed(reason: page_out_of_range)`.
 - 폰트: PDF 임베드 폰트 사용(eformsign PDF는 CID TrueType 서브셋을 전부 임베드한다).
 - **스파이크 결과(2026-09-03, dev DB 실제 계약서 9쪽짜리로 확인): 통과.** Node에서는 반드시 아래 옵션으로 열어야 한다. 기본값(`disableFontFace: false`)이면 브라우저 FontFace API가 없어 한글이 전부 ☒ 박스로 나온다.
@@ -163,21 +163,21 @@
 ### 5.4 토큰·검증 — `ReceiptLinkTokenService`
 
 - 생년월일 정규화: 숫자만 6자리. 입력이 8자리(YYYYMMDD)면 뒤 6자리로 축약해 비교.
-- 검증 실패 → `failed_attempts++`; 5회 도달 시 `locked_at = now`, 30분 잠금(제공기록지 상수 재사용). 잠금 중엔 `locked` 상태 반환.
+- 시도 예약이 비교보다 먼저다: 리포지토리의 단일 조건부 `UPDATE … RETURNING`이 잠금 창 안이면 거부, 창이 지났으면 1로 리셋, 아니면 `failed_attempts += 1`(5회 도달 시 같은 문장에서 `locked_at = now`)을 원자적으로 수행하고, 예약에 성공한 요청만 해시를 비교한다(동시 요청 폭주로 잠금을 우회하지 못하게). 성공 시 `failed_attempts = 0`. 30분 잠금(제공기록지 상수 재사용). 잠금 중엔 `locked` 반환.
 - 성공 → `accessToken`(32바이트 랜덤) 발급, 해시 저장, `verified_at` 기록. accessToken 유효기간은 링크 만료와 동일.
 - 만료·비활성 토큰은 백엔드 status가 410 `expired`/`revoked`로 구분한다. m.admin 페이지는 둘 다 만료 화면(§5.6 확정 카피)으로 그린다 — 재발급으로 revoke된 구 링크를 연 산모도 "유효기간이 지났습니다"를 본다(별도 문구는 승인되지 않았다).
-- 속도 제한: `status`·`verify`는 제공기록지 컨트롤러와 같은 `RateLimitGuard`(IP당 100회/15분). `image`는 접근 토큰 자체가 게이트라 throttle을 두지 않는다. BFF는 클라이언트의 `X-Forwarded-For`를 백엔드로 전달하지 않는다(위조 가능 헤더로 throttle을 우회할 수 있어 제거) — 따라서 백엔드는 m.admin 서버 IP 하나로 집계한다(제공기록지 BFF와 같은 기존 특성).
+- 속도 제한: `status`·`verify`는 제공기록지 컨트롤러와 같은 `RateLimitGuard`(IP당 100회/15분). `image`는 접근 토큰 자체가 게이트라 throttle을 두지 않는다. 가드의 버킷 키가 핸들러 메서드 이름이므로 영수증 핸들러는 `receiptStatus`/`receiptVerify`로 이름 붙여 제공기록지 `verify`와 버킷을 공유하지 않는다. BFF는 클라이언트의 `X-Forwarded-For`를 백엔드로 전달하지 않는다(위조 가능 헤더로 throttle을 우회할 수 있어 제거) — 따라서 백엔드는 m.admin 서버 IP 하나로 집계한다(제공기록지 BFF와 같은 기존 특성).
 
 ### 5.5 백엔드 API
 
 | 메서드 | 경로 | 가드 | 응답 |
 |---|---|---|---|
 | POST | `/receipt-links/send` | Jwt + Tenant + 발신 승인(`ensureApproved`) | 200 `{ jobId, scheduledFor, clientName }` / 400 `{ reason, message }`(preflight 스킵 사유 또는 `document_not_linked`, `missing_phone`) / 404 `{ reason: "document_not_found" }` / 403 `{ message }`(발신 승인 없음) 또는 `{ reason: "branch_required" }` |
-| GET | `/receipt-links/:token/status` | 공개, throttle | 200 `{ ok, state: "active"\|"locked", branchName, expiresAt, remainingAttempts, lockedUntil }` / 404 `{ reason: "not_found" }` / 410 `{ reason: "expired"\|"revoked" }` |
+| GET | `/receipt-links/:token/status` | 공개, throttle | 200 `{ ok, state: "pending"\|"verified", branchName, expiresAt, remainingAttempts, lockedUntil }` / 404 `{ reason: "not_found" }` / 410 `{ reason: "expired"\|"revoked" }` |
 | POST | `/receipt-links/:token/verify` | 공개, throttle | 200 `{ ok: true, accessToken, clientName }` / 401 `{ reason: "verification_failed", remainingAttempts }` / 423 `{ reason: "locked", lockedUntil }` / 400 `{ reason: "invalid_format" }` / 404 / 410 |
-| GET | `/receipt-links/:token/image?download=0\|1` | 공개 + `X-Receipt-Access-Token`(또는 `Authorization: Bearer`) | PNG 스트림(`Content-Length`, `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff`) / 401 `{ reason: "access_required" }`(토큰 없음·불일치·만료 모두) |
+| GET | `/receipt-links/:token/image?download=0\|1` | 공개 + `X-Receipt-Access-Token`(또는 `Authorization: Bearer`) | PNG 스트림(`Content-Length`, `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff`) / 401 `{ reason: "access_required" }`(토큰 없음·불일치·만료 모두) / 410 `{ reason: "expired" }`(Storage 객체가 이미 정리됨) |
 
-수동 발송 요청 본문은 `{ documentId }`(eformsign documentId; BFF가 비어 있으면 400 `invalid_request`로 먼저 거른다). 백엔드가 문서의 `clientId`로 산모를 찾는다(문서에 산모가 연결되지 않았으면 `no_contract_document` 대신 `document_not_linked`; 연락처가 없거나 형식이 틀리면 `missing_phone`). 400/404 본문은 BFF(frontend·mobile)가 상태·본문 그대로 전달한다 — 공유 `errorResponse`는 `reason`을 버리므로 쓰지 않는다. 5xx는 일반 오류 본문으로 감춘다.
+수동 발송 요청 본문은 `{ documentId }`(eformsign documentId; BFF가 비어 있으면 400 `invalid_request`로 먼저 거른다). 백엔드가 문서의 `clientId`로 산모를 찾고, 영수증은 **그 문서**의 7페이지를 렌더링한다(문서에 산모가 연결되지 않았으면 `no_contract_document` 대신 `document_not_linked`; 연락처가 없거나 형식이 틀리면 `missing_phone`). 400/404 본문은 BFF(frontend·mobile)가 상태·본문 그대로 전달한다 — 공유 `errorResponse`는 `reason`을 버리므로 쓰지 않는다. 5xx는 일반 오류 본문으로 감춘다.
 
 수동 발송 사유 라벨(두 앱 동일): `not_voucher_client`, `missing_birthday`, `no_contract_document`, `document_not_linked`, `document_not_found`, `pdf_unavailable`, `missing_phone`; 맵에 없는 사유는 서버 `message`(문자열일 때만) → 공통 폴백 순으로 안내한다.
 
