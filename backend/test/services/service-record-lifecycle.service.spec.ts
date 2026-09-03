@@ -3,6 +3,10 @@ import {
     SERVICE_RECORD_CASE_STATUS,
     ServiceRecordLifecycleService,
 } from "application/services/service-record-lifecycle.service";
+import {
+    getServiceRecordFinalizationDueAt,
+    getServiceRecordTokenExpiresAt,
+} from "domain/constants/service-record-link-message";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 const date = (value: string) => new Date(`${value}T00:00:00.000Z`);
@@ -118,6 +122,9 @@ describe("ServiceRecordLifecycleService", () => {
                 findUnique: jest.fn().mockResolvedValue(null),
                 upsert: jest.fn().mockResolvedValue(record),
             },
+            service_record_token: {
+                updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
         };
         const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
         jest.spyOn(service, "recompute").mockResolvedValue(record as never);
@@ -150,6 +157,9 @@ describe("ServiceRecordLifecycleService", () => {
                 findUnique: jest.fn().mockResolvedValue(null),
                 upsert: jest.fn().mockResolvedValue(record),
             },
+            service_record_token: {
+                updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
         };
         const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
         jest.spyOn(service, "recompute").mockResolvedValue(record as never);
@@ -164,6 +174,164 @@ describe("ServiceRecordLifecycleService", () => {
             create: expect.objectContaining({ requiredSessionCount: 6 }),
             update: expect.objectContaining({ requiredSessionCount: 6 }),
         }));
+    });
+
+    it("keeps finalizationDueAt at end date 20:00 KST while extending the active token's expiresAt by the grace period", async () => {
+        // finalizationDueAt drives AWAITING_COMPLETION / auto-finalization
+        // timing and must stay pinned to the end date itself; the caregiver
+        // link's expiresAt is a separate, later value (end date + grace).
+        const record = { id: "case-1" };
+        const newEndDate = date("2026-09-09");
+        const prisma = {
+            client: {
+                findUnique: jest.fn().mockResolvedValue({
+                    id: 1,
+                    branchId: "branch-1",
+                    startDate: date("2026-08-10"),
+                    endDate: newEndDate,
+                    duration: 10,
+                    serviceStatus: "in_progress",
+                    employeeSchedules: [],
+                }),
+            },
+            service_record_case: {
+                findUnique: jest.fn().mockResolvedValue({
+                    status: SERVICE_RECORD_CASE_STATUS.IN_PROGRESS,
+                    endDate: date("2026-09-02"),
+                }),
+                upsert: jest.fn().mockResolvedValue(record),
+            },
+            service_record_token: {
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+        jest.spyOn(service, "recompute").mockResolvedValue(record as never);
+
+        await service.ensureForClient(1);
+
+        const finalizationDueAt = getServiceRecordFinalizationDueAt(newEndDate);
+        const tokenExpiresAt = getServiceRecordTokenExpiresAt(newEndDate);
+
+        // The two values diverge once the grace period is non-zero.
+        expect(finalizationDueAt.getTime()).not.toBe(tokenExpiresAt.getTime());
+        expect(finalizationDueAt.toISOString()).toBe("2026-09-09T11:00:00.000Z");
+        expect(tokenExpiresAt.toISOString()).toBe("2026-09-16T11:00:00.000Z");
+
+        expect(prisma.service_record_case.upsert).toHaveBeenCalledWith(expect.objectContaining({
+            update: expect.objectContaining({ finalizationDueAt }),
+        }));
+        expect(prisma.service_record_token.updateMany).toHaveBeenCalledWith({
+            where: {
+                serviceRecordCaseId: record.id,
+                active: true,
+                revokedAt: null,
+                expiresAt: { lt: tokenExpiresAt },
+            },
+            data: { expiresAt: tokenExpiresAt },
+        });
+    });
+
+    it("still raises an already-issued token's expiresAt to the grace value when the end date is unchanged", async () => {
+        // Regression test: the expiresAt refresh must not be gated on
+        // endDateChanged. A link issued before this grace period existed
+        // (or before a later reissue) can be sitting at the old
+        // end-date-20:00 KST expiresAt with no end-date change involved —
+        // it still needs to be raised to end date + grace.
+        const record = { id: "case-1" };
+        const endDate = date("2026-09-02");
+        const oldExpiresAt = getServiceRecordFinalizationDueAt(endDate);
+        const prisma = {
+            client: {
+                findUnique: jest.fn().mockResolvedValue({
+                    id: 1,
+                    branchId: "branch-1",
+                    startDate: date("2026-08-10"),
+                    endDate,
+                    duration: 10,
+                    serviceStatus: "in_progress",
+                    employeeSchedules: [],
+                }),
+            },
+            service_record_case: {
+                findUnique: jest.fn().mockResolvedValue({
+                    status: SERVICE_RECORD_CASE_STATUS.IN_PROGRESS,
+                    endDate,
+                }),
+                upsert: jest.fn().mockResolvedValue(record),
+            },
+            service_record_token: {
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+        jest.spyOn(service, "recompute").mockResolvedValue(record as never);
+
+        await service.ensureForClient(1);
+
+        const tokenExpiresAt = getServiceRecordTokenExpiresAt(endDate);
+        expect(tokenExpiresAt.getTime()).toBeGreaterThan(oldExpiresAt.getTime());
+
+        expect(prisma.service_record_token.updateMany).toHaveBeenCalledWith({
+            where: {
+                serviceRecordCaseId: record.id,
+                active: true,
+                revokedAt: null,
+                expiresAt: { lt: tokenExpiresAt },
+            },
+            data: { expiresAt: tokenExpiresAt },
+        });
+    });
+
+    it("scopes the expiresAt refresh so a later-reissued token's expiry is never lowered", async () => {
+        // A 24h token reissued after a schedule change (resolveExpiry in
+        // service-record-link.service.ts) can already sit at an expiresAt
+        // later than end date + grace. The updateMany where clause must
+        // exclude such tokens via expiresAt: { lt: tokenExpiresAt } — a
+        // mocked prisma can't itself evaluate the filter, so this asserts
+        // the where-clause shape actually sent to the client.
+        const record = { id: "case-1" };
+        const endDate = date("2026-09-09");
+        const prisma = {
+            client: {
+                findUnique: jest.fn().mockResolvedValue({
+                    id: 1,
+                    branchId: "branch-1",
+                    startDate: date("2026-08-10"),
+                    endDate,
+                    duration: 10,
+                    serviceStatus: "in_progress",
+                    employeeSchedules: [],
+                }),
+            },
+            service_record_case: {
+                findUnique: jest.fn().mockResolvedValue({
+                    status: SERVICE_RECORD_CASE_STATUS.IN_PROGRESS,
+                    endDate: date("2026-09-02"),
+                }),
+                upsert: jest.fn().mockResolvedValue(record),
+            },
+            service_record_token: {
+                updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+        jest.spyOn(service, "recompute").mockResolvedValue(record as never);
+
+        await service.ensureForClient(1);
+
+        const tokenExpiresAt = getServiceRecordTokenExpiresAt(endDate);
+        expect(prisma.service_record_token.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({
+                    serviceRecordCaseId: record.id,
+                    active: true,
+                    revokedAt: null,
+                    expiresAt: { lt: tokenExpiresAt },
+                }),
+                data: { expiresAt: tokenExpiresAt },
+            }),
+        );
     });
 
     it("persists a contract end date and aggregate refresh in one transaction", async () => {
