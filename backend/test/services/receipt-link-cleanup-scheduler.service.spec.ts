@@ -17,15 +17,23 @@ describe("ReceiptLinkCleanupSchedulerService", () => {
         const now = new Date("2026-09-03T04:30:00+09:00");
         await service.cleanupExpiredLinks(now);
         expect(tokenService.collectExpired).toHaveBeenCalledWith(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-        expect(storage.delete).toHaveBeenCalledWith("receipts/x/1/a.png");
+        expect(storage.delete.mock.calls).toEqual([["receipts/x/1/a.png"]]);
         expect(tokenService.deleteByIds).toHaveBeenCalledWith(["a", "b"]);
+        // Objects before rows: a crash between the two must leave rows for the next sweep to retry.
+        const [storageOrder] = storage.delete.mock.invocationCallOrder;
+        const [rowsOrder] = tokenService.deleteByIds.mock.invocationCallOrder;
+        expect(storageOrder).toBeDefined();
+        expect(rowsOrder).toBeDefined();
+        expect(storageOrder!).toBeLessThan(rowsOrder!);
     });
 
     it("keeps going when one storage delete fails", async () => {
         const { service, tokenService, storage } = makeService();
         storage.delete.mockRejectedValueOnce(new Error("not found"));
+        const logSpy = jest.spyOn(service["logger"], "log").mockImplementation(() => undefined);
         await service.cleanupExpiredLinks(new Date());
         expect(tokenService.deleteByIds).toHaveBeenCalled();
+        expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("0 images"));
     });
 
     it("does nothing without the scheduler lease", async () => {

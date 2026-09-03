@@ -25,14 +25,16 @@ export class ReceiptLinkCleanupSchedulerService {
         const { ids, orphanStoragePaths } = await this.tokenService.collectExpired(cutoff);
         if (ids.length === 0) return;
 
+        let removedImages = 0;
         for (const path of orphanStoragePaths) {
             try {
                 await this.storage.delete(path);
+                removedImages += 1;
             } catch (error) {
                 this.logger.warn(`[ReceiptLink] failed to delete ${path}: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
         const deleted = await this.tokenService.deleteByIds(ids);
-        this.logger.log(`[ReceiptLink] cleanup removed ${deleted} expired tokens and ${orphanStoragePaths.length} images`);
+        this.logger.log(`[ReceiptLink] cleanup removed ${deleted} expired tokens and ${removedImages} images`);
     }
 }
