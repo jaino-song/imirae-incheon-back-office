@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import {
     SERVICE_RECORD_LINK_RESCHEDULED_REASON,
+    SERVICE_RECORD_LINK_BRANCH_DISABLED_REASON,
     SERVICE_RECORD_LINK_RULE_ID,
     SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON,
     SERVICE_RECORD_LINK_SMS_AUTOMATION_KEY,
@@ -34,6 +35,11 @@ import {
     MESSAGE_LOG_REPOSITORY,
     IMessageLogRepository,
 } from "domain/repositories/message-log.repository.interface";
+import {
+    MESSAGE_TRIGGER_RULE_BRANCH_OVERRIDE_REPOSITORY,
+    IMessageTriggerRuleBranchOverrideRepository,
+} from "domain/repositories/message-trigger-rule-branch-override.repository.interface";
+import { isRuleActiveForBranch } from "domain/utils/message-trigger-rule-activation";
 import { ServiceRecordTokenService } from "./service-record-token.service";
 import { ServiceRecordLifecycleService } from "./service-record-lifecycle.service";
 import { MessageTemplateAutomationLockService } from "./message-template-automation-lock.service";
@@ -78,6 +84,8 @@ export class ServiceRecordLinkService {
         private readonly jobRepository: IMessageTriggerJobRepository,
         @Inject(MESSAGE_LOG_REPOSITORY)
         private readonly logRepository: IMessageLogRepository,
+        @Inject(MESSAGE_TRIGGER_RULE_BRANCH_OVERRIDE_REPOSITORY)
+        private readonly overrideRepository: IMessageTriggerRuleBranchOverrideRepository,
         private readonly automationLock: MessageTemplateAutomationLockService =
             new MessageTemplateAutomationLockService(prisma),
         @Optional() private readonly lifecycleService?: ServiceRecordLifecycleService,
@@ -303,6 +311,14 @@ export class ServiceRecordLinkService {
         const automaticDedupeKey = this.buildDedupeKey(scheduleId, false);
         let automaticSchedulingClaim: AutomaticSchedulingClaim | null = null;
         if (!options.isManualSend) {
+            const rule = await this.prisma.message_trigger_rule.findUnique({
+                where: { id: SERVICE_RECORD_LINK_RULE_ID },
+                select: { isActive: true },
+            });
+            const override = await this.overrideRepository.findOne(schedule.branchId, SERVICE_RECORD_LINK_RULE_ID);
+            if (!rule || !isRuleActiveForBranch(rule.isActive, override?.isActive)) {
+                return { scheduledFor, employeeId: employee.id, jobEnqueued: false, jobId: null };
+            }
             automaticSchedulingClaim = await this.claimAutomaticScheduling({
                 branchId: schedule.branchId,
                 scheduleId,
@@ -567,6 +583,7 @@ ${url}`;
                               OR blocker."cancel_reason" IS NULL
                               OR blocker."cancel_reason" NOT IN (
                                   ${SERVICE_RECORD_LINK_RESCHEDULED_REASON},
+                                  ${SERVICE_RECORD_LINK_BRANCH_DISABLED_REASON},
                                   ${MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON}
                               )
                           )
@@ -596,6 +613,7 @@ ${url}`;
                 AND "message_trigger_job"."canceled_by_user" = false
                 AND "message_trigger_job"."cancel_reason" IN (
                     ${SERVICE_RECORD_LINK_RESCHEDULED_REASON},
+                    ${SERVICE_RECORD_LINK_BRANCH_DISABLED_REASON},
                     ${MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON}
                 )
             )

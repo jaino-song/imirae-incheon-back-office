@@ -25,6 +25,7 @@ import { EMPLOYEE_SCHEDULE_REPOSITORY } from "domain/repositories/employee-sched
 import { MESSAGE_REPOSITORY } from "domain/repositories/message.repository.interface";
 import { MESSAGE_TRIGGER_JOB_REPOSITORY } from "domain/repositories/message-trigger-job.repository.interface";
 import { MESSAGE_TRIGGER_RULE_REPOSITORY } from "domain/repositories/message-trigger-rule.repository.interface";
+import { MESSAGE_TRIGGER_RULE_BRANCH_OVERRIDE_REPOSITORY } from "domain/repositories/message-trigger-rule-branch-override.repository.interface";
 import { DatabaseModule } from "infrastructure/database/database.module";
 import { SbBranchRepository } from "infrastructure/database/repositories/sb.branch.repository";
 import { SbClientRepository } from "infrastructure/database/repositories/sb.client.repository";
@@ -33,6 +34,7 @@ import { SbEmployeeScheduleRepository } from "infrastructure/database/repositori
 import { SbMessageRepository } from "infrastructure/database/repositories/sb.message.repository";
 import { SbMessageTriggerJobRepository } from "infrastructure/database/repositories/sb.message-trigger-job.repository";
 import { SbMessageTriggerRuleRepository } from "infrastructure/database/repositories/sb.message-trigger-rule.repository";
+import { SbMessageTriggerRuleBranchOverrideRepository } from "infrastructure/database/repositories/sb.message-trigger-rule-branch-override.repository";
 import { MessageController } from "interface/controllers/message.controller";
 import { MessageTriggerController } from "interface/controllers/message-trigger.controller";
 import { MessageExternalAgentCapabilitiesProvider } from "application/usecases/message/message-external-agent-capabilities.provider";
@@ -62,6 +64,7 @@ import { MessageExternalAgentCapabilitiesProvider } from "application/usecases/m
         { provide: EMPLOYEE_SCHEDULE_REPOSITORY, useClass: SbEmployeeScheduleRepository },
         { provide: EMPLOYEE_REPOSITORY, useClass: SbEmployeeRepository },
         { provide: MESSAGE_TRIGGER_RULE_REPOSITORY, useClass: SbMessageTriggerRuleRepository },
+        { provide: MESSAGE_TRIGGER_RULE_BRANCH_OVERRIDE_REPOSITORY, useClass: SbMessageTriggerRuleBranchOverrideRepository },
         { provide: MESSAGE_TRIGGER_JOB_REPOSITORY, useClass: SbMessageTriggerJobRepository },
         SmsRetryService,
         MessageRetrySchedulerService,
@@ -75,6 +78,7 @@ import { MessageExternalAgentCapabilitiesProvider } from "application/usecases/m
         MessageService,
         MessageTriggerService,
         MESSAGE_TRIGGER_JOB_REPOSITORY,
+        MESSAGE_TRIGGER_RULE_BRANCH_OVERRIDE_REPOSITORY,
     ],
 })
 export class MessageModule {}
