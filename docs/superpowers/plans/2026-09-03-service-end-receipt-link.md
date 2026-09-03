@@ -309,7 +309,7 @@ export const SERVICE_END_NOTICE_DEFAULT_CONTENT = `[사회서비스 제공자 �
 
 `message-trigger-variable-sources.ts`: 레코드에 `[MessageTriggerTemplateKey.SERVICE_END_NOTICE]: ["name", "clientName", "phone", "receiptUrl"],` 추가.
 
-`sms-trigger-delivery.service.ts`: `SMS_DELIVERY_CONFIG_VERSION`을 `"sms-template-delivery-v2"`로 올리고 `SMS_TEMPLATE_DELIVERY`에 추가:
+`sms-trigger-delivery.service.ts`: `SMS_TEMPLATE_DELIVERY`에 추가 (**주의 — 실행 중 정정(Task 4.2 감사 A F7):** `SMS_DELIVERY_CONFIG_VERSION`은 올리지 않는다. `configHash`는 키별 설정을 해시하므로 새 키 추가는 기존 스냅샷을 바꾸지 않고, 버전을 올리면 배포 전에 승인된 모든 스냅샷이 재승인을 요구한다. 원문 "v2로 올리고"는 폐기):
 
 ```ts
     [MessageTriggerTemplateKey.SERVICE_END_NOTICE]: {
