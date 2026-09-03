@@ -4,9 +4,12 @@ import {
     CreateReceiptLinkTokenData,
     ExpiredReceiptLinkToken,
     IReceiptLinkTokenRepository,
+    RECEIPT_LINK_MAX_FAILED_ATTEMPTS,
     ReceiptLinkTokenRecord,
     UpdateReceiptLinkTokenData,
 } from "domain/repositories/receipt-link-token.repository.interface";
+
+const INCLUDE_NAMES = { branch: { select: { name: true } }, client: { select: { name: true } } } as const;
 
 interface RawRow {
     id: string;
@@ -47,36 +50,57 @@ export class SbReceiptLinkTokenRepository implements IReceiptLinkTokenRepository
     async findByLinkTokenHash(linkTokenHash: string): Promise<ReceiptLinkTokenRecord | null> {
         const row = await this.prisma.receipt_link_token.findUnique({
             where: { linkTokenHash },
-            include: { branch: { select: { name: true } }, client: { select: { name: true } } },
+            include: INCLUDE_NAMES,
         });
         return row ? toRecord(row) : null;
     }
 
-    async revokeActiveByDocument(
-        eformsignDocId: number,
-        data: { active: boolean; revokedAt: Date },
-    ): Promise<number> {
-        const result = await this.prisma.receipt_link_token.updateMany({
-            where: { eformsignDocId, active: true },
-            data,
+    async createReplacingActive(data: CreateReceiptLinkTokenData, now: Date): Promise<ReceiptLinkTokenRecord> {
+        const row = await this.prisma.$transaction(async (tx) => {
+            await tx.receipt_link_token.updateMany({
+                where: { eformsignDocId: data.eformsignDocId, active: true },
+                data: { active: false, revokedAt: now },
+            });
+            return tx.receipt_link_token.create({ data, include: INCLUDE_NAMES });
         });
-        return result.count;
-    }
-
-    async create(data: CreateReceiptLinkTokenData): Promise<ReceiptLinkTokenRecord> {
-        const row = await this.prisma.receipt_link_token.create({ data });
         return toRecord(row);
     }
 
     async update(id: string, data: UpdateReceiptLinkTokenData): Promise<ReceiptLinkTokenRecord> {
-        const row = await this.prisma.receipt_link_token.update({ where: { id }, data });
+        const row = await this.prisma.receipt_link_token.update({
+            where: { id },
+            data,
+            include: INCLUDE_NAMES,
+        });
         return toRecord(row);
+    }
+
+    async incrementFailedAttempts(id: string, now: Date): Promise<{ failedAttempts: number; lockedAt: Date | null }> {
+        return this.prisma.$transaction(async (tx) => {
+            const incremented = await tx.receipt_link_token.update({
+                where: { id },
+                data: { failedAttempts: { increment: 1 } },
+                select: { failedAttempts: true },
+            });
+
+            if (incremented.failedAttempts < RECEIPT_LINK_MAX_FAILED_ATTEMPTS) {
+                return { failedAttempts: incremented.failedAttempts, lockedAt: null };
+            }
+
+            const locked = await tx.receipt_link_token.update({
+                where: { id },
+                data: { lockedAt: now },
+                select: { failedAttempts: true, lockedAt: true },
+            });
+            return { failedAttempts: locked.failedAttempts, lockedAt: locked.lockedAt };
+        });
     }
 
     async findExpired(cutoff: Date): Promise<ExpiredReceiptLinkToken[]> {
         return this.prisma.receipt_link_token.findMany({
             where: { expiresAt: { lt: cutoff } },
             select: { id: true, storagePath: true, eformsignDocId: true },
+            take: 1000,
         });
     }
 

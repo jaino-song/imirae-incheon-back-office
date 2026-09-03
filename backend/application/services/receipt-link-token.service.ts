@@ -1,14 +1,15 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
     IReceiptLinkTokenRepository,
+    RECEIPT_LINK_MAX_FAILED_ATTEMPTS,
     RECEIPT_LINK_TOKEN_REPOSITORY,
     ReceiptLinkTokenRecord,
 } from "domain/repositories/receipt-link-token.repository.interface";
 
+export { RECEIPT_LINK_MAX_FAILED_ATTEMPTS };
 export const RECEIPT_LINK_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-export const RECEIPT_LINK_MAX_FAILED_ATTEMPTS = 5;
 export const RECEIPT_LINK_LOCK_MS = 30 * 60 * 1000;
 
 export type ReceiptLinkSource = "auto_trigger" | "manual";
@@ -18,7 +19,8 @@ export interface IssueReceiptLinkTokenParams {
     clientId: number;
     eformsignDocId: number;
     jobId?: string | null;
-    /** 산모 생년월일 YYMMDD */
+    /** 산모 생년월일 — 6자리(YYMMDD) 또는 8자리(YYYYMMDD). normalizeBirthdayInput으로 정규화 후 해시된다;
+     *  정규화에 실패하면 issue()가 던진다. */
     birthday: string;
     storagePath: string;
     contentSha256: string;
@@ -75,6 +77,15 @@ function sha256(value: string): string {
     return createHash("sha256").update(value).digest("hex");
 }
 
+/** Constant-time hex-digest comparison. Birthday and access-token hashes must never leak, via
+ *  comparison timing, how many leading bytes of a guess matched. */
+function timingSafeEqualHex(a: string, b: string): boolean {
+    const bufA = Buffer.from(a, "hex");
+    const bufB = Buffer.from(b, "hex");
+    if (bufA.length !== bufB.length) return false;
+    return timingSafeEqual(bufA, bufB);
+}
+
 @Injectable()
 export class ReceiptLinkTokenService {
     private readonly salt: string;
@@ -101,27 +112,36 @@ export class ReceiptLinkTokenService {
     }
 
     async issue(params: IssueReceiptLinkTokenParams): Promise<IssuedReceiptLinkToken> {
+        // Must normalize before hashing: verifyBirthday always normalizes its input first, so an
+        // un-normalized expected hash (e.g. from an 8-digit or malformed birthday) would mint a
+        // link nobody could ever open.
+        const birthday = normalizeBirthdayInput(params.birthday);
+        if (!birthday) {
+            throw new Error("issue: birthday must be YYMMDD (6 digits)");
+        }
+
         const now = params.now ?? new Date();
         const linkToken = `efr_${randomBytes(32).toString("base64url")}`;
         const expiresAt = new Date(now.getTime() + RECEIPT_LINK_TTL_MS);
 
-        await this.repository.revokeActiveByDocument(params.eformsignDocId, { active: false, revokedAt: now });
-
-        const row = await this.repository.create({
-            branchId: params.branchId,
-            clientId: params.clientId,
-            eformsignDocId: params.eformsignDocId,
-            jobId: params.jobId ?? null,
-            linkTokenHash: sha256(linkToken),
-            expectedBirthdayHash: this.hashBirthday(params.birthday),
-            expiresAt,
-            storagePath: params.storagePath,
-            contentSha256: params.contentSha256,
-            byteSize: params.byteSize,
-            source: params.source,
-            createdBy: params.createdBy ?? null,
-            createdAt: now,
-        });
+        const row = await this.repository.createReplacingActive(
+            {
+                branchId: params.branchId,
+                clientId: params.clientId,
+                eformsignDocId: params.eformsignDocId,
+                jobId: params.jobId ?? null,
+                linkTokenHash: sha256(linkToken),
+                expectedBirthdayHash: this.hashBirthday(birthday),
+                expiresAt,
+                storagePath: params.storagePath,
+                contentSha256: params.contentSha256,
+                byteSize: params.byteSize,
+                source: params.source,
+                createdBy: params.createdBy ?? null,
+                createdAt: now,
+            },
+            now,
+        );
 
         return { id: row.id, linkToken, expiresAt };
     }
@@ -171,17 +191,35 @@ export class ReceiptLinkTokenService {
         const normalized = normalizeBirthdayInput(rawInput);
         if (!normalized) return { ok: false, reason: "invalid_format" };
 
-        // A lock that has already expired resets the counter on the next attempt.
-        const priorFailures = row.lockedAt ? 0 : row.failedAttempts;
-
-        if (this.hashBirthday(normalized) !== row.expectedBirthdayHash) {
-            const failedAttempts = priorFailures + 1;
-            if (failedAttempts >= RECEIPT_LINK_MAX_FAILED_ATTEMPTS) {
-                await this.repository.update(row.id, { failedAttempts, lockedAt: now });
-                return { ok: false, reason: "locked", lockedUntil: new Date(now.getTime() + RECEIPT_LINK_LOCK_MS).toISOString() };
+        if (!timingSafeEqualHex(this.hashBirthday(normalized), row.expectedBirthdayHash)) {
+            // Wrong birthday. If lockedAt is still set here, a previous lock's window has fully
+            // elapsed (otherwise the early return above would have fired) — restart the counter
+            // at 1 rather than continuing the atomic increment path.
+            if (row.lockedAt) {
+                await this.repository.update(row.id, { failedAttempts: 1, lockedAt: null });
+                return {
+                    ok: false,
+                    reason: "verification_failed",
+                    remainingAttempts: RECEIPT_LINK_MAX_FAILED_ATTEMPTS - 1,
+                };
             }
-            await this.repository.update(row.id, { failedAttempts, lockedAt: null });
-            return { ok: false, reason: "verification_failed", remainingAttempts: RECEIPT_LINK_MAX_FAILED_ATTEMPTS - failedAttempts };
+
+            // Atomic: the repository increments and decides locking based on the value it just
+            // wrote, never on `row.failedAttempts` as read above — two concurrent wrong guesses
+            // can never both see themselves as "not yet at the limit".
+            const incremented = await this.repository.incrementFailedAttempts(row.id, now);
+            if (incremented.lockedAt) {
+                return {
+                    ok: false,
+                    reason: "locked",
+                    lockedUntil: new Date(incremented.lockedAt.getTime() + RECEIPT_LINK_LOCK_MS).toISOString(),
+                };
+            }
+            return {
+                ok: false,
+                reason: "verification_failed",
+                remainingAttempts: RECEIPT_LINK_MAX_FAILED_ATTEMPTS - incremented.failedAttempts,
+            };
         }
 
         const accessToken = `efra_${randomBytes(32).toString("base64url")}`;
@@ -197,7 +235,7 @@ export class ReceiptLinkTokenService {
     async resolveAccess(linkToken: string, accessToken: string, now: Date): Promise<ReceiptLinkAccess | null> {
         const row = await this.findRow(linkToken);
         if (!row || this.unusableReason(row, now)) return null;
-        if (!row.accessTokenHash || row.accessTokenHash !== sha256(accessToken)) return null;
+        if (!row.accessTokenHash || !timingSafeEqualHex(row.accessTokenHash, sha256(accessToken))) return null;
         return { id: row.id, storagePath: row.storagePath, clientName: row.clientName ?? DEFAULT_CLIENT_NAME, expiresAt: row.expiresAt };
     }
 

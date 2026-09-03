@@ -30,13 +30,13 @@ class FakeReceiptLinkTokenRepository implements IReceiptLinkTokenRepository {
         return row ? { ...row } : null;
     }
 
-    async revokeActiveByDocument(eformsignDocId: number, data: { active: boolean; revokedAt: Date }): Promise<number> {
-        const hits = this.rows.filter((r) => r.eformsignDocId === eformsignDocId && r.active === true);
-        hits.forEach((r) => Object.assign(r, data));
-        return hits.length;
-    }
+    async createReplacingActive(data: CreateReceiptLinkTokenData, now: Date): Promise<ReceiptLinkTokenRecord> {
+        const hits = this.rows.filter((r) => r.eformsignDocId === data.eformsignDocId && r.active === true);
+        hits.forEach((r) => {
+            r.active = false;
+            r.revokedAt = now;
+        });
 
-    async create(data: CreateReceiptLinkTokenData): Promise<ReceiptLinkTokenRecord> {
         const row: FakeRow = {
             id: `row-${this.nextId++}`,
             eformsignDocId: data.eformsignDocId,
@@ -61,6 +61,16 @@ class FakeReceiptLinkTokenRepository implements IReceiptLinkTokenRepository {
         const row = this.rows.find((r) => r.id === id)!;
         Object.assign(row, data);
         return { ...row };
+    }
+
+    async incrementFailedAttempts(id: string, now: Date): Promise<{ failedAttempts: number; lockedAt: Date | null }> {
+        const row = this.rows.find((r) => r.id === id)!;
+        row.failedAttempts += 1;
+        if (row.failedAttempts < RECEIPT_LINK_MAX_FAILED_ATTEMPTS) {
+            return { failedAttempts: row.failedAttempts, lockedAt: null };
+        }
+        row.lockedAt = now;
+        return { failedAttempts: row.failedAttempts, lockedAt: row.lockedAt };
     }
 
     async findExpired(cutoff: Date) {
@@ -141,6 +151,30 @@ describe("ReceiptLinkTokenService", () => {
         expect(JSON.stringify(repository.rows)).not.toContain(second.linkToken);
     });
 
+    it("rejects issue() when the birthday does not normalize to 6 digits", async () => {
+        const { service } = makeService();
+        await expect(issue(service, { birthday: "" })).rejects.toThrow(/YYMMDD/);
+        await expect(issue(service, { birthday: "94" })).rejects.toThrow(/YYMMDD/);
+    });
+
+    it("normalizes the birthday before hashing, so an 8-digit issue matches a 6-digit verify", async () => {
+        const { service } = makeService();
+        const { linkToken } = await issue(service, { birthday: "19940315" });
+        expect(await service.verifyBirthday(linkToken, "940315", NOW)).toMatchObject({ ok: true });
+    });
+
+    it("fails closed when RECEIPT_LINK_HASH_SALT is not configured", async () => {
+        const repository = new FakeReceiptLinkTokenRepository();
+        const saltedService = new ReceiptLinkTokenService(repository, config as never);
+        const { linkToken } = await issue(saltedService);
+
+        const noSaltConfig = { get: (key: string, fallback?: string) => (key === "RECEIPT_LINK_HASH_SALT" ? "" : fallback) };
+        const unsaltedService = new ReceiptLinkTokenService(repository, noSaltConfig as never);
+
+        await expect(issue(unsaltedService)).rejects.toThrow(/RECEIPT_LINK_HASH_SALT/);
+        await expect(unsaltedService.verifyBirthday(linkToken, "940315", NOW)).rejects.toThrow(/RECEIPT_LINK_HASH_SALT/);
+    });
+
     it("reports status without exposing the client name", async () => {
         const { service } = makeService();
         const { linkToken } = await issue(service);
@@ -157,19 +191,60 @@ describe("ReceiptLinkTokenService", () => {
         expect(await service.getStatus(linkToken, new Date(NOW.getTime() + RECEIPT_LINK_TTL_MS + 1))).toEqual({ ok: false, reason: "expired" });
     });
 
+    it("reports state: verified after a successful verification", async () => {
+        const { service } = makeService();
+        const { linkToken } = await issue(service);
+        await service.verifyBirthday(linkToken, "940315", NOW);
+        expect(await service.getStatus(linkToken, NOW)).toMatchObject({ ok: true, state: "verified" });
+    });
+
     it("verifies the birthday, returns an access token and the client name", async () => {
         const { repository, service } = makeService();
         const { linkToken } = await issue(service);
         const result = await service.verifyBirthday(linkToken, "19940315", NOW);
         expect(result).toMatchObject({ ok: true, clientName: "김산모" });
         const accessToken = (result as { accessToken: string }).accessToken;
-        expect(accessToken).toMatch(/^efra_/);
+        expect(accessToken).toMatch(/^efra_[A-Za-z0-9_-]{43}$/);
         expect(repository.rows[0]!.accessTokenHash).toBe(createHash("sha256").update(accessToken).digest("hex"));
         expect(repository.rows[0]!.verifiedAt).toEqual(NOW);
 
         const access = await service.resolveAccess(linkToken, accessToken, NOW);
         expect(access).toEqual({ id: "row-1", storagePath: "receipts/b/42/abc.png", clientName: "김산모", expiresAt: new Date(NOW.getTime() + RECEIPT_LINK_TTL_MS) });
         expect(await service.resolveAccess(linkToken, "efra_wrong", NOW)).toBeNull();
+    });
+
+    it("falls back to the default client name when the client is unset", async () => {
+        const { repository, service } = makeService();
+        const { linkToken } = await issue(service);
+        repository.rows[0]!.clientName = null;
+
+        const result = await service.verifyBirthday(linkToken, "940315", NOW);
+        expect(result).toMatchObject({ ok: true, clientName: "산모" });
+        const accessToken = (result as { accessToken: string }).accessToken;
+
+        const access = await service.resolveAccess(linkToken, accessToken, NOW);
+        expect(access).toMatchObject({ clientName: "산모" });
+    });
+
+    it("resolveAccess returns null once the token has expired", async () => {
+        const { service } = makeService();
+        const { linkToken } = await issue(service);
+        const result = await service.verifyBirthday(linkToken, "940315", NOW);
+        const accessToken = (result as { accessToken: string }).accessToken;
+
+        const afterExpiry = new Date(NOW.getTime() + RECEIPT_LINK_TTL_MS + 1);
+        expect(await service.resolveAccess(linkToken, accessToken, afterExpiry)).toBeNull();
+    });
+
+    it("treats a revoked token as unusable everywhere", async () => {
+        const { service } = makeService();
+        const { linkToken: revokedToken } = await issue(service);
+        // Issuing a second token for the same document revokes the first.
+        await issue(service, { jobId: "job-2" });
+
+        expect(await service.getStatus(revokedToken, NOW)).toEqual({ ok: false, reason: "revoked" });
+        expect(await service.verifyBirthday(revokedToken, "940315", NOW)).toEqual({ ok: false, reason: "revoked" });
+        expect(await service.resolveAccess(revokedToken, "efra_anything", NOW)).toBeNull();
     });
 
     it("counts failures, locks for 30 minutes after 5, and resets after the lock expires", async () => {
@@ -189,6 +264,22 @@ describe("ReceiptLinkTokenService", () => {
 
         const later = new Date(NOW.getTime() + RECEIPT_LINK_LOCK_MS + 1);
         expect(await service.verifyBirthday(linkToken, "940315", later)).toMatchObject({ ok: true });
+    });
+
+    it("after the lock window elapses, a wrong attempt restarts the counter instead of re-locking immediately", async () => {
+        const { service } = makeService();
+        const { linkToken } = await issue(service);
+        for (let attempt = 0; attempt < RECEIPT_LINK_MAX_FAILED_ATTEMPTS; attempt += 1) {
+            await service.verifyBirthday(linkToken, "000000", NOW);
+        }
+        // The token is now locked (the 5th wrong attempt just above triggered it).
+
+        const later = new Date(NOW.getTime() + RECEIPT_LINK_LOCK_MS + 1);
+        expect(await service.verifyBirthday(linkToken, "000000", later)).toEqual({
+            ok: false,
+            reason: "verification_failed",
+            remainingAttempts: RECEIPT_LINK_MAX_FAILED_ATTEMPTS - 1,
+        });
     });
 
     it("rejects malformed input without counting an attempt", async () => {
