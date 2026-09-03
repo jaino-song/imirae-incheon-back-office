@@ -319,7 +319,7 @@ describe("ClientService", () => {
                 careCenter: false,
                 voucherClient: false,
                 breastPump: false,
-            })).rejects.toThrow("valid Korean phone number");
+            })).rejects.toThrow("연락처가 올바른 국내 전화번호 형식이 아닙니다.");
 
             expect(systemSettingService.getClientAutoRegistrationEnabled).not.toHaveBeenCalled();
             expect(clientRepository.findByPhone).not.toHaveBeenCalled();
@@ -1380,7 +1380,7 @@ describe("ClientService", () => {
                     careCenter: false,
                     voucherClient: true,
                     breastPump: false,
-                })).rejects.toThrow("selected employees must belong to the client branch");
+                })).rejects.toThrow("선택한 제공인력이 해당 지점 소속이 아니거나 배정 가능한 상태가 아닙니다.");
 
                 expect(createClientUsecase.execute).not.toHaveBeenCalled();
                 expect(createClientUsecase.executeWithInitialSchedule).not.toHaveBeenCalled();
@@ -1477,7 +1477,7 @@ describe("ClientService", () => {
     describe("update", () => {
         it("rejects malformed phone before reading or mutating the client", async () => {
             await expect(service.update(branchId, 1, { phone: "not-a-phone" }))
-                .rejects.toThrow("valid Korean phone number");
+                .rejects.toThrow("연락처가 올바른 국내 전화번호 형식이 아닙니다.");
 
             expect(findClientByIdUsecase.execute).not.toHaveBeenCalled();
             expect(clientRepository.findByPhone).not.toHaveBeenCalled();
@@ -1849,7 +1849,7 @@ describe("ClientService", () => {
                 findClientByIdUsecase.execute.mockResolvedValue(existingClient);
 
                 await expect(service.update(branchId, 1, { endDate: null, duration: 5 }))
-                    .rejects.toThrow("duration requires a complete service period");
+                    .rejects.toThrow("서비스 기간을 지정하려면 시작일과 종료일이 모두 있어야 합니다.");
                 expect(prismaService.$transaction).not.toHaveBeenCalled();
             });
 
@@ -2210,7 +2210,7 @@ describe("ClientService", () => {
                 // Act & Assert
                 await expect(service.update(branchId, 999, { name: "New Name" }))
                     .rejects
-                    .toThrow("Client with id 999 not found");
+                    .toThrow("고객을 찾을 수 없습니다. (id: 999)");
             });
         });
 
@@ -3189,7 +3189,7 @@ describe("ClientService", () => {
                 // Act & Assert
                 await expect(service.terminateService(branchId, 999))
                     .rejects
-                    .toThrow("Client with id 999 not found");
+                    .toThrow("고객을 찾을 수 없습니다. (id: 999)");
             });
         });
     });
@@ -3360,7 +3360,7 @@ describe("ClientService", () => {
                 // Act & Assert
                 await expect(service.requestReplacement(branchId, 999, 7))
                     .rejects
-                    .toThrow("Client with id 999 not found");
+                    .toThrow("고객을 찾을 수 없습니다. (id: 999)");
             });
         });
     });
@@ -3740,7 +3740,7 @@ describe("ClientService", () => {
                 // Act & Assert
                 await expect(service.completeReplacement(branchId, 999))
                     .rejects
-                    .toThrow("Client with id 999 not found");
+                    .toThrow("고객을 찾을 수 없습니다. (id: 999)");
             });
         });
     });

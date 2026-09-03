@@ -40,7 +40,7 @@ describe("DeleteClientUsecase", () => {
 
         it("should throw NotFoundException with correct message", async () => {
             await expect(usecase.execute(branchId, 42)).rejects.toThrow(
-                "Client with id 42 not found",
+                "고객을 찾을 수 없습니다. (id: 42)",
             );
         });
 

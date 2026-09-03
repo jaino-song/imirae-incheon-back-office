@@ -177,7 +177,7 @@ describe("UpdateClientUsecase", () => {
             // Act & Assert
             await expect(
                 usecase.execute(branchId, 123, { name: "새 이름" }),
-            ).rejects.toThrow("Client with id 123 not found");
+            ).rejects.toThrow("고객을 찾을 수 없습니다. (id: 123)");
         });
 
         it("should persist changes to repository", async () => {

@@ -40,7 +40,7 @@ import {
     lockClientForScheduleWrite,
     lockEmployeesForScheduleWrite,
 } from "application/policies/employee-schedule-invariants.policy";
-import { ClientEntity, clientDurationOutOfRangeMessage } from "domain/entities/client.entity";
+import { ClientEntity, clientDurationOutOfRangeMessage, CLIENT_DURATION_NEEDS_SERVICE_PERIOD_MESSAGE } from "domain/entities/client.entity";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
@@ -853,7 +853,7 @@ export class ClientService {
 
             assertEmployeeAssignmentShape(newPrimaryEmployeeId, newSecondaryEmployeeId);
             if (newPrimaryEmployeeId === null) {
-                throw new BadRequestException("primary employee is required to create an assignment");
+                throw new BadRequestException("배정을 만들려면 주 담당 인력이 필요합니다.");
             }
 
             const retainedEmployeeIds = new Set(
@@ -1536,12 +1536,12 @@ export class ClientService {
         // Get existing client
         const existingClient = await this.findClientByIdUsecase.execute(branchid, id);
         if (!existingClient) {
-            throw new NotFoundException(`Client with id ${id} not found`);
+            throw new NotFoundException(`고객을 찾을 수 없습니다. (id: ${id})`);
         }
 
         for (const field of ["name", "voucherClient", "breastPump"] as const) {
             if (Object.prototype.hasOwnProperty.call(params, field) && params[field] === null) {
-                throw new BadRequestException(`${field} cannot be null`);
+                throw new BadRequestException(`${field} 항목은 비울 수 없습니다.`);
             }
         }
 
@@ -1608,7 +1608,7 @@ export class ClientService {
             throw new BadRequestException(clientDurationOutOfRangeMessage(derivedDuration));
         }
         if (hasDateUpdate && derivedDuration === null && params.duration !== undefined && params.duration !== null) {
-            throw new BadRequestException("duration requires a complete service period");
+            throw new BadRequestException(CLIENT_DURATION_NEEDS_SERVICE_PERIOD_MESSAGE);
         }
         // duration is the contracted session count and is authoritative once
         // set: a supplied value always wins and is never overwritten by the
@@ -1655,7 +1655,7 @@ export class ClientService {
                     || secondaryEmployeeId !== currentSecondaryEmployeeId;
                 if (assignmentChanged) {
                     if (primaryEmployeeId === null) {
-                        throw new BadRequestException("primary employee is required to create an assignment");
+                        throw new BadRequestException("배정을 만들려면 주 담당 인력이 필요합니다.");
                     }
                     const retainedEmployeeIds = new Set(
                         [currentPrimaryEmployeeId, currentSecondaryEmployeeId]
@@ -1752,7 +1752,7 @@ export class ClientService {
                 },
             });
             if (result.count === 0) {
-                throw new NotFoundException(`Client with id ${id} not found`);
+                throw new NotFoundException(`고객을 찾을 수 없습니다. (id: ${id})`);
             }
         });
 
@@ -1761,7 +1761,7 @@ export class ClientService {
         }
         const updatedClient = await this.findClientByIdUsecase.execute(branchid, id);
         if (!updatedClient) {
-            throw new NotFoundException(`Client with id ${id} not found`);
+            throw new NotFoundException(`고객을 찾을 수 없습니다. (id: ${id})`);
         }
         const updatedPhone = normalizePhone(updatedClient.phone);
         if (updatedPhone) {
@@ -1814,7 +1814,7 @@ export class ClientService {
     ): Promise<ClientEntity> {
         const client = await this.findClientByIdUsecase.execute(branchid, clientId);
         if (!client) {
-            throw new NotFoundException(`Client with id ${clientId} not found`);
+            throw new NotFoundException(`고객을 찾을 수 없습니다. (id: ${clientId})`);
         }
         this.logger.log(
             `Terminating service for client ${clientId}` +
@@ -1875,7 +1875,7 @@ export class ClientService {
     ): Promise<ClientEntity> {
         const client = await this.findClientByIdUsecase.execute(branchid, clientId);
         if (!client) {
-            throw new NotFoundException(`Client with id ${clientId} not found`);
+            throw new NotFoundException(`고객을 찾을 수 없습니다. (id: ${clientId})`);
         }
         assertEmployeeAssignmentShape(newPrimaryEmployeeId, newSecondaryEmployeeId ?? null);
 
@@ -1923,7 +1923,7 @@ export class ClientService {
                 data: { serviceStatus: SERVICE_STATUS.REPLACEMENT_REQUESTED },
             });
             if (updateResult.count === 0) {
-                throw new NotFoundException(`Client with id ${clientId} not found`);
+                throw new NotFoundException(`고객을 찾을 수 없습니다. (id: ${clientId})`);
             }
 
             if (currentSchedule) {
@@ -1967,7 +1967,7 @@ export class ClientService {
 
         const updatedClient = await this.findClientByIdUsecase.execute(branchid, clientId);
         if (!updatedClient) {
-            throw new NotFoundException(`Client with id ${clientId} not found`);
+            throw new NotFoundException(`고객을 찾을 수 없습니다. (id: ${clientId})`);
         }
         return updatedClient;
     }
@@ -1980,7 +1980,7 @@ export class ClientService {
     async completeReplacement(branchid: string, clientId: number): Promise<ClientEntity> {
         const client = await this.findClientByIdUsecase.execute(branchid, clientId);
         if (!client) {
-            throw new NotFoundException(`Client with id ${clientId} not found`);
+            throw new NotFoundException(`고객을 찾을 수 없습니다. (id: ${clientId})`);
         }
 
         if (client.serviceStatus !== SERVICE_STATUS.REPLACEMENT_REQUESTED) {

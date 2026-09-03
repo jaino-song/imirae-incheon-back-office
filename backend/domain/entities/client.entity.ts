@@ -62,6 +62,10 @@ export function clientDurationOutOfRangeMessage(derivedDuration: number): string
     return `서비스 기간은 1일 이상 ${derivedDuration}일 이하여야 합니다. (시작일~종료일 영업일 기준)`;
 }
 
+/** Raised in the domain, the service, and the agent provider alike. */
+export const CLIENT_DURATION_NEEDS_SERVICE_PERIOD_MESSAGE =
+    "서비스 기간을 지정하려면 시작일과 종료일이 모두 있어야 합니다.";
+
 function deriveCreatedClientDuration(
     startDate: Date | null,
     endDate: Date | null,
@@ -230,7 +234,7 @@ export class ClientEntity {
             // depends on a complete range (a pre-booking may carry one),
             // so clearing a date must not silently wipe out a stored count.
             if (props.duration !== undefined && props.duration !== null) {
-                throw new Error("duration requires a complete service period");
+                throw new Error(CLIENT_DURATION_NEEDS_SERVICE_PERIOD_MESSAGE);
             }
         }
 
