@@ -179,6 +179,24 @@ describe("normalizeBirthdayInput", () => {
 });
 
 describe("ReceiptLinkTokenService", () => {
+    // F4: these constants are otherwise only ever asserted against themselves (e.g.
+    // `remainingAttempts: RECEIPT_LINK_MAX_FAILED_ATTEMPTS`), so a change to their literal
+    // values would pass every other test in this file silently.
+    it("pins the failed-attempt limit, link TTL and lock duration to their contracted literal values", () => {
+        expect(RECEIPT_LINK_MAX_FAILED_ATTEMPTS).toBe(5);
+        expect(RECEIPT_LINK_TTL_MS).toBe(30 * 24 * 60 * 60 * 1000);
+        expect(RECEIPT_LINK_LOCK_MS).toBe(30 * 60 * 1000);
+    });
+
+    // M1: issue() accepts a jobId and the repository must be able to look the row back up by
+    // it — this is the round-trip the manual-send/enricher flow relies on to avoid re-issuing.
+    it("issue({ jobId }) round-trips through findActiveByJobId", async () => {
+        const { repository, service } = makeService();
+        await issue(service, { jobId: "job-9" });
+
+        expect(await repository.findActiveByJobId("job-9")).not.toBeNull();
+    });
+
     it("issues an efr_ token, stores only hashes, expires in 30 days, and revokes older tokens for the same document", async () => {
         const { repository, service } = makeService();
         const first = await issue(service);

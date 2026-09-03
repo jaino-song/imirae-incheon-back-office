@@ -130,3 +130,23 @@ describe("SbReceiptLinkTokenRepository.reserveVerificationAttempt", () => {
         expect(sql).toMatch(/WHERE id = ::uuid AND active AND expires_at > ::timestamptz/);
     });
 });
+
+// M6: findStoragePathsInUse's cutoff boundary must be inclusive (gte) — a row expiring at
+// exactly the sweep's cutoff instant is still "in use" as of that instant, so its storage path
+// must not be treated as an orphan and deleted out from under it.
+describe("SbReceiptLinkTokenRepository.findStoragePathsInUse", () => {
+    it("filters expiresAt with gte against the cutoff, not gt", async () => {
+        const findMany = jest.fn().mockResolvedValue([]);
+        const prisma = { receipt_link_token: { findMany } } as unknown as PrismaService;
+        const repository = new SbReceiptLinkTokenRepository(prisma);
+        const cutoff = new Date("2026-09-03T09:00:00+09:00");
+
+        await repository.findStoragePathsInUse(["receipts/b/1/a.png"], cutoff);
+
+        expect(findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({ expiresAt: { gte: cutoff } }),
+            }),
+        );
+    });
+});

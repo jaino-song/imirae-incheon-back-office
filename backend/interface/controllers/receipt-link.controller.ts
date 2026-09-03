@@ -73,7 +73,9 @@ export class ReceiptLinkController {
     @UseGuards(RateLimitGuard)
     async receiptVerify(@Param("token") token: string, @Body() body: VerifyReceiptBirthdayDto) {
         const result = await this.tokenService.verifyBirthday(token, body.birthday ?? "", new Date());
-        if (result.ok) return result;
+        // Explicit projection, not the raw service object: a future field added to the
+        // success shape must never leak to this response just because the service grew it.
+        if (result.ok) return { ok: result.ok, accessToken: result.accessToken, clientName: result.clientName };
         switch (result.reason) {
             case "verification_failed":
                 throw new UnauthorizedException({ reason: result.reason, remainingAttempts: result.remainingAttempts });

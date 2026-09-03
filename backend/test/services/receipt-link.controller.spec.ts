@@ -80,6 +80,26 @@ describe("ReceiptLinkController", () => {
         await request(app.getHttpServer()).post("/receipt-links/efr_x/verify").send({ birthday: "940315" }).expect(200, { ok: true, accessToken: "efra_a", clientName: "김산모" });
     });
 
+    // M2: the success branch must project exactly { ok, accessToken, clientName }, not return
+    // the service's result object verbatim — a future field added to the service's success
+    // shape (e.g. storagePath) must never leak to this response.
+    it("POST verify success response contains exactly ok, accessToken and clientName, even if the service returns more", async () => {
+        tokenService.verifyBirthday.mockResolvedValueOnce({
+            ok: true,
+            accessToken: "efra_a",
+            clientName: "김산모",
+            storagePath: "receipts/b/1/secret.png",
+        });
+
+        const response = await request(app.getHttpServer())
+            .post("/receipt-links/efr_x/verify")
+            .send({ birthday: "940315" })
+            .expect(200);
+
+        expect(Object.keys(response.body).sort()).toEqual(["accessToken", "clientName", "ok"]);
+        expect(response.body).toEqual({ ok: true, accessToken: "efra_a", clientName: "김산모" });
+    });
+
     // F6: no @MaxLength on the DTO — the service normalizes/rejects, so an over-long body must
     // still reach it and come back as { reason: "invalid_format" }, not the class-validator
     // pipe's plain message-array 400 (no `reason` field, which the BFF's label map depends on).
@@ -197,6 +217,15 @@ describe("ReceiptLinkController", () => {
             else if (!owner) seen.set(key, controller);
         }
         expect(collisions).toEqual([]);
+    });
+
+    it("receiptStatus and receiptVerify both carry RateLimitGuard", () => {
+        expect(
+            Reflect.getMetadata(GUARDS_METADATA, ReceiptLinkController.prototype.receiptStatus) as unknown[],
+        ).toContain(RateLimitGuard);
+        expect(
+            Reflect.getMetadata(GUARDS_METADATA, ReceiptLinkController.prototype.receiptVerify) as unknown[],
+        ).toContain(RateLimitGuard);
     });
 
     // F5: a missing storage object (e.g. reaped/never landed) must read as "link expired" (410),
