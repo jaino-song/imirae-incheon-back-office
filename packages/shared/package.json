@@ -39,7 +39,7 @@
     "scripts": {
         "build:backend-runtime": "tsc -p tsconfig.backend-runtime.json",
         "type-check": "tsc --noEmit",
-        "test": "jest && node --test eslint-plugin/__tests__/*.test.js"
+        "test": "jest && node --test eslint-plugin/__tests__/*.test.js scripts/*.test.mjs"
     },
     "dependencies": {
         "clsx": "^2.1.1",
