@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException } from "@nestjs/common";
 
-import { assertValidPhone, normalizePhone } from "application/utils/normalize-phone";
+import { assertValidPhone, INVALID_PHONE_MESSAGE, normalizePhone } from "application/utils/normalize-phone";
 import { ClientEntity, clientDurationOutOfRangeMessage } from "domain/entities/client.entity";
 import { IClientRepository } from "domain/repositories/client.repository.interface";
 import { isServiceStatus, SERVICE_STATUS_VALUES } from "domain/value-objects/service-status.vo";
@@ -42,7 +42,7 @@ export function assertClientPhoneInput(phone: string | null | undefined): string
         return assertValidPhone(phone);
     } catch (error) {
         if (error instanceof Error && error.name === "InvalidPhoneError") {
-            throw new BadRequestException("연락처가 올바른 국내 전화번호 형식이 아닙니다.");
+            throw new BadRequestException(INVALID_PHONE_MESSAGE);
         }
         throw error;
     }

@@ -18,6 +18,7 @@ import {
     assertRequiredPhone,
     assertValidPhone,
     extractPhoneCandidates,
+    invalidPhoneFieldMessage,
     InvalidPhoneError,
     normalizePhone,
 } from "application/utils/normalize-phone";
@@ -210,7 +211,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             assertValidPhone(phone);
         } catch (error) {
             if (error instanceof InvalidPhoneError) {
-                throw new BadRequestException("customerPhone must be a valid Korean phone number");
+                throw new BadRequestException(invalidPhoneFieldMessage("계약서의 고객 연락처"));
             }
             throw error;
         }
@@ -444,7 +445,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                             assertRequiredPhone(currentPhone);
                         } catch (error) {
                             if (error instanceof InvalidPhoneError) {
-                                throw new BadRequestException("customerPhone must be a valid Korean phone number");
+                                throw new BadRequestException(invalidPhoneFieldMessage("계약서의 고객 연락처"));
                             }
                             throw error;
                         }
