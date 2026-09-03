@@ -34,4 +34,11 @@ export const systemScopeImportAllowlist = [
     // row's primary key and never touches branchId; the guard then calls
     // setBranchId so everything downstream is branch-scoped.
     "infrastructure/auth/call-ingest.guard.ts",
+    // SbReceiptLinkTokenRepository's token-keyed lookups (findByLinkTokenHash,
+    // update, incrementFailedAttempts) back the public, unauthenticated
+    // receipt-link status/verify endpoints: the presented link token IS the
+    // credential, and the branch is resolved BY the lookup, not known before
+    // it — the same shape as TenantGuard's own bypass above. See the class
+    // comment on SbReceiptLinkTokenRepository.
+    "infrastructure/database/repositories/sb.receipt-link-token.repository.ts",
 ];
