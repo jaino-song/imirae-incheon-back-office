@@ -91,6 +91,18 @@ describe("receipt BFF routes", () => {
         expect(await response.json()).toEqual({ reason: "expired" });
     });
 
+    // M2 (audit-b fix round 1): a 204 has no body — NextResponse.json() throws when handed
+    // one alongside a 204 status, so the route must short-circuit to an empty response
+    // before building the field projection. Mutant that must fail: dropping the early
+    // 204 return and always building/returning the JSON projection.
+    it("status returns an empty 204 response without throwing when the backend answers 204", async () => {
+        mockGet.mockResolvedValue({ status: 204, data: undefined });
+        const response = await status(new NextRequest("http://localhost/api/receipt/efr_t/status"), params);
+        expect(response.status).toBe(204);
+        expect(response.headers.get("cache-control")).toContain("no-store");
+        expect(await response.text()).toBe("");
+    });
+
     it("verify sets the HttpOnly access cookie and never returns the access token to the browser", async () => {
         mockRuntimeConfig.mockReturnValue({ isSecureCookieEnv: false });
         mockPost.mockResolvedValue({ status: 200, data: { ok: true, accessToken: "efra_secret", clientName: "김산모" } });
