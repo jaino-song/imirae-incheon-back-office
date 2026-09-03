@@ -101,7 +101,9 @@ PR을 `dev`에 열면 아래 워크플로가 돌고, 필수 체크는 GitHub 브
   `--ref dev`가 핵심이다. preview/main의 워크플로 사본에는 새 스텝이 없다. `apply-production`은 `if: always()`라 skip된 preview 잡에 막히지 않는다.
 - `paths: backend/prisma/**` push 트리거만 믿지 않는다. 그 트리거는 해당 브랜치 환경만 패치한다.
 - 사고: `eformsign_doc` 컬럼(PR #407, 2026-07-28). 앱은 배포됐는데 프로덕션 DB에 컬럼이 없던 하루 동안 호환 SELECT가 `templateId`를 null로 채워 **10분 중복 발송 가드가 조용히 무력화**됐다. 2026-07-29 11:52 수동 dispatch로 복구.
+- 같은 유형: PR #616(2026-09-03). `backend-ci`가 `database-patches.yml`의 production 승인 대기와 무관하게 ~20분 만에 배포를 끝냈고, 새 코드가 아직 없던 `employee_schedule.terminated_at`/`scheduler_lease`를 조회해 데스크톱 목록이 500으로 빈 상태가 됐다.
 - 승격 후 확인: `git show origin/main:.github/workflows/database-patches.yml | grep -c '<패치 이름>'`.
+- **이 사고 이후 `backend-ci`는 `preview`/`main` push에서 같은 커밋의 `Database Patches` 런이 성공할 때까지 기다린다** (잡 `wait for database patches`, `backend/deploy/ci/wait-database-patches.sh`). `resolve-backend-deploy-target`(따라서 `deploy-lightsail`/`deploy-lightnode`도)이 이 잡 뒤에 걸린다. `main`에서는 실질적으로 **Database Patches의 production 런을 먼저 승인**해야 배포가 이어진다는 뜻이다 — 대기는 최대 150분이며, 그 안에 승인이 없으면 잡이 타임아웃으로 실패하고 "failed jobs 재실행"으로 재개한다. `backend/prisma/**` 변경이 없는 push는 지연 없이 통과한다(패치 런이 없어도 됨을 diff로 판별).
 
 ### 3.4 프로덕션 수동 적용 함정 (2026-07-16 실측)
 
