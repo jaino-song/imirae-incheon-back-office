@@ -98,6 +98,34 @@ describe("SmsTriggerDeliveryService.sendJob with enrichers", () => {
         expect(sendSmsJob).toHaveBeenCalledTimes(1);
     });
 
+    // F3: pin per-template routing. registry.get(job.templateKey) must dispatch by the JOB's
+    // own template key, never a hardcoded one — a mutant that hardcodes SERVICE_END_NOTICE
+    // would still pass every other test in this file (they all dispatch SERVICE_END_NOTICE
+    // jobs) but would wrongly run the SERVICE_END_NOTICE enricher for a THANKS-keyed job.
+    it("does not invoke an enricher registered under a different template key than the job's own", async () => {
+        const registry = new SmsTriggerPayloadEnricherRegistry();
+        const enrich = jest.fn();
+        registry.register(MessageTriggerTemplateKey.SERVICE_END_NOTICE, { enrich });
+        const { service, sendSmsJob } = makeService(registry);
+
+        const thanksJob = MessageTriggerJobEntity.create({
+            branchId: "11111111-1111-1111-1111-111111111111",
+            ruleId: "system:thanks",
+            scheduledFor: new Date(),
+            clientId: 7,
+            recipientType: MessageTriggerRecipientType.CLIENT,
+            recipientPhone: "01012345678",
+            templateKey: MessageTriggerTemplateKey.THANKS,
+            dedupeKey: "system:thanks:client:7",
+            payload: { memberId: "client:7", recipientName: "김산모", recipientPhone: "01012345678", templateVariables: {} },
+        });
+
+        await expect(service.sendJob(thanksJob)).resolves.toBe(true);
+
+        expect(enrich).not.toHaveBeenCalled();
+        expect(sendSmsJob).toHaveBeenCalledTimes(1);
+    });
+
     // Fix round 1, item (A): an agent-approved retry (message-external-agent-capabilities.provider.ts)
     // stages a serialized, already-approved snapshot into templateVariables[SMS_DELIVERY_SNAPSHOT_VARIABLE]
     // with no template-key filter (findRetryableJob applies none). Enriching such a job would mutate
