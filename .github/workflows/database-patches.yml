@@ -383,6 +383,9 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902000000_repair_replacement_schedule_start_date/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902120000_add_scheduler_lease/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903000000_add_employee_schedule_terminated_at/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903190000_add_eformsign_webhook_event/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260904000000_add_receipt_link_token/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260904000100_contract_auto_finalize_grace_days_7/migration.sql
 
       # The hardening verify asserts client/employee phone_normalized, which the
       # post-lease patches above create — it must run after them, not before.
@@ -399,6 +402,13 @@ jobs:
           DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-replacement-schedule-start-date.sql
+
+      - name: Verify receipt link token table and graceDays patch
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-receipt-link-patches.sql
 
   apply-preview:
     name: apply preview database patches
@@ -924,6 +934,9 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902000000_repair_replacement_schedule_start_date/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902120000_add_scheduler_lease/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903000000_add_employee_schedule_terminated_at/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903190000_add_eformsign_webhook_event/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260904000000_add_receipt_link_token/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260904000100_contract_auto_finalize_grace_days_7/migration.sql
 
       # Runs after the post-lease patches: it asserts phone_normalized columns
       # those patches create.
@@ -940,6 +953,13 @@ jobs:
           DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
           DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-replacement-schedule-start-date.sql
+
+      - name: Verify receipt link token table and graceDays patch
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-receipt-link-patches.sql
 
   apply-production:
     name: apply production database patches
@@ -1443,6 +1463,9 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902000000_repair_replacement_schedule_start_date/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902120000_add_scheduler_lease/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903000000_add_employee_schedule_terminated_at/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903190000_add_eformsign_webhook_event/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260904000000_add_receipt_link_token/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260904000100_contract_auto_finalize_grace_days_7/migration.sql
 
       # Runs after the post-lease patches: it asserts phone_normalized columns
       # those patches create.
@@ -1459,3 +1482,10 @@ jobs:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
           DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-replacement-schedule-start-date.sql
+
+      - name: Verify receipt link token table and graceDays patch
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-receipt-link-patches.sql

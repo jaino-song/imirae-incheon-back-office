@@ -104,6 +104,9 @@ jobs:
       - name: Build
         run: pnpm --filter ./backend run build
 
+      - name: Verify pdf rasterizer (pdfjs + napi-canvas on the built output)
+        run: pnpm --filter ./backend run verify:pdf-rasterizer
+
       - name: Agent capability manifest and drift gates
         run: pnpm --filter ./backend run agent:manifest:check
 
@@ -133,6 +136,7 @@ jobs:
           bash backend/deploy/fallback-server/controller/test-all.sh
           backend/deploy/fallback-server/ci/workflow-contract.test.sh
           backend/deploy/fallback-server/ci/ci-deployer-contract.test.sh
+          backend/deploy/ci/wait-database-patches.test.sh
           node --test backend/deploy/fallback-server/ci/*.test.mjs
 
       - name: Unit tests
@@ -342,14 +346,41 @@ jobs:
           provenance: true
           sbom: true
 
+  wait-database-patches:
+    name: wait for database patches
+    if: github.event_name == 'push' && (github.ref_name == 'preview' || github.ref_name == 'main')
+    needs: build-lightsail-image
+    timeout-minutes: 150
+    runs-on: ubuntu-latest
+    concurrency:
+      group: backend-deploy-wait-${{ github.ref_name }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Wait for the Database Patches run of this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: bash backend/deploy/ci/wait-database-patches.sh
+
   resolve-backend-deploy-target:
     name: resolve backend deployment target
     if: >-
       always() &&
       github.event_name == 'push' &&
       (github.ref_name == 'preview' || github.ref_name == 'main') &&
-      needs.build-lightsail-image.result == 'success'
-    needs: build-lightsail-image
+      needs.build-lightsail-image.result == 'success' &&
+      needs.wait-database-patches.result == 'success'
+    needs: [build-lightsail-image, wait-database-patches]
     timeout-minutes: 5
     runs-on: ubuntu-latest
     outputs:

@@ -2,6 +2,7 @@ import {
     isContractReviewWindowOpen,
     resolveEformsignDocDisplayStatus,
 } from "application/utils/eformsign-doc-display-status";
+import { MIRROR_UNASSIGNED_KEY } from "application/utils/eformsign-list-doc-from-mirror";
 import { UnsupportedKoreanHolidayYearError } from "domain/utils/business-days";
 
 /**
@@ -98,5 +99,63 @@ describe("resolveEformsignDocDisplayStatus", () => {
             },
             kstNoon("2026-08-06"),
         )).toBe("pending");
+    });
+});
+
+/**
+ * The one rule the shared copy deliberately does not have: only this side can
+ * see whether a mirrored row is claimed, so only this side resolves
+ * "unassigned". No parity fixture exists for these in the shared test.
+ */
+describe("resolveEformsignDocDisplayStatus (unassigned rows)", () => {
+    it("resolves an unclaimed provider-review row to unassigned, in and out of the window", () => {
+        // Both alternatives here — "review" and "signed" — promise a provider
+        // review that a row with no client attached cannot receive.
+        expect(resolveEformsignDocDisplayStatus(
+            { ...reviewStepDoc("2026-08-07"), [MIRROR_UNASSIGNED_KEY]: true },
+            kstNoon("2026-08-06"),
+        )).toBe("unassigned");
+        expect(resolveEformsignDocDisplayStatus(
+            { ...reviewStepDoc("2026-08-07"), [MIRROR_UNASSIGNED_KEY]: true },
+            kstNoon("2026-08-01"),
+        )).toBe("unassigned");
+    });
+
+    it("leaves an unclaimed row before the provider step pending", () => {
+        // Already true of it, and it asks nothing of anyone — the customer has
+        // not signed yet, so there is nothing for a registration to unblock.
+        expect(resolveEformsignDocDisplayStatus(
+            {
+                id: "d",
+                current_status: { status_type: "060", step_type: "05", step_name: "이용자 서명" },
+                contract_end_date: "2026-08-07",
+                [MIRROR_UNASSIGNED_KEY]: true,
+            },
+            kstNoon("2026-08-06"),
+        )).toBe("pending");
+    });
+
+    it("leaves terminal unclaimed rows terminal", () => {
+        expect(resolveEformsignDocDisplayStatus(
+            { id: "d", current_status: { status_type: "003" }, [MIRROR_UNASSIGNED_KEY]: true },
+            kstNoon("2026-08-01"),
+        )).toBe("completed");
+        expect(resolveEformsignDocDisplayStatus(
+            { id: "d", current_status: { status_type: "080" }, [MIRROR_UNASSIGNED_KEY]: true },
+            kstNoon("2026-08-01"),
+        )).toBe("expired");
+    });
+
+    it("ignores the flag unless it is exactly true", () => {
+        // It rides on the document as an untyped extra key; a truthy-but-wrong
+        // value must not be able to relabel a row the operator can act on.
+        expect(resolveEformsignDocDisplayStatus(
+            { ...reviewStepDoc("2026-08-07"), [MIRROR_UNASSIGNED_KEY]: "true" },
+            kstNoon("2026-08-06"),
+        )).toBe("review");
+        expect(resolveEformsignDocDisplayStatus(
+            { ...reviewStepDoc("2026-08-07"), [MIRROR_UNASSIGNED_KEY]: false },
+            kstNoon("2026-08-06"),
+        )).toBe("review");
     });
 });

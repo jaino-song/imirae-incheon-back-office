@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Post, Put, Request, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Optional, Param, Post, Put, Request, UseGuards } from "@nestjs/common";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { OwnerGuard } from "infrastructure/auth/owner.guard";
 import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
 import { SystemSettingService } from "application/services/system-setting.service";
 import { EformsignAutomationStatusService } from "application/services/eformsign-automation-status.service";
+import { EformsignWebhookEventWriter } from "application/services/eformsign-webhook-event.service";
 import {
     UpdateNotificationPreferencesDto,
     NotificationPreferencesResponseDto,
@@ -43,6 +44,8 @@ export class SystemSettingController {
         private readonly systemSettingService: SystemSettingService,
         private readonly messageSenderApprovalService: MessageSenderApprovalService,
         private readonly eformsignAutomationStatusService: EformsignAutomationStatusService,
+        @Optional()
+        private readonly webhookEventWriter?: EformsignWebhookEventWriter,
     ) {}
 
     @Get("notification-preferences")
@@ -152,15 +155,20 @@ export class SystemSettingController {
         @CurrentTenant() tenant?: { branchId?: string },
     ): Promise<ClientRegistrationPolicyResponseDto> {
         const branchId = tenant?.branchId ?? "";
-        const [clientAutoRegistration, greetingOnAutoRegistration] = await Promise.all([
+        // Company-wide on purpose: webhooks arrive for one eformsign company and
+        // carry no branch, so a per-branch figure here would be a fiction.
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const [clientAutoRegistration, greetingOnAutoRegistration, webhookCounts] = await Promise.all([
             this.systemSettingService.getClientAutoRegistrationEnabled(branchId),
             this.systemSettingService.getGreetingOnAutoRegistrationEnabled(branchId),
+            this.webhookEventWriter?.countSince(since) ?? Promise.resolve(undefined),
         ]);
 
         return ClientRegistrationPolicyResponseDto.from(
             clientAutoRegistration,
             greetingOnAutoRegistration,
             this.eformsignAutomationStatusService.getStatus(),
+            webhookCounts,
         );
     }
 

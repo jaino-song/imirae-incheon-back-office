@@ -18,6 +18,7 @@ import {
     assertRequiredPhone,
     assertValidPhone,
     extractPhoneCandidates,
+    invalidPhoneFieldMessage,
     InvalidPhoneError,
     normalizePhone,
 } from "application/utils/normalize-phone";
@@ -210,7 +211,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             assertValidPhone(phone);
         } catch (error) {
             if (error instanceof InvalidPhoneError) {
-                throw new BadRequestException("customerPhone must be a valid Korean phone number");
+                throw new BadRequestException(invalidPhoneFieldMessage("계약서의 고객 연락처"));
             }
             throw error;
         }
@@ -233,6 +234,8 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                 ? await this.resolveAutoRegistrationBranch(
                     document.branchId,
                     detail,
+                    document.templateId,
+                    document.createdDate,
                 )
                 : null;
         const canCreate = creationBranchId !== null;
@@ -442,7 +445,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                             assertRequiredPhone(currentPhone);
                         } catch (error) {
                             if (error instanceof InvalidPhoneError) {
-                                throw new BadRequestException("customerPhone must be a valid Korean phone number");
+                                throw new BadRequestException(invalidPhoneFieldMessage("계약서의 고객 연락처"));
                             }
                             throw error;
                         }
@@ -966,11 +969,30 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
     private async resolveAutoRegistrationBranch(
         documentBranchId: string | null,
         detail: EformsignApiDocumentResponse | null,
+        templateId: string | null,
+        documentCreatedDate: Date,
     ): Promise<string | null> {
         if (documentBranchId) {
             return await this.systemSettingService
                 .getClientAutoRegistrationEnabled(documentBranchId)
                 ? documentBranchId
+                : null;
+        }
+
+        // A document authored inside eformsign arrives with no branch, and its creator
+        // account may belong to none — which is the empty candidate set below, and the
+        // reason auto-registration never fired for these. A contract template belongs to
+        // exactly one branch, so it answers what the creator cannot. Documents older than
+        // the mapping's effectiveFrom fall through unchanged: the sweep reprocesses every
+        // active document, and without that bound adding a mapping would auto-register the
+        // whole backlog on the next pass.
+        const templateBranch = templateId === null
+            ? null
+            : await this.systemSettingService.getEformsignTemplateBranch(templateId);
+        if (templateBranch && documentCreatedDate >= templateBranch.effectiveFrom) {
+            return await this.systemSettingService
+                .getClientAutoRegistrationEnabled(templateBranch.branchId)
+                ? templateBranch.branchId
                 : null;
         }
 

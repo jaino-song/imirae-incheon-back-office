@@ -376,7 +376,7 @@ describe("ScheduleChangeService", () => {
             );
             expect(tokenService.extendExpiryForCase).toHaveBeenCalledWith(
                 "case-1",
-                new Date("2026-08-03T20:00:00+09:00"),
+                new Date("2026-08-10T11:00:00.000Z"),
                 txPrismaService,
             );
             expect(txPrismaService.schedule_change_request.create).toHaveBeenCalledWith({
@@ -534,7 +534,7 @@ describe("ScheduleChangeService", () => {
             });
             expect(tokenService.extendExpiryForCase).toHaveBeenCalledWith(
                 "case-1",
-                new Date("2026-07-15T20:00:00+09:00"),
+                new Date("2026-07-22T11:00:00.000Z"),
                 txPrismaService,
             );
             expect(txPrismaService.schedule_change_request.update).toHaveBeenCalledWith({

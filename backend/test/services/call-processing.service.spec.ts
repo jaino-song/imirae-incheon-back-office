@@ -226,7 +226,7 @@ describe("CallProcessingService", () => {
         expect(prisma.call_record.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
             data: expect.objectContaining({
                 processingStatus: "FAILED",
-                failureReason: expect.stringContaining("valid Korean phone number"),
+                failureReason: expect.stringContaining("올바른 국내 전화번호 형식이 아닙니다."),
             }),
         }));
     });
@@ -244,7 +244,7 @@ describe("CallProcessingService", () => {
         expect(prisma.call_record.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
             data: expect.objectContaining({
                 processingStatus: "FAILED",
-                failureReason: expect.stringContaining("valid Korean phone number"),
+                failureReason: expect.stringContaining("올바른 국내 전화번호 형식이 아닙니다."),
             }),
         }));
     });

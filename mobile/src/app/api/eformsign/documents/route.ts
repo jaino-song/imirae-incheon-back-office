@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { proxyDeleteRequest, proxyLocalGetRequest } from "@/lib/api/route-utils";
+import type { GetAllDocumentsParams } from "@/services/api";
 
 // Mirrors backend DeleteDocumentsRequestDto (eformsign.dto.ts):
 // document_ids is @IsArray() @ArrayNotEmpty() @IsString({ each: true }).
@@ -50,15 +51,35 @@ function parseIntegerParam(
 }
 
 // Filter params forwarded verbatim to the backend, which owns their validation
-// (parseStatusCategory / parseTemplateMatch / parseSection throw BadRequest on bad
-// input). Blank values are dropped so the backend keeps its own defaults.
+// (parseStatusCategory / parseTemplateMatch / parseSection / parseDisplayStatus
+// throw BadRequest on bad input). Blank values are dropped so the backend keeps
+// its own defaults.
+//
+// Anything the client sends that is missing here is dropped SILENTLY — there is no
+// auto-forward fallback, because getLocalProxyGetParams returns {} once the route
+// pre-encodes its own query. displayStatus was missing for a month and 서명 완료 /
+// 검토 필요 returned the identical list the whole time.
 const PASSTHROUGH_FILTER_PARAMS = [
     "templateId",
     "templateMatch",
     "section",
     "statusCategory",
+    "displayStatus",
     "search",
 ] as const;
+
+/**
+ * Compile-time completeness check between the client's param interface and the
+ * allowlist above. A new filter on GetAllDocumentsParams is a type error here until
+ * it is forwarded — which is the check that did not exist when displayStatus was
+ * added. limit/skip/excludeDeleted are handled explicitly by the handler, so they
+ * are excluded; extras in the allowlist (templateId/templateMatch, for direct
+ * callers) are fine, only omissions are errors.
+ */
+type ClientFilterParam = Exclude<keyof GetAllDocumentsParams, "limit" | "skip" | "excludeDeleted">;
+type UnforwardedClientParam = Exclude<ClientFilterParam, (typeof PASSTHROUGH_FILTER_PARAMS)[number]>;
+type AssertNever<T extends never> = T;
+export type _EveryClientFilterIsForwarded = AssertNever<UnforwardedClientParam>;
 
 /**
  * GET /api/eformsign/documents
@@ -71,6 +92,8 @@ const PASSTHROUGH_FILTER_PARAMS = [
  *   itself from its own registries; overrides templateId/templateMatch
  * - templateId / templateMatch: template include/exclude filter
  * - statusCategory: drafting | in-progress | completed | expired | unknown
+ * - displayStatus: signed | review — splits the shared provider-review scope that
+ *   statusCategory=in-progress covers; the two filter pills differ only by this
  * - search: chosung-aware name/title search
  * - excludeDeleted: "true" removes deleted (047/049) documents
  *

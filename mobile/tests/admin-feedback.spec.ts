@@ -101,10 +101,19 @@ test.describe('Admin Feedback Page', () => {
     await expect(page.getByText('피드백 목록')).toBeVisible({ timeout: 15000 });
     
     // Click negative filter
-    await page.getByRole('button', { name: '부정적' }).click();
-    await page.waitForTimeout(500);
-    
-    expect(lastUrl).toContain('type=negative');
+    // The old shape — click, sleep 500ms, read the URL — fails two independent ways.
+    // A click that lands before React attaches its handler is swallowed with no
+    // error, and even a click that lands is not guaranteed to have issued its
+    // request inside a fixed 500ms on a three-worker CI runner. Retry the click
+    // until the request the filter is supposed to send has actually gone out;
+    // `lastUrl` is the record of that, so it is both the retry condition and the
+    // assertion. The guard stops re-clicking once it has fired.
+    await expect(async () => {
+      if (!lastUrl.includes('type=negative')) {
+        await page.getByRole('button', { name: '부정적' }).click();
+      }
+      expect(lastUrl).toContain('type=negative');
+    }).toPass({ timeout: 15_000 });
   });
 
   test('displays feedback stats correctly', async ({ page }) => {
@@ -190,10 +199,19 @@ test.describe('Admin Feedback Page', () => {
     await expect(page.getByText('피드백 목록')).toBeVisible({ timeout: 15000 });
     
     // Click positive filter
-    await page.getByRole('button', { name: '긍정적' }).click();
-    await page.waitForTimeout(500);
-    
-    expect(lastUrl).toContain('type=positive');
+    // The old shape — click, sleep 500ms, read the URL — fails two independent ways.
+    // A click that lands before React attaches its handler is swallowed with no
+    // error, and even a click that lands is not guaranteed to have issued its
+    // request inside a fixed 500ms on a three-worker CI runner. Retry the click
+    // until the request the filter is supposed to send has actually gone out;
+    // `lastUrl` is the record of that, so it is both the retry condition and the
+    // assertion. The guard stops re-clicking once it has fired.
+    await expect(async () => {
+      if (!lastUrl.includes('type=positive')) {
+        await page.getByRole('button', { name: '긍정적' }).click();
+      }
+      expect(lastUrl).toContain('type=positive');
+    }).toPass({ timeout: 15_000 });
   });
 
   test('owner user can access /admin page', async ({ page }) => {

@@ -22,7 +22,7 @@ import {
   isContractDocDisplayStatus,
   isContractReviewWindowOpen,
   resolveContractDocStatusLabel,
-  type ContractDocStatusLabel,
+  type ContractDocDisplayStatusLabel,
 } from "@babyjamjam/shared/constants/eformsign-doc-status";
 
 // 대기/진행 중 (In-progress) codes - for reference
@@ -39,8 +39,9 @@ export const IN_PROGRESS_CODES = [
   "070", // doc_request_reviewer: 검토자 요청
 ] as const;
 
-// Korean status labels
-export type DocumentStatusLabel = ContractDocStatusLabel | "알 수 없음";
+// Korean status labels. Derived from the shared label map rather than listed
+// again here, so a status added on the backend cannot quietly go unlabelled.
+export type DocumentStatusLabel = ContractDocDisplayStatusLabel;
 
 type EformsignWorkflowStatus = {
   status_type?: string | null;
@@ -83,6 +84,11 @@ export function contractStatusBadgeType(
     case "기간 만료":
       return "expired";
     case "검토 필요":
+    // Shares the attention colour with 검토 필요 because it is one — the row
+    // needs an operator, just a different action. What must NOT be shared is
+    // the label: the button that renders on 검토 필요 keys on the label text,
+    // so this row gets the colour without getting the button.
+    case "고객 등록 필요":
       return "review";
     case "서명 완료":
       return "signed";
@@ -251,6 +257,10 @@ export function foldContractStats(
       continue;
     }
     // The backend's serve-time display_status decides the split when present.
+    // "unassigned" falls to `signed`, which is true of it — the customer did
+    // sign — and is the only honest option among the existing buckets: it is
+    // not a review anyone can perform, so counting it under 검토 필요 would
+    // send the operator back to the button this change just removed.
     const isReviewDue = isContractDocDisplayStatus(doc.display_status)
       ? doc.display_status === "review"
       : isContractReviewWindowOpen(doc.contract_end_date);

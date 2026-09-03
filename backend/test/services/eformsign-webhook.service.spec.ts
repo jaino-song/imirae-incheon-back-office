@@ -1350,7 +1350,7 @@ describe("EformsignWebhookService", () => {
         );
     });
 
-    it("should notify branch users when a reviewer request passes through the 060 notification gate", async () => {
+    it("should notify branch users when a reviewer request reaches the review stage", async () => {
         eformsignApiClient.getDocument.mockResolvedValue({
             current_status: {
                 status_type: "070",
@@ -1369,7 +1369,7 @@ describe("EformsignWebhookService", () => {
 
         expect(updateStatusUsecase.executeWithOutcome).toHaveBeenCalledWith(
             branchId,
-            expect.objectContaining({ statusType: "060" }),
+            expect.objectContaining({ statusType: "070", statusDetail: "검토 요청" }),
         );
         expect(notificationService.sendToBranchUsers).toHaveBeenCalledWith(
             branchId,
@@ -1387,6 +1387,208 @@ describe("EformsignWebhookService", () => {
                 },
             },
         );
+    });
+
+    /**
+     * The production shape: eformsign advanced the document to the reviewer step,
+     * the controller mirrored that detail at 070, and the status webhook follows.
+     * While mapStatus collapsed every reviewer status to 060, isCurrentMirrorStatus
+     * discarded this update as stale against the 070 mirror, so a branch-owned
+     * projection sat at the participant stage for the entire review and only the
+     * 6-hourly reconcile sweep ever corrected it.
+     */
+    it("projects the reviewer request when the mirror has already advanced to 070", async () => {
+        const mirroredDocument = {
+            current_status: {
+                status_type: "070",
+                step_type: "06",
+                step_name: "제공기관 검토",
+                step_recipients: [{ recipient_type: "01" }],
+            },
+        };
+        const payload = createDocumentPayload();
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.status = "doc_request_reviewer";
+
+        await expect(
+            service.processWebhook(payload, { mirroredDocument } as never),
+        ).resolves.toBeUndefined();
+
+        expect(updateStatusUsecase.executeWithOutcome).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({ statusType: "070", statusDetail: "검토 요청" }),
+        );
+    });
+
+    /**
+     * The ledger's whole point is that a dropped webhook says why it was
+     * dropped. These assert the pairing that would have made the 070 mapping
+     * defect visible in a single query: the vendor's own status next to what
+     * the service made of it, next to the reason nothing was written.
+     */
+    describe("webhook event ledger", () => {
+        const append = jest.fn().mockResolvedValue(undefined);
+        const webhookEventWriter = { append };
+
+        const serviceWithLedger = () =>
+            new EformsignWebhookService(
+                updateStatusUsecase as never,
+                linkDocumentUsecase as never,
+                syncClientEndDateUsecase as never,
+                eventBus as never,
+                notificationService as never,
+                eformsignApiClient as never,
+                credentialBoundary as never,
+                clientRepository as never,
+                eformsignDocRepository as never,
+                employeeScheduleRepository as never,
+                employeeRepository as never,
+                mirrorUnassignedDocUsecase as never,
+                undefined,
+                serviceRecordLifecycle as never,
+                documentSnapshotService as never,
+                documentMirrorService as never,
+                undefined,
+                webhookEventWriter as never,
+            );
+
+        const reviewerPayload = () => {
+            const payload = createDocumentPayload();
+            if (!payload.document) {
+                throw new Error("document payload is required");
+            }
+            payload.document.status = "doc_request_reviewer";
+            return payload;
+        };
+
+        it("records an applied reviewer request with both the raw and mapped status", async () => {
+            await expect(serviceWithLedger().processWebhook(reviewerPayload()))
+                .resolves.toBeUndefined();
+
+            expect(append).toHaveBeenCalledTimes(1);
+            expect(append).toHaveBeenCalledWith(expect.objectContaining({
+                documentId,
+                eventType: "document",
+                rawStatus: "doc_request_reviewer",
+                statusType: "070",
+                statusDetail: "검토 요청",
+                outcome: "applied",
+            }));
+        });
+
+        /**
+         * The exact shape of the defect this table was built for: the mirror had
+         * moved on, the mapped code disagreed, and the update was discarded. The
+         * row has to carry both codes or the reader cannot tell a genuinely late
+         * webhook from a mis-mapped one.
+         */
+        it("records a mirror-stale drop with the mirror's own code", async () => {
+            const payload = createDocumentPayload();
+            if (!payload.document) {
+                throw new Error("document payload is required");
+            }
+            payload.document.status = "doc_request_participant";
+
+            await expect(serviceWithLedger().processWebhook(payload, {
+                mirroredDocument: { current_status: { status_type: "070" } } as never,
+            })).resolves.toBeUndefined();
+
+            expect(append).toHaveBeenCalledWith(expect.objectContaining({
+                rawStatus: "doc_request_participant",
+                statusType: "060",
+                outcome: "ignored_stale_mirror",
+                outcomeReason: "mirror is 070",
+            }));
+        });
+
+        it("records a stale projection when the status write does not land", async () => {
+            updateStatusUsecase.executeWithOutcome.mockResolvedValue({
+                document: createDocEntity({ statusType: "072" }),
+                applied: false,
+            });
+
+            await expect(serviceWithLedger().processWebhook(reviewerPayload()))
+                .resolves.toBeUndefined();
+
+            expect(append).toHaveBeenCalledWith(expect.objectContaining({
+                outcome: "ignored_stale_projection",
+            }));
+        });
+
+        it("records an unknown event type", async () => {
+            const payload = createDocumentPayload();
+            (payload as { event_type: string }).event_type = "document_shredded";
+
+            await expect(serviceWithLedger().processWebhook(payload))
+                .resolves.toBeUndefined();
+
+            expect(append).toHaveBeenCalledWith(expect.objectContaining({
+                outcome: "unknown_event_type",
+                outcomeReason: "document_shredded",
+            }));
+        });
+
+        it("records a payload that carries no document identifier", async () => {
+            const payload = createDocumentPayload();
+            delete (payload as { document?: unknown }).document;
+
+            await expect(serviceWithLedger().processWebhook(payload))
+                .resolves.toBeUndefined();
+
+            expect(append).toHaveBeenCalledWith(expect.objectContaining({
+                documentId: null,
+                outcome: "missing_document_id",
+            }));
+        });
+
+        /**
+         * findLocalDocument swallows its own failures and returns undefined, so
+         * this is a silent drop rather than a throw — exactly the shape that
+         * leaves no trace anywhere else.
+         */
+        it("records a failed local lookup as an error", async () => {
+            eformsignDocRepository.findByDocumentIdUnscoped.mockRejectedValue(
+                new Error("connection reset"),
+            );
+
+            await expect(serviceWithLedger().processWebhook(reviewerPayload()))
+                .resolves.toBeUndefined();
+
+            expect(append).toHaveBeenCalledWith(expect.objectContaining({
+                outcome: "error",
+                outcomeReason: "local document lookup failed",
+            }));
+        });
+
+        /**
+         * The row is written in `finally`, so a throw escaping the pipeline is
+         * still accounted for — and still rethrown, because swallowing it would
+         * tell eformsign the delivery succeeded.
+         */
+        it("records an error and rethrows when processing throws", async () => {
+            // Once, not permanently: the suite's afterEach clears calls but not
+            // implementations, so a persistent throw here would leak into every
+            // test that runs after this one.
+            eventBus.emit.mockImplementationOnce(() => {
+                throw new Error("event bus down");
+            });
+
+            await expect(serviceWithLedger().processWebhook(reviewerPayload()))
+                .rejects.toThrow("event bus down");
+
+            expect(append).toHaveBeenCalledWith(expect.objectContaining({
+                outcome: "error",
+                outcomeReason: expect.stringContaining("event bus down"),
+            }));
+        });
+
+        it("writes exactly one row per delivery", async () => {
+            await serviceWithLedger().processWebhook(reviewerPayload());
+
+            expect(append).toHaveBeenCalledTimes(1);
+        });
     });
 
     it("should not notify branch users when the current recipient is still external", async () => {

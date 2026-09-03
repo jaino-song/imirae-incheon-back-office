@@ -367,6 +367,13 @@ function EmployeeFormContent({
         enabled: open,
     });
 
+    // 중복 검사는 서버를 직접 조회하지만 제공인력 목록은 창별 캐시를 쓴다.
+    // 그래서 "이미 등록됨"인데 목록에는 안 보이는 상태가 생긴다. 이때 목록을 맞춰준다.
+    useEffect(() => {
+        if (!isPhoneDuplicate) return;
+        void queryClient.refetchQueries({ queryKey: employeeQueryKeys.all });
+    }, [isPhoneDuplicate, queryClient]);
+
     const isEditMode = !!employee;
     const isLoading = isSubmitting || createMutation.isPending || updateMutation.isPending;
     const isPhoneFormatValid = phoneDigits.length === 11;

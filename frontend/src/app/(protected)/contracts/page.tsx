@@ -69,6 +69,7 @@ import { ContractAutomationsManager } from "@/components/app/contracts/ContractA
 import type { StatusType } from "@/components/app/v3";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { ClientFormDialog } from "@/components/app/clients/ClientFormDialog";
+import { ReceiptSendConfirmDialog } from "@/components/app/contracts/ReceiptSendConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -101,6 +102,7 @@ import {
   extractReRequestEvents,
 } from "@/lib/eformsign/document-details";
 import { resolveDocumentCustomerName } from "@/lib/eformsign/display-name";
+import { describeReceiptLinkError } from "@/lib/receipt-link";
 import { formatIsoDateInput } from "@/lib/date/format-iso-input";
 import { useAllVoucherPriceInfos } from "@/hooks/useVoucherData";
 import { inferVoucherDurationFromAmounts } from "@/lib/voucher/duration";
@@ -190,6 +192,34 @@ const DETAIL_TABS = [
 
 type DetailTabKey = (typeof DETAIL_TABS)[number]["key"];
 
+/**
+ * Every headless-finalize refusal used to surface as the generic message below,
+ * so an operator could not tell "already handled, waiting for the status to
+ * catch up" apart from a real failure and kept re-clicking. These are the
+ * reasons the backend returns with fallbackHint "manual_check"
+ * (finalize-document-headless.usecase.ts); anything else — including sanitized
+ * vendor text, which is internal English — falls back to the generic message.
+ */
+const FINALIZE_MANUAL_CHECK_MESSAGES: Record<string, string> = {
+  dispatch_already_accepted:
+    "이 단계는 이미 처리를 접수했어요. 문서 상태가 갱신되면 다음 단계를 진행할 수 있어요.",
+  dispatch_uncertain_manual_reconciliation_required:
+    "직전 요청의 처리 결과를 확인하지 못했어요. eformsign에서 문서 상태를 확인한 뒤 다시 시도해 주세요.",
+  operation_in_progress: "이 문서를 처리하는 중이에요. 잠시 후 다시 시도해 주세요.",
+  operation_lock_unavailable: "처리 순서를 확보하지 못했어요. 잠시 후 다시 시도해 주세요.",
+  operation_lock_lost: "처리 순서를 확보하지 못했어요. 잠시 후 다시 시도해 주세요.",
+  authorization_denied:
+    "이 문서를 완료 처리할 수 없어요. 고객 등록과 제공인력 배정이 저장되었는지 확인해 주세요.",
+  eformsign_terminal_failure:
+    "eformsign에서 문서가 종료 상태로 처리됐어요. 문서 상태를 확인해 주세요.",
+  // Raised by finalizeHeadless itself once its provider-step loop is exhausted.
+  provider_workflow_incomplete:
+    "제공기관 단계가 아직 남아 있어요. 목록을 새로고침한 뒤 다시 시도해 주세요.",
+};
+
+const FINALIZE_MANUAL_CHECK_FALLBACK_MESSAGE =
+  "완료 처리 결과를 확인하지 못했어요. eformsign에서 문서 상태를 확인한 뒤 다시 시도해 주세요.";
+
 type InfoCardRow = {
   label: string;
   value: React.ReactNode;
@@ -203,6 +233,11 @@ function matchesDocumentStatusTab(doc: EformsignDocument, tab: string): boolean 
 function formatDate(timestamp: number): string {
   return formatDateForDisplay(timestamp);
 }
+
+// The on-screen fallback for an unresolved customer name (see `customerName` below).
+// Off-screen copy — e.g. the receipt-link send confirmation's "OO 산모님께 …" — must
+// treat this as "no name" rather than pass the dash through as a literal name.
+const CUSTOMER_NAME_PLACEHOLDER = "–";
 
 function formatDateTime(timestamp: number): string {
   return new Date(timestamp).toLocaleString("ko-KR", {
@@ -1116,7 +1151,10 @@ export default function ContractsPage() {
   );
 }
 
-function ContractDetail({
+// Exported (in addition to the page default export) so page.test.tsx can render it in
+// isolation to prove the receipt-send trigger/confirm-dialog wiring behaviorally, without
+// standing up the full ContractsPage list/search tree.
+export function ContractDetail({
   "data-component": dataComponent,
   document: doc,
   documentClientSummary,
@@ -1146,7 +1184,7 @@ function ContractDetail({
   const detailedDocument = detailQuery.data ?? doc;
   const isBaseDetailLoading = detailQuery.isFetching || detailQuery.isPlaceholderData;
   const mappedCustomerName = documentClientSummary?.clientName.trim();
-  const customerName = resolveDocumentCustomerName(detailedDocument, mappedCustomerName) || "–";
+  const customerName = resolveDocumentCustomerName(detailedDocument, mappedCustomerName) || CUSTOMER_NAME_PLACEHOLDER;
   const isServiceRecordDocument = reviewAction === "preview";
   const serviceRecordQuery = useClientServiceRecords(documentClientSummary?.clientId ?? null, {
     enabled: isServiceRecordDocument,
@@ -1168,6 +1206,7 @@ function ContractDetail({
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>("document");
   const [isReRequestDialogOpen, setIsReRequestDialogOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [receiptSendTarget, setReceiptSendTarget] = useState<{ id: string; customerName: string } | null>(null);
   const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [isFinalizeOpen, setIsFinalizeOpen] = useState(false);
   const [isServiceRecordFinalizeConfirmOpen, setIsServiceRecordFinalizeConfirmOpen] = useState(false);
@@ -1442,6 +1481,7 @@ function ContractDetail({
         // to turn transport failures into an iframe retry, and it would swallow
         // this signal just as readily.
         let manualCheckRequired = false;
+        let manualCheckReason: string | undefined;
         let transportOutcomeUnknown = false;
         try {
           const progressId = finalizeProgressIdRef.current ?? undefined;
@@ -1450,6 +1490,7 @@ function ContractDetail({
             return { kind: "headless" };
           }
           manualCheckRequired = headless.fallbackHint === "manual_check";
+          manualCheckReason = headless.reason;
           console.warn(
             "[finalize] headless finalize ok=false",
             headless.reason,
@@ -1464,8 +1505,11 @@ function ContractDetail({
         // confirm, reopening the editor would invite re-approval of a step that
         // may already be done.
         if (manualCheckRequired || transportOutcomeUnknown) {
+          // A transport failure carries no reason, so it keeps the generic text.
           throw new Error(
-            "완료 처리 결과를 확인하지 못했어요. eformsign에서 문서 상태를 확인한 뒤 다시 시도해 주세요.",
+            (manualCheckReason
+              ? FINALIZE_MANUAL_CHECK_MESSAGES[manualCheckReason]
+              : undefined) ?? FINALIZE_MANUAL_CHECK_FALLBACK_MESSAGE,
           );
         }
       }
@@ -1527,6 +1571,25 @@ function ContractDetail({
         variant: "destructive",
         title: "최종 확인을 마치지 못했어요",
         description: error instanceof Error ? error.message : "잠시 후 다시 시도해 주세요",
+      });
+    },
+  });
+
+  const sendReceiptLink = useMutation({
+    mutationFn: (documentId: string) => eformsignApi.sendReceiptLink(documentId),
+    onSuccess: (result) => {
+      setReceiptSendTarget(null);
+      toast({
+        variant: "success",
+        title: "서비스 종료 안내 발송 예약",
+        description: `${result.clientName} 산모님께 1분 내 발송됩니다. 링크는 30일간 유효합니다.`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        variant: "destructive",
+        title: "영수증 문자를 보내지 못했습니다",
+        description: describeReceiptLinkError(error),
       });
     },
   });
@@ -2258,6 +2321,31 @@ function ContractDetail({
             : undefined
         }
         isReviewConfirming={isFinalizePending}
+        // 영수증 문자 발송 is a maternity-contract action ("서비스 종료 안내" — the
+        // contract's receipt link). ContractDetail is also instantiated for the
+        // 제공기록지 preview surface (reviewAction="preview"), which must not offer it.
+        onSendReceiptLink={
+          reviewAction === "preview"
+            ? undefined
+            : () =>
+                setReceiptSendTarget({
+                  id: detailedDocument.id,
+                  customerName: customerName === CUSTOMER_NAME_PLACEHOLDER ? "" : customerName,
+                })
+        }
+        isSendingReceiptLink={sendReceiptLink.isPending}
+      />
+      <ReceiptSendConfirmDialog
+        open={receiptSendTarget !== null}
+        customerName={receiptSendTarget?.customerName ?? ""}
+        isPending={sendReceiptLink.isPending}
+        onConfirm={() => receiptSendTarget && sendReceiptLink.mutate(receiptSendTarget.id)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReceiptSendTarget(null);
+          }
+        }}
+        dataComponent={dataComponent}
       />
     </DetailPanel>
   );

@@ -104,7 +104,7 @@ describe("SystemSettingService", () => {
             getSettingUsecase.execute.mockResolvedValue("{invalid");
             await expect(service.getContractAutoFinalizeConfig("branch-1")).resolves.toEqual({
                 enabled: true,
-                graceDays: 0,
+                graceDays: 7,
                 maxAttempts: 3,
             });
         });

@@ -1,7 +1,6 @@
 import { Transform } from "class-transformer";
 import {
     registerDecorator,
-    ValidationArguments,
     ValidationOptions,
 } from "class-validator";
 import { normalizePhone } from "domain/utils/normalize-phone";
@@ -33,8 +32,8 @@ export function IsCanonicalPhone(validationOptions?: ValidationOptions): Propert
                         && value.trim().length > 0
                         && normalizePhone(value) !== null;
                 },
-                defaultMessage(args: ValidationArguments): string {
-                    return `${String(args.property)} must be a valid Korean phone number`;
+                defaultMessage(): string {
+                    return "연락처가 올바른 국내 전화번호 형식이 아닙니다.";
                 },
             },
         });

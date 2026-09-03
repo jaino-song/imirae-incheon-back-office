@@ -15,8 +15,48 @@ assert_contains() {
     grep -Eq -- "$2" "$1" || fail "$3"
 }
 
+assert_text_contains() {
+    grep -Eq -- "$2" <<<"$1" || fail "$3"
+}
+
 assert_contains "$WORKFLOW" '^  resolve-backend-deploy-target:' \
     "backend CI must resolve exactly one production deployment target"
+assert_contains "$WORKFLOW" '^  wait-database-patches:' \
+    "backend CI must wait for the same-commit Database Patches run before resolving a deploy target"
+assert_contains "$WORKFLOW" 'run: bash backend/deploy/ci/wait-database-patches.sh' \
+    "the wait job must run the wait-database-patches script"
+
+# Extract one top-level job's block: from its header line up to (but not
+# including) the next top-level job header — generic over whichever job
+# happens to follow next in the file, so reordering jobs doesn't silently
+# widen or narrow the range.
+extract_job() {
+    local header_pattern="$1"
+    awk -v header="$header_pattern" '
+        $0 ~ header { found=1; print; next }
+        found && /^  [a-z0-9-]*:$/ { exit }
+        found { print }
+    ' "$WORKFLOW"
+}
+
+wait_job="$(extract_job '^  wait-database-patches:')"
+assert_text_contains "$wait_job" 'group:[[:space:]]*backend-deploy-wait-' \
+    "the wait job must use a backend-deploy-wait- concurrency group so a newer push cancels an older run's wait"
+assert_text_contains "$wait_job" 'cancel-in-progress:[[:space:]]*true' \
+    "the wait job's concurrency group must cancel an in-progress (stale) wait, not queue behind it"
+
+resolve_target_job="$(extract_job '^  resolve-backend-deploy-target:')"
+assert_text_contains "$resolve_target_job" 'needs:[[:space:]]*\[build-lightsail-image,[[:space:]]*wait-database-patches\]' \
+    "target resolution must depend on the Database Patches wait job"
+assert_text_contains "$resolve_target_job" "needs\.wait-database-patches\.result == 'success'" \
+    "target resolution must require the Database Patches wait job to succeed"
+# The joined (newline-folded) form catches a weakened `&&` -> `||` between
+# the two build/wait success checks, which the two separate substring
+# assertions above would not: each half would still be present verbatim.
+resolve_target_job_joined="$(tr '\n' ' ' <<<"$resolve_target_job")"
+assert_text_contains "$resolve_target_job_joined" \
+    "needs\.build-lightsail-image\.result == 'success' &&[[:space:]]+needs\.wait-database-patches\.result == 'success'" \
+    "target resolution must require BOTH the build and the Database Patches wait job to succeed (not just either)"
 assert_contains "$WORKFLOW" 'resolve-deploy-target\.mjs' \
     "backend CI must use the fail-closed target resolver"
 assert_contains "$WORKFLOW" 'FALLBACK_DNS_SHA256' \

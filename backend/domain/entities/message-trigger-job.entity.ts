@@ -42,6 +42,16 @@ export interface MessageTriggerJobPayload {
     buttonUrl?: string | null;
     messageBody?: string | null;
     catchUp?: MessageTriggerCatchUpMetadata;
+    /** The staff user who triggered a manual send, when applicable. Absent for automatic jobs. */
+    sentByUserId?: string | null;
+    /**
+     * The exact contract document (numeric `eformsign_doc.id`) a manual send resolved at
+     * enqueue time. `ReceiptLinkDeliveryEnricher` forwards this to
+     * `ReceiptLinkIssueService.issue()` so the receipt renders that document even if
+     * `client.eDocId` has since moved on (e.g. after a contract re-issue). Absent for automatic
+     * jobs, which keep deriving the document from the client at delivery time.
+     */
+    receiptEformsignDocId?: number | null;
 }
 
 export class MessageTriggerJobEntity {

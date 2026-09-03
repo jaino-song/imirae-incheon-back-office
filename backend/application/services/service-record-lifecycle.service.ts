@@ -1,6 +1,9 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { getServiceRecordTokenExpiresAt } from "domain/constants/service-record-link-message";
+import {
+    getServiceRecordFinalizationDueAt,
+    getServiceRecordTokenExpiresAt,
+} from "domain/constants/service-record-link-message";
 import { EFORMSIGN_COMPLETED_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { countBusinessDaysKr } from "domain/utils/business-days";
@@ -158,10 +161,10 @@ export class ServiceRecordLifecycleService {
         if (!branchId || !client.startDate) return null;
 
         const existing = await db.service_record_case.findUnique({ where: { clientId } });
-        const endDateChanged = Boolean(
-            existing && isoDate(existing.endDate) !== isoDate(client.endDate),
-        );
         const finalizationDueAt = client.endDate
+            ? getServiceRecordFinalizationDueAt(client.endDate)
+            : null;
+        const tokenExpiresAt = client.endDate
             ? getServiceRecordTokenExpiresAt(client.endDate)
             : null;
         const sessionCount = requiredSessionCount({
@@ -262,14 +265,18 @@ export class ServiceRecordLifecycleService {
             await this.linkLegacyDays(record.id, client.employeeSchedules, db);
         }
 
-        if (endDateChanged && finalizationDueAt) {
+        if (tokenExpiresAt) {
+            // Raise expiresAt to the new grace-adjusted value, but never lower it —
+            // a later-reissued token (see resolveExpiry in service-record-link.service.ts)
+            // may already carry a further-out expiresAt and must not be clawed back.
             await db.service_record_token.updateMany({
                 where: {
                     serviceRecordCaseId: record.id,
                     active: true,
                     revokedAt: null,
+                    expiresAt: { lt: tokenExpiresAt },
                 },
-                data: { expiresAt: finalizationDueAt },
+                data: { expiresAt: tokenExpiresAt },
             });
         }
 

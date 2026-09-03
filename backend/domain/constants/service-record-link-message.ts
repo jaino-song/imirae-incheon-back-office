@@ -19,6 +19,23 @@ export function getServiceRecordLinkScheduledFor(startDate: Date): Date {
     return atKstHour(startDate, 15);
 }
 
-export function getServiceRecordTokenExpiresAt(endDate: Date): Date {
+/** Calendar days the caregiver's 제공기록지 link stays valid past the service end date. */
+export const SERVICE_RECORD_LINK_GRACE_DAYS = 7;
+
+/**
+ * When the case transitions to AWAITING_COMPLETION / becomes due for finalization.
+ * This is the end date itself at 20:00 KST — unaffected by the link's grace period.
+ */
+export function getServiceRecordFinalizationDueAt(endDate: Date): Date {
     return atKstHour(endDate, 20);
+}
+
+/**
+ * When the caregiver's 제공기록지 link expires: end date + grace period, 20:00 KST.
+ * `endDate` values are UTC-midnight `@db.Date` values and `atKstHour` reads the date
+ * portion via `toISOString().slice(0, 10)`, so plain UTC day arithmetic is correct here.
+ */
+export function getServiceRecordTokenExpiresAt(endDate: Date): Date {
+    const graceEndDate = new Date(endDate.getTime() + SERVICE_RECORD_LINK_GRACE_DAYS * 86_400_000);
+    return atKstHour(graceEndDate, 20);
 }

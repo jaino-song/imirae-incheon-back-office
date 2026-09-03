@@ -5,6 +5,7 @@ import request from "supertest";
 import { SystemSettingController } from "interface/controllers/system-setting.controller";
 import { SystemSettingService } from "application/services/system-setting.service";
 import { EformsignAutomationStatusService } from "application/services/eformsign-automation-status.service";
+import { EformsignWebhookEventWriter } from "application/services/eformsign-webhook-event.service";
 import { MessageSenderApprovalService } from "application/services/message-sender-approval.service";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { OwnerGuard } from "infrastructure/auth/owner.guard";
@@ -25,6 +26,7 @@ import {
 import {
     getServiceRecordLinkScheduledFor,
     getServiceRecordTokenExpiresAt,
+    SERVICE_RECORD_LINK_GRACE_DAYS,
     SERVICE_RECORD_LINK_RULE_ID,
     SERVICE_RECORD_LINK_SMS_AUTOMATION_KEY,
     SERVICE_RECORD_LINK_SMS_LOG_TEMPLATE_KEY,
@@ -70,6 +72,12 @@ describe("SystemSettingController (Integration)", () => {
                             sweepEnabled: true,
                             sweepRunnable: true,
                         }),
+                    },
+                },
+                {
+                    provide: EformsignWebhookEventWriter,
+                    useValue: {
+                        countSince: jest.fn().mockResolvedValue({ received: 12, dropped: 3 }),
                     },
                 },
             ],
@@ -125,10 +133,14 @@ describe("SystemSettingController (Integration)", () => {
 
             expect(response.clientAutoRegistration).toBe(true);
             expect(response.greetingOnAutoRegistration).toBe(false);
+            // "configured" only says the endpoint could be called; the two
+            // counts say whether anything actually arrived and landed.
             expect(response.automation).toEqual({
                 webhookConfigured: true,
                 sweepEnabled: true,
                 sweepRunnable: true,
+                webhookReceived24h: 12,
+                webhookDropped24h: 3,
             });
         });
     });
@@ -224,7 +236,7 @@ describe("SystemSettingController (Integration)", () => {
             expect(getRowValue(response, "service-feedback-link", "scheduled-for"))
                 .toBe(`서비스 시작일 ${formatKstDateHour(getServiceRecordLinkScheduledFor(REFERENCE_SERVICE_DATE))} KST`);
             expect(getRowValue(response, "service-feedback-link", "token-expires-at"))
-                .toBe(`서비스 종료일 ${formatKstDateHour(getServiceRecordTokenExpiresAt(REFERENCE_SERVICE_DATE))} KST`);
+                .toBe(`서비스 종료일 +${SERVICE_RECORD_LINK_GRACE_DAYS}일 ${formatKstDateHour(getServiceRecordTokenExpiresAt(REFERENCE_SERVICE_DATE))} KST`);
             expect(getRowValue(response, "service-feedback-link", "rule-id"))
                 .toBe(SERVICE_RECORD_LINK_RULE_ID);
             expect(getRowValue(response, "service-feedback-link", "automation-key"))
