@@ -1,6 +1,9 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Cron } from "@nestjs/schedule";
+
+import { EFORMSIGN_WEBHOOK_EVENT_RETENTION_DAYS } from "domain/constants/eformsign-webhook-outcome.constants";
+import { EformsignWebhookEventWriter } from "./eformsign-webhook-event.service";
 
 import {
     isTransientPrismaConnectivityError,
@@ -63,7 +66,39 @@ export class EformsignDocReconcileSchedulerService {
         private readonly backfillUsecase: BackfillEformsignDocsUsecase,
         private readonly lockService: EformsignBackfillLockService,
         private readonly schedulerLease: SchedulerLeaseService,
+        @Optional()
+        private readonly webhookEventWriter?: EformsignWebhookEventWriter,
     ) {}
+
+    /**
+     * Retention for the inbound webhook ledger. Deliberately its own job rather
+     * than a tail on the sweep: it shares none of the sweep's locking, cooldown
+     * or failure-streak machinery, and a purge failing must not colour the
+     * sweep's health signal. Runs daily; a repeat delete is a no-op, so two
+     * replicas racing costs nothing.
+     */
+    @Cron("30 3 * * *", { timeZone: KOREA_TIME_ZONE })
+    async purgeWebhookEventLedger(): Promise<void> {
+        if (!this.schedulerLease.holdsLease() || !this.webhookEventWriter) {
+            return;
+        }
+
+        const cutoff = new Date(
+            Date.now() - EFORMSIGN_WEBHOOK_EVENT_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+        );
+        try {
+            const removed = await this.webhookEventWriter.purgeOlderThan(cutoff);
+            if (removed > 0) {
+                this.logger.log(
+                    `[Eformsign Webhook Ledger] Purged ${removed} events older than ${cutoff.toISOString()}`,
+                );
+            }
+        } catch (error) {
+            this.logger.warn(
+                `[Eformsign Webhook Ledger] Purge did not complete: ${summarizePrismaError(error)}`,
+            );
+        }
+    }
 
     @Cron("0 */6 * * *", { timeZone: KOREA_TIME_ZONE })
     async reconcileDocuments(): Promise<void> {

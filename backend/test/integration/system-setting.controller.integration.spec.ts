@@ -5,6 +5,7 @@ import request from "supertest";
 import { SystemSettingController } from "interface/controllers/system-setting.controller";
 import { SystemSettingService } from "application/services/system-setting.service";
 import { EformsignAutomationStatusService } from "application/services/eformsign-automation-status.service";
+import { EformsignWebhookEventWriter } from "application/services/eformsign-webhook-event.service";
 import { MessageSenderApprovalService } from "application/services/message-sender-approval.service";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { OwnerGuard } from "infrastructure/auth/owner.guard";
@@ -73,6 +74,12 @@ describe("SystemSettingController (Integration)", () => {
                         }),
                     },
                 },
+                {
+                    provide: EformsignWebhookEventWriter,
+                    useValue: {
+                        countSince: jest.fn().mockResolvedValue({ received: 12, dropped: 3 }),
+                    },
+                },
             ],
         })
             .overrideGuard(JwtGuard)
@@ -126,10 +133,14 @@ describe("SystemSettingController (Integration)", () => {
 
             expect(response.clientAutoRegistration).toBe(true);
             expect(response.greetingOnAutoRegistration).toBe(false);
+            // "configured" only says the endpoint could be called; the two
+            // counts say whether anything actually arrived and landed.
             expect(response.automation).toEqual({
                 webhookConfigured: true,
                 sweepEnabled: true,
                 sweepRunnable: true,
+                webhookReceived24h: 12,
+                webhookDropped24h: 3,
             });
         });
     });
