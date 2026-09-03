@@ -38,6 +38,7 @@ import {
     buildSmsProviderAcceptanceKey,
     SmsProviderAcceptanceService,
 } from "./sms-provider-acceptance.service";
+import { SmsTriggerDeliverySkipError, SmsTriggerPayloadEnricherRegistry } from "./sms-trigger-payload-enricher.registry";
 
 export interface SmsTemplateDeliveryConfig {
     smsLogTemplateKey: string;
@@ -208,6 +209,8 @@ export class SmsTriggerDeliveryService {
         private readonly logRepository: IMessageLogRepository,
         @Optional()
         private readonly acceptanceService?: SmsProviderAcceptanceService,
+        @Optional()
+        private readonly enricherRegistry?: SmsTriggerPayloadEnricherRegistry,
     ) {}
 
     canHandle(templateKey: MessageTriggerTemplateKey): boolean {
@@ -354,8 +357,17 @@ export class SmsTriggerDeliveryService {
         }
 
         try {
+            const enricher = this.enricherRegistry?.get(job.templateKey) ?? null;
+            if (enricher) {
+                await enricher.enrich(job);
+            }
             return await this.sendSmsJob(job, config);
         } catch (error) {
+            if (error instanceof SmsTriggerDeliverySkipError) {
+                job.cancel(`메시지 발송 건너뜀: ${error.message}`);
+                this.logger.warn(`[SmsTrigger] job ${job.id} skipped (${error.reason})`);
+                return false;
+            }
             if (error instanceof MissingSmsTemplateVariablesError) {
                 job.cancel(`메시지 발송 건너뜀: 필수 정보 누락 (${error.variableKeys.join(", ")})`);
                 this.logger.warn(
