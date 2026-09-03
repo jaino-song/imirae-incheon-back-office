@@ -127,4 +127,13 @@ export class SbReceiptLinkTokenRepository implements IReceiptLinkTokenRepository
         });
         return rows.map((row) => row.storagePath);
     }
+
+    async findActiveByJobId(jobId: string): Promise<ReceiptLinkTokenRecord | null> {
+        const row = await this.prisma.receipt_link_token.findFirst({
+            where: { jobId, active: true },
+            orderBy: { createdAt: "desc" },
+            include: INCLUDE_NAMES,
+        });
+        return row ? toRecord(row) : null;
+    }
 }
