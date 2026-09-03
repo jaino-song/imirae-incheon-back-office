@@ -5,6 +5,8 @@ export {
     assertRequiredPhone,
     assertValidPhone,
     extractPhoneCandidates,
+    INVALID_PHONE_MESSAGE,
+    invalidPhoneFieldMessage,
     InvalidPhoneError,
     normalizePhone,
 } from "domain/utils/normalize-phone";

@@ -13,7 +13,7 @@ import {
   CONTRACT_DOC_DISPLAY_STATUS_LABELS,
   isContractDocDisplayStatus,
   resolveContractDocStatusLabel,
-  type ContractDocStatusLabel,
+  type ContractDocDisplayStatusLabel,
 } from "@babyjamjam/shared/constants/eformsign-doc-status";
 
 export {
@@ -50,8 +50,9 @@ export const IN_PROGRESS_CODES = [
   "070", // doc_request_reviewer: 검토자 요청
 ] as const;
 
-// Korean status labels
-export type DocumentStatusLabel = ContractDocStatusLabel | "알 수 없음";
+// Korean status labels. Derived from the shared label map rather than listed
+// again here, so a status added on the backend cannot quietly go unlabelled.
+export type DocumentStatusLabel = ContractDocDisplayStatusLabel;
 export type DocumentStatusCategory = "completed" | "expired" | "in-progress" | "unknown";
 
 type EformsignWorkflowStatus = {

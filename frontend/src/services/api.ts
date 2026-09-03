@@ -456,6 +456,10 @@ export interface ClientRegistrationPolicyAutomationStatus {
     sweepEnabled: boolean;
     /** 주기 동기화가 실제로 시작될 수 있는지 (락 또는 단일 인스턴스 승인). */
     sweepRunnable: boolean;
+    /** 최근 24시간 수신한 웹훅 건수. 구버전 백엔드 응답에는 없다. */
+    webhookReceived24h?: number;
+    /** 그중 아무것도 반영하지 못한 건수. 설정 여부와 달리 실제 동작을 말해준다. */
+    webhookDropped24h?: number;
 }
 
 export interface ClientRegistrationPolicy {

@@ -244,6 +244,12 @@ const CATEGORY_BY_DISPLAY_STATUS: Record<string, ContractCategory> = {
   pending: "drafting",
   signed: "signed",
   review: "in-progress",
+  // The row's own label already reads 고객 등록 필요 — it comes from the shared
+  // label map, not from this table. Only the section it files under is decided
+  // here, and "signed" is the truthful one: the customer signed, and no review
+  // can happen until someone registers them in the web admin. A category of its
+  // own would add a filter pill for work that cannot be done on mobile.
+  unassigned: "signed",
   completed: "completed",
   expired: "expired",
   unknown: "unknown",

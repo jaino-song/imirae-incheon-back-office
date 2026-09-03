@@ -1359,3 +1359,40 @@ model receipt_link_token {
   @@index([expiresAt], map: "idx_receipt_link_token_expires")
   @@index([branchId], map: "idx_receipt_link_token_branch")
 }
+
+// Append-only inbound eformsign webhook ledger. Scalar snapshots only: a
+// document row disappearing must not erase the delivery history, and no
+// relation may block its deletion. Rows are purged after
+// EFORMSIGN_WEBHOOK_EVENT_RETENTION_DAYS by the reconcile sweep.
+//
+// `outcome` is the reason this table exists — see
+// domain/constants/eformsign-webhook-outcome.constants.ts. Recording arrivals
+// alone answers the least useful question; what matters is which events were
+// thrown away and why.
+//
+// Deliberately carries NO branch_id. The tenant-isolation extension scopes
+// every model that has one, and webhooks arrive on an HTTP request with no
+// tenant — so a branch_id here would report an isolation violation on every
+// delivery and would fail closed the day the mode is flipped to `enforce`.
+// Branch attribution is recoverable through document_id, which is how the
+// forensic queries read anyway.
+model eformsign_webhook_event {
+  id                Int       @id @default(autoincrement())
+  webhookId         String?   @map("webhook_id") @db.VarChar(255)
+  eventType         String?   @map("event_type") @db.VarChar(80)
+  companyId         String?   @map("company_id") @db.VarChar(255)
+  documentId        String?   @map("document_id") @db.VarChar(255)
+  /// The vendor's own status string, before mapStatus touched it.
+  rawStatus         String?   @map("raw_status") @db.VarChar(120)
+  /// What mapStatus made of it. A pair that disagrees in kind is a mapping bug.
+  statusType        String?   @map("status_type") @db.VarChar(8)
+  statusDetail      String?   @map("status_detail") @db.VarChar(255)
+  sourceUpdatedDate DateTime? @map("source_updated_date") @db.Timestamptz(6)
+  outcome           String    @db.VarChar(40)
+  outcomeReason     String?   @map("outcome_reason") @db.VarChar(500)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([documentId, createdAt], map: "idx_eformsign_webhook_event_document_created")
+  @@index([outcome, createdAt], map: "idx_eformsign_webhook_event_outcome_created")
+  @@index([createdAt], map: "idx_eformsign_webhook_event_created")
+}

@@ -1,5 +1,8 @@
 import {
+    CONTRACT_DOC_DISPLAY_STATUS_LABELS,
+    isContractDocDisplayStatus,
     isContractReviewWindowOpen,
+    resolveContractDocDisplayStatus,
     resolveContractDocStatusLabel,
 } from "./eformsign-doc-status";
 import { UnsupportedKoreanHolidayYearError } from "../utils/business-days";
@@ -114,5 +117,35 @@ describe("resolveContractDocStatusLabel", () => {
             contractEndDate: "2026-08-07",
             now: kstNoon("2026-08-06"),
         })).toBe("서명 대기");
+    });
+});
+
+/**
+ * The backend's counterpart of this rule can resolve one more value than this
+ * one: "unassigned", for a row it can see has no client attached. This side has
+ * no mirror to consult, so it must never produce that value on its own — but it
+ * must still recognise and label it when the backend stamps it on a payload.
+ * The backend-only cases live in
+ * backend/test/utils/eformsign-doc-display-status.spec.ts.
+ */
+describe("unassigned display status (backend-stamped only)", () => {
+    it("recognises and labels it", () => {
+        expect(isContractDocDisplayStatus("unassigned")).toBe(true);
+        expect(CONTRACT_DOC_DISPLAY_STATUS_LABELS.unassigned).toBe("고객 등록 필요");
+    });
+
+    it("is never produced by the client-side fallback resolver", () => {
+        for (const category of ["completed", "expired", "in-progress"] as const) {
+            for (const currentStatus of [PROVIDER_REVIEW_STATUS, CUSTOMER_STEP_STATUS, null]) {
+                for (const contractEndDate of ["2026-08-07", null]) {
+                    expect(resolveContractDocDisplayStatus({
+                        category,
+                        currentStatus,
+                        contractEndDate,
+                        now: kstNoon("2026-08-06"),
+                    })).not.toBe("unassigned");
+                }
+            }
+        }
     });
 });

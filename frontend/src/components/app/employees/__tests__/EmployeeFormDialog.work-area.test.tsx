@@ -215,7 +215,9 @@ describe("EmployeeFormPanel work area multi-select", () => {
     fireEvent.click(screen.getByRole("button", { name: "완료" }));
     fireEvent.change(phoneInput, { target: { value: "01066211878" } });
 
-    const duplicateMessage = await screen.findByText("이미 등록된 연락처입니다.");
+    const duplicateMessage = await screen.findByText(
+      "이미 등록된 연락처입니다. 제공인력 목록에서 연락처로 검색해 주세요.",
+    );
     const phoneLabel = screen.getByText("연락처", { selector: "label" });
 
     expect(phoneLabel.parentElement).toContainElement(duplicateMessage);

@@ -8,7 +8,7 @@ export type EmployeeAssignmentCandidate = {
 };
 
 const INVALID_EMPLOYEE_ASSIGNMENT_MESSAGE =
-    "selected employees must belong to the client branch and be open to next work";
+    "선택한 제공인력이 해당 지점 소속이 아니거나 배정 가능한 상태가 아닙니다.";
 const EMPTY_RETAINED_EMPLOYEE_IDS: ReadonlySet<number> = new Set();
 
 /**
@@ -22,7 +22,7 @@ export function assertEmployeeAssignmentShape(
 ): void {
     if (primaryEmployeeId === null) {
         if (secondaryEmployeeId !== null) {
-            throw new BadRequestException("primary employee is required when a secondary employee is selected");
+            throw new BadRequestException("보조 담당 인력을 선택하려면 주 담당 인력이 먼저 필요합니다.");
         }
         return;
     }

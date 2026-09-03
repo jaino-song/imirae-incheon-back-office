@@ -25,7 +25,7 @@ import {
 } from "infrastructure/api/eformsign-api.error";
 import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 import { normalizeKoreanWon } from "domain/value-objects/money.vo";
-import { assertRequiredPhone, InvalidPhoneError } from "domain/utils/normalize-phone";
+import { assertRequiredPhone, invalidPhoneFieldMessage, InvalidPhoneError } from "domain/utils/normalize-phone";
 
 export interface EformsignDocumentWorkflowState {
     statusCode?: string;
@@ -52,7 +52,7 @@ function assertEformPhone(phone: string | null | undefined, field: string): void
         assertRequiredPhone(phone);
     } catch (error) {
         if (error instanceof InvalidPhoneError) {
-            throw new BadRequestException(`${field} must be a valid Korean phone number`);
+            throw new BadRequestException(invalidPhoneFieldMessage(field));
         }
         throw error;
     }

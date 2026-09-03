@@ -20,7 +20,7 @@ describe("client write validation", () => {
 
         prisma.area.findFirst.mockResolvedValueOnce(null);
         await expect(assertAllowedClientArea(prisma, "branch-a", "foreign"))
-            .rejects.toEqual(new BadRequestException("areaId must reference an available area"));
+            .rejects.toEqual(new BadRequestException("선택한 관할 지역을 사용할 수 없습니다."));
         expect(prisma.area.findFirst).toHaveBeenLastCalledWith({
             where: { id: "foreign", OR: [{ branchId: "branch-a" }, { branchId: null }] },
             select: { id: true },
@@ -73,7 +73,7 @@ describe("client write validation", () => {
     it("accepts only canonical service statuses and keeps calendar date components", () => {
         expect(() => assertAllowedServiceStatus("active")).not.toThrow();
         expect(() => assertAllowedServiceStatus(null)).not.toThrow();
-        expect(() => assertAllowedServiceStatus("pending")).toThrow("serviceStatus must be one of");
+        expect(() => assertAllowedServiceStatus("pending")).toThrow("계약 상태가 올바르지 않습니다. 허용 값:");
         expect(parseClientDate("2024-02-29T23:30:00-09:00")).toEqual(new Date("2024-02-29T00:00:00.000Z"));
         expect(parseClientDate(null)).toBeNull();
         expect(parseClientDate(undefined)).toBeUndefined();

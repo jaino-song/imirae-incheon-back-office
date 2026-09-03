@@ -143,7 +143,7 @@ describe("UpdateClientUsecase", () => {
             mockRepository.setData([existingClient]);
 
             await expect(usecase.execute(branchId, 1, { duration: null }))
-                .rejects.toThrow("duration cannot exceed the Korean business-day count (246)");
+                .rejects.toThrow("서비스 기간은 1일 이상 246일 이하여야 합니다.");
 
             expect(mockRepository.getAllData()[0]).toBe(existingClient);
             expect(mockRepository.getAllData()[0]?.duration).toBe(15);
@@ -177,7 +177,7 @@ describe("UpdateClientUsecase", () => {
             // Act & Assert
             await expect(
                 usecase.execute(branchId, 123, { name: "새 이름" }),
-            ).rejects.toThrow("Client with id 123 not found");
+            ).rejects.toThrow("고객을 찾을 수 없습니다. (id: 123)");
         });
 
         it("should persist changes to repository", async () => {

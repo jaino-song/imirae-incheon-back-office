@@ -50,7 +50,7 @@ describe("EformsignService", () => {
             "1",
             "재요청",
             { countryCode: "+82", phoneNumber: "not-a-phone" },
-        )).rejects.toThrow("valid Korean phone number");
+        )).rejects.toThrow("올바른 국내 전화번호 형식이 아닙니다.");
 
         expect(getDocument).not.toHaveBeenCalled();
     });
