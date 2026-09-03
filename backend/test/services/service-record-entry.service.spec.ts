@@ -9,6 +9,7 @@ import {
 } from "application/services/service-record-lifecycle.service";
 import { ServiceRecordTokenService } from "application/services/service-record-token.service";
 import { getServiceRecordTokenExpiresAt } from "domain/constants/service-record-link-message";
+import { addBusinessDaysKr } from "domain/utils/business-days";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { UpsertSessionDto } from "interface/dto/service-record-entry.dto";
 
@@ -579,7 +580,7 @@ describe("ServiceRecordEntryService.upsertSession", () => {
         expect(ensureForClient).toHaveBeenCalledWith(100, expect.anything());
         expect(extendExpiryForCase).toHaveBeenCalledWith(
             CASE_ID,
-            getServiceRecordTokenExpiresAt(newEndDate),
+            new Date("2026-07-17T11:00:00.000Z"),
             expect.anything(),
         );
         // requiredSessionCount is never touched by the extension.
@@ -651,7 +652,7 @@ describe("ServiceRecordEntryService.upsertSession", () => {
         });
         expect(extendExpiryForCase).toHaveBeenCalledWith(
             CASE_ID,
-            getServiceRecordTokenExpiresAt(newEndDate),
+            new Date("2026-09-09T11:00:00.000Z"),
             expect.anything(),
         );
         expect(transactionRecord.requiredSessionCount).toBe(15);
@@ -777,6 +778,133 @@ describe("ServiceRecordEntryService.upsertSession", () => {
             },
         });
         expect(upsert).not.toHaveBeenCalled();
+    });
+
+    it("allows a caregiver to save a session while the case is AWAITING_COMPLETION, inside the link grace window", async () => {
+        // Regression coverage for the link-expiry grace period: a case that
+        // has already reached AWAITING_COMPLETION (end date passed, session
+        // still owed) must not block the caregiver's write. AWAITING_COMPLETION
+        // is intentionally absent from the blocked-status list in
+        // upsertSession -- only FINALIZING/FINALIZATION_FAILED/
+        // DOCUMENTS_CREATED/COMPLETED are. The wall-clock "now" (2026-09-05,
+        // three days after the end date) is enforced at the link/token layer,
+        // not here -- upsertSession itself does no time-based rejection.
+        const transactionRecord = createRecord({
+            status: SERVICE_RECORD_CASE_STATUS.AWAITING_COMPLETION,
+            requiredSessionCount: 15,
+            endDate: new Date("2026-09-02T00:00:00.000Z"),
+        });
+        const schedule = {
+            id: 10,
+            clientId: 100,
+            primaryEmployeeId: 20,
+            secondaryEmployeeId: null,
+            startDate: new Date("2026-08-01T00:00:00.000Z"),
+            endDate: new Date("2026-09-02T00:00:00.000Z"),
+            replaced: false,
+            primaryEmployee: { name: "제공자" },
+        };
+        const ensureForClient = jest.fn().mockResolvedValue(null);
+        const extendExpiryForCase = jest.fn().mockResolvedValue(undefined);
+        const { service, transactionClient } = createHarness({
+            existing: null,
+            transactionRecord,
+            schedule,
+            ensureForClient,
+            extendExpiryForCase,
+        });
+        transactionClient.service_record_day.findUnique.mockImplementation(
+            ({ where }: { where: { serviceRecordCaseId_caseSessionIndex: { caseSessionIndex: number } } }) => {
+                const idx = where.serviceRecordCaseId_caseSessionIndex.caseSessionIndex;
+                if (idx === 13) {
+                    return Promise.resolve(createDay({
+                        caseSessionIndex: 13,
+                        sessionIndex: 13,
+                        serviceDate: new Date("2026-08-28T00:00:00.000Z"),
+                        locked: true,
+                    }));
+                }
+                return Promise.resolve(null);
+            },
+        );
+
+        await expect(service.upsertSession(
+            context,
+            14,
+            createDto({ serviceDate: "2026-09-02T00:00:00.000Z" }),
+            false,
+        )).resolves.toEqual(expect.objectContaining({ sessionIndex: 14 }));
+    });
+
+    it("auto-extends the end date for an AWAITING_COMPLETION case when a grace-window save runs past it", async () => {
+        // Companion to the previous test: saving session 14 (of 15) two days
+        // after the current end date must push the end date out by the
+        // correct remaining-session math (addBusinessDaysKr(serviceDate, 1))
+        // rather than being rejected as "Service date cannot exceed the
+        // service end date" -- the post-extension re-read (see the
+        // "re-reads the case" test above) is what makes that guard see the
+        // new end date instead of the stale one.
+        const transactionRecord = createRecord({
+            status: SERVICE_RECORD_CASE_STATUS.AWAITING_COMPLETION,
+            requiredSessionCount: 15,
+            endDate: new Date("2026-09-02T00:00:00.000Z"),
+        });
+        const schedule = {
+            id: 10,
+            clientId: 100,
+            primaryEmployeeId: 20,
+            secondaryEmployeeId: null,
+            startDate: new Date("2026-08-01T00:00:00.000Z"),
+            endDate: new Date("2026-09-02T00:00:00.000Z"),
+            replaced: false,
+            primaryEmployee: { name: "제공자" },
+        };
+        const ensureForClient = jest.fn().mockResolvedValue(null);
+        const extendExpiryForCase = jest.fn().mockResolvedValue(undefined);
+        const { service, transactionClient, scheduleUpdate, clientUpdate } = createHarness({
+            existing: null,
+            transactionRecord,
+            schedule,
+            ensureForClient,
+            extendExpiryForCase,
+        });
+        transactionClient.service_record_day.findUnique.mockImplementation(
+            ({ where }: { where: { serviceRecordCaseId_caseSessionIndex: { caseSessionIndex: number } } }) => {
+                const idx = where.serviceRecordCaseId_caseSessionIndex.caseSessionIndex;
+                if (idx === 13) {
+                    return Promise.resolve(createDay({
+                        caseSessionIndex: 13,
+                        sessionIndex: 13,
+                        serviceDate: new Date("2026-08-28T00:00:00.000Z"),
+                        locked: true,
+                    }));
+                }
+                return Promise.resolve(null);
+            },
+        );
+        const newEndDate = new Date(`${addBusinessDaysKr("2026-09-04", 1)}T00:00:00.000Z`);
+
+        const result = await service.upsertSession(
+            context,
+            14,
+            createDto({ serviceDate: "2026-09-04T00:00:00.000Z" }),
+            false,
+        );
+
+        expect(result).toEqual(expect.objectContaining({ sessionIndex: 14 }));
+        expect(scheduleUpdate).toHaveBeenCalledWith({
+            where: { id: 10 },
+            data: { endDate: newEndDate },
+        });
+        expect(clientUpdate).toHaveBeenCalledWith({
+            where: { id: 100 },
+            data: { endDate: newEndDate },
+        });
+        expect(extendExpiryForCase).toHaveBeenCalledWith(
+            CASE_ID,
+            getServiceRecordTokenExpiresAt(newEndDate),
+            expect.anything(),
+        );
     });
 });
 
