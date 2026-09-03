@@ -67,6 +67,21 @@ describe("ReceiptLinkManualSendService", () => {
         expect(result).toEqual({ jobId: "job-1", scheduledFor: expect.any(Date), clientName: "김산모" });
     });
 
+    // F1: the doc the staff selected must be threaded through to preflight and stamped on the
+    // job payload, so the enricher can force ReceiptLinkIssueService to render that exact
+    // document even if client.eDocId now points elsewhere (e.g. after a contract re-issue).
+    it("passes the selected document's numeric id to preflight and stores it on the job payload", async () => {
+        const { service, issueService, jobRepository } = makeService({
+            doc: { id: 77, documentId: "doc-older", clientId: 7 },
+        });
+
+        await service.send({ branchId: BRANCH, documentId: "doc-older", userId: "user-1" });
+
+        expect(issueService.preflight).toHaveBeenCalledWith({ branchId: BRANCH, clientId: 7, eformsignDocId: 77 });
+        const job = jobRepository.upsertPending.mock.calls[0]![0] as any;
+        expect(job.payload.receiptEformsignDocId).toBe(77);
+    });
+
     it("404s for an unknown document and 400s for a document without a client", async () => {
         await expect(makeService({ doc: null }).service.send({ branchId: BRANCH, documentId: "x", userId: null })).rejects.toBeInstanceOf(NotFoundException);
         await expect(makeService({ doc: { id: 1, documentId: "x", clientId: null } }).service.send({ branchId: BRANCH, documentId: "x", userId: null }))

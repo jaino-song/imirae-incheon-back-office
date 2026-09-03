@@ -59,7 +59,7 @@ export class ReceiptLinkManualSendService {
 
         let preflight;
         try {
-            preflight = await this.issueService.preflight({ branchId: params.branchId, clientId: doc.clientId });
+            preflight = await this.issueService.preflight({ branchId: params.branchId, clientId: doc.clientId, eformsignDocId: doc.id });
         } catch (error) {
             if (error instanceof ReceiptLinkSkipError) {
                 throw new BadRequestException({ reason: error.skipReason, message: error.message });
@@ -92,6 +92,7 @@ export class ReceiptLinkManualSendService {
                 recipientPhone: phone,
                 templateVariables: { name: clientName, clientName, phone },
                 sentByUserId: params.userId,
+                receiptEformsignDocId: doc.id ?? null,
             },
         });
         const saved = await this.jobRepository.upsertPending(job);
