@@ -74,6 +74,8 @@ import {
 import { HeadlessProgressModal } from "@/components/app/eformsign/HeadlessProgressModal";
 import { ContractPdfViewerPlaceholder } from "@/components/app/contracts/contract-pdf-viewer-placeholder";
 import { MobileTwoButtonModal } from "@/components/app/ui/MobileTwoButtonModal";
+import { ApprovalTwoButtonModal } from "@/components/app/ui/ApprovalTwoButtonModal";
+import { describeReceiptLinkError } from "@/lib/receipt-link";
 import type { EformsignDocClientSummary } from "@babyjamjam/shared/types/eformsign";
 import {
   eformsignApi,
@@ -1225,6 +1227,8 @@ function ContractDetailContent({
   const { toast } = useToast();
   const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(null);
   const [isReRequesting, setIsReRequesting] = useState(false);
+  const [isReceiptSendConfirmOpen, setIsReceiptSendConfirmOpen] = useState(false);
+  const [isSendingReceiptLink, setIsSendingReceiptLink] = useState(false);
   const [detailMenuKey, setDetailMenuKey] = useState(0);
   const category = categorize(doc);
   const tones = categoryTones(category);
@@ -1292,6 +1296,26 @@ function ContractDetailContent({
       });
     } finally {
       setIsReRequesting(false);
+    }
+  };
+  const handleSendReceiptLink = async () => {
+    setIsSendingReceiptLink(true);
+    try {
+      const result = await eformsignApi.sendReceiptLink(doc.id);
+      setIsReceiptSendConfirmOpen(false);
+      toast({
+        variant: "success",
+        title: "서비스 종료 안내 발송 예약",
+        description: `${result.clientName} 산모님께 1분 내 발송됩니다. 링크는 30일간 유효합니다.`,
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "영수증 문자를 보내지 못했습니다",
+        description: describeReceiptLinkError(error),
+      });
+    } finally {
+      setIsSendingReceiptLink(false);
     }
   };
   const handleReceiptShare = async () => {
@@ -1412,6 +1436,13 @@ function ContractDetailContent({
                     variant: "secondary" as const,
                     onClick: () => setPreviewDocumentId(doc.id),
                     dataComponent: "mobile_contracts_detail-sheet_stack_detail-page_actions_preview",
+                  },
+                  {
+                    label: "영수증 문자",
+                    variant: "secondary" as const,
+                    onClick: () => setIsReceiptSendConfirmOpen(true),
+                    disabled: isSendingReceiptLink,
+                    dataComponent: "mobile_contracts_detail-sheet_stack_detail-page_actions_receipt-send",
                   },
                   ...(shouldReRequest || shouldShareReceipt
                     ? [
@@ -1583,6 +1614,22 @@ function ContractDetailContent({
           </MobileDetailTabPanel>
         </>
       )}
+      <ApprovalTwoButtonModal
+        data-component="mobile_contracts_detail-sheet_stack_detail-page_dialogs_receipt-send-confirm"
+        open={isReceiptSendConfirmOpen}
+        onOpenChange={(open) => {
+          if (!isSendingReceiptLink) setIsReceiptSendConfirmOpen(open);
+        }}
+        title="서비스 종료 안내 문자를 보낼까요?"
+        description={`${resolvedCustomerName ? `${resolvedCustomerName} 산모님께 ` : ""}본인부담금 영수증 링크가 담긴 문자를 1분 내 발송합니다. 링크는 30일간 유효하며, 산모님이 생년월일로 본인 확인 후 열람합니다.`}
+        approvalLabel="발송하기"
+        pendingLabel="발송 예약 중"
+        onApprove={handleSendReceiptLink}
+        isPending={isSendingReceiptLink}
+        approvalVariant="positive"
+        size="compact"
+        isDescriptionVisuallyHidden={false}
+      />
     </MobileDetailPage>
   );
 }
