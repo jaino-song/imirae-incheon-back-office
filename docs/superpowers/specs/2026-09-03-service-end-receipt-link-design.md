@@ -147,7 +147,18 @@
 - 입력: PDF Buffer, 페이지 번호(1-base). 출력: PNG Buffer, `{ width, height }`.
 - 스케일: 페이지 폭이 약 1240px이 되도록(A4 150dpi 상당). 상한 4MB, 초과 시 스케일 0.75로 재시도.
 - 페이지 수 < 7이면 `render_failed(reason: page_out_of_range)`.
-- 폰트: PDF 임베드 폰트 사용. **0단계 스파이크에서 한글·도장·서명 렌더링을 실물로 확인**하고, 깨지면 chromium + pdf.js 뷰어 스크린샷 대안으로 전환한다(§7).
+- 폰트: PDF 임베드 폰트 사용(eformsign PDF는 CID TrueType 서브셋을 전부 임베드한다).
+- **스파이크 결과(2026-09-03, dev DB 실제 계약서 9쪽짜리로 확인): 통과.** Node에서는 반드시 아래 옵션으로 열어야 한다. 기본값(`disableFontFace: false`)이면 브라우저 FontFace API가 없어 한글이 전부 ☒ 박스로 나온다.
+  ```ts
+  pdfjs.getDocument({
+    data,                       // Uint8Array
+    disableFontFace: true,      // 임베드 글리프를 path로 직접 그림 (Node 필수)
+    useSystemFonts: false,
+    cMapUrl: <pdfjs-dist/cmaps/ 경로>, cMapPacked: true,
+    standardFontDataUrl: <pdfjs-dist/standard_fonts/ 경로>,
+  })
+  ```
+  `pdfjs-dist/legacy/build/pdf.mjs` + `@napi-rs/canvas`의 `createCanvas`로 폭 1240px 렌더링 시 약 100ms, PNG 약 220KB. 결과는 poppler `pdftoppm -r 150`과 육안상 동일했다. 영수증 페이지는 상·하 두 장(제공기관 보관 / 이용자 보관)이 한 페이지에 있으며 페이지 전체를 그대로 이미지로 쓴다. 참고: 수령일의 "20|025" 겹침은 eformsign 템플릿의 인쇄 글자와 prefill 값이 겹친 것으로 두 렌더러 모두 동일하게 나온다(우리 버그 아님).
 
 ### 5.4 토큰·검증 — `ReceiptLinkTokenService`
 
@@ -224,7 +235,7 @@
 
 ## 7. Verification plan
 
-**0단계 스파이크(코드 착수 전, 결과가 설계를 바꿀 수 있음).** 로컬 dev DB의 실제 계약서 1건으로 pdfjs-dist + @napi-rs/canvas 렌더링을 돌려 7페이지 PNG의 한글 글꼴·도장·서명·표선을 육안 확인. 깨지면 chromium(playwright) + pdf.js 뷰어 스크린샷 대안으로 §5.3을 갱신한다.
+**0단계 스파이크 — 완료(2026-09-03).** dev DB의 실제 계약서 1건으로 pdfjs-dist + @napi-rs/canvas 렌더링을 돌려 7페이지 PNG의 한글·표·로고를 육안 확인했다. §5.3의 옵션으로 정상 렌더링됨. chromium 대안은 불필요.
 
 **단위(backend).** 렌더러(픽스처 PDF → 크기·해시, 페이지 범위 초과), 토큰 서비스(만료·잠금·재발급 무효화·8자리 입력 축약), `issueAndSend` 가드 사유별 스킵, 템플릿 카탈로그 드리프트 가드(`SMS_TEMPLATE_DELIVERY` keys === `SMS_TRIGGER_TEMPLATE_KEYS`), 자동 완료 정책 경계.
 
