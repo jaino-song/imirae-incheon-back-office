@@ -721,9 +721,29 @@ function main() {
 
   if (comparison.growth.length > 0) {
     printDeltas("UI architecture baseline exceeded:", comparison.growth);
+
+    // Each growth line prints the file+rule TOTAL next to a per-identity delta that
+    // is always +1, so a violation that merely moved reads as the self-contradictory
+    // "21/21 (+1)". The removed identities are what disambiguates it: an edit above a
+    // finding shifts its line number, which changes its identity, so the same finding
+    // appears once as growth and once as shrink. Printing only the growth half hides
+    // that and sends the reader hunting for a new violation that does not exist.
+    if (comparison.shrink.length > 0) {
+      printDeltas(
+        `\nBaseline identities no longer present (${comparison.shrink.length} removed, ` +
+          `${comparison.growth.length} added). Pair these against the entries above: the same ` +
+          `offending source at a shifted position is a relocation and only needs the baseline ` +
+          `re-anchored, while different source at an unchanged count is a substitution and is ` +
+          `real new debt. Both print as "N/N (+1)", so read the source, not the counts:`,
+        comparison.shrink,
+      );
+    }
+
     console.error(
       `\nNew UI architecture violations are not allowed. Read ${RULES_DOC_PATH} and ` +
-        `fix the page or intentionally update ${BASELINE_PATH} in a reviewed commit.`,
+        `fix the page, or -- only once you have confirmed the findings are unchanged in ` +
+        `kind and count -- re-anchor ${BASELINE_PATH} in a reviewed commit with ` +
+        `"node packages/shared/scripts/ui-architecture-gate.mjs --update".`,
     );
     process.exitCode = 1;
     return;
