@@ -364,7 +364,22 @@ export class EformsignDocController {
             dto.documentId,
         );
         if (!visibleDocument) {
-            throw new ForbiddenException("Document access forbidden");
+            // Denied the same way for every cause — not this branch's, no such
+            // row, or an unclaimed one headquarters can see in its list but
+            // cannot finalize. The usecase's own assertOwnedTarget repeats this
+            // exact branch-scoped lookup and fails closed identically, so the
+            // boundary does not move; what changes is that the caller now gets
+            // the finalize contract's refusal shape instead of a bare 403 it
+            // could only render as "something went wrong".
+            this.logger.warn(
+                `[finalize-headless] denied: documentId=${dto.documentId} not visible to branch`,
+            );
+            return {
+                ok: false,
+                durationMs: 0,
+                reason: "authorization_denied",
+                fallbackHint: "manual_check",
+            };
         }
         this.logger.log(`[POST /eformsign-docs/finalize-headless] documentId=${dto.documentId}`);
         const result = await this.finalizeHeadlessUsecase.execute(
