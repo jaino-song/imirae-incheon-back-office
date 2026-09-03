@@ -3,9 +3,10 @@
 --
 -- Asserts that the receipt_link_token table exists with its unique hash
 -- indexes, its three foreign keys and its two CHECK constraints, and that no
--- branch auto-finalize setting written before the 2026-09-04 decision still
+-- branch auto-finalize setting written before 2026-09-04 00:00 KST still
 -- carries a graceDays other than 7 (rows the patch rewrote carry a newer
--- updated_at; rows an operator edited after the decision are theirs to keep).
+-- updated_at; rows with operator edits made after 2026-09-04 00:00 KST are
+-- theirs to keep).
 -- Malformed or non-object settings rows are reported, not failed — the
 -- service already falls back to the default for them.
 DO $$
@@ -58,7 +59,7 @@ BEGIN
         SELECT "key", "value", "updated_at"
         FROM "system_setting"
         WHERE "key" LIKE 'branch:%:contract_automation:auto_finalize'
-          AND "updated_at" < TIMESTAMP '2026-09-04'
+          AND "updated_at" < TIMESTAMPTZ '2026-09-04 00:00:00+09'
     LOOP
         BEGIN
             IF jsonb_typeof(_row."value"::jsonb) <> 'object' THEN
