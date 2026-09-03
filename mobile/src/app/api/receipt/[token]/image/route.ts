@@ -27,7 +27,7 @@ function decodeBufferedAxiosError(error: unknown): unknown {
 }
 
 // Public after the birthday challenge: streams the receipt PNG, authenticated
-// by the HttpOnly access-token cookie (or an explicit Authorization header).
+// by the HttpOnly access-token cookie (the only credential source; see receipt-auth.ts).
 export async function GET(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
     const { token } = await params;
     const accessToken = getReceiptAccessToken(request);
