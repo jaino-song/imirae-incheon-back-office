@@ -91,6 +91,24 @@ describe("receipt BFF routes", () => {
         expect(await response.json()).toEqual({ reason: "expired" });
     });
 
+    // F1: receiptBackendClientErrorResponse returns null for non-4xx (status < 400 ||
+    // status >= 500), so a 500 falls through to the shared errorResponse() helper, which
+    // must never leak the upstream host/message. Mutant that must fail: `status >= 500` →
+    // `status >= 600` in receipt-auth.ts (a 500 would then NOT be treated as non-4xx, so the
+    // upstream body — including the internal db host — would be forwarded verbatim).
+    it("status hides a 5xx upstream error body — no internal host/message leak (F1)", async () => {
+        mockGet.mockRejectedValue(
+            axiosClientError(500, {
+                message: "PrismaClientKnownRequestError: connect ECONNREFUSED db-primary.internal:5432",
+            }),
+        );
+        const response = await status(new NextRequest("http://localhost/api/receipt/efr_t/status"), params);
+        expect(response.status).toBe(500);
+        const bodyText = JSON.stringify(await response.json());
+        expect(bodyText).not.toContain("db-primary.internal");
+        expect(bodyText).not.toContain("PrismaClientKnownRequestError");
+    });
+
     // M2 (audit-b fix round 1): a 204 has no body — NextResponse.json() throws when handed
     // one alongside a 204 status, so the route must short-circuit to an empty response
     // before building the field projection. Mutant that must fail: dropping the early
@@ -176,6 +194,25 @@ describe("receipt BFF routes", () => {
         expect(await response.json()).toEqual({ reason: "locked", lockedUntil: "2026-09-03T01:00:00.000Z" });
     });
 
+    // F1 (see the status test above for the mutant this guards against).
+    it("verify hides a 5xx upstream error body — no internal host/message leak (F1)", async () => {
+        mockPost.mockRejectedValue(
+            axiosClientError(500, {
+                message: "PrismaClientKnownRequestError: connect ECONNREFUSED db-primary.internal:5432",
+            }),
+        );
+        const request = new NextRequest("http://localhost/api/receipt/efr_t/verify", {
+            method: "POST",
+            body: JSON.stringify({ birthday: "940315" }),
+            headers: { "content-type": "application/json" },
+        });
+        const response = await verify(request, params);
+        expect(response.status).toBe(500);
+        const bodyText = JSON.stringify(await response.json());
+        expect(bodyText).not.toContain("db-primary.internal");
+        expect(bodyText).not.toContain("PrismaClientKnownRequestError");
+    });
+
     it("verify returns an error instead of forwarding an unrecognized 2xx payload as verified", async () => {
         // A 200 that doesn't match { ok: true, accessToken, clientName } would otherwise be
         // forwarded as-is, and the page's `response.ok` check would treat the mother as
@@ -234,5 +271,50 @@ describe("receipt BFF routes", () => {
         const response = await image(request, params);
         expect(response.status).toBe(401);
         expect(await response.json()).toEqual({ reason: "access_required" });
+    });
+
+    // F1 (see the status test above for the mutant this guards against). The 500 body is
+    // buffered the same way the 401 case above is (arraybuffer responseType).
+    it("image hides a 5xx upstream error body — no internal host/message leak (F1)", async () => {
+        mockGet.mockRejectedValue(
+            axiosClientError(
+                500,
+                Buffer.from(
+                    JSON.stringify({
+                        message: "PrismaClientKnownRequestError: connect ECONNREFUSED db-primary.internal:5432",
+                    }),
+                ),
+            ),
+        );
+        const request = new NextRequest("http://localhost/api/receipt/efr_t/image", {
+            headers: { cookie: "receipt_access=efra_secret" },
+        });
+        const response = await image(request, params);
+        expect(response.status).toBe(500);
+        const bodyText = JSON.stringify(await response.json());
+        expect(bodyText).not.toContain("db-primary.internal");
+        expect(bodyText).not.toContain("PrismaClientKnownRequestError");
+    });
+
+    // M7: an unrelated Authorization header must never shadow the cookie — the cookie is
+    // the sole source of the access token (see receipt-auth.ts).
+    it("image authenticates from the cookie even when an unrelated Authorization header is present", async () => {
+        mockGet.mockResolvedValue({
+            status: 200,
+            data: Buffer.from("png"),
+            headers: { "content-type": "image/png" },
+        });
+        const request = new NextRequest("http://localhost/api/receipt/efr_t/image", {
+            headers: {
+                cookie: "receipt_access=efra_secret",
+                authorization: "Bearer some-unrelated-admin-token",
+            },
+        });
+        const response = await image(request, params);
+        expect(mockGet).toHaveBeenCalledWith(
+            "/receipt-links/efr_t/image",
+            expect.objectContaining({ headers: { "X-Receipt-Access-Token": "efra_secret" } }),
+        );
+        expect(response.status).toBe(200);
     });
 });
