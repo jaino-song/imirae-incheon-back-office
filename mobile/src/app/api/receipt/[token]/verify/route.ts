@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serverAPIClient } from "@/lib/api/server";
-import { backendJsonResponse, errorResponse, withNoStore } from "@/lib/api/route-utils";
-import { receiptBackendClientErrorResponse, setReceiptAccessCookie } from "@/lib/api/receipt-auth";
+import { errorResponse, withNoStore } from "@/lib/api/route-utils";
+import { forwardedForHeaders, receiptBackendClientErrorResponse, setReceiptAccessCookie } from "@/lib/api/receipt-auth";
 
 function readVerified(data: unknown): { accessToken: string; clientName: string } | null {
     if (!data || typeof data !== "object") return null;
@@ -21,9 +21,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { token } = await params;
     try {
         const body = await request.json().catch(() => ({}));
-        const response = await serverAPIClient.post(`/receipt-links/${encodeURIComponent(token)}/verify`, {
-            birthday: typeof body?.birthday === "string" ? body.birthday : "",
-        });
+        const response = await serverAPIClient.post(
+            `/receipt-links/${encodeURIComponent(token)}/verify`,
+            { birthday: typeof body?.birthday === "string" ? body.birthday : "" },
+            { headers: forwardedForHeaders(request) },
+        );
         const verified = readVerified(response.data);
         if (verified) {
             const verifiedResponse = withNoStore(
@@ -32,7 +34,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             setReceiptAccessCookie(verifiedResponse, token, verified.accessToken);
             return verifiedResponse;
         }
-        return withNoStore(backendJsonResponse(response));
+        // The backend's 2xx verify response only ever has the { ok: true, accessToken,
+        // clientName } shape (any rejection is a thrown 4xx, handled in the catch below).
+        // A 200 that doesn't match it is an unexpected upstream contract break — passing
+        // it through as-is would let the page's `response.ok` check treat the mother as
+        // verified without ever minting the access cookie, so surface it as an error
+        // instead of forwarding it.
+        return errorResponse(new Error("unexpected verify payload"), "verify receipt birthday");
     } catch (error) {
         return receiptBackendClientErrorResponse(error) ?? errorResponse(error, "verify receipt birthday");
     }

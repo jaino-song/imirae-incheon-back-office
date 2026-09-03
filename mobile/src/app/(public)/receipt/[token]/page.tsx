@@ -101,7 +101,7 @@ export default function ReceiptLinkPage() {
             // A 400 always carries { reason: "invalid_format" } here — the BFF
             // normalizes a bare validation-pipe 400 to that shape too.
             if (response.status === 400) {
-                setScreen({ ...screen, error: "생년월일 형식이 올바르지 않습니다. 6자리 숫자로 다시 입력해 주세요." });
+                setScreen({ ...screen, error: "생년월일 6자리(YYMMDD)를 입력해 주세요." });
                 return;
             }
             setScreen({ ...screen, error: "확인 중 문제가 생겼습니다. 잠시 후 다시 시도해 주세요." });

@@ -1,7 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serverAPIClient } from "@/lib/api/server";
 import { errorResponse, withNoStore } from "@/lib/api/route-utils";
-import { getReceiptAccessToken, receiptBackendClientErrorResponse } from "@/lib/api/receipt-auth";
+import { forwardedForHeaders, getReceiptAccessToken, receiptBackendClientErrorResponse } from "@/lib/api/receipt-auth";
+
+interface AxiosLikeResponse {
+    status?: number;
+    data?: unknown;
+}
+
+// Decodes an AxiosError's response.data before handing it to
+// receiptBackendClientErrorResponse. The backend call below uses
+// responseType: "arraybuffer" for the 2xx (PNG) path, so axios also buffers a 4xx error
+// body as a Buffer instead of parsing it as JSON — forwarding that raw Buffer would
+// serialize to { type: "Buffer", data: [...] } instead of the backend's real
+// { reason, ... } body.
+function decodeBufferedAxiosError(error: unknown): unknown {
+    const response = (error as { response?: AxiosLikeResponse } | null | undefined)?.response;
+    if (!response || !Buffer.isBuffer(response.data)) return error;
+    let data: unknown;
+    try {
+        data = JSON.parse(response.data.toString("utf8"));
+    } catch {
+        data = { reason: "access_required" };
+    }
+    return { response: { status: response.status, data } };
+}
 
 // Public after the birthday challenge: streams the receipt PNG, authenticated
 // by the HttpOnly access-token cookie (or an explicit Authorization header).
@@ -17,10 +40,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         const response = await serverAPIClient.get(`/receipt-links/${encodeURIComponent(token)}/image`, {
             params: { download },
             responseType: "arraybuffer",
-            headers: { "X-Receipt-Access-Token": accessToken },
+            headers: { "X-Receipt-Access-Token": accessToken, ...forwardedForHeaders(request) },
         });
         const headers = new Headers({
-            "Content-Type": String(response.headers?.["content-type"] ?? "image/png"),
+            "Content-Type": "image/png",
             "Cache-Control": "private, no-store",
             "X-Content-Type-Options": "nosniff",
         });
@@ -28,6 +51,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         if (disposition) headers.set("Content-Disposition", String(disposition));
         return new NextResponse(Buffer.from(response.data as ArrayBuffer), { status: 200, headers });
     } catch (error) {
-        return receiptBackendClientErrorResponse(error) ?? errorResponse(error, "receipt image");
+        return receiptBackendClientErrorResponse(decodeBufferedAxiosError(error)) ?? errorResponse(error, "receipt image");
     }
 }

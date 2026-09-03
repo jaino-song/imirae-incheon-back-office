@@ -1,4 +1,3 @@
-import { AxiosError } from "axios";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
@@ -36,20 +35,43 @@ export function setReceiptAccessCookie(response: NextResponse, linkToken: string
 }
 
 /**
+ * Forwards the mother's real IP (from the incoming request's X-Forwarded-For) to the
+ * backend call, so the receipt-links controller's per-IP RateLimitGuard rate-limits her
+ * IP rather than the m.admin server's own address. The backend runs with
+ * `trust proxy = 1` (backend/main.ts:54). Returns {} when the header is absent (e.g. in
+ * unit tests, or a direct connection) so callers can always spread this into headers.
+ */
+export function forwardedForHeaders(request: NextRequest): Record<string, string> {
+    const value = request.headers.get("x-forwarded-for");
+    return value ? { "X-Forwarded-For": value } : {};
+}
+
+interface AxiosLikeError {
+    response?: {
+        status?: number;
+        data?: unknown;
+    };
+}
+
+/**
  * serverAPIClient's validateStatus rejects every 4xx (mobile/src/lib/api/server.ts),
- * so the receipt-links backend THROWS an AxiosError on every 4xx response rather than
- * resolving. The shared errorResponse() helper rewrites the body to { error }, which
- * would drop the `reason` / `remainingAttempts` / `lockedUntil` fields the public page
- * needs to pick the right screen. Forward the backend's public 4xx body verbatim
- * instead. Returns null for anything else (5xx, network errors, non-Axios throws) so
- * the caller falls back to errorResponse().
+ * so the receipt-links backend THROWS on every 4xx response rather than resolving. The
+ * shared errorResponse() helper rewrites the body to { error }, which would drop the
+ * `reason` / `remainingAttempts` / `lockedUntil` fields the public page needs to pick the
+ * right screen. Forward the backend's public 4xx body verbatim instead. Duck-types the
+ * error's `.response` shape (matching the shared errorResponse()'s own approach two lines
+ * below it in route-utils.ts) rather than checking `instanceof AxiosError`, so a caller
+ * that has already unwrapped/reshaped an AxiosError (e.g. the image route decoding a
+ * Buffer body first) can still hand this a plain `{ response: { status, data } }` object.
+ * Returns null for anything without a `.response` (5xx, network errors, non-Axios throws)
+ * so the caller falls back to errorResponse().
  */
 export function receiptBackendClientErrorResponse(error: unknown): NextResponse | null {
-    if (!(error instanceof AxiosError)) return null;
-    const status = error.response?.status;
+    const response = (error as AxiosLikeError | null | undefined)?.response;
+    const status = response?.status;
     if (typeof status !== "number" || status < 400 || status >= 500) return null;
 
-    const record = (error.response?.data ?? null) as Record<string, unknown> | null;
+    const record = (response?.data ?? null) as Record<string, unknown> | null;
     const hasReason = record !== null && typeof record === "object" && "reason" in record;
     // A 400 without `reason` can only come from the global validation pipe (an
     // empty/malformed/unknown body) — normalize it to invalid_format so the page
