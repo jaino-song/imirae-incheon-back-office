@@ -468,7 +468,7 @@
       "registered-date-unknown": "알 수 없음",
       "phone-required": "연락처를 입력해주세요",
       "work-area-required": "근무 지역을 선택해주세요",
-      "error-phone-duplicate": "이미 등록된 연락처입니다.",
+      "error-phone-duplicate": "이미 등록된 연락처입니다. 제공인력 목록에서 연락처로 검색해 주세요.",
       "error-create-failed": "제공인력 등록에 실패했습니다. 다시 시도해주세요.",
       "error-update-failed": "제공인력 정보 수정에 실패했습니다. 다시 시도해주세요.",
       "error-save-failed": "저장에 실패했습니다. 다시 시도해주세요.",
