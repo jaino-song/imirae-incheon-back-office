@@ -39,7 +39,7 @@ describe("receipt BFF routes", () => {
             },
         });
         const response = await status(new NextRequest("http://localhost/api/receipt/efr_t/status"), params);
-        expect(mockGet).toHaveBeenCalledWith("/receipt-links/efr_t/status", { headers: {} });
+        expect(mockGet).toHaveBeenCalledWith("/receipt-links/efr_t/status");
         expect(response.status).toBe(200);
         expect(response.headers.get("cache-control")).toContain("no-store");
         expect((await response.json()).branchName).toBe("인천 아이미래로");
@@ -52,27 +52,6 @@ describe("receipt BFF routes", () => {
         expect(await response.json()).toEqual({ reason: "expired" });
     });
 
-    it("forwards the caller's X-Forwarded-For header to the backend for per-IP rate limiting", async () => {
-        mockGet.mockResolvedValue({
-            status: 200,
-            data: {
-                ok: true,
-                state: "pending",
-                branchName: "인천 아이미래로",
-                remainingAttempts: 5,
-                lockedUntil: null,
-                expiresAt: "2026-10-03T00:00:00.000Z",
-            },
-        });
-        const request = new NextRequest("http://localhost/api/receipt/efr_t/status", {
-            headers: { "x-forwarded-for": "203.0.113.5" },
-        });
-        await status(request, params);
-        expect(mockGet).toHaveBeenCalledWith("/receipt-links/efr_t/status", {
-            headers: { "X-Forwarded-For": "203.0.113.5" },
-        });
-    });
-
     it("verify sets the HttpOnly access cookie and never returns the access token to the browser", async () => {
         mockPost.mockResolvedValue({ status: 200, data: { ok: true, accessToken: "efra_secret", clientName: "김산모" } });
         const request = new NextRequest("http://localhost/api/receipt/efr_t/verify", {
@@ -81,11 +60,7 @@ describe("receipt BFF routes", () => {
             headers: { "content-type": "application/json" },
         });
         const response = await verify(request, params);
-        expect(mockPost).toHaveBeenCalledWith(
-            "/receipt-links/efr_t/verify",
-            { birthday: "940315" },
-            { headers: {} },
-        );
+        expect(mockPost).toHaveBeenCalledWith("/receipt-links/efr_t/verify", { birthday: "940315" });
         expect(await response.json()).toEqual({ ok: true, clientName: "김산모" });
         const cookie = response.headers.get("set-cookie") ?? "";
         expect(cookie).toContain("receipt_access=efra_secret");

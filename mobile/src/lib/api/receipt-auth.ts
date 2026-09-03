@@ -34,18 +34,6 @@ export function setReceiptAccessCookie(response: NextResponse, linkToken: string
     });
 }
 
-/**
- * Forwards the mother's real IP (from the incoming request's X-Forwarded-For) to the
- * backend call, so the receipt-links controller's per-IP RateLimitGuard rate-limits her
- * IP rather than the m.admin server's own address. The backend runs with
- * `trust proxy = 1` (backend/main.ts:54). Returns {} when the header is absent (e.g. in
- * unit tests, or a direct connection) so callers can always spread this into headers.
- */
-export function forwardedForHeaders(request: NextRequest): Record<string, string> {
-    const value = request.headers.get("x-forwarded-for");
-    return value ? { "X-Forwarded-For": value } : {};
-}
-
 interface AxiosLikeError {
     response?: {
         status?: number;

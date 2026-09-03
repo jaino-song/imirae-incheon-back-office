@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serverAPIClient } from "@/lib/api/server";
 import { errorResponse, withNoStore } from "@/lib/api/route-utils";
-import { forwardedForHeaders, getReceiptAccessToken, receiptBackendClientErrorResponse } from "@/lib/api/receipt-auth";
+import { getReceiptAccessToken, receiptBackendClientErrorResponse } from "@/lib/api/receipt-auth";
 
 interface AxiosLikeResponse {
     status?: number;
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         const response = await serverAPIClient.get(`/receipt-links/${encodeURIComponent(token)}/image`, {
             params: { download },
             responseType: "arraybuffer",
-            headers: { "X-Receipt-Access-Token": accessToken, ...forwardedForHeaders(request) },
+            headers: { "X-Receipt-Access-Token": accessToken },
         });
         const headers = new Headers({
             "Content-Type": "image/png",

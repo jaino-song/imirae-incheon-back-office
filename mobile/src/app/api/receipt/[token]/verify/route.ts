@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serverAPIClient } from "@/lib/api/server";
 import { errorResponse, withNoStore } from "@/lib/api/route-utils";
-import { forwardedForHeaders, receiptBackendClientErrorResponse, setReceiptAccessCookie } from "@/lib/api/receipt-auth";
+import { receiptBackendClientErrorResponse, setReceiptAccessCookie } from "@/lib/api/receipt-auth";
 
 function readVerified(data: unknown): { accessToken: string; clientName: string } | null {
     if (!data || typeof data !== "object") return null;
@@ -21,11 +21,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { token } = await params;
     try {
         const body = await request.json().catch(() => ({}));
-        const response = await serverAPIClient.post(
-            `/receipt-links/${encodeURIComponent(token)}/verify`,
-            { birthday: typeof body?.birthday === "string" ? body.birthday : "" },
-            { headers: forwardedForHeaders(request) },
-        );
+        const response = await serverAPIClient.post(`/receipt-links/${encodeURIComponent(token)}/verify`, {
+            birthday: typeof body?.birthday === "string" ? body.birthday : "",
+        });
         const verified = readVerified(response.data);
         if (verified) {
             const verifiedResponse = withNoStore(
