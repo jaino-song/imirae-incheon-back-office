@@ -2511,6 +2511,13 @@ describe("MessageTriggerService", () => {
         });
     });
 
+    // Variables these templates deliberately do NOT get from buildClientTemplateVariables:
+    // they are injected into the payload later by the delivery-time enricher (e.g. a signed
+    // receipt URL), not derived from the client record at rule-build time.
+    const DELIVERY_TIME_VARIABLES: Partial<Record<MessageTriggerTemplateKey, readonly string[]>> = {
+        [MessageTriggerTemplateKey.SERVICE_END_NOTICE]: ["receiptUrl"],
+    };
+
     it.each(CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS)(
         "builds every required %s variable from a complete client record",
         (templateKey) => {
@@ -2536,9 +2543,11 @@ describe("MessageTriggerService", () => {
                 area: { bankAccountInfo: { bankName: "신한은행", accNum: "110-123-456789" } },
             });
 
+            const deliveryTimeKeys = new Set(DELIVERY_TIME_VARIABLES[templateKey] ?? []);
             const missingRequiredVariables = MESSAGE_TRIGGER_TEMPLATE_CATALOG[templateKey]
                 .requiredVariables
                 .map((variable) => variable.key)
+                .filter((key) => !deliveryTimeKeys.has(key))
                 .filter((key) => !variables[key]?.trim());
 
             expect(missingRequiredVariables).toEqual([]);

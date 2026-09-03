@@ -770,6 +770,9 @@ describe("SMS system-template variable coverage", () => {
         bankName: "fixture-bankName",
         accNum: "fixture-accNum",
         serviceRecordUrl: "fixture-serviceRecordUrl",
+        // Normally injected by the delivery-time payload enricher, not derived from the
+        // client record; the fixture supplies it directly so SERVICE_END_NOTICE renders here.
+        receiptUrl: "https://m.admin.babyjamjam.com/receipt/efr_test",
     };
 
     const smsTemplateCases = Object.values(MESSAGE_TRIGGER_TEMPLATE_CATALOG)
