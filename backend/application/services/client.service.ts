@@ -981,7 +981,11 @@ export class ClientService {
         const birthDate = parseClientDate(params.birthDate) ?? null;
         mergeAndValidateClientServicePeriod(null, { startDate, endDate });
         const derivedDuration = deriveClientDuration(startDate, endDate);
-        assertClientDurationMatchesDates(params.duration, derivedDuration);
+        // On create there is no prior duration to clear, so an explicit null
+        // carries the same "no opinion" as an omitted field and the count is
+        // derived from the dates. Only a supplied number is checked against
+        // them. Update keeps null's distinct explicit-clear meaning.
+        assertClientDurationMatchesDates(params.duration ?? undefined, derivedDuration);
         // A supplied duration is authoritative; the date-derived count is
         // only a fallback when the caller does not supply one.
         const duration = params.duration ?? derivedDuration ?? null;
