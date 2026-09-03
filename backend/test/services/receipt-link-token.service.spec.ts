@@ -10,6 +10,7 @@ import {
     CreateReceiptLinkTokenData,
     IReceiptLinkTokenRepository,
     ReceiptLinkTokenRecord,
+    ReserveVerificationAttemptResult,
     UpdateReceiptLinkTokenData,
 } from "domain/repositories/receipt-link-token.repository.interface";
 
@@ -65,14 +66,41 @@ class FakeReceiptLinkTokenRepository implements IReceiptLinkTokenRepository {
         return { ...row };
     }
 
-    async incrementFailedAttempts(id: string, now: Date): Promise<{ failedAttempts: number; lockedAt: Date | null }> {
+    // Deliberately synchronous end-to-end (no `await` anywhere in the body): this is what makes
+    // the fake a faithful stand-in for the real repository's single atomic UPDATE — under
+    // Node's single-threaded event loop, a body with no internal await point can never be
+    // interleaved with another concurrent call, exactly like a real DB row-level lock serializes
+    // concurrent writers on the same row. That is the property the concurrency tests below rely
+    // on to catch a regression back to the old read-then-write race.
+    async reserveVerificationAttempt(
+        id: string,
+        now: Date,
+        lockWindowMs: number,
+        maxAttempts: number,
+    ): Promise<ReserveVerificationAttemptResult> {
         const row = this.rows.find((r) => r.id === id)!;
-        row.failedAttempts += 1;
-        if (row.failedAttempts < RECEIPT_LINK_MAX_FAILED_ATTEMPTS) {
-            return { failedAttempts: row.failedAttempts, lockedAt: null };
+
+        if (row.lockedAt && row.lockedAt.getTime() + lockWindowMs > now.getTime()) {
+            return { outcome: "locked", lockedUntil: new Date(row.lockedAt.getTime() + lockWindowMs) };
         }
-        row.lockedAt = now;
-        return { failedAttempts: row.failedAttempts, lockedAt: row.lockedAt };
+
+        if (row.lockedAt) {
+            // Lock window elapsed: restart the counter at 1 rather than continuing the increment.
+            row.failedAttempts = 1;
+            row.lockedAt = null;
+        } else {
+            row.failedAttempts += 1;
+            if (row.failedAttempts >= maxAttempts) {
+                row.lockedAt = now;
+            }
+        }
+
+        return {
+            outcome: "recorded",
+            failedAttempts: row.failedAttempts,
+            lockedAt: row.lockedAt,
+            expectedBirthdayHash: row.expectedBirthdayHash,
+        };
     }
 
     async findExpired(cutoff: Date) {
@@ -287,6 +315,76 @@ describe("ReceiptLinkTokenService", () => {
             reason: "verification_failed",
             remainingAttempts: RECEIPT_LINK_MAX_FAILED_ATTEMPTS - 1,
         });
+    });
+
+    // F2: attempt reservation must precede the birthday comparison, atomically. Before this fix,
+    // verifyBirthday read the row, decided "not locked" from that snapshot, compared, and only
+    // then incremented — so 200 concurrent guesses would all get compared, and after a lock
+    // window elapsed, N concurrent wrong guesses would all take the reset branch and the counter
+    // would end at 1 instead of reflecting every reservation.
+    it("50 concurrent wrong guesses: exactly maxAttempts are ever compared, the rest are refused as locked", async () => {
+        const { service } = makeService();
+        const { linkToken } = await issue(service);
+
+        const results = await Promise.all(
+            Array.from({ length: 50 }, () => service.verifyBirthday(linkToken, "000000", NOW)),
+        );
+
+        const compared = results.filter((r) => !r.ok && r.reason === "verification_failed");
+        const locked = results.filter((r) => !r.ok && r.reason === "locked");
+        // The first (maxAttempts - 1) reservations report verification_failed; the reservation
+        // that tips the counter to maxAttempts reports locked directly (no remainingAttempts to
+        // report), and every guess that arrives after that also reports locked without ever
+        // reaching the hash comparison.
+        expect(compared).toHaveLength(RECEIPT_LINK_MAX_FAILED_ATTEMPTS - 1);
+        expect(locked).toHaveLength(50 - (RECEIPT_LINK_MAX_FAILED_ATTEMPTS - 1));
+        expect(compared.length + locked.length).toBe(50);
+    });
+
+    it("a correct guess arriving after 5 concurrent wrong ones is refused as locked", async () => {
+        const { service } = makeService();
+        const { linkToken } = await issue(service);
+
+        await Promise.all(
+            Array.from({ length: RECEIPT_LINK_MAX_FAILED_ATTEMPTS }, () => service.verifyBirthday(linkToken, "000000", NOW)),
+        );
+
+        const correct = await service.verifyBirthday(linkToken, "940315", NOW);
+        expect(correct).toMatchObject({ ok: false, reason: "locked" });
+    });
+
+    it("lock window elapsed + 50 concurrent wrong guesses: the counter reflects the reservations, not a stuck 1", async () => {
+        const { repository, service } = makeService();
+        const { linkToken } = await issue(service);
+        await Promise.all(
+            Array.from({ length: RECEIPT_LINK_MAX_FAILED_ATTEMPTS }, () => service.verifyBirthday(linkToken, "000000", NOW)),
+        );
+        // The token is now locked from the batch above.
+
+        const later = new Date(NOW.getTime() + RECEIPT_LINK_LOCK_MS + 1);
+        await Promise.all(
+            Array.from({ length: 50 }, () => service.verifyBirthday(linkToken, "000000", later)),
+        );
+
+        // Every one of the 50 calls reserved an attempt against the same row; the old bug (each
+        // concurrent caller independently reading "locked, window elapsed" and unconditionally
+        // writing failedAttempts=1) would leave this at 1 instead of a real reserved count.
+        expect(repository.rows[0]!.failedAttempts).toBe(RECEIPT_LINK_MAX_FAILED_ATTEMPTS);
+        expect(repository.rows[0]!.lockedAt).toEqual(later);
+    });
+
+    it("a correct guess still resets failedAttempts to 0 even after concurrent wrong guesses", async () => {
+        const { repository, service } = makeService();
+        const { linkToken } = await issue(service);
+        await Promise.all(
+            Array.from({ length: RECEIPT_LINK_MAX_FAILED_ATTEMPTS - 1 }, () => service.verifyBirthday(linkToken, "000000", NOW)),
+        );
+        expect(repository.rows[0]!.failedAttempts).toBe(RECEIPT_LINK_MAX_FAILED_ATTEMPTS - 1);
+
+        const result = await service.verifyBirthday(linkToken, "940315", NOW);
+        expect(result).toMatchObject({ ok: true });
+        expect(repository.rows[0]!.failedAttempts).toBe(0);
+        expect(repository.rows[0]!.lockedAt).toBeNull();
     });
 
     it("rejects malformed input without counting an attempt", async () => {

@@ -51,13 +51,19 @@ function makeFakePrisma() {
         }
         return Promise.all(arg as Promise<unknown>[]);
     });
-    return { receipt_link_token, $transaction };
+    const $queryRaw = jest.fn();
+    return { receipt_link_token, $transaction, $queryRaw };
 }
 
 describe("SbReceiptLinkTokenRepository", () => {
     beforeEach(() => jest.clearAllMocks());
 
-    it("wraps findByLinkTokenHash, update, and incrementFailedAttempts in runSystemScope exactly once each", async () => {
+    // F2 audit fix: incrementFailedAttempts (a read-then-decide-then-write sequence prone to a
+    // concurrent-guess race — see receipt-link-token.service.ts) was replaced by
+    // reserveVerificationAttempt, one atomic raw statement. Covered in depth in
+    // test/repositories/receipt-link-token.repository.spec.ts; this assertion just keeps this
+    // file's "every cross-branch method wraps runSystemScope exactly once" survey accurate.
+    it("wraps findByLinkTokenHash, update, and reserveVerificationAttempt in runSystemScope exactly once each", async () => {
         const prisma = makeFakePrisma();
         const repository = new SbReceiptLinkTokenRepository(prisma as never);
 
@@ -71,8 +77,10 @@ describe("SbReceiptLinkTokenRepository", () => {
         expect(mockedRunSystemScope).toHaveBeenCalledTimes(1);
 
         mockedRunSystemScope.mockClear();
-        prisma.receipt_link_token.update.mockResolvedValue({ failedAttempts: 1 });
-        await repository.incrementFailedAttempts("tok-1", new Date());
+        prisma.$queryRaw.mockResolvedValue([
+            { failedAttempts: 1, lockedAt: null, expectedBirthdayHash: "hash", wasLocked: false },
+        ]);
+        await repository.reserveVerificationAttempt("tok-1", new Date(), 30 * 60 * 1000, 5);
         expect(mockedRunSystemScope).toHaveBeenCalledTimes(1);
     });
 

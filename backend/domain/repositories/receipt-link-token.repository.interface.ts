@@ -55,6 +55,17 @@ export interface ExpiredReceiptLinkToken {
     eformsignDocId: number;
 }
 
+/**
+ * Outcome of `reserveVerificationAttempt`. `"locked"` means the token was already inside an
+ * earlier lock window when the reservation ran — the row was left untouched and no attempt was
+ * consumed. `"recorded"` means the write happened (a fresh increment, a post-window reset to 1,
+ * or both plus a newly-set `lockedAt` when the write's own count reached `maxAttempts`) and
+ * carries the authoritative post-write state the caller must act on.
+ */
+export type ReserveVerificationAttemptResult =
+    | { outcome: "locked"; lockedUntil: Date }
+    | { outcome: "recorded"; failedAttempts: number; lockedAt: Date | null; expectedBirthdayHash: string };
+
 export interface IReceiptLinkTokenRepository {
     /** The token this hash belongs to, with its branch and client display names, or null if no
      *  such token was ever issued. */
@@ -71,13 +82,25 @@ export interface IReceiptLinkTokenRepository {
      *  one token. */
     update(id: string, data: UpdateReceiptLinkTokenData): Promise<ReceiptLinkTokenRecord>;
     /**
-     * Atomically records one more failed birthday attempt and returns the authoritative
-     * post-increment state — never the value the caller read before this call. When the
-     * returned count reaches `RECEIPT_LINK_MAX_FAILED_ATTEMPTS`, this also starts the lock
-     * window (`lockedAt: now`) in the same operation, so two concurrent guesses can never both
-     * read a stale pre-increment count and both conclude the token isn't locked yet.
+     * Atomically reserves one birthday-verification attempt, deciding lock state in the SAME
+     * database write as the increment — never from a value the caller read before this call.
+     * Semantics, evaluated against the row's state as of this write (never a caller-supplied
+     * snapshot):
+     *  - Still inside an earlier lock window (`lockedAt` set and `lockedAt + lockWindowMs > now`)
+     *    → the row is left untouched; returns `{ outcome: "locked", lockedUntil }`.
+     *  - `lockedAt` set but its window has elapsed → resets the counter to 1 and clears
+     *    `lockedAt`, in this same write.
+     *  - Otherwise → increments the counter by 1; if the new count reaches `maxAttempts`, also
+     *    sets `lockedAt: now` in this same write.
+     * Two concurrent callers racing on the same row can never both read a stale pre-increment
+     * count and both conclude "not yet locked" — every reservation serializes against the row.
      */
-    incrementFailedAttempts(id: string, now: Date): Promise<{ failedAttempts: number; lockedAt: Date | null }>;
+    reserveVerificationAttempt(
+        id: string,
+        now: Date,
+        lockWindowMs: number,
+        maxAttempts: number,
+    ): Promise<ReserveVerificationAttemptResult>;
     /** Tokens that expired before `cutoff`, capped at 1000 per call — the daily cleanup job
      *  drains any leftovers beyond that on its next run, so this never needs to return an
      *  unbounded set. */

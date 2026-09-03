@@ -185,40 +185,37 @@ export class ReceiptLinkTokenService {
         const unusable = this.unusableReason(row, now);
         if (unusable || !row) return { ok: false, reason: unusable ?? "not_found" };
 
-        const lockedUntil = this.lockedUntil(row, now);
-        if (lockedUntil) return { ok: false, reason: "locked", lockedUntil: lockedUntil.toISOString() };
-
         const normalized = normalizeBirthdayInput(rawInput);
         if (!normalized) return { ok: false, reason: "invalid_format" };
 
-        if (!timingSafeEqualHex(this.hashBirthday(normalized), row.expectedBirthdayHash)) {
-            // Wrong birthday. If lockedAt is still set here, a previous lock's window has fully
-            // elapsed (otherwise the early return above would have fired) — restart the counter
-            // at 1 rather than continuing the atomic increment path.
-            if (row.lockedAt) {
-                await this.repository.update(row.id, { failedAttempts: 1, lockedAt: null });
-                return {
-                    ok: false,
-                    reason: "verification_failed",
-                    remainingAttempts: RECEIPT_LINK_MAX_FAILED_ATTEMPTS - 1,
-                };
-            }
+        // Atomic: the repository decides "still locked" / "reset" / "increment (+ maybe newly
+        // lock)" all in the SAME write, never from a snapshot read before this call — two (or
+        // two hundred) concurrent guesses can never both see themselves as "not yet at the
+        // limit". No comparison happens until this reservation succeeds.
+        const reservation = await this.repository.reserveVerificationAttempt(
+            row.id,
+            now,
+            RECEIPT_LINK_LOCK_MS,
+            RECEIPT_LINK_MAX_FAILED_ATTEMPTS,
+        );
+        if (reservation.outcome === "locked") {
+            return { ok: false, reason: "locked", lockedUntil: reservation.lockedUntil.toISOString() };
+        }
 
-            // Atomic: the repository increments and decides locking based on the value it just
-            // wrote, never on `row.failedAttempts` as read above — two concurrent wrong guesses
-            // can never both see themselves as "not yet at the limit".
-            const incremented = await this.repository.incrementFailedAttempts(row.id, now);
-            if (incremented.lockedAt) {
+        if (!timingSafeEqualHex(this.hashBirthday(normalized), reservation.expectedBirthdayHash)) {
+            // This reservation's own write just tipped the counter to the limit — report locked
+            // rather than a remainingAttempts count of 0 that implies another guess is possible.
+            if (reservation.lockedAt) {
                 return {
                     ok: false,
                     reason: "locked",
-                    lockedUntil: new Date(incremented.lockedAt.getTime() + RECEIPT_LINK_LOCK_MS).toISOString(),
+                    lockedUntil: new Date(reservation.lockedAt.getTime() + RECEIPT_LINK_LOCK_MS).toISOString(),
                 };
             }
             return {
                 ok: false,
                 reason: "verification_failed",
-                remainingAttempts: RECEIPT_LINK_MAX_FAILED_ATTEMPTS - incremented.failedAttempts,
+                remainingAttempts: Math.max(0, RECEIPT_LINK_MAX_FAILED_ATTEMPTS - reservation.failedAttempts),
             };
         }
 
