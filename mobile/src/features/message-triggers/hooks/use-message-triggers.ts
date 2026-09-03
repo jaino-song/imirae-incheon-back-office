@@ -19,6 +19,7 @@ import type {
     TriggerTemplateCatalogItem,
     UpcomingMessageTriggerJob,
     UpdateMessageTriggerRuleDto,
+    UpdateMessageTriggerRuleBranchActivationDto,
 } from "../types";
 
 function normalizeArrayPayload<T>(payload: unknown): T[] {
@@ -129,6 +130,19 @@ export function useUpdateMessageTriggerRule() {
     return useMutation({
         mutationFn: ({ id, dto }: { id: string; dto: UpdateMessageTriggerRuleDto }) =>
             messageTriggersApi.update(id, dto).then((response) => response.data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
+            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+        },
+    });
+}
+
+export function useUpdateMessageTriggerRuleBranchActivation() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: ({ id, dto }: { id: string; dto: UpdateMessageTriggerRuleBranchActivationDto }) =>
+            messageTriggersApi.updateBranchActivation(id, dto).then((response) => response.data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
             queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
