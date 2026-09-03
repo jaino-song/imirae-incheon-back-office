@@ -23,12 +23,14 @@ export async function POST(request: NextRequest) {
     // Forward it verbatim on 4xx so the UI can map `reason` to copy — the shared errorResponse()
     // helper would sanitize it away.
     const upstream = (error as { response?: { status?: number; data?: unknown } })?.response;
-    logUpstreamError("API send receipt link", error);
     if (upstream && upstream.status && upstream.status >= 400 && upstream.status < 500) {
       return NextResponse.json(upstream.data ?? { error: "Failed to send receipt link" }, {
         status: getUpstreamErrorStatus(error),
       });
     }
+    // Only log unexpected failures (no upstream response, or a 5xx) — expected business
+    // rejections (not_voucher_client, missing_birthday, etc.) are routine and forwarded above.
+    logUpstreamError("API send receipt link", error);
     return NextResponse.json({ error: "Failed to send receipt link" }, { status: 500 });
   }
 }

@@ -59,4 +59,11 @@ describe("POST /api/receipt-links/send", () => {
     const response = await POST(request({ documentId: "doc-1" }));
     expect(response.status).toBe(500);
   });
+
+  it("does not forward a 5xx upstream body", async () => {
+    mockPost.mockRejectedValue({ response: { status: 502, data: { message: "at Object.<anonymous> (/app/dist/…)" } } });
+    const response = await POST(request({ documentId: "doc-1" }));
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Failed to send receipt link" });
+  });
 });

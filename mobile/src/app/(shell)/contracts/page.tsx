@@ -1628,6 +1628,7 @@ function ContractDetailContent({
         isPending={isSendingReceiptLink}
         approvalVariant="positive"
         size="compact"
+        isDescriptionVisuallyHidden={false}
       />
     </MobileDetailPage>
   );

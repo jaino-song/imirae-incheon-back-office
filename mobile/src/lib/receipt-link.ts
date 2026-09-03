@@ -14,5 +14,9 @@ export function describeReceiptLinkError(error: unknown): string {
   const reason = (error as { response?: { data?: { reason?: string; message?: string } } })?.response?.data
     ?.reason;
   const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
-  return (reason && RECEIPT_LINK_REASON_MESSAGES[reason]) || message || RECEIPT_LINK_SEND_FALLBACK_MESSAGE;
+  const mappedReasonMessage =
+    reason && Object.prototype.hasOwnProperty.call(RECEIPT_LINK_REASON_MESSAGES, reason)
+      ? RECEIPT_LINK_REASON_MESSAGES[reason]
+      : undefined;
+  return mappedReasonMessage || message || RECEIPT_LINK_SEND_FALLBACK_MESSAGE;
 }

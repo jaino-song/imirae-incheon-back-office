@@ -28,4 +28,18 @@ describe("mobile contracts action lifecycle", () => {
       "shouldOpenFinalizeIframe(fallbackHint, transportOutcomeUnknown)",
     );
   });
+
+  it("wires the receipt-link send action through a busy confirm modal", () => {
+    expect(source).toContain("setIsSendingReceiptLink(true)");
+    expect(source).toContain("disabled: isSendingReceiptLink");
+    expect(source).toContain(
+      "mobile_contracts_detail-sheet_stack_detail-page_actions_receipt-send",
+    );
+    expect(source).toContain(
+      "mobile_contracts_detail-sheet_stack_detail-page_dialogs_receipt-send-confirm",
+    );
+    expect(source).toContain(
+      "`${result.clientName} 산모님께 1분 내 발송됩니다. 링크는 30일간 유효합니다.`",
+    );
+  });
 });
