@@ -139,7 +139,7 @@ describe("EmployeeService", () => {
                 phone: "not-a-phone",
                 grade: "베스트",
                 openToNextWork: true,
-            })).rejects.toThrow("valid Korean phone number");
+            })).rejects.toThrow("올바른 국내 전화번호 형식이 아닙니다.");
 
             expect(createUsecase.execute).not.toHaveBeenCalled();
         });
@@ -304,7 +304,7 @@ describe("EmployeeService", () => {
     describe("update", () => {
         it("rejects malformed phone before invoking the update usecase or refresh", async () => {
             await expect(service.update(branchId, 1, { phone: "not-a-phone" }))
-                .rejects.toThrow("valid Korean phone number");
+                .rejects.toThrow("올바른 국내 전화번호 형식이 아닙니다.");
 
             expect(updateUsecase.execute).not.toHaveBeenCalled();
             expect(triggerService.syncEmployeeAssignmentRulesForEmployee).not.toHaveBeenCalled();

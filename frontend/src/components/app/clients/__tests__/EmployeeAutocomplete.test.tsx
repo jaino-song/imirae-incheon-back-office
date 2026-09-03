@@ -5,11 +5,13 @@ import type { Employee } from "@/hooks/useEmployees";
 
 let mockEmployees: Employee[] = [];
 const mockSetPrefillName = jest.fn();
+const mockRefetch = jest.fn();
 
 jest.mock("@/hooks/useEmployees", () => ({
   useEmployees: () => ({
     data: mockEmployees,
     isLoading: false,
+    refetch: mockRefetch,
   }),
 }));
 
@@ -47,6 +49,25 @@ describe("EmployeeAutocomplete", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockEmployees = [employee];
+  });
+
+  it("refetches the provider list when the dropdown opens", async () => {
+    render(
+      <EmployeeAutocomplete
+        value={null}
+        onChange={jest.fn()}
+        label="제공인력 1 성함"
+        allowManualInput
+        manualValue=""
+      />
+    );
+
+    expect(mockRefetch).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("combobox", { name: "제공인력 1 성함" }));
+
+    expect(await screen.findByText("일치하는 제공인력이 없습니다.")).toBeInTheDocument();
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
   it("shows the registration action without listing providers before search", async () => {

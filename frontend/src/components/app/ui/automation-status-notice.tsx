@@ -28,6 +28,27 @@ function describeSweep(automation: ClientRegistrationPolicyAutomationStatus): st
 }
 
 /**
+ * 설정 여부만으로는 웹훅이 실제로 오고 있는지 알 수 없다. 실제로 몇 건이
+ * 도착했고 그중 몇 건이 아무것도 반영하지 못했는지가, 조용히 버려지는 이벤트를
+ * 눈에 보이게 만드는 유일한 지표다. 구버전 백엔드 응답에는 없으므로 그때는
+ * 줄을 숨긴다.
+ */
+function describeWebhookTraffic(
+    automation: ClientRegistrationPolicyAutomationStatus,
+): string | null {
+    const received = automation.webhookReceived24h;
+    const dropped = automation.webhookDropped24h;
+    if (received === undefined || dropped === undefined) return null;
+    if (received === 0) {
+        return "최근 24시간 수신한 웹훅 없음 — 계약서 변경이 있었다면 eformsign 발송 이력을 확인해 주세요.";
+    }
+    if (dropped === 0) {
+        return `최근 24시간 웹훅 ${received}건 수신 — 모두 반영되었습니다.`;
+    }
+    return `최근 24시간 웹훅 ${received}건 수신 / ${dropped}건 미반영 — 미반영이 계속 늘면 상태 매핑을 확인해 주세요.`;
+}
+
+/**
  * 자동 고객 등록의 실제 트리거와 운영 상태를 안내한다. 토글 자체는 정책 스위치일
  * 뿐이고, 등록은 웹훅·주기 동기화(미러) 트리거가 현실화하므로 그 상태를 함께
  * 보여준다.
@@ -60,6 +81,14 @@ export function AutomationStatusNotice({
                     >
                         {describeWebhookDelivery(automation.webhookConfigured)}
                     </li>
+                    {describeWebhookTraffic(automation) ? (
+                        <li
+                            data-component={`${dataComponent}_status-list_webhook-traffic-item`}
+                            data-slot="automation-status-webhook-traffic"
+                        >
+                            {describeWebhookTraffic(automation)}
+                        </li>
+                    ) : null}
                     <li
                         data-component={`${dataComponent}_status-list_sweep-item`}
                         data-slot="automation-status-sweep"

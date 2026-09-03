@@ -9,6 +9,9 @@ import { MessageSenderApprovalService } from "application/services/message-sende
 import { SystemSettingController } from "interface/controllers/system-setting.controller";
 import { PublicSettingsController } from "interface/controllers/public-settings.controller";
 import { AdminAuditEventWriter } from "application/services/admin-audit-event.service";
+import { EformsignWebhookEventWriter } from "application/services/eformsign-webhook-event.service";
+import { EFORMSIGN_WEBHOOK_EVENT_REPOSITORY } from "domain/repositories/eformsign-webhook-event.repository.interface";
+import { SbEformsignWebhookEventRepository } from "infrastructure/database/repositories/sb.eformsign-webhook-event.repository";
 
 @Module({
     imports: [DatabaseModule],
@@ -20,6 +23,11 @@ import { AdminAuditEventWriter } from "application/services/admin-audit-event.se
         SystemSettingService,
         MessageSenderApprovalService,
         EformsignAutomationStatusService,
+        EformsignWebhookEventWriter,
+        {
+            provide: EFORMSIGN_WEBHOOK_EVENT_REPOSITORY,
+            useClass: SbEformsignWebhookEventRepository,
+        },
         AdminAuditEventWriter,
     ],
     exports: [GetSettingUsecase, UpdateSettingUsecase, SystemSettingService, MessageSenderApprovalService],

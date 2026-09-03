@@ -115,7 +115,7 @@ describe("EmployeeEntity", () => {
                 "not-a-phone",
                 "베스트",
                 false,
-            )).toThrow("valid Korean phone number");
+            )).toThrow("올바른 국내 전화번호 형식이 아닙니다.");
         });
 
         it("should handle empty workArea array", () => {
@@ -384,7 +384,7 @@ describe("EmployeeEntity", () => {
                     new Date("2024-01-01"),
                 );
 
-                expect(() => employee.updateProfile(undefined, undefined, "not-a-phone")).toThrow("valid Korean phone number");
+                expect(() => employee.updateProfile(undefined, undefined, "not-a-phone")).toThrow("올바른 국내 전화번호 형식이 아닙니다.");
                 expect(employee.phone).toBe("010-1111-1111");
                 expect(employee.phoneNormalized).toBe("01011111111");
             });

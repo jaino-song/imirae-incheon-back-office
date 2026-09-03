@@ -22,6 +22,11 @@ interface PwaDigestDeliveryState {
     leaseExpiresAt?: string;
 }
 
+export interface EformsignTemplateBranchMapping {
+    branchId: string;
+    effectiveFrom: Date;
+}
+
 const PWA_DIGEST_DELIVERY_PREFIX = "pwa:daily_digest:";
 const PWA_DIGEST_DELIVERY_ABSENT_VERSION = "absent";
 const PWA_DIGEST_DELIVERY_LEASE_MS = 30 * 60 * 1000;
@@ -56,6 +61,12 @@ export class SystemSettingService {
 
     private getPwaUndeliveredDigestWatermarkKey(branchId: string): string {
         return `branch:${branchId}:pwa_undelivered_digest_watermark`;
+    }
+
+    // Template-scoped, not branch-scoped: the lookup runs from a document that has no
+    // branch yet, so the template id is the only key it can ask with.
+    private getEformsignTemplateBranchKey(templateId: string): string {
+        return `eformsign:template_branch:${templateId}`;
     }
 
     async getUserEmailNotificationsEnabled(userId: string): Promise<boolean> {
@@ -219,6 +230,42 @@ export class SystemSettingService {
         return auditContext
             ? this.updateSettingUsecase.execute(key, value, auditContext)
             : this.updateSettingUsecase.execute(key, value);
+    }
+
+    async getEformsignTemplateBranch(
+        templateId: string,
+    ): Promise<EformsignTemplateBranchMapping | null> {
+        const value = await this.getSettingUsecase.execute(
+            this.getEformsignTemplateBranchKey(templateId),
+        );
+        if (!value) return null;
+        try {
+            return this.parseEformsignTemplateBranch(JSON.parse(value));
+        } catch {
+            return null;
+        }
+    }
+
+    // effectiveFrom is required, and a malformed one drops the whole mapping. The
+    // reconcile sweep re-reads every active document on each pass, so a mapping without a
+    // usable cutoff would hand the entire archive to auto-registration the first time it
+    // ran. Failing closed keeps that from being one typo away.
+    private parseEformsignTemplateBranch(
+        config: unknown,
+    ): EformsignTemplateBranchMapping | null {
+        if (typeof config !== "object" || config === null) return null;
+        const candidate = config as Partial<Record<
+            keyof EformsignTemplateBranchMapping,
+            unknown
+        >>;
+        const branchId = typeof candidate.branchId === "string"
+            ? candidate.branchId.trim()
+            : "";
+        if (branchId === "") return null;
+        if (typeof candidate.effectiveFrom !== "string") return null;
+        const effectiveFrom = new Date(candidate.effectiveFrom);
+        if (Number.isNaN(effectiveFrom.getTime())) return null;
+        return { branchId, effectiveFrom };
     }
 
     async getPwaUndeliveredDigestWatermark(branchId: string): Promise<Date | null> {

@@ -343,6 +343,17 @@ export class FinalizeDocumentHeadlessUsecase {
                         this.logger.error(`Failed to persist eformsign finalize outcome: ${error}`);
                     });
                 }
+                // An advanced document still needs a human to finish the next
+                // provider step, and the dispatch boundary keys its business key
+                // on the local row's updatedDate. Leaving the projection at the
+                // generation this call just consumed makes the very next click
+                // collide with the intent accepted above and fail closed as
+                // "dispatch_already_accepted" until an unrelated sweep happens to
+                // refresh the row. Await the refresh — unlike the completed path,
+                // the follow-up click is the whole point, so it must not race it.
+                if (this.documentMirrorService) {
+                    await this.queueMirrorSync(params.documentId, principal);
+                }
                 return { ok: true, completed: false, durationMs: result.durationMs };
             }
 
@@ -464,13 +475,16 @@ export class FinalizeDocumentHeadlessUsecase {
         // without waiting for a broad periodic reconciliation. A mirror delay
         // must not turn a confirmed vendor completion back into a UI failure.
         if (this.documentMirrorService) {
-            this.queueMirrorSync(documentId, principal);
+            void this.queueMirrorSync(documentId, principal);
         }
 
         return { ok: true, completed: true, durationMs };
     }
 
-    private queueMirrorSync(documentId: string, principal: EformsignProviderPrincipal): void {
+    private queueMirrorSync(
+        documentId: string,
+        principal: EformsignProviderPrincipal,
+    ): Promise<void> {
         const previous = this.mirrorSyncs.get(documentId) ?? Promise.resolve();
         const queued = previous
             .catch(() => undefined)
@@ -481,6 +495,7 @@ export class FinalizeDocumentHeadlessUsecase {
                 this.mirrorSyncs.delete(documentId);
             }
         });
+        return queued;
     }
 
     private async syncMirrorWithRetry(

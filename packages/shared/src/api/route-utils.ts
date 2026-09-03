@@ -12,7 +12,8 @@ class InvalidJsonBodyError extends Error {
 
 interface UpstreamErrorPayload {
     error?: string;
-    message?: string;
+    // Nest sends a string for `HttpException`s and a string[] for ValidationPipe failures.
+    message?: string | string[];
 }
 
 interface UpstreamResponseLike {
@@ -380,11 +381,29 @@ export function errorResponse(error: unknown, context: string): NextResponse {
     );
 }
 
+/**
+ * Pick the actionable half of a Nest error body. Nest puts the explanation in
+ * `message` and the bare HTTP status name ("Bad Request", "Conflict") in
+ * `error`, so reading `error` first masks every reason with a status label.
+ */
+function upstreamDisplayMessage(payload: UpstreamErrorPayload | undefined): string | undefined {
+    if (!payload) return undefined;
+
+    const message = Array.isArray(payload.message)
+        ? payload.message
+            .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+            .join(", ")
+        : payload.message;
+    if (typeof message === "string" && message.trim()) return message;
+    if (typeof payload.error === "string" && payload.error.trim()) return payload.error;
+
+    return undefined;
+}
+
 function createLegacyErrorResponse(error: unknown, context: string): NextResponse {
     const upstreamData = (error as UpstreamErrorLike).response?.data as UpstreamErrorPayload | undefined;
     const status = (error as UpstreamErrorLike).response?.status || 500;
-    const message = sanitizeSensitiveText(upstreamData?.error
-        || upstreamData?.message
+    const message = sanitizeSensitiveText(upstreamDisplayMessage(upstreamData)
         || (error instanceof Error ? error.message : `Failed to ${context}`));
 
     console.error(`[${context}] Error:`, message);
