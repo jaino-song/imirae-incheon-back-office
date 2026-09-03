@@ -9,6 +9,7 @@ import {
     EFORMSIGN_WEBHOOK_EVENT_REPOSITORY,
     IEformsignWebhookEventRepository,
 } from "domain/repositories/eformsign-webhook-event.repository.interface";
+import { getPrismaErrorCode } from "infrastructure/database/prisma-error.utils";
 
 export interface EformsignWebhookEventInput {
     webhookId?: string | null;
@@ -90,8 +91,12 @@ export class EformsignWebhookEventWriter {
                 outcomeReason: clip(input.outcomeReason, COLUMN_LIMITS.outcomeReason),
             });
         } catch (error) {
+            const errorCode = getPrismaErrorCode(error);
+            const safeSummary = errorCode
+                ? `database append failed (code=${errorCode})`
+                : "database append failed";
             this.logger.warn(
-                `Failed to record eformsign webhook event for ${input.documentId ?? "unknown document"}: ${error}`,
+                `Failed to record eformsign webhook event for ${input.documentId ?? "unknown document"}: ${safeSummary}`,
             );
         }
     }

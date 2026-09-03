@@ -1,4 +1,5 @@
 import { Logger } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 
 import { EformsignWebhookEventWriter } from "application/services/eformsign-webhook-event.service";
 import { EFORMSIGN_WEBHOOK_OUTCOME } from "domain/constants/eformsign-webhook-outcome.constants";
@@ -33,6 +34,33 @@ describe("EformsignWebhookEventWriter", () => {
         await expect(
             writer.append({ documentId: "doc-1", outcome: EFORMSIGN_WEBHOOK_OUTCOME.APPLIED }),
         ).resolves.toBeUndefined();
+    });
+
+    it("logs a safe database error summary when the insert fails", async () => {
+        const error = new Prisma.PrismaClientKnownRequestError(
+            "Invalid invocation with phone 010-1234-5678",
+            {
+                code: "P2002",
+                clientVersion: "6.19.2",
+                meta: { target: ["sensitive@example.com"] },
+            },
+        );
+        append.mockRejectedValue(error);
+
+        await writer.append({
+            webhookId: "webhook-1",
+            documentId: "doc-1",
+            outcome: EFORMSIGN_WEBHOOK_OUTCOME.APPLIED,
+        });
+
+        const loggedPayload = JSON.stringify(
+            jest.mocked(Logger.prototype.warn).mock.calls,
+        );
+        expect(Logger.prototype.warn).toHaveBeenCalledWith(
+            "Failed to record eformsign webhook event for doc-1: database append failed (code=P2002)",
+        );
+        expect(loggedPayload).not.toContain("010-1234-5678");
+        expect(loggedPayload).not.toContain("sensitive@example.com");
     });
 
     /**
