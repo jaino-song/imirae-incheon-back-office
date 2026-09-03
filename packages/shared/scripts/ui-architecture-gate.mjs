@@ -22,6 +22,7 @@ function parseArgs(argv) {
   const parsed = {
     platform: undefined,
     update: false,
+    acceptGrowth: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -29,6 +30,11 @@ function parseArgs(argv) {
 
     if (arg === "--update") {
       parsed.update = true;
+      continue;
+    }
+
+    if (arg === "--accept-growth") {
+      parsed.acceptGrowth = true;
       continue;
     }
 
@@ -683,11 +689,21 @@ function main() {
   const comparison = compareViolations(current, baseline, platforms);
 
   if (args.update) {
-    if (comparison.growth.length > 0) {
-      printDeltas(
-        "Warning: baseline update includes growth. This should only happen in reviewed commits:",
-        comparison.growth,
+    if (comparison.growth.length > 0 && !args.acceptGrowth) {
+      // A bare --update used to write the baseline anyway after a warning, which
+      // made "add 30 real violations, run --update, CI is green" indistinguishable
+      // from a legitimate re-anchor. The tool cannot tell a relocation from new
+      // debt on its own, so the person updating has to say so explicitly.
+      printDeltas("Refusing to update: the baseline would grow by these entries:", comparison.growth);
+      console.error(
+        "If every entry above is a relocation of existing debt (same source, moved lines) or " +
+          "reviewed new debt, re-run with --update --accept-growth in a reviewed commit.",
       );
+      process.exitCode = 1;
+      return;
+    }
+    if (comparison.growth.length > 0) {
+      printDeltas("Accepting baseline growth (--accept-growth):", comparison.growth);
     }
 
     const legacyPlatforms =
@@ -743,7 +759,7 @@ function main() {
       `\nNew UI architecture violations are not allowed. Read ${RULES_DOC_PATH} and ` +
         `fix the page, or -- only once you have confirmed the findings are unchanged in ` +
         `kind and count -- re-anchor ${BASELINE_PATH} in a reviewed commit with ` +
-        `"node packages/shared/scripts/ui-architecture-gate.mjs --update".`,
+        `"node packages/shared/scripts/ui-architecture-gate.mjs --update --accept-growth".`,
     );
     process.exitCode = 1;
     return;
