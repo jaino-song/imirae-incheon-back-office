@@ -69,6 +69,7 @@ import { ContractAutomationsManager } from "@/components/app/contracts/ContractA
 import type { StatusType } from "@/components/app/v3";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { ClientFormDialog } from "@/components/app/clients/ClientFormDialog";
+import { ReceiptSendConfirmDialog } from "@/components/app/contracts/ReceiptSendConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -101,6 +102,7 @@ import {
   extractReRequestEvents,
 } from "@/lib/eformsign/document-details";
 import { resolveDocumentCustomerName } from "@/lib/eformsign/display-name";
+import { describeReceiptLinkError } from "@/lib/receipt-link";
 import { formatIsoDateInput } from "@/lib/date/format-iso-input";
 import { useAllVoucherPriceInfos } from "@/hooks/useVoucherData";
 import { inferVoucherDurationFromAmounts } from "@/lib/voucher/duration";
@@ -203,6 +205,11 @@ function matchesDocumentStatusTab(doc: EformsignDocument, tab: string): boolean 
 function formatDate(timestamp: number): string {
   return formatDateForDisplay(timestamp);
 }
+
+// The on-screen fallback for an unresolved customer name (see `customerName` below).
+// Off-screen copy — e.g. the receipt-link send confirmation's "OO 산모님께 …" — must
+// treat this as "no name" rather than pass the dash through as a literal name.
+const CUSTOMER_NAME_PLACEHOLDER = "–";
 
 function formatDateTime(timestamp: number): string {
   return new Date(timestamp).toLocaleString("ko-KR", {
@@ -1146,7 +1153,7 @@ function ContractDetail({
   const detailedDocument = detailQuery.data ?? doc;
   const isBaseDetailLoading = detailQuery.isFetching || detailQuery.isPlaceholderData;
   const mappedCustomerName = documentClientSummary?.clientName.trim();
-  const customerName = resolveDocumentCustomerName(detailedDocument, mappedCustomerName) || "–";
+  const customerName = resolveDocumentCustomerName(detailedDocument, mappedCustomerName) || CUSTOMER_NAME_PLACEHOLDER;
   const isServiceRecordDocument = reviewAction === "preview";
   const serviceRecordQuery = useClientServiceRecords(documentClientSummary?.clientId ?? null, {
     enabled: isServiceRecordDocument,
@@ -1168,6 +1175,7 @@ function ContractDetail({
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>("document");
   const [isReRequestDialogOpen, setIsReRequestDialogOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [receiptSendTarget, setReceiptSendTarget] = useState<{ id: string; customerName: string } | null>(null);
   const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [isFinalizeOpen, setIsFinalizeOpen] = useState(false);
   const [isServiceRecordFinalizeConfirmOpen, setIsServiceRecordFinalizeConfirmOpen] = useState(false);
@@ -1527,6 +1535,25 @@ function ContractDetail({
         variant: "destructive",
         title: "최종 확인을 마치지 못했어요",
         description: error instanceof Error ? error.message : "잠시 후 다시 시도해 주세요",
+      });
+    },
+  });
+
+  const sendReceiptLink = useMutation({
+    mutationFn: (documentId: string) => eformsignApi.sendReceiptLink(documentId),
+    onSuccess: (result) => {
+      setReceiptSendTarget(null);
+      toast({
+        variant: "success",
+        title: "서비스 종료 안내 발송 예약",
+        description: `${result.clientName} 산모님께 1분 내 발송됩니다. 링크는 30일간 유효합니다.`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        variant: "destructive",
+        title: "영수증 문자를 보내지 못했습니다",
+        description: describeReceiptLinkError(error),
       });
     },
   });
@@ -2258,6 +2285,25 @@ function ContractDetail({
             : undefined
         }
         isReviewConfirming={isFinalizePending}
+        onSendReceiptLink={() =>
+          setReceiptSendTarget({
+            id: detailedDocument.id,
+            customerName: customerName === CUSTOMER_NAME_PLACEHOLDER ? "" : customerName,
+          })
+        }
+        isSendingReceiptLink={sendReceiptLink.isPending}
+      />
+      <ReceiptSendConfirmDialog
+        open={receiptSendTarget !== null}
+        customerName={receiptSendTarget?.customerName ?? ""}
+        isPending={sendReceiptLink.isPending}
+        onConfirm={() => receiptSendTarget && sendReceiptLink.mutate(receiptSendTarget.id)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReceiptSendTarget(null);
+          }
+        }}
+        dataComponent={dataComponent}
       />
     </DetailPanel>
   );
