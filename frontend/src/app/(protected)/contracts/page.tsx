@@ -69,6 +69,7 @@ import { ContractAutomationsManager } from "@/components/app/contracts/ContractA
 import type { StatusType } from "@/components/app/v3";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { ClientFormDialog } from "@/components/app/clients/ClientFormDialog";
+import { ReceiptSendConfirmDialog } from "@/components/app/contracts/ReceiptSendConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -204,6 +205,11 @@ function matchesDocumentStatusTab(doc: EformsignDocument, tab: string): boolean 
 function formatDate(timestamp: number): string {
   return formatDateForDisplay(timestamp);
 }
+
+// The on-screen fallback for an unresolved customer name (see `customerName` below).
+// Off-screen copy — e.g. the receipt-link send confirmation's "OO 산모님께 …" — must
+// treat this as "no name" rather than pass the dash through as a literal name.
+const CUSTOMER_NAME_PLACEHOLDER = "–";
 
 function formatDateTime(timestamp: number): string {
   return new Date(timestamp).toLocaleString("ko-KR", {
@@ -1147,7 +1153,7 @@ function ContractDetail({
   const detailedDocument = detailQuery.data ?? doc;
   const isBaseDetailLoading = detailQuery.isFetching || detailQuery.isPlaceholderData;
   const mappedCustomerName = documentClientSummary?.clientName.trim();
-  const customerName = resolveDocumentCustomerName(detailedDocument, mappedCustomerName) || "–";
+  const customerName = resolveDocumentCustomerName(detailedDocument, mappedCustomerName) || CUSTOMER_NAME_PLACEHOLDER;
   const isServiceRecordDocument = reviewAction === "preview";
   const serviceRecordQuery = useClientServiceRecords(documentClientSummary?.clientId ?? null, {
     enabled: isServiceRecordDocument,
@@ -2279,44 +2285,26 @@ function ContractDetail({
             : undefined
         }
         isReviewConfirming={isFinalizePending}
-        onSendReceiptLink={() => setReceiptSendTarget({ id: detailedDocument.id, customerName })}
+        onSendReceiptLink={() =>
+          setReceiptSendTarget({
+            id: detailedDocument.id,
+            customerName: customerName === CUSTOMER_NAME_PLACEHOLDER ? "" : customerName,
+          })
+        }
         isSendingReceiptLink={sendReceiptLink.isPending}
       />
-      <Dialog
+      <ReceiptSendConfirmDialog
         open={receiptSendTarget !== null}
+        customerName={receiptSendTarget?.customerName ?? ""}
+        isPending={sendReceiptLink.isPending}
+        onConfirm={() => receiptSendTarget && sendReceiptLink.mutate(receiptSendTarget.id)}
         onOpenChange={(open) => {
-          if (!open && !sendReceiptLink.isPending) {
+          if (!open) {
             setReceiptSendTarget(null);
           }
         }}
-      >
-        <DialogContent data-component={`${dataComponent}_dialogs_receipt-send-confirm`}>
-          <DialogHeader>
-            <DialogTitle>서비스 종료 안내 문자를 보낼까요?</DialogTitle>
-            <DialogDescription>
-              {receiptSendTarget?.customerName ? `${receiptSendTarget.customerName} 산모님께 ` : ""}
-              본인부담금 영수증 링크가 담긴 문자를 1분 내 발송합니다. 링크는 30일간 유효하며, 산모님이 생년월일로 본인 확인 후 열람합니다.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setReceiptSendTarget(null)}
-              disabled={sendReceiptLink.isPending}
-            >
-              취소
-            </Button>
-            <Button
-              variant="positive"
-              onClick={() => receiptSendTarget && sendReceiptLink.mutate(receiptSendTarget.id)}
-              disabled={sendReceiptLink.isPending}
-              data-component={`${dataComponent}_dialogs_receipt-send-confirm_submit`}
-            >
-              {sendReceiptLink.isPending ? "발송 예약 중…" : "발송하기"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        dataComponent={dataComponent}
+      />
     </DetailPanel>
   );
 }

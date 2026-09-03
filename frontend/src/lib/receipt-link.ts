@@ -15,10 +15,17 @@ export const RECEIPT_LINK_SEND_FALLBACK_MESSAGE = "영수증 문자 발송에 �
  * reason, e.g. the 403 sender-approval case), then a generic fallback.
  */
 export function describeReceiptLinkError(error: unknown): string {
-  const data = (error as { response?: { data?: { reason?: string; message?: string } } })?.response?.data;
+  const data = (error as { response?: { data?: { reason?: unknown; message?: unknown } } })?.response?.data;
   const reason = data?.reason;
-  if (reason && RECEIPT_LINK_REASON_MESSAGES[reason]) {
+  if (
+    typeof reason === "string" &&
+    Object.prototype.hasOwnProperty.call(RECEIPT_LINK_REASON_MESSAGES, reason)
+  ) {
     return RECEIPT_LINK_REASON_MESSAGES[reason];
   }
-  return data?.message || RECEIPT_LINK_SEND_FALLBACK_MESSAGE;
+  const message = data?.message;
+  if (typeof message === "string" && message) {
+    return message;
+  }
+  return RECEIPT_LINK_SEND_FALLBACK_MESSAGE;
 }
