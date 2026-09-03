@@ -41,4 +41,13 @@ export const systemScopeImportAllowlist = [
     // it — the same shape as TenantGuard's own bypass above. See the class
     // comment on SbReceiptLinkTokenRepository.
     "infrastructure/database/repositories/sb.receipt-link-token.repository.ts",
+    // SbMessageTriggerRuleRepository.ensureSystemRule upserts the global
+    // system:service_end_notice rule row (branchId: null by design — it is
+    // the branch-less fence row the scheduler's per-rule dispatch checks
+    // against, never a per-branch automation) from ReceiptLinkManualSendService's
+    // HTTP request path. It is written lazily on first manual send rather
+    // than at boot/migration time, so the write genuinely happens inline in
+    // a request with no branchId to scope it to — the same shape as
+    // SbReceiptLinkTokenRepository's bypass above.
+    "infrastructure/database/repositories/sb.message-trigger-rule.repository.ts",
 ];

@@ -45,9 +45,20 @@ describe("ReceiptLinkDeliveryEnricher", () => {
 
         await enricher.enrich(job);
 
-        expect(issueService.issue).toHaveBeenCalledWith({ branchId: "11111111-1111-1111-1111-111111111111", clientId: 7, source: "auto_trigger", jobId: "job-9" });
+        expect(issueService.issue).toHaveBeenCalledWith({ branchId: "11111111-1111-1111-1111-111111111111", clientId: 7, source: "auto_trigger", jobId: "job-9", createdBy: null });
         expect(job.payload.templateVariables["receiptUrl"]).toBe("https://m.admin.example/receipt/efr_1");
         expect(job.payload.buttonUrl).toBe("https://m.admin.example/receipt/efr_1");
+    });
+
+    it("passes the payload's sentByUserId through as createdBy when present", async () => {
+        const issueService = { issue: jest.fn().mockResolvedValue({ url: "u", tokenId: "t", expiresAt: new Date() }) };
+        const enricher = new ReceiptLinkDeliveryEnricher(new SmsTriggerPayloadEnricherRegistry(), issueService as never);
+        const job = makeJob("rule-1:client:7");
+        job.payload.sentByUserId = "user-1";
+
+        await enricher.enrich(job);
+
+        expect(issueService.issue).toHaveBeenCalledWith(expect.objectContaining({ createdBy: "user-1" }));
     });
 
     it("marks manual sends by their dedupe key", async () => {
