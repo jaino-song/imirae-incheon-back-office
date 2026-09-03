@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
 type Status = {
@@ -37,27 +37,74 @@ export default function ReceiptLinkPage() {
     const [screen, setScreen] = useState<Screen>({ kind: "loading" });
     const [birthday, setBirthday] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
+    // Cache-busting suffix for the receipt <img> src, set once (and only once — see
+    // handleImageError) after a transient image load failure to trigger a single retry.
+    const [imageRetryParam, setImageRetryParam] = useState("");
+
+    // True while this component instance is mounted. Every async transition below checks
+    // this after each await before calling setState, so a fetch that resolves after
+    // unmount (route change, fast test teardown) never touches state on a dead component.
+    const mountedRef = useRef(true);
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+        };
+    }, []);
+
+    // Shared by the mount effect below and handleImageError's 401 branch: a stale/cleared
+    // access cookie surfaces on /status too, so re-running the same check re-renders the
+    // right screen (verify/expired/locked/invalid).
+    const loadStatus = useCallback(async () => {
+        try {
+            const response = await fetch(api("/status"), { cache: "no-store" });
+            if (!mountedRef.current) return;
+            if (response.status === 410) return setScreen({ kind: "expired" });
+            if (!response.ok) return setScreen({ kind: "invalid" });
+            const status = (await response.json()) as Status;
+            if (!mountedRef.current) return;
+            const branchName = status.branchName || BRANCH_FALLBACK;
+            if (status.lockedUntil) return setScreen({ kind: "locked", branchName, lockedUntil: status.lockedUntil });
+            setScreen({ kind: "verify", branchName, remainingAttempts: status.remainingAttempts, error: null });
+        } catch {
+            if (!mountedRef.current) return;
+            setScreen({ kind: "invalid" });
+        }
+    }, [api]);
 
     useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            try {
-                const response = await fetch(api("/status"), { cache: "no-store" });
-                if (cancelled) return;
-                if (response.status === 410) return setScreen({ kind: "expired" });
-                if (!response.ok) return setScreen({ kind: "invalid" });
-                const status = (await response.json()) as Status;
-                const branchName = status.branchName || BRANCH_FALLBACK;
-                if (status.lockedUntil) return setScreen({ kind: "locked", branchName, lockedUntil: status.lockedUntil });
-                setScreen({ kind: "verify", branchName, remainingAttempts: status.remainingAttempts, error: null });
-            } catch {
-                if (!cancelled) setScreen({ kind: "invalid" });
+        void loadStatus();
+    }, [loadStatus]);
+
+    // The <img>'s error event carries no status code, and /status doesn't consult the
+    // access cookie (it's public/unauthenticated) — so it can't tell a revoked link apart
+    // from a transient 5xx on an otherwise-healthy session. Probe the image endpoint
+    // itself instead: 401 means the access cookie is stale/absent (re-challenge, same as
+    // any other 401 elsewhere on this page); 410 means the link expired; anything else
+    // (5xx, a thrown network error) is treated as transient — stay on the image screen and
+    // retry the <img> exactly once via a cache-busting query param. imageRetryParam being
+    // already set doubles as the "already retried" guard, so a second error (e.g. the
+    // retried load also failing) does not fetch or retry again — there is no copy for a
+    // broken-image state yet, so the image is simply left alone after that.
+    const handleImageError = useCallback(async () => {
+        if (screen.kind !== "image" || imageRetryParam) return;
+        try {
+            const response = await fetch(`${api("/image")}${imageRetryParam}`);
+            if (!mountedRef.current) return;
+            if (response.status === 401) {
+                void loadStatus();
+                return;
             }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [api]);
+            if (response.status === 410) {
+                setScreen({ kind: "expired" });
+                return;
+            }
+            setImageRetryParam("?r=1");
+        } catch {
+            if (!mountedRef.current) return;
+            setImageRetryParam("?r=1");
+        }
+    }, [api, imageRetryParam, loadStatus, screen.kind]);
 
     const submit = async () => {
         if (screen.kind !== "verify" || isSubmitting) return;
@@ -176,7 +223,7 @@ export default function ReceiptLinkPage() {
                     >
                         {screen.kind === "verify" && screen.remainingAttempts < MAX_ATTEMPTS ? "다시 확인하기" : "확인하기"}
                     </button>
-                    {screen.kind === "verify" && screen.remainingAttempts < MAX_ATTEMPTS ? (
+                    {screen.kind === "locked" || (screen.kind === "verify" && screen.remainingAttempts < MAX_ATTEMPTS) ? (
                         <p className="rcpt-warn">
                             5회 연속 틀리면 30분 동안 확인이 잠깁니다. 계약서에 적힌 산모님 생년월일과 같은지 확인해 주세요.
                         </p>
@@ -195,13 +242,19 @@ export default function ReceiptLinkPage() {
                         <h2>{screen.clientName} 산모님 영수증</h2>
                         <span className="rcpt-chip">확인 완료</span>
                     </div>
-                    <img className="rcpt-img" src={api("/image")} alt={`${screen.clientName} 산모님 본인부담금 영수증`} />
+                    <img
+                        className="rcpt-img"
+                        src={`${api("/image")}${imageRetryParam}`}
+                        alt={`${screen.clientName} 산모님 본인부담금 영수증`}
+                        onError={() => void handleImageError()}
+                    />
                     <a
-                        className="rcpt-btn"
+                        className="rcpt-btn rcpt-btn-icon"
                         href={api("/image?download=1")}
                         download
                         data-component="mobile_receipt_public-page_image_save"
                     >
+                        <DownloadIcon />
                         이미지 저장
                     </a>
                 </section>
@@ -209,6 +262,7 @@ export default function ReceiptLinkPage() {
 
             {screen.kind === "expired" ? (
                 <section className="rcpt-card" data-component="mobile_receipt_public-page_expired">
+                    <ClockIcon />
                     <h2>링크 유효기간이 지났습니다</h2>
                     <p className="rcpt-desc">
                         영수증 링크는 문자 발송일로부터 30일간 열어보실 수 있습니다. 영수증이 다시 필요하시면 인천 아이미래로에
@@ -228,6 +282,29 @@ export default function ReceiptLinkPage() {
 
             <Styles />
         </main>
+    );
+}
+
+function ClockIcon() {
+    return (
+        <svg className="rcpt-icon rcpt-icon-clock" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
+            <path d="M12 7v5l3.5 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+    );
+}
+
+function DownloadIcon() {
+    return (
+        <svg className="rcpt-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+                d="M12 4v10m0 0-3.5-3.5M12 14l3.5-3.5M5 18h14"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </svg>
     );
 }
 
@@ -251,6 +328,9 @@ function Styles() {
 .rcpt-err{margin:10px 0 0;color:var(--err);font-weight:700}
 .rcpt-btn{display:block;width:100%;margin-top:16px;border:0;border-radius:12px;padding:14px 16px;background:var(--primary);color:#fff;font-size:15px;font-weight:700;text-align:center;text-decoration:none}
 .rcpt-btn:disabled{opacity:.5}
+.rcpt-btn-icon{display:flex;align-items:center;justify-content:center;gap:6px}
+.rcpt-icon{width:18px;height:18px;flex-shrink:0}
+.rcpt-icon-clock{width:28px;height:28px;color:var(--muted);margin-bottom:8px}
 .rcpt-info,.rcpt-warn{margin:14px 0 0;padding:12px 14px;border-radius:12px;background:var(--soft);font-size:13px;color:var(--muted)}
 .rcpt-warn{color:var(--err);background:#fdf1f5}
 .rcpt-titlerow{display:flex;align-items:center;justify-content:space-between;gap:8px}

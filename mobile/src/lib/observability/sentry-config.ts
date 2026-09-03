@@ -20,6 +20,11 @@ const SECRET_ASSIGNMENT_PATTERN =
   /((?:password|token|secret|api[_-]?key|authorization)\s*[:=]\s*)[^\s,;]+/gi;
 const SERVICE_RECORD_ACCESS_TOKEN_PATTERN =
   /(\/(?:api\/)?service-record\/(?:link\/)?)[^/?#\s]+/gi;
+// The mother-facing public receipt link (spec §4.2/§5.5): /receipt/<token> and
+// /api/receipt/<token>/status|image. The literal "receipt/" (slash required right
+// after "receipt") does not match "/api/receipt-links/send" — that admin route's
+// documentId body isn't part of the URL, so it's fine to leave unredacted here.
+const RECEIPT_LINK_TOKEN_PATTERN = /(\/(?:api\/)?receipt\/)[^/?#\s]+/gi;
 const SERVICE_RECORD_RESOURCE_ID_PATTERN =
   /(\/(?:api\/)?(?:admin\/service-records\/(?:client|schedules)|schedule-change-requests\/schedules)\/)[^/?#\s]+/gi;
 const SERVICE_RECORD_SESSION_ID_PATTERN =
@@ -56,6 +61,7 @@ export function sanitizeSentryText(value: string): string {
     .replace(SERVICE_RECORD_ACCESS_TOKEN_PATTERN, `$1${FILTERED_VALUE}`)
     .replace(SERVICE_RECORD_RESOURCE_ID_PATTERN, `$1${FILTERED_VALUE}`)
     .replace(SERVICE_RECORD_SESSION_ID_PATTERN, `$1${FILTERED_VALUE}`)
+    .replace(RECEIPT_LINK_TOKEN_PATTERN, `$1${FILTERED_VALUE}`)
     .replace(UUID_PATH_SEGMENT_PATTERN, `/${FILTERED_VALUE}`);
 }
 

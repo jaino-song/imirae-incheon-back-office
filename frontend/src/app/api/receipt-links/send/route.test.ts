@@ -148,18 +148,23 @@ describe("POST /api/receipt-links/send", () => {
     expect(await response.json()).toEqual({ message: "메시지 발송 권한 승인이 필요합니다." });
   });
 
-  it("does not leak internal upstream fields (stack, code) for a 500 boundary error", async () => {
-    // No `error`/`message` string on the upstream body, so errorResponse()'s legacy
-    // formatter has nothing upstream-sourced to surface and falls back to its own
-    // generic "Failed to <context>" text — the only shape a 5xx not caught by the
-    // 4xx pass-through branch should ever produce.
+  it("does not leak internal upstream fields (message, code) for a 500 boundary error", async () => {
+    // The upstream body carries a Prisma-stack-like `message` — the exact shape
+    // errorResponse()'s legacy-message mode would surface verbatim (minus token/email
+    // scrubbing). The 5xx path must never call errorResponse(); it must log via
+    // logUpstreamError() and always respond with the fixed generic message, matching
+    // the mobile twin (mobile/src/app/api/receipt-links/send/route.ts).
     mockPost.mockRejectedValue(
       new AxiosError("Request failed with status code 500", "ERR_BAD_RESPONSE", undefined, undefined, {
         status: 500,
         statusText: "Internal Server Error",
         headers: {},
         config: { headers: new AxiosHeaders() },
-        data: { stack: "at Foo.bar (/srv/app/internal.ts:42:9)", internalCode: "DB_TIMEOUT" },
+        data: {
+          message:
+            "PrismaClientKnownRequestError: Invalid `prisma.document.findUnique()` invocation at /srv/app/dist/services/document.js:142:19 — Can't reach database server at `db-primary.internal:5432`",
+          internalCode: "DB_TIMEOUT",
+        },
       }),
     );
 
@@ -167,13 +172,14 @@ describe("POST /api/receipt-links/send", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(500);
-    expect(payload).toEqual({ error: "Request failed with status code 500" });
+    expect(payload).toEqual({ error: "Failed to send receipt link" });
     const serialized = JSON.stringify(payload);
     expect(serialized).not.toContain("DB_TIMEOUT");
-    expect(serialized).not.toContain("internal.ts");
+    expect(serialized).not.toContain("db-primary.internal");
+    expect(serialized).not.toContain("/srv/app/dist");
   });
 
-  it("does not leak an HTML upstream body for a 502", async () => {
+  it("does not leak an HTML upstream body for a 502, normalized to a fixed 500", async () => {
     mockPost.mockRejectedValue(
       new AxiosError("Request failed with status code 502", "ERR_BAD_RESPONSE", undefined, undefined, {
         status: 502,
@@ -187,19 +193,37 @@ describe("POST /api/receipt-links/send", () => {
     const response = await POST(createRequest());
     const payload = await response.json();
 
-    expect(response.status).toBe(502);
-    expect(payload).toEqual({ error: "Request failed with status code 502" });
+    expect(response.status).toBe(500);
+    expect(payload).toEqual({ error: "Failed to send receipt link" });
     const serialized = JSON.stringify(payload);
     expect(serialized).not.toContain("<html>");
     expect(serialized).not.toContain("internal only");
   });
 
-  it("falls back to a 500 with the error's own message for a non-Axios failure", async () => {
-    mockPost.mockRejectedValue(new Error("network down"));
+  it("falls back to the fixed 500 message for a non-Axios failure (never leaks error.message)", async () => {
+    mockPost.mockRejectedValue(new Error("connect ECONNREFUSED db-primary.internal:5432"));
 
     const response = await POST(createRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "network down" });
+    expect(await response.json()).toEqual({ error: "Failed to send receipt link" });
+  });
+
+  it("falls back to the fixed 500 message when request.text() itself rejects (never leaks error.message) (M5)", async () => {
+    // invalidJsonResponse() only handles malformed-JSON bodies (InvalidJsonBodyError) —
+    // a genuine transport/stream failure from request.text() is a different error type,
+    // for which invalidJsonResponse() returns null. Before the fix, that fell through to
+    // errorResponse() (bound in legacy-message mode for this route), which would surface
+    // error.message verbatim into the response body.
+    const request = createRequest();
+    jest.spyOn(request, "text").mockRejectedValue(new Error("stream reset by db-primary.internal:5432"));
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(payload).toEqual({ error: "Failed to send receipt link" });
+    expect(mockPost).not.toHaveBeenCalled();
+    expect(JSON.stringify(payload)).not.toContain("db-primary.internal");
   });
 });

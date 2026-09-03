@@ -46,4 +46,14 @@ describe("describeReceiptLinkError", () => {
     expect(result).not.toEqual(expect.any(Function));
     expect(result).toBe(RECEIPT_LINK_SEND_FALLBACK_MESSAGE);
   });
+
+  it("falls back to the generic message when the server message is an array (nest-style validation errors)", () => {
+    const error = { response: { data: { message: ["birthday must be a string"] } } };
+    expect(describeReceiptLinkError(error)).toBe(RECEIPT_LINK_SEND_FALLBACK_MESSAGE);
+  });
+
+  it("falls back to the generic message when the server message is an object", () => {
+    const error = { response: { data: { message: { detail: "unexpected shape" } } } };
+    expect(describeReceiptLinkError(error)).toBe(RECEIPT_LINK_SEND_FALLBACK_MESSAGE);
+  });
 });
