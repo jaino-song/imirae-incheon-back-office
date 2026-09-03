@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { Prisma } from "@prisma/client";
+import { runSystemScope } from "infrastructure/tenant/run-system-scope";
 import { IMessageTriggerRuleRepository } from "domain/repositories/message-trigger-rule.repository.interface";
 import { MessageTriggerRuleEntity } from "domain/entities/message-trigger-rule.entity";
 import {
@@ -291,23 +292,30 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
     }
 
     async ensureSystemRule(rule: MessageTriggerRuleEntity, transaction?: Prisma.TransactionClient): Promise<void> {
-        await (transaction ?? this.prisma).message_trigger_rule.upsert({
-            where: { id: rule.id },
-            create: {
-                id: rule.id,
-                branchId: null,
-                name: rule.name,
-                isActive: rule.isActive,
-                eventType: rule.eventType,
-                offsetType: rule.offsetType,
-                offsetDays: rule.offsetDays,
-                recipientType: rule.recipientType,
-                templateKey: rule.templateKey,
-                isDefault: rule.isDefault,
-                jobsStale: rule.jobsStale,
-            },
-            update: {},
-        });
+        // Writes a branchless (branchId: null) system rule row from an HTTP request path
+        // (ReceiptLinkManualSendService.send). The tenant-isolation extension would otherwise
+        // flag both the unpinned `where: { id }` lookup and the `branchId: null` create as
+        // violations, so this deliberately and explicitly bypasses per-branch isolation for
+        // just this upsert. See eslint.system-scope.allowlist.mjs for the matching entry.
+        await runSystemScope(() =>
+            (transaction ?? this.prisma).message_trigger_rule.upsert({
+                where: { id: rule.id },
+                create: {
+                    id: rule.id,
+                    branchId: null,
+                    name: rule.name,
+                    isActive: rule.isActive,
+                    eventType: rule.eventType,
+                    offsetType: rule.offsetType,
+                    offsetDays: rule.offsetDays,
+                    recipientType: rule.recipientType,
+                    templateKey: rule.templateKey,
+                    isDefault: rule.isDefault,
+                    jobsStale: rule.jobsStale,
+                },
+                update: {},
+            }),
+        );
     }
 
     async clearJobsStaleIfUnchanged(

@@ -28,6 +28,7 @@ export class ReceiptLinkDeliveryEnricher implements SmsTriggerPayloadEnricher, O
             clientId: job.clientId,
             source: job.dedupeKey.includes(MANUAL_DEDUPE_MARKER) ? "manual" : "auto_trigger",
             jobId: job.id,
+            createdBy: job.payload.sentByUserId ?? null,
             ...(typeof existingUrl === "string" && existingUrl.length > 0 ? { existingUrl } : {}),
         });
         job.payload.templateVariables["receiptUrl"] = issued.url;

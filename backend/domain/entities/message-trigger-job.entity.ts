@@ -42,6 +42,8 @@ export interface MessageTriggerJobPayload {
     buttonUrl?: string | null;
     messageBody?: string | null;
     catchUp?: MessageTriggerCatchUpMetadata;
+    /** The staff user who triggered a manual send, when applicable. Absent for automatic jobs. */
+    sentByUserId?: string | null;
 }
 
 export class MessageTriggerJobEntity {

@@ -1,6 +1,12 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
-import { MessageTriggerRecipientType, MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
-import { SERVICE_END_NOTICE_RULE_ID } from "domain/constants/service-end-notice-message";
+import {
+    MessageTriggerEventType,
+    MessageTriggerOffsetType,
+    MessageTriggerRecipientType,
+    MessageTriggerTemplateKey,
+} from "domain/constants/message-trigger-catalog";
+import { SERVICE_END_NOTICE_RULE_ID, SERVICE_END_NOTICE_SMS_TITLE } from "domain/constants/service-end-notice-message";
+import { MANUAL_DEDUPE_MARKER } from "application/services/receipt-link-delivery-enricher.service";
 import { ReceiptLinkSkipError } from "application/services/receipt-link-issue.service";
 import { ReceiptLinkManualSendService } from "application/services/receipt-link-manual-send.service";
 
@@ -39,7 +45,15 @@ describe("ReceiptLinkManualSendService", () => {
             expect.objectContaining({
                 id: SERVICE_END_NOTICE_RULE_ID,
                 branchId: null,
+                name: `${SERVICE_END_NOTICE_SMS_TITLE} (수동 발송)`,
+                isActive: true,
+                eventType: MessageTriggerEventType.SERVICE_END,
+                offsetType: MessageTriggerOffsetType.SAME_DAY,
+                offsetDays: 0,
+                recipientType: MessageTriggerRecipientType.CLIENT,
                 templateKey: MessageTriggerTemplateKey.SERVICE_END_NOTICE,
+                isDefault: false,
+                jobsStale: false,
             }),
         );
         const job = jobRepository.upsertPending.mock.calls[0]![0] as any;
@@ -48,8 +62,8 @@ describe("ReceiptLinkManualSendService", () => {
         expect(job.clientId).toBe(7);
         expect(job.recipientType).toBe(MessageTriggerRecipientType.CLIENT);
         expect(job.recipientPhone).toBe("01012345678");
-        expect(job.dedupeKey).toMatch(new RegExp(`^${SERVICE_END_NOTICE_RULE_ID}:client:7:manual:`));
-        expect(job.payload).toMatchObject({ clientId: 7, clientName: "김산모", memberId: "client:7", recipientName: "김산모", recipientPhone: "01012345678", templateVariables: { name: "김산모", clientName: "김산모", phone: "01012345678" } });
+        expect(job.dedupeKey).toMatch(new RegExp(`^${SERVICE_END_NOTICE_RULE_ID}:client:7${MANUAL_DEDUPE_MARKER}`));
+        expect(job.payload).toMatchObject({ clientId: 7, clientName: "김산모", memberId: "client:7", recipientName: "김산모", recipientPhone: "01012345678", templateVariables: { name: "김산모", clientName: "김산모", phone: "01012345678" }, sentByUserId: "user-1" });
         expect(result).toEqual({ jobId: "job-1", scheduledFor: expect.any(Date), clientName: "김산모" });
     });
 
@@ -66,8 +80,15 @@ describe("ReceiptLinkManualSendService", () => {
         expect(jobRepository.upsertPending).not.toHaveBeenCalled();
     });
 
+    it("propagates a non-ReceiptLinkSkipError thrown by preflight unchanged", async () => {
+        const boom = new Error("boom");
+        const { service, jobRepository } = makeService({ preflight: async () => { throw boom; } });
+        await expect(service.send({ branchId: BRANCH, documentId: "doc-ext-1", userId: null })).rejects.toBe(boom);
+        expect(jobRepository.upsertPending).not.toHaveBeenCalled();
+    });
+
     it("400s when the client has no phone", async () => {
         const { service } = makeService({ preflight: async () => ({ client: { id: 7, name: "김산모", phone: null, birthday: "940315" }, doc: { id: 42, documentId: "d" }, pdf: Buffer.alloc(1) }) });
-        await expect(service.send({ branchId: BRANCH, documentId: "doc-ext-1", userId: null })).rejects.toMatchObject({ response: { reason: "missing_phone" } });
+        await expect(service.send({ branchId: BRANCH, documentId: "doc-ext-1", userId: null })).rejects.toMatchObject({ response: { reason: "missing_phone", message: "산모 연락처가 없거나 형식이 올바르지 않습니다" } });
     });
 });
