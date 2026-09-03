@@ -204,7 +204,7 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         });
         const { transaction, settings, usecase } = setup(document);
 
-        await expect(usecase.execute("doc-1")).rejects.toThrow("valid Korean phone number");
+        await expect(usecase.execute("doc-1")).rejects.toThrow("올바른 국내 전화번호 형식이 아닙니다.");
 
         expect(settings.getClientAutoRegistrationEnabled).not.toHaveBeenCalled();
         expect(transaction.client.create).not.toHaveBeenCalled();
