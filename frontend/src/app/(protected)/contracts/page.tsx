@@ -2050,7 +2050,14 @@ export function ContractDetail({
       headerAction={
         <>
           {isMobile && stepperActions}
-          {isReviewNeeded ? (
+          {isBaseDetailLoading ? (
+            <Skeleton
+              data-component={`${dataComponent}_header_action-skeleton`}
+              className="h-9 w-full"
+              role="status"
+              aria-label="계약 작업 불러오는 중"
+            />
+          ) : isReviewNeeded ? (
             <div
               className={
                 reviewAction === "finalize"
