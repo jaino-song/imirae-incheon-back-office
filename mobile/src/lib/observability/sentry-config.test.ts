@@ -45,6 +45,21 @@ describe("mobile service-record Sentry scope", () => {
     );
   });
 
+  // M3: the BFF's own server-side axios call to the backend uses the /receipt-links/<token>/…
+  // shape (not /api/receipt/<token>/…), which the original pattern left unredacted.
+  it("redacts the receipt-link token from the server-side /receipt-links/<token>/… axios URL shape (M3)", () => {
+    expect(sanitizeSentryUrl("/receipt-links/efr_SECRET/verify")).not.toContain("efr_SECRET");
+    expect(sanitizeSentryUrl("/receipt-links/efr_SECRET/status")).not.toContain("efr_SECRET");
+    expect(sanitizeSentryUrl("/receipt-links/efr_SECRET/image")).not.toContain("efr_SECRET");
+    expect(sanitizeSentryUrl("/receipt-links/efr_SECRET/verify")).toBe("/receipt-links/[Filtered]/verify");
+    // Existing cases still pass unchanged.
+    expect(sanitizeSentryUrl("/receipt/efr_SECRET")).toBe("/receipt/[Filtered]");
+    expect(sanitizeSentryUrl("/api/receipt/efr_SECRET/status")).not.toContain("efr_SECRET");
+    // The admin's token-free "send" route must stay legible for debugging — it carries no
+    // token in the URL (documentId travels in the request body).
+    expect(sanitizeSentryUrl("/api/receipt-links/send")).toBe("/api/receipt-links/send");
+  });
+
   it("drops unrelated errors and keeps service-record route errors", () => {
     const options = getSentryRuntimeOptions();
 
