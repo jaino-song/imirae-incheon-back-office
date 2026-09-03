@@ -383,6 +383,7 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902000000_repair_replacement_schedule_start_date/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902120000_add_scheduler_lease/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903000000_add_employee_schedule_terminated_at/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903190000_add_eformsign_webhook_event/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260904000000_add_receipt_link_token/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260904000100_contract_auto_finalize_grace_days_7/migration.sql
 
@@ -933,6 +934,7 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902000000_repair_replacement_schedule_start_date/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902120000_add_scheduler_lease/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903000000_add_employee_schedule_terminated_at/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903190000_add_eformsign_webhook_event/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260904000000_add_receipt_link_token/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260904000100_contract_auto_finalize_grace_days_7/migration.sql
 
@@ -1461,6 +1463,7 @@ jobs:
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902000000_repair_replacement_schedule_start_date/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260902120000_add_scheduler_lease/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903000000_add_employee_schedule_terminated_at/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260903190000_add_eformsign_webhook_event/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260904000000_add_receipt_link_token/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260904000100_contract_auto_finalize_grace_days_7/migration.sql
 

@@ -46,6 +46,8 @@ import { ContractClientAssignmentGuardService } from "application/services/contr
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
 import { EformsignDocReconcileSchedulerService } from "application/services/eformsign-doc-reconcile-scheduler.service";
 import { EformsignWebhookEventWriter } from "application/services/eformsign-webhook-event.service";
+import { EFORMSIGN_WEBHOOK_EVENT_REPOSITORY } from "domain/repositories/eformsign-webhook-event.repository.interface";
+import { SbEformsignWebhookEventRepository } from "infrastructure/database/repositories/sb.eformsign-webhook-event.repository";
 import { ContractAutoFinalizeSchedulerService } from "application/services/contract-auto-finalize-scheduler.service";
 import { NotificationModule } from "module/notification.module";
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
@@ -131,6 +133,10 @@ import { EformsignDispatchBoundaryService } from "application/services/eformsign
         // The scheduler owns the ledger's retention sweep; the writer itself is
         // also provided by the webhook module, which has its own instance.
         EformsignWebhookEventWriter,
+        {
+            provide: EFORMSIGN_WEBHOOK_EVENT_REPOSITORY,
+            useClass: SbEformsignWebhookEventRepository,
+        },
         ContractAutoFinalizeSchedulerService,
         EformsignDocumentMirrorService,
         ServiceRecordLifecycleService,
