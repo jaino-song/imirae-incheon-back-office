@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MessageTriggerList } from "../MessageTriggerList";
 import {
   useMessageTriggerRules,
+  useUpdateMessageTriggerRuleBranchActivation,
   useUpdateMessageTriggerRule,
 } from "@/features/message-triggers/hooks/use-message-triggers";
 import type { MessageTriggerRule } from "@/features/message-triggers/types";
@@ -11,6 +12,7 @@ import { fetchAllMessageLogs } from "@/lib/messages/logs";
 
 jest.mock("@/features/message-triggers/hooks/use-message-triggers", () => ({
   useMessageTriggerRules: jest.fn(),
+  useUpdateMessageTriggerRuleBranchActivation: jest.fn(),
   useUpdateMessageTriggerRule: jest.fn(),
 }));
 
@@ -20,6 +22,7 @@ jest.mock("@/lib/messages/logs", () => ({
 
 const mockUseMessageTriggerRules = useMessageTriggerRules as jest.Mock;
 const mockUseUpdateMessageTriggerRule = useUpdateMessageTriggerRule as jest.Mock;
+const mockUseUpdateMessageTriggerRuleBranchActivation = useUpdateMessageTriggerRuleBranchActivation as jest.Mock;
 const mockFetchAllMessageLogs = fetchAllMessageLogs as jest.Mock;
 
 function createRule(overrides: Partial<MessageTriggerRule> = {}): MessageTriggerRule {
@@ -70,6 +73,7 @@ function renderPage(onEdit?: (rule: MessageTriggerRule) => void) {
 
 describe("MessageTriggerList", () => {
   const updateMutate = jest.fn();
+  const branchActivationMutate = jest.fn();
 
   beforeEach(() => {
     updateMutate.mockClear();
@@ -77,6 +81,10 @@ describe("MessageTriggerList", () => {
     mockUseUpdateMessageTriggerRule.mockReturnValue({
       isPending: false,
       mutate: updateMutate,
+    });
+    mockUseUpdateMessageTriggerRuleBranchActivation.mockReturnValue({
+      isPending: false,
+      mutate: branchActivationMutate,
     });
     mockUseMessageTriggerRules.mockReturnValue({
       data: [],
@@ -166,6 +174,36 @@ describe("MessageTriggerList", () => {
       id: "rule-start",
       dto: { isActive: false },
     });
+  });
+
+  it("uses branch activation for global rules without sending the content DTO", async () => {
+    mockUseMessageTriggerRules.mockReturnValue({
+      data: [createRule({ id: "global-rule", branchId: null, isActive: true })],
+      isError: false,
+      isLoading: false,
+    });
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /실제 서비스 시작 규칙/ }));
+
+    expect(branchActivationMutate).toHaveBeenCalledWith({
+      id: "global-rule",
+      dto: { isActive: false },
+    });
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it("disables a global-locked rule toggle", async () => {
+    mockUseMessageTriggerRules.mockReturnValue({
+      data: [createRule({ branchId: null, isLockedByGlobal: true })],
+      isError: false,
+      isLoading: false,
+    });
+
+    renderPage();
+
+    expect(await screen.findByRole("button", { name: /실제 서비스 시작 규칙/ })).toBeDisabled();
   });
 
   it("separates rule editing from the active toggle in management mode", async () => {

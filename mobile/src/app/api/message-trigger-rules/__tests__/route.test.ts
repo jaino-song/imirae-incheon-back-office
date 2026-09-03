@@ -15,7 +15,8 @@ jest.mock("@/lib/api/server", () => ({
   serverAPIClient: {
     delete: jest.fn(),
     get: jest.fn(),
-    patch: jest.fn(),
+  patch: jest.fn(),
+    put: jest.fn(),
     post: jest.fn(),
   },
 }));
@@ -23,6 +24,7 @@ jest.mock("@/lib/api/server", () => ({
 const mockDelete = serverAPIClient.delete as jest.Mock;
 const mockGet = serverAPIClient.get as jest.Mock;
 const mockPatch = serverAPIClient.patch as jest.Mock;
+const mockPut = serverAPIClient.put as jest.Mock;
 const mockPost = serverAPIClient.post as jest.Mock;
 
 function createRequest(path: string, init: { method?: string; body?: BodyInit; headers?: Record<string, string> } = {}): NextRequest {
@@ -43,6 +45,7 @@ describe("Message trigger rule API routes", () => {
     mockDelete.mockReset();
     mockGet.mockReset();
     mockPatch.mockReset();
+    mockPut.mockReset();
     mockPost.mockReset();
     consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -136,6 +139,31 @@ describe("Message trigger rule API routes", () => {
 
     expect(response.status).toBe(400);
     expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it("forwards branch activation updates to the dedicated backend endpoint", async () => {
+    mockPut.mockResolvedValue({
+      status: 200,
+      data: { id: "rule_123", isActive: false },
+    });
+
+    const { PUT: updateBranchActivation } = await import("../[triggerId]/branch-activation/route");
+    const response = await updateBranchActivation(
+      createRequest("/api/message-trigger-rules/rule_123/branch-activation", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: false }),
+      }),
+      { params: Promise.resolve({ triggerId: "rule_123" }) },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ id: "rule_123", isActive: false });
+    expect(mockPut).toHaveBeenCalledWith(
+      "/message-trigger-rules/rule_123/branch-activation",
+      { isActive: false },
+      expect.anything(),
+    );
   });
 
   it("rejects malformed create JSON before proxying", async () => {
