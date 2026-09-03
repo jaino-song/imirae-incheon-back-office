@@ -165,7 +165,20 @@ export interface MessageTriggerRule {
   id: string;
   branchId: string | null;
   name: string;
+  /**
+   * Effective activation for the requesting branch.
+   *
+   * For a branch-owned rule this is the rule's own flag. For a global rule
+   * (`branchId === null`) it is `rule.isActive && (override?.isActive ?? true)` —
+   * a branch may only opt OUT of a global rule, never opt in.
+   */
   isActive: boolean;
+  /**
+   * True when a global rule is switched off globally, so no branch can turn it
+   * back on. Absent/false for branch-owned rules. Drives the disabled state of
+   * the activation toggle.
+   */
+  isLockedByGlobal?: boolean;
   eventType: MessageTriggerEventType;
   offsetType: MessageTriggerOffsetType;
   offsetDays: number;
@@ -187,6 +200,14 @@ export interface CreateMessageTriggerRuleDto {
 
 export type UpdateMessageTriggerRuleDto =
   Partial<CreateMessageTriggerRuleDto>;
+
+/**
+ * Body of `PUT /message-trigger-rules/:id/branch-activation`, the only way a
+ * branch may change a global rule. Content fields stay read-only.
+ */
+export interface UpdateMessageTriggerRuleBranchActivationDto {
+  isActive: boolean;
+}
 
 export type MessageTriggerJobStatus =
   | "pending"
