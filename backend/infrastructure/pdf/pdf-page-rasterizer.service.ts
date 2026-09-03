@@ -8,8 +8,9 @@ export class PdfPageOutOfRangeError extends Error {
     constructor(
         readonly pageNumber: number,
         readonly pageCount: number,
+        message: string = `PDF page ${pageNumber} is out of range (1..${pageCount})`,
     ) {
-        super(`PDF page ${pageNumber} is out of range (1..${pageCount})`);
+        super(message);
         this.name = "PdfPageOutOfRangeError";
     }
 }
@@ -32,7 +33,15 @@ export class PdfPageRasterizerService {
 
     private loadPdfJs(): Promise<PdfJsModule> {
         if (!this.pdfjsPromise) {
-            this.pdfjsPromise = importEsm(PDFJS_SPECIFIER) as Promise<PdfJsModule>;
+            // Do not let a transient failure (e.g. a cold-start race) poison every
+            // future call for the life of the process: on rejection, clear the cache
+            // so the next call retries the import instead of replaying the failure.
+            this.pdfjsPromise = (importEsm(PDFJS_SPECIFIER) as Promise<PdfJsModule>).catch(
+                (error: unknown) => {
+                    this.pdfjsPromise = null;
+                    throw error;
+                },
+            );
         }
         return this.pdfjsPromise;
     }
@@ -44,6 +53,9 @@ export class PdfPageRasterizerService {
         options: { width?: number } = {},
     ): Promise<Buffer> {
         const targetWidth = options.width ?? DEFAULT_RASTER_WIDTH;
+        if (!Number.isFinite(targetWidth) || targetWidth < 1) {
+            throw new RangeError(`PDF raster width must be a positive finite number, got ${targetWidth}`);
+        }
         const pdfjs = await this.loadPdfJs();
         const pdfjsRoot = path.dirname(require.resolve("pdfjs-dist/package.json"));
         const doc = await pdfjs.getDocument({
@@ -57,7 +69,14 @@ export class PdfPageRasterizerService {
         }).promise;
 
         try {
-            if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > doc.numPages) {
+            if (!Number.isInteger(pageNumber)) {
+                throw new PdfPageOutOfRangeError(
+                    pageNumber,
+                    doc.numPages,
+                    `PDF page number must be a positive integer, got ${pageNumber}`,
+                );
+            }
+            if (pageNumber < 1 || pageNumber > doc.numPages) {
                 throw new PdfPageOutOfRangeError(pageNumber, doc.numPages);
             }
             const page = await doc.getPage(pageNumber);
