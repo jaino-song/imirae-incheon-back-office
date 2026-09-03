@@ -1350,7 +1350,7 @@ describe("EformsignWebhookService", () => {
         );
     });
 
-    it("should notify branch users when a reviewer request passes through the 060 notification gate", async () => {
+    it("should notify branch users when a reviewer request reaches the review stage", async () => {
         eformsignApiClient.getDocument.mockResolvedValue({
             current_status: {
                 status_type: "070",
@@ -1369,7 +1369,7 @@ describe("EformsignWebhookService", () => {
 
         expect(updateStatusUsecase.executeWithOutcome).toHaveBeenCalledWith(
             branchId,
-            expect.objectContaining({ statusType: "060" }),
+            expect.objectContaining({ statusType: "070", statusDetail: "검토 요청" }),
         );
         expect(notificationService.sendToBranchUsers).toHaveBeenCalledWith(
             branchId,
@@ -1386,6 +1386,39 @@ describe("EformsignWebhookService", () => {
                     documentId,
                 },
             },
+        );
+    });
+
+    /**
+     * The production shape: eformsign advanced the document to the reviewer step,
+     * the controller mirrored that detail at 070, and the status webhook follows.
+     * While mapStatus collapsed every reviewer status to 060, isCurrentMirrorStatus
+     * discarded this update as stale against the 070 mirror, so a branch-owned
+     * projection sat at the participant stage for the entire review and only the
+     * 6-hourly reconcile sweep ever corrected it.
+     */
+    it("projects the reviewer request when the mirror has already advanced to 070", async () => {
+        const mirroredDocument = {
+            current_status: {
+                status_type: "070",
+                step_type: "06",
+                step_name: "제공기관 검토",
+                step_recipients: [{ recipient_type: "01" }],
+            },
+        };
+        const payload = createDocumentPayload();
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.status = "doc_request_reviewer";
+
+        await expect(
+            service.processWebhook(payload, { mirroredDocument } as never),
+        ).resolves.toBeUndefined();
+
+        expect(updateStatusUsecase.executeWithOutcome).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({ statusType: "070", statusDetail: "검토 요청" }),
         );
     });
 
