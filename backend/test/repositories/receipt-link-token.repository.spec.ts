@@ -48,7 +48,7 @@ describe("SbReceiptLinkTokenRepository.reserveVerificationAttempt", () => {
         expect(queryRaw).toHaveBeenCalledTimes(1);
     });
 
-    it("the raw statement is a locking UPDATE guarded by the lock window on locked_at", async () => {
+    it("the raw statement covers every CASE branch by name: locked-in-window (values unchanged), elapsed-window reset, plain increment, and the threshold lock — plus FOR UPDATE and the wasLocked RETURNING", async () => {
         queryRaw.mockResolvedValueOnce([
             { failedAttempts: 1, lockedAt: null, expectedBirthdayHash: "hash", wasLocked: false },
         ]);
@@ -58,12 +58,33 @@ describe("SbReceiptLinkTokenRepository.reserveVerificationAttempt", () => {
         const sql = getSqlText(queryRaw.mock.calls[0]![0]);
         expect(sql).toContain("FOR UPDATE");
         expect(sql).toContain("UPDATE receipt_link_token");
-        expect(sql).toContain("locked_at");
-        // The window guard: a still-locked row must compare its lock start against the caller's
-        // `now`, not just check `locked_at IS NOT NULL` — that distinguishes "inside the window"
-        // from "locked forever until reset", which is exactly the bug this method fixes.
-        expect(sql).toMatch(/locked_at\s*\+\s*make_interval/);
-        expect(sql).toContain("> ");
+
+        // Branch 1 — locked-in-window predicate: a still-locked row must compare its lock start
+        // against the caller's `now`, not just check `locked_at IS NOT NULL` (that alone cannot
+        // distinguish "inside the window" from "locked forever until reset" — exactly the bug
+        // this method fixes). getSqlText() joins Prisma.sql's literal fragments with "" (params
+        // dropped), so an interpolation point collapses to nothing between adjacent literals.
+        const lockedInWindowPredicate =
+            "b\\.locked_at IS NOT NULL\\s+AND\\s+b\\.locked_at \\+ make_interval\\(secs => \\(::double precision / 1000\\)\\) > ::timestamptz";
+        expect(sql).toMatch(new RegExp(lockedInWindowPredicate));
+        // ...and that predicate must gate BOTH assignments to their pre-write values in the
+        // SAME statement — failed_attempts stays b.failed_attempts, locked_at stays b.locked_at.
+        expect(sql).toMatch(new RegExp(lockedInWindowPredicate + "\\s+THEN b\\.failed_attempts"));
+        expect(sql).toMatch(new RegExp(lockedInWindowPredicate + "\\s+THEN b\\.locked_at\\b"));
+
+        // Branch 2 — window elapsed while still marked locked: reset failed_attempts to 1 and
+        // clear locked_at to NULL, in the same statement (not a follow-up write).
+        expect(sql).toContain("WHEN b.locked_at IS NOT NULL THEN 1");
+        expect(sql).toContain("WHEN b.locked_at IS NOT NULL THEN NULL");
+
+        // Branch 3 — plain increment when not locked at all, and the threshold lock: reaching
+        // maxAttempts sets locked_at to `now` in the SAME UPDATE (not a second write).
+        expect(sql).toContain("ELSE b.failed_attempts + 1");
+        expect(sql).toMatch(/b\.failed_attempts \+ 1 >= ::int THEN\s*::timestamptz/);
+
+        // The pre-write snapshot from the locking CTE is what lets the caller distinguish "this
+        // reservation actually wrote something" from "the row was already locked and untouched".
+        expect(sql).toContain('AS "wasLocked"');
     });
 
     it("returns outcome: locked (with lockedUntil) without reinterpreting an untouched row as recorded", async () => {
@@ -92,8 +113,20 @@ describe("SbReceiptLinkTokenRepository.reserveVerificationAttempt", () => {
         });
     });
 
-    it("throws when the token id does not exist", async () => {
+    it("returns outcome: unusable when the CTE's WHERE (id AND active AND expires_at > now) matches no row — missing, inactive, or expired", async () => {
         queryRaw.mockResolvedValueOnce([]);
-        await expect(repository.reserveVerificationAttempt("missing", NOW, LOCK_MS, MAX_ATTEMPTS)).rejects.toThrow(/not found/);
+        const result = await repository.reserveVerificationAttempt("missing", NOW, LOCK_MS, MAX_ATTEMPTS);
+        expect(result).toEqual({ outcome: "unusable" });
+    });
+
+    it("the CTE's WHERE guards on active and expires_at > now, not id alone", async () => {
+        queryRaw.mockResolvedValueOnce([
+            { failedAttempts: 1, lockedAt: null, expectedBirthdayHash: "hash", wasLocked: false },
+        ]);
+
+        await repository.reserveVerificationAttempt("row-1", NOW, LOCK_MS, MAX_ATTEMPTS);
+
+        const sql = getSqlText(queryRaw.mock.calls[0]![0]);
+        expect(sql).toMatch(/WHERE id = ::uuid AND active AND expires_at > ::timestamptz/);
     });
 });

@@ -1,4 +1,5 @@
-import { INestApplication } from "@nestjs/common";
+import { INestApplication, RequestMethod } from "@nestjs/common";
+import { GUARDS_METADATA, METHOD_METADATA } from "@nestjs/common/constants";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { FILE_STORAGE_PORT, FileStorageObjectNotFoundError } from "domain/ports/file-storage.port";
@@ -6,6 +7,8 @@ import { RateLimitGuard } from "infrastructure/auth/rate-limit.guard";
 import { ReceiptLinkTokenService } from "application/services/receipt-link-token.service";
 import { ReceiptLinkController } from "interface/controllers/receipt-link.controller";
 import { ServiceRecordEntryController } from "interface/controllers/service-record-entry.controller";
+import { AuthController } from "interface/controllers/auth.controller";
+import { PublicConsultationInquiryController } from "interface/controllers/consultation-inquiry.controller";
 import { GlobalValidationPipe } from "infrastructure/pipes/global-validation.pipe";
 
 describe("ReceiptLinkController", () => {
@@ -127,18 +130,72 @@ describe("ReceiptLinkController", () => {
         expect(tokenService.resolveAccess).toHaveBeenLastCalledWith("efr_x", "efra_a", expect.any(Date));
     });
 
-    // F4: RateLimitGuard buckets on `${method}:${handler.name}` (rate-limit.guard.ts,
-    // getEndpointScope). A handler-name collision between two controllers silently shares one
-    // rate-limit bucket across unrelated public endpoints. Guard against the collision
-    // structurally: no method name may appear on both controllers' prototypes.
-    it("no handler name is shared with ServiceRecordEntryController (RateLimitGuard buckets on handler.name, not route path)", () => {
-        const ownNames = (ctor: { prototype: object }) =>
-            Object.getOwnPropertyNames(ctor.prototype).filter((name) => name !== "constructor");
+    // F4/M6: RateLimitGuard buckets on `${request.method.toLowerCase()}:${handler.name}`
+    // (rate-limit.guard.ts, getEndpointScope) — a handler-name collision between two
+    // RateLimitGuard-protected handlers of the SAME HTTP method silently shares one rate-limit
+    // bucket across unrelated endpoints, regardless of route path or controller. Rather than
+    // hardcoding two controllers, this walks every controller under backend/interface/controllers
+    // that imports RateLimitGuard (verified below to match a fresh grep) and, via Nest's own
+    // decorator metadata, finds every method actually guarded with @UseGuards(RateLimitGuard) —
+    // so a newly added guarded handler on ANY of these controllers is covered automatically,
+    // and a newly added controller must be added to CONTROLLERS_USING_RATE_LIMIT_GUARD below or
+    // this test's own "grep matches" self-check fails first.
+    const CONTROLLERS_USING_RATE_LIMIT_GUARD: Array<{ prototype: object; name: string }> = [
+        ServiceRecordEntryController,
+        AuthController,
+        PublicConsultationInquiryController,
+        ReceiptLinkController,
+    ];
 
-        const receiptHandlerNames = ownNames(ReceiptLinkController);
-        const serviceRecordHandlerNames = ownNames(ServiceRecordEntryController);
+    it("backend/interface/controllers has exactly these RateLimitGuard-importing files (keep CONTROLLERS_USING_RATE_LIMIT_GUARD above in sync)", () => {
+        const fs = require("fs") as typeof import("fs");
+        const path = require("path") as typeof import("path");
+        const dir = path.resolve(__dirname, "../../interface/controllers");
+        const filesUsingGuard = fs
+            .readdirSync(dir)
+            .filter((f) => f.endsWith(".controller.ts"))
+            .filter((f) => fs.readFileSync(path.join(dir, f), "utf8").includes("RateLimitGuard"));
 
-        const collisions = receiptHandlerNames.filter((name) => serviceRecordHandlerNames.includes(name));
+        expect(filesUsingGuard.sort()).toEqual(
+            [
+                "auth.controller.ts",
+                "consultation-inquiry.controller.ts",
+                "receipt-link.controller.ts",
+                "service-record-entry.controller.ts",
+            ].sort(),
+        );
+    });
+
+    it("no two RateLimitGuard-protected handlers across any of these controllers share ${method}:${handler.name}", () => {
+        const methodName = (n: RequestMethod): string => RequestMethod[n]!.toLowerCase();
+
+        const guardedKeys: Array<{ key: string; controller: string }> = [];
+        for (const ctor of CONTROLLERS_USING_RATE_LIMIT_GUARD) {
+            const proto = ctor.prototype as Record<string, unknown>;
+            for (const name of Object.getOwnPropertyNames(proto)) {
+                if (name === "constructor") continue;
+                const handler = proto[name];
+                if (typeof handler !== "function") continue;
+                const guards = (Reflect.getMetadata(GUARDS_METADATA, handler) as unknown[] | undefined) ?? [];
+                if (!guards.includes(RateLimitGuard)) continue;
+
+                const requestMethod = Reflect.getMetadata(METHOD_METADATA, handler) as RequestMethod | undefined;
+                expect(requestMethod).not.toBeUndefined();
+                guardedKeys.push({ key: `${methodName(requestMethod!)}:${name}`, controller: ctor.name });
+            }
+        }
+
+        // Sanity: this must actually find handlers, or the metadata lookup itself is broken and
+        // the uniqueness assertion below would vacuously pass.
+        expect(guardedKeys.length).toBeGreaterThan(0);
+
+        const seen = new Map<string, string>();
+        const collisions: string[] = [];
+        for (const { key, controller } of guardedKeys) {
+            const owner = seen.get(key);
+            if (owner && owner !== controller) collisions.push(`${key} (${owner} vs ${controller})`);
+            else if (!owner) seen.set(key, controller);
+        }
         expect(collisions).toEqual([]);
     });
 

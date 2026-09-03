@@ -78,7 +78,14 @@ class FakeReceiptLinkTokenRepository implements IReceiptLinkTokenRepository {
         lockWindowMs: number,
         maxAttempts: number,
     ): Promise<ReserveVerificationAttemptResult> {
-        const row = this.rows.find((r) => r.id === id)!;
+        const row = this.rows.find((r) => r.id === id);
+
+        // Mirrors the real repository's CTE guard: a missing, inactive, or expired-as-of-`now`
+        // row never gets a counter write — the caller re-reads to report the real terminal
+        // reason instead of a bare "not found".
+        if (!row || !row.active || row.expiresAt.getTime() <= now.getTime()) {
+            return { outcome: "unusable" };
+        }
 
         if (row.lockedAt && row.lockedAt.getTime() + lockWindowMs > now.getTime()) {
             return { outcome: "locked", lockedUntil: new Date(row.lockedAt.getTime() + lockWindowMs) };
@@ -322,13 +329,36 @@ describe("ReceiptLinkTokenService", () => {
     // then incremented — so 200 concurrent guesses would all get compared, and after a lock
     // window elapsed, N concurrent wrong guesses would all take the reset branch and the counter
     // would end at 1 instead of reflecting every reservation.
-    it("50 concurrent wrong guesses: exactly maxAttempts are ever compared, the rest are refused as locked", async () => {
-        const { service } = makeService();
+    // I1/I2 fix-round-1 rename: this test's original title claimed "exactly maxAttempts are
+    // ever compared" but only checked the RESPONSE distribution (verification_failed vs
+    // locked counts), which a reservation-outcome bug could still satisfy by coincidence.
+    // Now directly counts how many reservations actually reach "recorded" (the outcome that
+    // gates the hash comparison in verifyBirthday) via a spy on reserveVerificationAttempt,
+    // so the count in the title is what's actually asserted.
+    it("50 concurrent wrong guesses: exactly maxAttempts reservations are ever recorded (reach the hash comparison), the rest are refused as locked pre-comparison", async () => {
+        const { repository, service } = makeService();
         const { linkToken } = await issue(service);
+
+        const originalReserve = repository.reserveVerificationAttempt.bind(repository);
+        let recordedCount = 0;
+        let lockedPreComparisonCount = 0;
+        jest.spyOn(repository, "reserveVerificationAttempt").mockImplementation(async (...args: Parameters<typeof originalReserve>) => {
+            const result = await originalReserve(...args);
+            if (result.outcome === "recorded") recordedCount += 1;
+            else lockedPreComparisonCount += 1;
+            return result;
+        });
 
         const results = await Promise.all(
             Array.from({ length: 50 }, () => service.verifyBirthday(linkToken, "000000", NOW)),
         );
+
+        // verifyBirthday only ever compares the birthday hash after a "recorded" reservation
+        // outcome (see receipt-link-token.service.ts) — so this is a direct count of how many
+        // of the 50 concurrent guesses actually reached the comparison, not an inference from
+        // response shape.
+        expect(recordedCount).toBe(RECEIPT_LINK_MAX_FAILED_ATTEMPTS);
+        expect(lockedPreComparisonCount).toBe(50 - RECEIPT_LINK_MAX_FAILED_ATTEMPTS);
 
         const compared = results.filter((r) => !r.ok && r.reason === "verification_failed");
         const locked = results.filter((r) => !r.ok && r.reason === "locked");
@@ -341,7 +371,34 @@ describe("ReceiptLinkTokenService", () => {
         expect(compared.length + locked.length).toBe(50);
     });
 
-    it("a correct guess arriving after 5 concurrent wrong ones is refused as locked", async () => {
+    // I2 fix-round-1: the discriminating regression test. Unlike the sequential case below
+    // (which awaits the 5 wrong guesses to fully complete before issuing the correct one, so
+    // it never actually races the correct guess's OWN row-read against the wrong guesses'
+    // writes), this fires ALL 6 guesses — 5 wrong + 1 correct, correct LAST — in a single
+    // Promise.all. Verified by hand-simulation (matching the real async/await shape of both
+    // implementations) that the pre-F2 code returns { ok: true } here: its verifyBirthday read
+    // the row (findRow) BEFORE any of the 6 concurrent calls had written anything, so the
+    // correct guess's own stale "not locked yet" snapshot let it succeed even though by the
+    // time all 6 settle, the wrong guesses should have already locked the token. The shipped
+    // (F2) code reserves the attempt atomically against the row's live state before ever
+    // comparing, so the same race correctly reports the correct guess as locked.
+    it("a correct guess racing in the SAME batch as 5 concurrent wrong guesses (single Promise.all, correct last) is refused as locked", async () => {
+        const { service } = makeService();
+        const { linkToken } = await issue(service);
+
+        const guesses = [...Array.from({ length: RECEIPT_LINK_MAX_FAILED_ATTEMPTS }, () => "000000"), "940315"];
+        const results = await Promise.all(guesses.map((guess) => service.verifyBirthday(linkToken, guess, NOW)));
+
+        const correctGuessResult = results[results.length - 1]!;
+        expect(correctGuessResult).toEqual({ ok: false, reason: "locked", lockedUntil: expect.any(String) });
+    });
+
+    // Retitled (fix round 1): this is the SEQUENTIAL case — the 5 wrong guesses are awaited to
+    // completion before the correct one is even issued, so it never races the correct guess's
+    // read against the wrong guesses' writes. Kept because it's still a valid regression test
+    // for "locked stays locked for a correct guess", but the concurrent race is what the test
+    // above actually exercises.
+    it("(sequential) a correct guess arriving strictly after 5 completed wrong guesses is refused as locked", async () => {
         const { service } = makeService();
         const { linkToken } = await issue(service);
 
@@ -392,6 +449,83 @@ describe("ReceiptLinkTokenService", () => {
         const { linkToken } = await issue(service);
         expect(await service.verifyBirthday(linkToken, "94", NOW)).toEqual({ ok: false, reason: "invalid_format" });
         expect(repository.rows[0]!.failedAttempts).toBe(0);
+    });
+
+    // M5 fix-round-1: pins the existing precedence — normalize/validate the raw input BEFORE
+    // ever calling reserveVerificationAttempt — for a LOCKED token specifically, not just a
+    // plain pending one. A malformed guess against a locked token must still report
+    // invalid_format (not "locked"), and must not touch the reservation at all.
+    it("a LOCKED token given a malformed birthday returns invalid_format without consuming an attempt or reaching the reservation", async () => {
+        const { repository, service } = makeService();
+        const { linkToken } = await issue(service);
+        for (let attempt = 0; attempt < RECEIPT_LINK_MAX_FAILED_ATTEMPTS; attempt += 1) {
+            await service.verifyBirthday(linkToken, "000000", NOW);
+        }
+        expect(repository.rows[0]!.lockedAt).toEqual(NOW);
+
+        const reserveSpy = jest.spyOn(repository, "reserveVerificationAttempt");
+        expect(await service.verifyBirthday(linkToken, "94", NOW)).toEqual({ ok: false, reason: "invalid_format" });
+        expect(reserveSpy).not.toHaveBeenCalled();
+        expect(repository.rows[0]!.failedAttempts).toBe(RECEIPT_LINK_MAX_FAILED_ATTEMPTS);
+    });
+
+    // M1 fix-round-1: the reservation's own CTE guard (active AND expires_at > now) can find a
+    // row no longer usable even though the EARLIER unusableReason(row, now) check (run before
+    // the reservation, against a snapshot read moments before) still saw it as fine — e.g. the
+    // token was revoked or expired in the gap between the two. verifyBirthday must re-read via
+    // unusableReason and report the real terminal reason, not a generic error.
+    it("when reserveVerificationAttempt reports outcome: unusable because the row was revoked in the gap, verifyBirthday re-reads and reports revoked", async () => {
+        const { repository, service } = makeService();
+        const { linkToken } = await issue(service);
+
+        jest.spyOn(repository, "reserveVerificationAttempt").mockImplementationOnce(async () => {
+            // Simulate a concurrent revoke landing in the gap between verifyBirthday's initial
+            // unusableReason check and this reservation call.
+            repository.rows[0]!.active = false;
+            return { outcome: "unusable" };
+        });
+
+        expect(await service.verifyBirthday(linkToken, "940315", NOW)).toEqual({ ok: false, reason: "revoked" });
+    });
+
+    it("when reserveVerificationAttempt reports outcome: unusable because the row expired in the gap, verifyBirthday re-reads and reports expired", async () => {
+        const { repository, service } = makeService();
+        const { linkToken } = await issue(service);
+
+        jest.spyOn(repository, "reserveVerificationAttempt").mockImplementationOnce(async () => {
+            repository.rows[0]!.expiresAt = new Date(NOW.getTime() - 1);
+            return { outcome: "unusable" };
+        });
+
+        expect(await service.verifyBirthday(linkToken, "940315", NOW)).toEqual({ ok: false, reason: "expired" });
+    });
+
+    // M1: exercises the fake's own guard directly (not via a mocked outcome) — reserving on an
+    // inactive or already-expired row returns outcome: unusable rather than mutating the row.
+    it("the fake's reserveVerificationAttempt returns outcome: unusable for an inactive row, and for an expired-as-of-now row, without writing to it", async () => {
+        const { repository, service } = makeService();
+        await issue(service);
+        await issue(service, { jobId: "job-2" }); // revokes the first token
+        const revokedResult = await repository.reserveVerificationAttempt(
+            repository.rows[0]!.id,
+            NOW,
+            RECEIPT_LINK_LOCK_MS,
+            RECEIPT_LINK_MAX_FAILED_ATTEMPTS,
+        );
+        expect(revokedResult).toEqual({ outcome: "unusable" });
+        expect(repository.rows[0]!.failedAttempts).toBe(0);
+
+        await issue(service, { eformsignDocId: 99, jobId: "job-3" });
+        const expiredRow = repository.rows.find((r) => r.eformsignDocId === 99)!;
+        const wayPast = new Date(expiredRow.expiresAt.getTime() + 1);
+        const expiredResult = await repository.reserveVerificationAttempt(
+            expiredRow.id,
+            wayPast,
+            RECEIPT_LINK_LOCK_MS,
+            RECEIPT_LINK_MAX_FAILED_ATTEMPTS,
+        );
+        expect(expiredResult).toEqual({ outcome: "unusable" });
+        expect(expiredRow.failedAttempts).toBe(0);
     });
 
     it("collects expired tokens and only the storage paths no live token still references", async () => {
