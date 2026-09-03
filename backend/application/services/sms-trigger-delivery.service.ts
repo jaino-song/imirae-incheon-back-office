@@ -15,6 +15,12 @@ import {
     SERVICE_RECORD_LINK_SMS_TITLE,
     SERVICE_RECORD_LINK_SMS_TRIGGER_TYPE,
 } from "domain/constants/service-record-link-message";
+import {
+    SERVICE_END_NOTICE_SMS_AUTOMATION_KEY,
+    SERVICE_END_NOTICE_SMS_LOG_TEMPLATE_KEY,
+    SERVICE_END_NOTICE_SMS_TITLE,
+    SERVICE_END_NOTICE_SMS_TRIGGER_TYPE,
+} from "domain/constants/service-end-notice-message";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
 import { TriggerJobDeferredError } from "domain/errors/trigger-job-deferred.error";
 import {
@@ -47,7 +53,7 @@ export interface SmsTemplateDeliveryConfig {
  * included in the approval fingerprint so an approved retry cannot silently
  * adopt a different title, template key, or provider routing rule.
  */
-export const SMS_DELIVERY_CONFIG_VERSION = "sms-template-delivery-v1";
+export const SMS_DELIVERY_CONFIG_VERSION = "sms-template-delivery-v2";
 export const SMS_DELIVERY_SNAPSHOT_VARIABLE = "__smsDeliverySnapshot";
 
 export interface SmsTriggerDeliverySnapshot {
@@ -181,6 +187,13 @@ export const SMS_TEMPLATE_DELIVERY: Partial<Record<MessageTriggerTemplateKey, Sm
         triggerType: SERVICE_RECORD_LINK_SMS_TRIGGER_TYPE,
         title: SERVICE_RECORD_LINK_SMS_TITLE,
         systemTemplateKey: SystemTemplateKey.SERVICE_RECORD_LINK,
+    },
+    [MessageTriggerTemplateKey.SERVICE_END_NOTICE]: {
+        smsLogTemplateKey: SERVICE_END_NOTICE_SMS_LOG_TEMPLATE_KEY,
+        automationKey: SERVICE_END_NOTICE_SMS_AUTOMATION_KEY,
+        triggerType: SERVICE_END_NOTICE_SMS_TRIGGER_TYPE,
+        title: SERVICE_END_NOTICE_SMS_TITLE,
+        systemTemplateKey: SystemTemplateKey.SERVICE_END_NOTICE,
     },
 };
 

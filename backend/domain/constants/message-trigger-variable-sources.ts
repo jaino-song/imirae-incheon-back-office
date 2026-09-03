@@ -68,6 +68,7 @@ export const MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS: Readonly<
     [MessageTriggerTemplateKey.THANKS]: ["name", "clientName", "phone"],
     [MessageTriggerTemplateKey.SURVEY]: ["name", "clientName", "phone"],
     [MessageTriggerTemplateKey.INFO]: ["name", "clientName", "phone"],
+    [MessageTriggerTemplateKey.SERVICE_END_NOTICE]: ["name", "clientName", "phone", "receiptUrl"],
 };
 
 export function findUnsupportedRequiredMessageTriggerVariables(
