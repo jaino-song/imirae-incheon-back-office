@@ -64,4 +64,14 @@ describe("mobile contracts action lifecycle", () => {
       "description={`${receiptSendCustomerName ? `${receiptSendCustomerName} 산모님께 ` : \"\"}본인부담금 영수증 링크가 담긴 문자를 1분 내 발송합니다.",
     );
   });
+
+  // Textual pin (audit-b fix round 1, I1): ContractDetailContent is shared with the
+  // 제공기록지 (service-record) detail — isServiceRecord only gated the sheet title, so
+  // "영수증 문자" still rendered there even though a service record has no receipt to send.
+  // Mutant that must fail: removing the isServiceRecord gate around the action entry.
+  it("gates the 영수증 문자 action out of the 제공기록지 (service-record) detail (I1)", () => {
+    expect(source).toContain(
+      "...(isServiceRecord\n                    ? []\n                    : [\n                        {\n                          label: \"영수증 문자\",",
+    );
+  });
 });

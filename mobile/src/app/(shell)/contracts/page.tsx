@@ -1443,13 +1443,20 @@ function ContractDetailContent({
                     onClick: () => setPreviewDocumentId(doc.id),
                     dataComponent: "mobile_contracts_detail-sheet_stack_detail-page_actions_preview",
                   },
-                  {
-                    label: "영수증 문자",
-                    variant: "secondary" as const,
-                    onClick: () => setIsReceiptSendConfirmOpen(true),
-                    disabled: isSendingReceiptLink,
-                    dataComponent: "mobile_contracts_detail-sheet_stack_detail-page_actions_receipt-send",
-                  },
+                  // 영수증 문자 sends the service-end receipt link — this ContractDetailContent
+                  // is shared with the 제공기록지 (service-record) detail, which has no receipt
+                  // to send, so the action is gated to contracts only (isServiceRecord).
+                  ...(isServiceRecord
+                    ? []
+                    : [
+                        {
+                          label: "영수증 문자",
+                          variant: "secondary" as const,
+                          onClick: () => setIsReceiptSendConfirmOpen(true),
+                          disabled: isSendingReceiptLink,
+                          dataComponent: "mobile_contracts_detail-sheet_stack_detail-page_actions_receipt-send",
+                        },
+                      ]),
                   ...(shouldReRequest || shouldShareReceipt
                     ? [
                         {
