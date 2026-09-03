@@ -31,7 +31,7 @@
 |---|---|---|---|---|
 | `dev` | 통합 대상. 모든 feature/fix PR의 목적지 | 빌드 안 함 (2026-08-06부터, [외부] Ignored Build Step) | 배포 없음. 로컬 `localhost:3001`로 테스트 | `apply-dev` (prisma 경로 push 시) |
 | `preview` | 릴리스 후보 검증 | preview 빌드 | Lightsail `preview` 컨테이너 (`preview.api.babyjamjam.com`), push 시 자동 | `apply-preview` |
-| `main` | 프로덕션 | production 빌드 (`admin.babyjamjam.com`, `m.admin.babyjamjam.com`) | **AWS Lightsail** `production` 컨테이너 (`api.babyjamjam.com`), push 시 **승인 후** 자동. 장애 시 **LightNode VPS Fallback Server**(API-only warm standby) | `apply-production` |
+| `main` | 프로덕션 | production 빌드 (`admin.babyjamjam.com`, `m.admin.babyjamjam.com`) | **AWS Lightsail** `production` 컨테이너 (`api.babyjamjam.com`), push 시 자동(같은 커밋의 `apply-production` 패치 성공 뒤). 장애 시 **LightNode VPS Fallback Server**(API-only warm standby) | `apply-production` |
 
 규칙:
 
@@ -101,7 +101,9 @@ PR을 `dev`에 열면 아래 워크플로가 돌고, 필수 체크는 GitHub 브
   `--ref dev`가 핵심이다. preview/main의 워크플로 사본에는 새 스텝이 없다. `apply-production`은 `if: always()`라 skip된 preview 잡에 막히지 않는다.
 - `paths: backend/prisma/**` push 트리거만 믿지 않는다. 그 트리거는 해당 브랜치 환경만 패치한다.
 - 사고: `eformsign_doc` 컬럼(PR #407, 2026-07-28). 앱은 배포됐는데 프로덕션 DB에 컬럼이 없던 하루 동안 호환 SELECT가 `templateId`를 null로 채워 **10분 중복 발송 가드가 조용히 무력화**됐다. 2026-07-29 11:52 수동 dispatch로 복구.
+- 같은 유형: PR #616(2026-09-03). `backend-ci`가 `database-patches.yml`의 production 승인 대기와 무관하게 ~20분 만에 배포를 끝냈고, 새 코드가 아직 없던 `employee_schedule.terminated_at`/`scheduler_lease`를 조회해 데스크톱 목록이 500으로 빈 상태가 됐다.
 - 승격 후 확인: `git show origin/main:.github/workflows/database-patches.yml | grep -c '<패치 이름>'`.
+- **이 사고 이후 `backend-ci`는 `preview`/`main` push에서 같은 커밋의 `Database Patches` 런이 성공할 때까지 기다린다** (잡 `wait for database patches`, `backend/deploy/ci/wait-database-patches.sh`). `resolve-backend-deploy-target`(따라서 `deploy-lightsail`/`deploy-lightnode`도)이 이 잡 뒤에 걸린다. 2026-09-03 오너 결정으로 GitHub `Production` environment의 필수 리뷰어를 제거해 **production 패치도 preview와 같이 main push에서 자동 적용**된다. 따라서 정상 경로는 push → 패치 자동 적용 → (수 분 뒤) 배포 자동 이어짐이고, 패치가 실패하면 배포는 실행되지 않는다. 이 대기 잡은 `backend-deploy-wait-<ref>` concurrency 그룹(`cancel-in-progress: true`)으로 묶여 있어, 같은 브랜치에 더 새로운 커밋이 push되면 이전 커밋의 대기 잡이 취소되고(따라서 그 커밋의 배포도 실행되지 않고) 최신 커밋만 배포로 이어진다 — 오래된 커밋이 나중에 도착해 최신 커밋의 배포를 덮어쓰는 경합을 막는다. 패치 런 출현 대기는 최대 10분, 완료 대기는 최대 120분이며 초과 시 스크립트가 `::error::`로 실패한다(잡 자체의 `timeout-minutes: 150`은 상한일 뿐, 정상적으로 도달하는 종료 경로가 아니다). 실패 시 Database Patches 런을 고치거나 승인한 뒤 **먼저 Database Patches push 런의 실패한 잡을 재실행**하고, **그다음 Backend CI의 실패한 잡을 재실행**한다 — `workflow_dispatch`로 별도 실행한 복구 런은 게이트를 통과시키지 못한다(스크립트는 이 커밋의 push 트리거 런만 본다). 이 자동화의 전제는 §3.1의 멱등 SQL 원칙과 dev → preview → main 승격 열차에서 같은 패치가 먼저 두 번 실행된다는 점이다. `backend/prisma/**` 변경이 없는 push는 지연 없이 통과한다(패치 런이 없어도 됨을 diff로 판별).
 
 ### 3.4 프로덕션 수동 적용 함정 (2026-07-16 실측)
 
@@ -122,7 +124,7 @@ PR을 `dev`에 열면 아래 워크플로가 돌고, 필수 체크는 GitHub 브
 
 | 항목 | 규칙 |
 |---|---|
-| 승인 | `main`은 `approve-lightsail-production` 잡(GitHub `production` environment required reviewer [외부]) 통과 후에만 배포. preview는 CI 후 자동 |
+| 승인 | 수동 승인 없음(2026-09-03). `main`/`preview` 모두 CI 통과 후 자동이며, 같은 커밋의 `Database Patches` 런이 성공한 뒤에만 배포 잡이 실행된다(§3.3). 과거 문서의 `approve-lightsail-production` 잡은 존재하지 않는다 |
 | 자격 | OIDC trust policy가 preview↔`refs/heads/preview`, production↔`refs/heads/main`으로 고정. feature 브랜치는 환경을 참조해도 권한이 없다 |
 | 검증 | 배포 잡은 SSM 결과의 `environment`/`current_tag`/`current_digest`가 요청과 정확히 일치해야 성공 처리 |
 | 수동 운영 | `lightsail-operations.yml` (`status` / `deploy` / `operator-upgrade`, environment 선택) 또는 `backend/deploy/lightsail/lightsail-cli.sh` (gh CLI 인증 사용, 로컬 AWS 자격 불필요) |

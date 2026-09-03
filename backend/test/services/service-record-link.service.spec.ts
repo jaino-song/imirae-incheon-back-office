@@ -99,7 +99,7 @@ describe("ServiceRecordLinkService", () => {
         ...overrides,
     });
 
-    it("issues a token that expires at end-date 20:00 KST and schedules SMS for start-date 15:00 KST", async () => {
+    it("issues a token that expires 7 days after end-date at 20:00 KST and schedules SMS for start-date 15:00 KST", async () => {
         const prisma = createPrisma();
         const tokenService = createTokenService();
         const jobRepository = createJobRepository();
@@ -119,7 +119,7 @@ describe("ServiceRecordLinkService", () => {
             scheduleId: 10,
             employeeId: 30,
             expectedPhone: "010-1111-2222",
-            expiresAt: new Date("2026-07-12T20:00:00+09:00"),
+            expiresAt: new Date("2026-07-19T11:00:00.000Z"),
         });
         const job = jobRepository.promoteAutomaticSchedulingClaim.mock.calls[0]?.[2] as MessageTriggerJobEntity;
         expect(job.ruleId).toBe(SERVICE_RECORD_LINK_RULE_ID);
@@ -709,7 +709,7 @@ describe("ServiceRecordLinkService", () => {
         await expect(service.scheduleForServiceStart(10)).rejects.toThrow("token unavailable");
     });
 
-    it("extends an existing token to end-date 20:00 KST", async () => {
+    it("extends an existing token to 7 days after end-date at 20:00 KST", async () => {
         const tokenService = createTokenService();
         const service = new ServiceRecordLinkService(
             createPrisma() as unknown as PrismaService,
@@ -723,7 +723,7 @@ describe("ServiceRecordLinkService", () => {
 
         expect(tokenService.extendExpiryForSchedule).toHaveBeenCalledWith(
             10,
-            new Date("2026-07-12T20:00:00+09:00"),
+            new Date("2026-07-19T11:00:00.000Z"),
         );
     });
 

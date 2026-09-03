@@ -13,6 +13,7 @@ import { IsArray, IsInt, IsString, Max, Min } from "class-validator";
 import {
     getServiceRecordLinkScheduledFor,
     getServiceRecordTokenExpiresAt,
+    SERVICE_RECORD_LINK_GRACE_DAYS,
     SERVICE_RECORD_LINK_RULE_ID,
     SERVICE_RECORD_LINK_SMS_AUTOMATION_KEY,
     SERVICE_RECORD_LINK_SMS_LOG_TEMPLATE_KEY,
@@ -215,7 +216,7 @@ export class MessageAutomationPoliciesResponseDto {
                     {
                         id: "token-expires-at",
                         label: "링크 만료",
-                        value: `서비스 종료일 ${formatKstDateHour(getServiceRecordTokenExpiresAt(REFERENCE_SERVICE_DATE))} KST`,
+                        value: `서비스 종료일 +${SERVICE_RECORD_LINK_GRACE_DAYS}일 ${formatKstDateHour(getServiceRecordTokenExpiresAt(REFERENCE_SERVICE_DATE))} KST`,
                     },
                     {
                         id: "rule-id",
