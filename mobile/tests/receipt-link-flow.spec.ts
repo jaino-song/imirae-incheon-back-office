@@ -31,7 +31,10 @@ test("mother verifies her birthday and reaches the receipt image", async ({ page
         route.fulfill({
             status: 200,
             contentType: "image/png",
-            body: Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"),
+            body: Buffer.from(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+                "base64",
+            ),
         }),
     );
 
@@ -74,7 +77,10 @@ test("an 8-digit birthday entry is sent to the verify BFF exactly as typed", asy
         route.fulfill({
             status: 200,
             contentType: "image/png",
-            body: Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"),
+            body: Buffer.from(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+                "base64",
+            ),
         }),
     );
 

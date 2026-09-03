@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
 type Status = {
@@ -37,21 +37,37 @@ export default function ReceiptLinkPage() {
     const [screen, setScreen] = useState<Screen>({ kind: "loading" });
     const [birthday, setBirthday] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
+    // Cache-busting suffix for the receipt <img> src, set once (and only once — see
+    // handleImageError) after a transient image load failure to trigger a single retry.
+    const [imageRetryParam, setImageRetryParam] = useState("");
 
-    // Shared by the mount effect below and the receipt <img>'s onError: a revoked/expired
-    // link, or a stale/cleared access cookie, surfaces as a broken image rather than a
-    // fetch rejection — re-running the same status check re-renders the right screen
-    // (expired/invalid/locked) instead of leaving a broken <img>.
+    // True while this component instance is mounted. Every async transition below checks
+    // this after each await before calling setState, so a fetch that resolves after
+    // unmount (route change, fast test teardown) never touches state on a dead component.
+    const mountedRef = useRef(true);
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+        };
+    }, []);
+
+    // Shared by the mount effect below and handleImageError's 401 branch: a stale/cleared
+    // access cookie surfaces on /status too, so re-running the same check re-renders the
+    // right screen (verify/expired/locked/invalid).
     const loadStatus = useCallback(async () => {
         try {
             const response = await fetch(api("/status"), { cache: "no-store" });
+            if (!mountedRef.current) return;
             if (response.status === 410) return setScreen({ kind: "expired" });
             if (!response.ok) return setScreen({ kind: "invalid" });
             const status = (await response.json()) as Status;
+            if (!mountedRef.current) return;
             const branchName = status.branchName || BRANCH_FALLBACK;
             if (status.lockedUntil) return setScreen({ kind: "locked", branchName, lockedUntil: status.lockedUntil });
             setScreen({ kind: "verify", branchName, remainingAttempts: status.remainingAttempts, error: null });
         } catch {
+            if (!mountedRef.current) return;
             setScreen({ kind: "invalid" });
         }
     }, [api]);
@@ -59,6 +75,36 @@ export default function ReceiptLinkPage() {
     useEffect(() => {
         void loadStatus();
     }, [loadStatus]);
+
+    // The <img>'s error event carries no status code, and /status doesn't consult the
+    // access cookie (it's public/unauthenticated) — so it can't tell a revoked link apart
+    // from a transient 5xx on an otherwise-healthy session. Probe the image endpoint
+    // itself instead: 401 means the access cookie is stale/absent (re-challenge, same as
+    // any other 401 elsewhere on this page); 410 means the link expired; anything else
+    // (5xx, a thrown network error) is treated as transient — stay on the image screen and
+    // retry the <img> exactly once via a cache-busting query param. imageRetryParam being
+    // already set doubles as the "already retried" guard, so a second error (e.g. the
+    // retried load also failing) does not fetch or retry again — there is no copy for a
+    // broken-image state yet, so the image is simply left alone after that.
+    const handleImageError = useCallback(async () => {
+        if (screen.kind !== "image" || imageRetryParam) return;
+        try {
+            const response = await fetch(`${api("/image")}${imageRetryParam}`);
+            if (!mountedRef.current) return;
+            if (response.status === 401) {
+                void loadStatus();
+                return;
+            }
+            if (response.status === 410) {
+                setScreen({ kind: "expired" });
+                return;
+            }
+            setImageRetryParam("?r=1");
+        } catch {
+            if (!mountedRef.current) return;
+            setImageRetryParam("?r=1");
+        }
+    }, [api, imageRetryParam, loadStatus, screen.kind]);
 
     const submit = async () => {
         if (screen.kind !== "verify" || isSubmitting) return;
@@ -198,9 +244,9 @@ export default function ReceiptLinkPage() {
                     </div>
                     <img
                         className="rcpt-img"
-                        src={api("/image")}
+                        src={`${api("/image")}${imageRetryParam}`}
                         alt={`${screen.clientName} 산모님 본인부담금 영수증`}
-                        onError={() => void loadStatus()}
+                        onError={() => void handleImageError()}
                     />
                     <a
                         className="rcpt-btn rcpt-btn-icon"
