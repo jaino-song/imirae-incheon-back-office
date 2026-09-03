@@ -14,6 +14,7 @@ import {
     RECEIPT_LINK_TOKEN_REPOSITORY,
 } from "domain/repositories/receipt-link-token.repository.interface";
 import { PdfPageRasterizerService } from "infrastructure/pdf/pdf-page-rasterizer.service";
+import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
 import { EformsignDocumentMirrorService } from "./eformsign-document-mirror.service";
 import { normalizeBirthdayInput, ReceiptLinkSource, ReceiptLinkTokenService } from "./receipt-link-token.service";
 import { SmsTriggerDeliverySkipError } from "./sms-trigger-payload-enricher.registry";
@@ -127,9 +128,13 @@ export class ReceiptLinkIssueService {
      * revokes the document's previously active token as part of the same write.
      */
     async issue(params: IssueReceiptLinkParams): Promise<IssuedReceiptLink> {
+        const now = new Date();
         if (params.jobId) {
             const active = await this.receiptLinkTokenRepository.findActiveByJobId(params.jobId);
-            if (active && params.existingUrl) {
+            // An "active" row can still be past its expiresAt (nightly cleanup hasn't reaped it
+            // yet) — short-circuiting on that would hand the caller back a dead link. Fall
+            // through to mint a fresh one instead.
+            if (active && active.expiresAt.getTime() > now.getTime() && params.existingUrl) {
                 return { url: params.existingUrl, tokenId: active.id, expiresAt: active.expiresAt };
             }
         }
@@ -185,7 +190,12 @@ export class ReceiptLinkIssueService {
     private async findContractDocument(branchId: string, client: ClientEntity): Promise<ContractDocumentRef | null> {
         if (client.eDocId) {
             const byEDocId = await this.eformsignDocRepository.findByDocumentId(branchId, client.eDocId);
-            if (byEDocId && byEDocId.id !== undefined) {
+            if (
+                byEDocId
+                && byEDocId.id !== undefined
+                && byEDocId.documentKind === "contract"
+                && byEDocId.clientId === client.id
+            ) {
                 return { id: byEDocId.id, documentId: byEDocId.documentId };
             }
         }
@@ -213,7 +223,9 @@ export class ReceiptLinkIssueService {
                 },
             );
         } catch (error) {
-            this.logger.warn(`[ReceiptLink] mirror re-sync failed for ${doc.documentId}: ${describe(error)}`);
+            this.logger.warn(
+                `[ReceiptLink] mirror re-sync failed for ${doc.documentId}: ${sanitizeEformsignErrorMessage(error)}`,
+            );
             return null;
         }
         return this.findStoredPdf(doc.documentId);
