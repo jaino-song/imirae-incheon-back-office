@@ -2,7 +2,6 @@ import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ServiceRecordLinkService } from "application/services/service-record-link.service";
 import {
-    getServiceRecordTokenExpiresAt,
     SERVICE_RECORD_LINK_RULE_ID,
     SERVICE_RECORD_LINK_SMS_LOG_TEMPLATE_KEY,
     SERVICE_RECORD_LINK_SMS_TITLE,
@@ -120,7 +119,7 @@ describe("ServiceRecordLinkService", () => {
             scheduleId: 10,
             employeeId: 30,
             expectedPhone: "010-1111-2222",
-            expiresAt: getServiceRecordTokenExpiresAt(new Date("2026-07-12T00:00:00.000Z")),
+            expiresAt: new Date("2026-07-19T11:00:00.000Z"),
         });
         const job = jobRepository.promoteAutomaticSchedulingClaim.mock.calls[0]?.[2] as MessageTriggerJobEntity;
         expect(job.ruleId).toBe(SERVICE_RECORD_LINK_RULE_ID);
@@ -724,7 +723,7 @@ describe("ServiceRecordLinkService", () => {
 
         expect(tokenService.extendExpiryForSchedule).toHaveBeenCalledWith(
             10,
-            getServiceRecordTokenExpiresAt(new Date("2026-07-12T00:00:00.000Z")),
+            new Date("2026-07-19T11:00:00.000Z"),
         );
     });
 

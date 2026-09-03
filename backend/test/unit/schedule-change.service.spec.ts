@@ -4,7 +4,6 @@ import { ScheduleChangeService } from "application/services/schedule-change.serv
 import { ServiceRecordTokenService } from "application/services/service-record-token.service";
 import { MessageTriggerService } from "application/services/message-trigger.service";
 import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
-import { getServiceRecordTokenExpiresAt } from "domain/constants/service-record-link-message";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 const SCHEDULE_ID = 11;
@@ -377,7 +376,7 @@ describe("ScheduleChangeService", () => {
             );
             expect(tokenService.extendExpiryForCase).toHaveBeenCalledWith(
                 "case-1",
-                getServiceRecordTokenExpiresAt(toDbDate("2026-08-03")),
+                new Date("2026-08-10T11:00:00.000Z"),
                 txPrismaService,
             );
             expect(txPrismaService.schedule_change_request.create).toHaveBeenCalledWith({
@@ -535,7 +534,7 @@ describe("ScheduleChangeService", () => {
             });
             expect(tokenService.extendExpiryForCase).toHaveBeenCalledWith(
                 "case-1",
-                getServiceRecordTokenExpiresAt(toDbDate("2026-07-15")),
+                new Date("2026-07-22T11:00:00.000Z"),
                 txPrismaService,
             );
             expect(txPrismaService.schedule_change_request.update).toHaveBeenCalledWith({

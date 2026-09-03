@@ -744,9 +744,16 @@ function getExpectedSessionDate(
     return getExpectedSessionDateFromRecords(startDate, sessionIndex, sessions);
 }
 
+// Mirrors SERVICE_RECORD_LINK_GRACE_DAYS in backend/domain/constants/service-record-link-message.ts
+const SERVICE_RECORD_LINK_GRACE_DAYS = 7;
+
 function endDateExpiry(endDate: string): string | null {
     const datePart = datePartOf(endDate);
-    return datePart ? `${datePart}T20:00:00+09:00` : null;
+    if (!datePart) return null;
+    const graceDate = new Date(`${datePart}T00:00:00.000Z`);
+    graceDate.setUTCDate(graceDate.getUTCDate() + SERVICE_RECORD_LINK_GRACE_DAYS);
+    const graceDatePart = graceDate.toISOString().slice(0, 10);
+    return `${graceDatePart}T20:00:00+09:00`;
 }
 
 function isPastDate(value: string | null): boolean {
