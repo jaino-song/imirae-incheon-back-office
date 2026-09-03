@@ -2,6 +2,7 @@ import {
     CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS,
     evaluateAutoFinalize,
 } from "application/services/contract-auto-finalize.policy";
+import { DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG } from "domain/entities/system-setting.entity";
 
 describe("evaluateAutoFinalize", () => {
     const context = { sinceDate: "2026-08-08", todayKst: "2026-08-10" };
@@ -70,6 +71,10 @@ describe("evaluateAutoFinalize", () => {
             reason: "end-date-not-passed",
         });
         expect(verdict("2026-08-10", 0, { ...context, todayKst: "2026-08-12", graceDays: 2 })).toEqual({ eligible: true });
+    });
+
+    it("defaults to a 7-day grace period after the service end date", () => {
+        expect(DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG.graceDays).toBe(7);
     });
 
     it("uses a branch-specific attempt budget", () => {
