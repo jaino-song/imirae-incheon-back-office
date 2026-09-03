@@ -60,4 +60,11 @@ export interface IReceiptLinkTokenRepository {
     deleteByIds(ids: string[]): Promise<number>;
     /** findFirst where { storagePath }, select id. True iff any row currently references it. */
     existsByStoragePath(storagePath: string): Promise<boolean>;
+    /**
+     * findMany where { storagePath: { in: storagePaths }, expiresAt: { gte: cutoff } },
+     * select storagePath, distinct. The subset of `storagePaths` still referenced by a row that
+     * has not expired as of `cutoff` — used to compute orphan storage paths without deleting
+     * anything first.
+     */
+    findStoragePathsInUse(storagePaths: string[], cutoff: Date): Promise<string[]>;
 }

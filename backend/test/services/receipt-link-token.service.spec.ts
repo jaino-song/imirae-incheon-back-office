@@ -79,6 +79,16 @@ class FakeReceiptLinkTokenRepository implements IReceiptLinkTokenRepository {
     async existsByStoragePath(storagePath: string): Promise<boolean> {
         return this.rows.some((r) => r.storagePath === storagePath);
     }
+
+    async findStoragePathsInUse(storagePaths: string[], cutoff: Date): Promise<string[]> {
+        const pathSet = new Set(storagePaths);
+        const inUse = new Set(
+            this.rows
+                .filter((r) => pathSet.has(r.storagePath) && r.expiresAt >= cutoff)
+                .map((r) => r.storagePath),
+        );
+        return Array.from(inUse);
+    }
 }
 
 const config = { get: (key: string, fallback?: string) => (key === "RECEIPT_LINK_HASH_SALT" ? "test-salt" : fallback) };
@@ -198,6 +208,10 @@ describe("ReceiptLinkTokenService", () => {
         const collected = await service.collectExpired(cutoff);
         expect(collected.ids).toEqual(["row-1", "row-2"]);
         expect(collected.orphanStoragePaths).toEqual(["receipts/b/1/old.png"]);
+
+        // collectExpired is read-only: the expired rows must survive it (a crash between storage
+        // cleanup and deleteByIds must leave them retryable).
+        expect(repository.rows.map((r) => r.id)).toEqual(["row-1", "row-2", "row-3"]);
 
         await service.deleteByIds(collected.ids);
         expect(repository.rows.map((r) => r.id)).toEqual(["row-3"]);

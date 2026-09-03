@@ -93,4 +93,14 @@ export class SbReceiptLinkTokenRepository implements IReceiptLinkTokenRepository
         });
         return row !== null;
     }
+
+    async findStoragePathsInUse(storagePaths: string[], cutoff: Date): Promise<string[]> {
+        if (storagePaths.length === 0) return [];
+        const rows = await this.prisma.receipt_link_token.findMany({
+            where: { storagePath: { in: storagePaths }, expiresAt: { gte: cutoff } },
+            select: { storagePath: true },
+            distinct: ["storagePath"],
+        });
+        return rows.map((row) => row.storagePath);
+    }
 }

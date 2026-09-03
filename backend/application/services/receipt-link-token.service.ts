@@ -202,12 +202,10 @@ export class ReceiptLinkTokenService {
     }
 
     /**
-     * Tokens expired before `cutoff`, plus the storage paths that no remaining token still uses.
-     * Deletes the expired rows as part of computing the answer (see repository interface:
-     * `existsByStoragePath` has no cutoff parameter, so an orphan check can only be correct once
-     * the just-collected rows are gone — otherwise a path referenced solely by an expired row
-     * would always appear "still used" by itself). `deleteByIds` remains a separate, idempotent
-     * public method for callers that reissue it on the same ids.
+     * Tokens expired before `cutoff`, plus the storage paths that no live (not-yet-expired-as-of-
+     * `cutoff`) token still uses. Read-only: it deletes nothing. Task 2.7 deletes the storage
+     * objects at `orphanStoragePaths` first and only then calls `deleteByIds(ids)` — rows must
+     * survive a crash between the two, so this must never remove them itself.
      */
     async collectExpired(cutoff: Date): Promise<{ ids: string[]; orphanStoragePaths: string[] }> {
         const expired = await this.repository.findExpired(cutoff);
@@ -216,13 +214,8 @@ export class ReceiptLinkTokenService {
         const ids = expired.map((row) => row.id);
         const candidatePaths = Array.from(new Set(expired.map((row) => row.storagePath)));
 
-        await this.repository.deleteByIds(ids);
-
-        const orphanStoragePaths: string[] = [];
-        for (const path of candidatePaths) {
-            const stillReferenced = await this.repository.existsByStoragePath(path);
-            if (!stillReferenced) orphanStoragePaths.push(path);
-        }
+        const stillInUse = new Set(await this.repository.findStoragePathsInUse(candidatePaths, cutoff));
+        const orphanStoragePaths = candidatePaths.filter((path) => !stillInUse.has(path));
 
         return { ids, orphanStoragePaths };
     }
