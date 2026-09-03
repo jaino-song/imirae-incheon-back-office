@@ -1,10 +1,11 @@
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
-import { FILE_STORAGE_PORT } from "domain/ports/file-storage.port";
+import { FILE_STORAGE_PORT, FileStorageObjectNotFoundError } from "domain/ports/file-storage.port";
 import { RateLimitGuard } from "infrastructure/auth/rate-limit.guard";
 import { ReceiptLinkTokenService } from "application/services/receipt-link-token.service";
 import { ReceiptLinkController } from "interface/controllers/receipt-link.controller";
+import { ServiceRecordEntryController } from "interface/controllers/service-record-entry.controller";
 import { GlobalValidationPipe } from "infrastructure/pipes/global-validation.pipe";
 
 describe("ReceiptLinkController", () => {
@@ -76,6 +77,21 @@ describe("ReceiptLinkController", () => {
         await request(app.getHttpServer()).post("/receipt-links/efr_x/verify").send({ birthday: "940315" }).expect(200, { ok: true, accessToken: "efra_a", clientName: "김산모" });
     });
 
+    // F6: no @MaxLength on the DTO — the service normalizes/rejects, so an over-long body must
+    // still reach it and come back as { reason: "invalid_format" }, not the class-validator
+    // pipe's plain message-array 400 (no `reason` field, which the BFF's label map depends on).
+    it("POST verify with a 13+ character birthday still reaches the service, which reports invalid_format (no attempt consumed)", async () => {
+        tokenService.verifyBirthday.mockResolvedValueOnce({ ok: false, reason: "invalid_format" });
+        const longBirthday = "1".repeat(13);
+
+        await request(app.getHttpServer())
+            .post("/receipt-links/efr_x/verify")
+            .send({ birthday: longBirthday })
+            .expect(400, { reason: "invalid_format" });
+
+        expect(tokenService.verifyBirthday).toHaveBeenCalledWith("efr_x", longBirthday, expect.any(Date));
+    });
+
     it("POST verify with a missing birthday reaches the service as an empty string and returns its invalid_format shape", async () => {
         tokenService.verifyBirthday.mockResolvedValueOnce({ ok: false, reason: "invalid_format" });
         await request(app.getHttpServer()).post("/receipt-links/efr_x/verify").send({}).expect(400, { reason: "invalid_format" });
@@ -109,6 +125,33 @@ describe("ReceiptLinkController", () => {
         const download = await request(app.getHttpServer()).get("/receipt-links/efr_x/image?download=1").set("Authorization", "Bearer efra_a").expect(200);
         expect(download.headers["content-disposition"]).toMatch(/^attachment; filename="[^"]+"; filename\*=UTF-8''%EC%98%81%EC%88%98%EC%A6%9D_/);
         expect(tokenService.resolveAccess).toHaveBeenLastCalledWith("efr_x", "efra_a", expect.any(Date));
+    });
+
+    // F4: RateLimitGuard buckets on `${method}:${handler.name}` (rate-limit.guard.ts,
+    // getEndpointScope). A handler-name collision between two controllers silently shares one
+    // rate-limit bucket across unrelated public endpoints. Guard against the collision
+    // structurally: no method name may appear on both controllers' prototypes.
+    it("no handler name is shared with ServiceRecordEntryController (RateLimitGuard buckets on handler.name, not route path)", () => {
+        const ownNames = (ctor: { prototype: object }) =>
+            Object.getOwnPropertyNames(ctor.prototype).filter((name) => name !== "constructor");
+
+        const receiptHandlerNames = ownNames(ReceiptLinkController);
+        const serviceRecordHandlerNames = ownNames(ServiceRecordEntryController);
+
+        const collisions = receiptHandlerNames.filter((name) => serviceRecordHandlerNames.includes(name));
+        expect(collisions).toEqual([]);
+    });
+
+    // F5: a missing storage object (e.g. reaped/never landed) must read as "link expired" (410),
+    // not surface as an unhandled 500.
+    it("GET image returns 410 { reason: expired } when the storage object is missing", async () => {
+        tokenService.resolveAccess.mockResolvedValue({ id: "t", storagePath: "receipts/b/1/missing.png", clientName: "김산모", expiresAt: new Date() });
+        storage.download.mockRejectedValueOnce(new FileStorageObjectNotFoundError("receipts/b/1/missing.png", "download"));
+
+        await request(app.getHttpServer())
+            .get("/receipt-links/efr_x/image")
+            .set("X-Receipt-Access-Token", "efra_a")
+            .expect(410, { reason: "expired" });
     });
 
     it("GET image percent-encodes an apostrophe in the client name for the RFC 5987 filename* value", async () => {
