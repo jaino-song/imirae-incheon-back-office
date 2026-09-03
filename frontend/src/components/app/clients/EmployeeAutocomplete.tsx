@@ -72,7 +72,7 @@ export function EmployeeAutocomplete({
     "data-testid": dataTestId,
 }: EmployeeAutocompleteProps) {
     const locale = useLocale();
-    const { data: employees, isLoading } = useEmployees();
+    const { data: employees, isLoading, refetch } = useEmployees();
     const setPrefillName = useEmployeeDialogStore((state) => state.setPrefillName);
     const clearPrefillName = useEmployeeDialogStore((state) => state.clearPrefillName);
 
@@ -125,6 +125,11 @@ export function EmployeeAutocomplete({
 
     const handleOpenChange = (open: boolean) => {
         setIsOpen(open);
+        // 제공인력 목록 캐시는 창(탭)마다 따로 유지되어, 다른 창에서 등록한 인력이 반영되지 않는다.
+        // 드롭다운을 여는 시점이 곧 최신 목록이 필요한 시점이므로 그때 다시 불러온다.
+        if (open) {
+            void refetch();
+        }
         if (open && !selectedEmployee) {
             setInputValue(
                 displayValueMode === "phone"
