@@ -20,6 +20,17 @@ const SECRET_ASSIGNMENT_PATTERN =
   /((?:password|token|secret|api[_-]?key|authorization)\s*[:=]\s*)[^\s,;]+/gi;
 const SERVICE_RECORD_ACCESS_TOKEN_PATTERN =
   /(\/(?:api\/)?service-record\/(?:link\/)?)[^/?#\s]+/gi;
+// The mother-facing public receipt link (spec §4.2/§5.5): /receipt/<token> (page route),
+// /api/receipt/<token>/status|verify|image (mobile BFF route), and the server-side axios
+// call the BFF itself makes to the backend, /receipt-links/<token>/status|verify|image
+// (M3 — this shape was previously left unredacted). The second alternative's token capture
+// is deliberately restricted to when it's followed by /status, /verify or /image: those are
+// the only receipt-links/<token>/... shapes that carry a token. Without that lookahead the
+// pattern would also swallow the literal, token-free admin route "/api/receipt-links/send"
+// (documentId travels in the body, not the URL) and redact "send" itself, which must stay
+// visible for debugging.
+const RECEIPT_LINK_TOKEN_PATTERN =
+  /(\/(?:api\/)?receipt\/)[^/?#\s]+|(\/receipt-links\/)[^/?#\s]+(?=\/(?:status|verify|image)(?:[/?#]|$))/gi;
 const SERVICE_RECORD_RESOURCE_ID_PATTERN =
   /(\/(?:api\/)?(?:admin\/service-records\/(?:client|schedules)|schedule-change-requests\/schedules)\/)[^/?#\s]+/gi;
 const SERVICE_RECORD_SESSION_ID_PATTERN =
@@ -28,6 +39,14 @@ const UUID_PATH_SEGMENT_PATTERN =
   /\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=\/|$)/gi;
 const SERVICE_RECORD_SIGNAL_PATTERN =
   /service-record(?:s)?|service_record(?:s)?|service-feedback|service_feedback/i;
+
+function redactReceiptLinkToken(text: string): string {
+  return text.replace(
+    RECEIPT_LINK_TOKEN_PATTERN,
+    (_match, plainPrefix: string | undefined, linksPrefix: string | undefined) =>
+      `${plainPrefix ?? linksPrefix}${FILTERED_VALUE}`,
+  );
+}
 
 function readSampleRate(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
@@ -48,14 +67,16 @@ export function getSentryEnvironment(): "dev" | "preview" | "production" {
 }
 
 export function sanitizeSentryText(value: string): string {
-  return value
-    .replace(BEARER_PATTERN, `$1${FILTERED_VALUE}`)
-    .replace(SECRET_ASSIGNMENT_PATTERN, `$1${FILTERED_VALUE}`)
-    .replace(EMAIL_PATTERN, "[Email]")
-    .replace(PHONE_PATTERN, "[Phone]")
-    .replace(SERVICE_RECORD_ACCESS_TOKEN_PATTERN, `$1${FILTERED_VALUE}`)
-    .replace(SERVICE_RECORD_RESOURCE_ID_PATTERN, `$1${FILTERED_VALUE}`)
-    .replace(SERVICE_RECORD_SESSION_ID_PATTERN, `$1${FILTERED_VALUE}`)
+  return redactReceiptLinkToken(
+    value
+      .replace(BEARER_PATTERN, `$1${FILTERED_VALUE}`)
+      .replace(SECRET_ASSIGNMENT_PATTERN, `$1${FILTERED_VALUE}`)
+      .replace(EMAIL_PATTERN, "[Email]")
+      .replace(PHONE_PATTERN, "[Phone]")
+      .replace(SERVICE_RECORD_ACCESS_TOKEN_PATTERN, `$1${FILTERED_VALUE}`)
+      .replace(SERVICE_RECORD_RESOURCE_ID_PATTERN, `$1${FILTERED_VALUE}`)
+      .replace(SERVICE_RECORD_SESSION_ID_PATTERN, `$1${FILTERED_VALUE}`),
+  )
     .replace(UUID_PATH_SEGMENT_PATTERN, `/${FILTERED_VALUE}`);
 }
 

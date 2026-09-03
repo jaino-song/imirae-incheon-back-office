@@ -8,6 +8,14 @@ import { MessageTriggerRuleEntity } from "domain/entities/message-trigger-rule.e
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { SbMessageTriggerRuleRepository } from "infrastructure/database/repositories/sb.message-trigger-rule.repository";
 
+jest.mock("infrastructure/tenant/run-system-scope", () => ({
+    runSystemScope: jest.fn((fn: () => unknown) => fn()),
+}));
+
+const { runSystemScope } = require("infrastructure/tenant/run-system-scope") as {
+    runSystemScope: jest.Mock;
+};
+
 describe("SbMessageTriggerRuleRepository", () => {
     type MockMessageTriggerRuleRow = {
         id: string;
@@ -30,6 +38,7 @@ describe("SbMessageTriggerRuleRepository", () => {
         findFirst: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        upsert: jest.fn(),
         updateMany: jest.fn(),
         deleteMany: jest.fn(),
         $queryRaw: jest.fn(),
@@ -186,6 +195,46 @@ describe("SbMessageTriggerRuleRepository", () => {
         expect(messageTriggerRuleModel.updateMany).toHaveBeenCalledWith({
             where: { id: "rule-1", branchId: "branch-1" },
             data: { jobsStale: true },
+        });
+    });
+
+    it("ensureSystemRule upserts the branchless system rule row inside runSystemScope", async () => {
+        messageTriggerRuleModel.upsert.mockResolvedValue(createRow());
+        const rule = new MessageTriggerRuleEntity(
+            "system:service_end_notice",
+            null,
+            "서비스 종료 안내 (수동 발송)",
+            true,
+            MessageTriggerEventType.SERVICE_END,
+            MessageTriggerOffsetType.SAME_DAY,
+            0,
+            MessageTriggerRecipientType.CLIENT,
+            MessageTriggerTemplateKey.SERVICE_END_NOTICE,
+            new Date("2026-09-03T00:00:00.000Z"),
+            new Date("2026-09-03T00:00:00.000Z"),
+            false,
+            false,
+        );
+
+        await repository.ensureSystemRule(rule);
+
+        expect(runSystemScope).toHaveBeenCalledTimes(1);
+        expect(messageTriggerRuleModel.upsert).toHaveBeenCalledWith({
+            where: { id: "system:service_end_notice" },
+            create: {
+                id: "system:service_end_notice",
+                branchId: null,
+                name: "서비스 종료 안내 (수동 발송)",
+                isActive: true,
+                eventType: MessageTriggerEventType.SERVICE_END,
+                offsetType: MessageTriggerOffsetType.SAME_DAY,
+                offsetDays: 0,
+                recipientType: MessageTriggerRecipientType.CLIENT,
+                templateKey: MessageTriggerTemplateKey.SERVICE_END_NOTICE,
+                isDefault: false,
+                jobsStale: false,
+            },
+            update: {},
         });
     });
 

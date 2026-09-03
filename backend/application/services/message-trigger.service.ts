@@ -1593,6 +1593,7 @@ export class MessageTriggerService {
             case MessageTriggerTemplateKey.THANKS:
             case MessageTriggerTemplateKey.SURVEY:
             case MessageTriggerTemplateKey.INFO:
+            case MessageTriggerTemplateKey.SERVICE_END_NOTICE:
                 return { name: client.name, clientName: client.name, phone: client.phone ?? "" };
             default:
                 return {};

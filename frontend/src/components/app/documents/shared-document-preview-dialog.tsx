@@ -43,6 +43,7 @@ interface SharedDocumentPreviewDialogProps {
   downloadFileName?: string;
   receiptDownloadUrl?: string;
   receiptDownloadFileName?: string;
+  receiptSendAction?: ReactNode;
   imageAlt?: string;
   overlayLabel?: string;
   unsupportedMessage?: ReactNode;
@@ -158,6 +159,7 @@ export function SharedDocumentPreviewDialog({
   downloadFileName,
   receiptDownloadUrl,
   receiptDownloadFileName,
+  receiptSendAction,
   imageAlt,
   overlayLabel,
   unsupportedMessage = "Preview not available for this file type",
@@ -618,6 +620,7 @@ export function SharedDocumentPreviewDialog({
         영수증
       </Button>
     ) : null,
+    receiptSendAction ? <Fragment key="receipt-send">{receiptSendAction}</Fragment> : null,
     downloadUrl ? (
       <Button
         key="download"
