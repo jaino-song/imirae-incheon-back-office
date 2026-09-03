@@ -357,7 +357,13 @@ export class SmsTriggerDeliveryService {
         }
 
         try {
-            const enricher = this.enricherRegistry?.get(job.templateKey) ?? null;
+            // A staged snapshot (agent-approved retry: message-external-agent-capabilities.provider.ts)
+            // already carries a message body that was hashed and approved before this dispatch.
+            // Enriching now would change job.payload.templateVariables and make the canonical
+            // re-render diverge from what was approved, so resolveDeliverySnapshot's staged-vs-canonical
+            // hash check would reject with "changed after staging" and the provider would never be
+            // called. Skip enrichment entirely for a job that already carries a staged snapshot.
+            const enricher = this.hasStagedDeliverySnapshot(job) ? null : this.enricherRegistry?.get(job.templateKey) ?? null;
             if (enricher) {
                 await enricher.enrich(job);
             }
@@ -365,7 +371,7 @@ export class SmsTriggerDeliveryService {
         } catch (error) {
             if (error instanceof SmsTriggerDeliverySkipError) {
                 job.cancel(`메시지 발송 건너뜀: ${error.message}`);
-                this.logger.warn(`[SmsTrigger] job ${job.id} skipped (${error.reason})`);
+                this.logger.warn(`[SMS Automation] ${job.templateKey} skipped for job ${job.id}: ${error.reason}`);
                 return false;
             }
             if (error instanceof MissingSmsTemplateVariablesError) {
@@ -377,6 +383,15 @@ export class SmsTriggerDeliveryService {
             }
             throw error;
         }
+    }
+
+    /**
+     * True when this job's payload already carries a staged delivery snapshot
+     * (SMS_DELIVERY_SNAPSHOT_VARIABLE) — i.e. an agent-approved retry whose message
+     * body was already resolved, hashed, and approved before this dispatch.
+     */
+    private hasStagedDeliverySnapshot(job: MessageTriggerJobEntity): boolean {
+        return Boolean(job.payload.templateVariables[SMS_DELIVERY_SNAPSHOT_VARIABLE]);
     }
 
     private async sendSmsJob(

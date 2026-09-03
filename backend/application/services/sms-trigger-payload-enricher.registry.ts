@@ -6,6 +6,24 @@ import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.ent
  * Fills job.payload.templateVariables right before an SMS trigger job is sent.
  * Throw SmsTriggerDeliverySkipError to cancel the job with a human-readable reason
  * instead of failing it (mirrors MissingSmsTemplateVariablesError handling).
+ *
+ * Not invoked at all when the job already carries a staged delivery snapshot
+ * (SMS_DELIVERY_SNAPSHOT_VARIABLE) — that job's message body was already
+ * resolved and approved, so sms-trigger-delivery.service.ts's sendJob skips
+ * enrichment for it entirely (see hasStagedDeliverySnapshot).
+ *
+ * MUST be idempotent per job.id for every other job it does run for. sendJob
+ * runs enrich() before SmsTriggerDeliveryService's duplicate-dispatch
+ * convergence check (the acceptance-service race in sendSmsJob that lets two
+ * concurrent dispatches for the same job converge on one already-accepted
+ * provider row), and that check happens after enrichment because it requires
+ * the resolved message snapshot enrich() itself may complete. So enrich() can
+ * run for a delivery that ultimately converges onto an earlier acceptance and
+ * never reaches the provider — it must not mint a second real-world side
+ * effect (e.g. a second receipt link, a second external write) for the same
+ * job.id when that happens; make the side effect itself idempotent per job.id
+ * (upsert / find-or-create), not conditional on whether the SMS is actually
+ * sent.
  */
 export interface SmsTriggerPayloadEnricher {
     enrich(job: MessageTriggerJobEntity): Promise<void>;
