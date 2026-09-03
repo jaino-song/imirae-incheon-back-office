@@ -42,7 +42,7 @@ export function assertClientPhoneInput(phone: string | null | undefined): string
         return assertValidPhone(phone);
     } catch (error) {
         if (error instanceof Error && error.name === "InvalidPhoneError") {
-            throw new BadRequestException("Phone number must be a valid Korean phone number");
+            throw new BadRequestException("연락처가 올바른 국내 전화번호 형식이 아닙니다.");
         }
         throw error;
     }
@@ -56,13 +56,13 @@ export function parseClientDate(value: string | null | undefined): Date | null |
     if (value === undefined || value === null) return value;
 
     if (!/^\d{4}-\d{2}-\d{2}(?:$|T)/.test(value)) {
-        throw new BadRequestException("Invalid calendar date");
+        throw new BadRequestException("날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)");
     }
 
     const calendarDate = value.slice(0, 10);
     const parsed = new Date(`${calendarDate}T00:00:00.000Z`);
     if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== calendarDate) {
-        throw new BadRequestException("Invalid calendar date");
+        throw new BadRequestException("날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)");
     }
     return parsed;
 }
@@ -153,7 +153,7 @@ export function assertAllowedServiceStatus(status: string | null | undefined): v
 
     if (!isServiceStatus(status)) {
         throw new BadRequestException(
-            `serviceStatus must be one of: ${SERVICE_STATUS_VALUES.join(", ")}`,
+            `계약 상태가 올바르지 않습니다. 허용 값: ${SERVICE_STATUS_VALUES.join(", ")}`,
         );
     }
 }
@@ -178,7 +178,7 @@ export async function assertAllowedClientArea(
     });
 
     if (!area) {
-        throw new BadRequestException("areaId must reference an available area");
+        throw new BadRequestException("선택한 관할 지역을 사용할 수 없습니다.");
     }
 }
 
@@ -215,7 +215,7 @@ export async function assertPhoneAvailable(
             statusCode: 409,
             code: "P2002",
             error: "Conflict",
-            message: "A client with this phone already exists",
+            message: "이미 같은 전화번호의 고객이 있습니다.",
             field: "phone",
         });
     }
