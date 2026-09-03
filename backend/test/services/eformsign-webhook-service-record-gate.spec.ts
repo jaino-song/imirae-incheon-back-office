@@ -1,4 +1,13 @@
 import { EformsignWebhookService } from "../../application/services/eformsign-webhook.service";
+import { EformsignWebhookTrace } from "../../application/services/eformsign-webhook-trace";
+import { EformsignWebhookPayloadDto } from "../../interface/dto/eformsign-webhook.dto";
+
+/**
+ * These tests call the private handlers directly, so they have to supply the
+ * ledger trace the real caller builds. Nothing here asserts on it — an empty
+ * payload is enough to satisfy the parameter.
+ */
+const trace = () => new EformsignWebhookTrace({} as EformsignWebhookPayloadDto);
 
 /**
  * BJJ-247 contract-isolation guarantee: completing a SERVICE_RECORD snapshot document must NOT run
@@ -87,25 +96,25 @@ describe("EformsignWebhookService — service-record template_id gate", () => {
 
     it("document event + contract template → runs contract-completion side effects", async () => {
         const { service, handleCompleted } = makeService();
-        await (service as any).handleDocumentEvent("branch1", docEvent(CONTRACT_TPL));
+        await (service as any).handleDocumentEvent("branch1", docEvent(CONTRACT_TPL), trace());
         expect(handleCompleted).toHaveBeenCalledTimes(1);
     });
 
     it("document event + service-record template → SKIPS contract-completion side effects", async () => {
         const { service, handleCompleted } = makeService();
-        await (service as any).handleDocumentEvent("branch1", docEvent(SERVICE_RECORD_TPL));
+        await (service as any).handleDocumentEvent("branch1", docEvent(SERVICE_RECORD_TPL), trace());
         expect(handleCompleted).not.toHaveBeenCalled();
     });
 
     it("ready_document_pdf + contract template → runs contract-completion side effects", async () => {
         const { service, handleCompleted } = makeService();
-        await (service as any).handleReadyDocumentPdfEvent("branch1", pdfEvent(CONTRACT_TPL));
+        await (service as any).handleReadyDocumentPdfEvent("branch1", pdfEvent(CONTRACT_TPL), trace());
         expect(handleCompleted).toHaveBeenCalledTimes(1);
     });
 
     it("ready_document_pdf + service-record template → SKIPS contract-completion side effects", async () => {
         const { service, handleCompleted } = makeService();
-        await (service as any).handleReadyDocumentPdfEvent("branch1", pdfEvent(SERVICE_RECORD_TPL));
+        await (service as any).handleReadyDocumentPdfEvent("branch1", pdfEvent(SERVICE_RECORD_TPL), trace());
         expect(handleCompleted).not.toHaveBeenCalled();
     });
 
@@ -115,7 +124,7 @@ describe("EformsignWebhookService — service-record template_id gate", () => {
         ["20회", SERVICE_RECORD_TPL_20],
     ])("document event + %s tier template → SKIPS contract-completion side effects", async (_tier, templateId) => {
         const { service, handleCompleted } = makeService();
-        await (service as any).handleDocumentEvent("branch1", docEvent(templateId));
+        await (service as any).handleDocumentEvent("branch1", docEvent(templateId), trace());
         expect(handleCompleted).not.toHaveBeenCalled();
     });
 
@@ -125,7 +134,7 @@ describe("EformsignWebhookService — service-record template_id gate", () => {
         ["20회", SERVICE_RECORD_TPL_20],
     ])("ready_document_pdf + %s tier template → SKIPS contract-completion side effects", async (_tier, templateId) => {
         const { service, handleCompleted } = makeService();
-        await (service as any).handleReadyDocumentPdfEvent("branch1", pdfEvent(templateId));
+        await (service as any).handleReadyDocumentPdfEvent("branch1", pdfEvent(templateId), trace());
         expect(handleCompleted).not.toHaveBeenCalled();
     });
 });
