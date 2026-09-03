@@ -1,10 +1,14 @@
-import { IsNotEmpty, IsString, MaxLength } from "class-validator";
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from "class-validator";
 
 export class VerifyReceiptBirthdayDto {
+    // Optional, not required: an absent/empty birthday must reach the service's
+    // invalid_format path (400 { reason: "invalid_format" }) rather than being
+    // rejected by the global pipe as a bare class-validator message array with no
+    // `reason` field — see receipt-link.controller.ts's verify().
+    @IsOptional()
     @IsString()
-    @IsNotEmpty()
     @MaxLength(12)
-    birthday!: string;
+    birthday?: string;
 }
 
 export class SendReceiptLinkDto {

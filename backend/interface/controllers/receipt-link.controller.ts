@@ -25,7 +25,13 @@ import { VerifyReceiptBirthdayDto } from "interface/dto/receipt-link.dto";
 
 function buildContentDisposition(type: "inline" | "attachment", filename: string): string {
     const ascii = filename.replace(/[^\x20-\x7e]/g, "_").replace(/"/g, "");
-    return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+    // encodeURIComponent leaves a handful of chars RFC 5987 attr-char excludes
+    // (' ( ) * !) unescaped; percent-encode those too so the ext-value is valid.
+    const extValue = encodeURIComponent(filename).replace(
+        /['()*!]/g,
+        (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+    );
+    return `${type}; filename="${ascii}"; filename*=UTF-8''${extValue}`;
 }
 
 function unusableToHttp(reason: ReceiptLinkUnusableReason): HttpException {
@@ -45,14 +51,24 @@ export class ReceiptLinkController {
     async status(@Param("token") token: string) {
         const result = await this.tokenService.getStatus(token, new Date());
         if (!result.ok) throw unusableToHttp(result.reason);
-        return result;
+        // Explicit projection, not the raw service object: a future field added to
+        // ReceiptLinkStatus (e.g. clientName, phone) must never leak to this
+        // pre-verification, unauthenticated endpoint just because the service grew it.
+        return {
+            ok: result.ok,
+            state: result.state,
+            branchName: result.branchName,
+            expiresAt: result.expiresAt,
+            remainingAttempts: result.remainingAttempts,
+            lockedUntil: result.lockedUntil,
+        };
     }
 
     @Post(":token/verify")
     @HttpCode(200)
     @UseGuards(RateLimitGuard)
     async verify(@Param("token") token: string, @Body() body: VerifyReceiptBirthdayDto) {
-        const result = await this.tokenService.verifyBirthday(token, body.birthday, new Date());
+        const result = await this.tokenService.verifyBirthday(token, body.birthday ?? "", new Date());
         if (result.ok) return result;
         switch (result.reason) {
             case "verification_failed":

@@ -22,7 +22,7 @@ export class ReceiptLinkDeliveryEnricher implements SmsTriggerPayloadEnricher, O
         if (!job.branchId || !job.clientId) {
             throw new ReceiptLinkSkipError("no_contract_document");
         }
-        const existingUrl = job.payload.templateVariables["receiptUrl"];
+        const existingUrl = job.payload.templateVariables?.["receiptUrl"];
         const issued = await this.issueService.issue({
             branchId: job.branchId,
             clientId: job.clientId,

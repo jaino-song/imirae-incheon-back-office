@@ -1,11 +1,15 @@
 import { MessageTriggerRecipientType, MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
 import { ReceiptLinkDeliveryEnricher } from "application/services/receipt-link-delivery-enricher.service";
+import { ReceiptLinkSkipError } from "application/services/receipt-link-issue.service";
 import { SmsTriggerPayloadEnricherRegistry } from "application/services/sms-trigger-payload-enricher.registry";
 
-function makeJob(dedupeKey: string, receiptUrl?: string) {
+function makeJob(dedupeKey: string, receiptUrl?: string, branchId: string | null = "11111111-1111-1111-1111-111111111111") {
     return MessageTriggerJobEntity.create({
-        branchId: "11111111-1111-1111-1111-111111111111",
+        // `create()` treats an omitted branchId as null (see message-trigger-job.entity.ts),
+        // so passing `null` here (distinct from the default parameter's "not provided")
+        // maps to `undefined` to reach that path — used by the no-branchId test below.
+        branchId: branchId ?? undefined,
         ruleId: "system:service_end_notice",
         scheduledFor: new Date(),
         clientId: 7,
@@ -64,5 +68,23 @@ describe("ReceiptLinkDeliveryEnricher", () => {
         expect(issueService.issue).toHaveBeenCalledWith(
             expect.objectContaining({ existingUrl: "https://x/receipt/efr_old" }),
         );
+    });
+
+    it("rejects with ReceiptLinkSkipError(no_contract_document) when the job has no branchId", async () => {
+        const issueService = { issue: jest.fn() };
+        const enricher = new ReceiptLinkDeliveryEnricher(new SmsTriggerPayloadEnricherRegistry(), issueService as never);
+        const job = makeJob("rule-1:client:7", undefined, null);
+
+        const error: unknown = await enricher.enrich(job).catch((e: unknown) => e);
+        expect(error).toBeInstanceOf(ReceiptLinkSkipError);
+        expect((error as ReceiptLinkSkipError).skipReason).toBe("no_contract_document");
+        expect(issueService.issue).not.toHaveBeenCalled();
+    });
+
+    it("propagates issueService.issue failures instead of swallowing them", async () => {
+        const issueService = { issue: jest.fn().mockRejectedValue(new Error("boom")) };
+        const enricher = new ReceiptLinkDeliveryEnricher(new SmsTriggerPayloadEnricherRegistry(), issueService as never);
+
+        await expect(enricher.enrich(makeJob("rule-1:client:7"))).rejects.toThrow("boom");
     });
 });
