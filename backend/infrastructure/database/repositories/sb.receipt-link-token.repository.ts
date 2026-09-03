@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { runSystemScope } from "infrastructure/tenant/run-system-scope";
 import {
     CreateReceiptLinkTokenData,
     ExpiredReceiptLinkToken,
@@ -43,22 +44,45 @@ function toRecord(row: RawRow): ReceiptLinkTokenRecord {
     };
 }
 
+/**
+ * `receipt_link_token` is a tenant model (has `branch_id`) as of the drift-spec
+ * registration in `tenant-models.generated.ts`, so the tenant-isolation Prisma
+ * extension now applies to it. Three methods below are token-KEYED lookups
+ * reached from the public, unauthenticated receipt-link endpoints
+ * (`ReceiptLinkController`'s status/verify routes): the presented link token
+ * IS the credential, and the branch is not yet known — it is resolved BY the
+ * lookup, not available before it. That is structurally identical to
+ * `TenantGuard`'s own membership-lookup bypass (`tenant.guard.ts`,
+ * `run-system-scope.ts`), so those three wrap their bodies in
+ * `runSystemScope`, deliberately and auditedly bypassing tenant isolation for
+ * a query that is legitimately cross-branch by design. The other methods
+ * (`createReplacingActive`, `findExpired`, `deleteByIds`, `existsByStoragePath`,
+ * `findStoragePathsInUse`, `findActiveByJobId`) run under scheduler/delivery
+ * context (no HTTP-origin ALS store, or an already-branch-scoped write from
+ * `ReceiptLinkIssueService`) and stay unwrapped.
+ */
 @Injectable()
 export class SbReceiptLinkTokenRepository implements IReceiptLinkTokenRepository {
     constructor(private readonly prisma: PrismaService) {}
 
+    // Cross-branch by design: see the class comment above.
     async findByLinkTokenHash(linkTokenHash: string): Promise<ReceiptLinkTokenRecord | null> {
-        const row = await this.prisma.receipt_link_token.findUnique({
-            where: { linkTokenHash },
-            include: INCLUDE_NAMES,
+        return runSystemScope(async () => {
+            const row = await this.prisma.receipt_link_token.findUnique({
+                where: { linkTokenHash },
+                include: INCLUDE_NAMES,
+            });
+            return row ? toRecord(row) : null;
         });
-        return row ? toRecord(row) : null;
     }
 
     async createReplacingActive(data: CreateReceiptLinkTokenData, now: Date): Promise<ReceiptLinkTokenRecord> {
         const row = await this.prisma.$transaction(async (tx) => {
             await tx.receipt_link_token.updateMany({
-                where: { eformsignDocId: data.eformsignDocId, active: true },
+                // Branch-pinned per the tenant-isolation extension's write-pin rule: the
+                // revoke targets only the issuing branch's previously active token for
+                // this document, matching the branch the new row is created under.
+                where: { eformsignDocId: data.eformsignDocId, active: true, branchId: data.branchId },
                 data: { active: false, revokedAt: now },
             });
             return tx.receipt_link_token.create({ data, include: INCLUDE_NAMES });
@@ -66,33 +90,41 @@ export class SbReceiptLinkTokenRepository implements IReceiptLinkTokenRepository
         return toRecord(row);
     }
 
+    // Cross-branch by design: see the class comment above. Covers both the
+    // verify() access-token mint and the periodic post-lock-window reset.
     async update(id: string, data: UpdateReceiptLinkTokenData): Promise<ReceiptLinkTokenRecord> {
-        const row = await this.prisma.receipt_link_token.update({
-            where: { id },
-            data,
-            include: INCLUDE_NAMES,
+        return runSystemScope(async () => {
+            const row = await this.prisma.receipt_link_token.update({
+                where: { id },
+                data,
+                include: INCLUDE_NAMES,
+            });
+            return toRecord(row);
         });
-        return toRecord(row);
     }
 
+    // Cross-branch by design: see the class comment above.
     async incrementFailedAttempts(id: string, now: Date): Promise<{ failedAttempts: number; lockedAt: Date | null }> {
-        return this.prisma.$transaction(async (tx) => {
-            const incremented = await tx.receipt_link_token.update({
-                where: { id },
-                data: { failedAttempts: { increment: 1 } },
-                select: { failedAttempts: true },
-            });
+        return runSystemScope(async () => {
+            const result = await this.prisma.$transaction(async (tx) => {
+                const incremented = await tx.receipt_link_token.update({
+                    where: { id },
+                    data: { failedAttempts: { increment: 1 } },
+                    select: { failedAttempts: true },
+                });
 
-            if (incremented.failedAttempts < RECEIPT_LINK_MAX_FAILED_ATTEMPTS) {
-                return { failedAttempts: incremented.failedAttempts, lockedAt: null };
-            }
+                if (incremented.failedAttempts < RECEIPT_LINK_MAX_FAILED_ATTEMPTS) {
+                    return { failedAttempts: incremented.failedAttempts, lockedAt: null };
+                }
 
-            const locked = await tx.receipt_link_token.update({
-                where: { id },
-                data: { lockedAt: now },
-                select: { failedAttempts: true, lockedAt: true },
+                const locked = await tx.receipt_link_token.update({
+                    where: { id },
+                    data: { lockedAt: now },
+                    select: { failedAttempts: true, lockedAt: true },
+                });
+                return { failedAttempts: locked.failedAttempts, lockedAt: locked.lockedAt };
             });
-            return { failedAttempts: locked.failedAttempts, lockedAt: locked.lockedAt };
+            return result;
         });
     }
 
