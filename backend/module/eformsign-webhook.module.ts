@@ -3,6 +3,8 @@ import { ConfigService } from "@nestjs/config";
 import { EformsignWebhookController } from "interface/controllers/eformsign-webhook.controller";
 import { EformsignWebhookService } from "application/services/eformsign-webhook.service";
 import { EformsignWebhookEventWriter } from "application/services/eformsign-webhook-event.service";
+import { EFORMSIGN_WEBHOOK_EVENT_REPOSITORY } from "domain/repositories/eformsign-webhook-event.repository.interface";
+import { SbEformsignWebhookEventRepository } from "infrastructure/database/repositories/sb.eformsign-webhook-event.repository";
 import {
     UpdateEformsignDocStatusUsecase,
     LinkDocumentToClientUsecase,
@@ -30,6 +32,10 @@ import { ServiceRecordEntryModule } from "./service-record-entry.module";
         WebhookGuard,
         EformsignWebhookService,
         EformsignWebhookEventWriter,
+        {
+            provide: EFORMSIGN_WEBHOOK_EVENT_REPOSITORY,
+            useClass: SbEformsignWebhookEventRepository,
+        },
         UpdateEformsignDocStatusUsecase,
         LinkDocumentToClientUsecase,
         {

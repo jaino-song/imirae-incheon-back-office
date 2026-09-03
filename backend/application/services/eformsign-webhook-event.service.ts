@@ -1,11 +1,14 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 
 import {
     EFORMSIGN_WEBHOOK_DROPPED_OUTCOMES,
     EFORMSIGN_WEBHOOK_OUTCOME,
     type EformsignWebhookOutcome,
 } from "domain/constants/eformsign-webhook-outcome.constants";
-import { PrismaService } from "infrastructure/database/prisma.service";
+import {
+    EFORMSIGN_WEBHOOK_EVENT_REPOSITORY,
+    IEformsignWebhookEventRepository,
+} from "domain/repositories/eformsign-webhook-event.repository.interface";
 
 export interface EformsignWebhookEventInput {
     webhookId?: string | null;
@@ -50,15 +53,21 @@ function clip(value: string | null | undefined, limit: number): string | null {
 /**
  * Append-only ledger of inbound eformsign webhooks.
  *
- * Modelled on AdminAuditEventWriter: a thin writer over PrismaService rather
- * than a domain repository, because nothing reads these rows back into domain
- * objects.
+ * Nothing reads these rows back into domain objects, so the writer stays thin —
+ * but the storage goes through a repository rather than PrismaService, because
+ * application/ code importing PrismaService is a lint error and the
+ * tenant-freeze allowlist takes no new entries. What the writer keeps is the
+ * part that is its own: clipping to column widths, swallowing failures, and
+ * deciding which outcomes count as dropped.
  */
 @Injectable()
 export class EformsignWebhookEventWriter {
     private readonly logger = new Logger(EformsignWebhookEventWriter.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        @Inject(EFORMSIGN_WEBHOOK_EVENT_REPOSITORY)
+        private readonly repository: IEformsignWebhookEventRepository,
+    ) {}
 
     /**
      * Never throws. A webhook that eformsign cannot get a 200 for is retried or
@@ -67,20 +76,18 @@ export class EformsignWebhookEventWriter {
      */
     async append(input: EformsignWebhookEventInput): Promise<void> {
         try {
-            await this.prisma.eformsign_webhook_event.create({
-                data: {
-                    webhookId: clip(input.webhookId, COLUMN_LIMITS.webhookId),
-                    eventType: clip(input.eventType, COLUMN_LIMITS.eventType),
-                    companyId: clip(input.companyId, COLUMN_LIMITS.companyId),
-                    documentId: clip(input.documentId, COLUMN_LIMITS.documentId),
-                    rawStatus: clip(input.rawStatus, COLUMN_LIMITS.rawStatus),
-                    statusType: clip(input.statusType, COLUMN_LIMITS.statusType),
-                    statusDetail: clip(input.statusDetail, COLUMN_LIMITS.statusDetail),
-                    sourceUpdatedDate: input.sourceUpdatedDate ?? null,
-                    outcome: clip(input.outcome, COLUMN_LIMITS.outcome)
-                        ?? EFORMSIGN_WEBHOOK_OUTCOME.UNRECORDED,
-                    outcomeReason: clip(input.outcomeReason, COLUMN_LIMITS.outcomeReason),
-                },
+            await this.repository.append({
+                webhookId: clip(input.webhookId, COLUMN_LIMITS.webhookId),
+                eventType: clip(input.eventType, COLUMN_LIMITS.eventType),
+                companyId: clip(input.companyId, COLUMN_LIMITS.companyId),
+                documentId: clip(input.documentId, COLUMN_LIMITS.documentId),
+                rawStatus: clip(input.rawStatus, COLUMN_LIMITS.rawStatus),
+                statusType: clip(input.statusType, COLUMN_LIMITS.statusType),
+                statusDetail: clip(input.statusDetail, COLUMN_LIMITS.statusDetail),
+                sourceUpdatedDate: input.sourceUpdatedDate ?? null,
+                outcome: clip(input.outcome, COLUMN_LIMITS.outcome)
+                    ?? EFORMSIGN_WEBHOOK_OUTCOME.UNRECORDED,
+                outcomeReason: clip(input.outcomeReason, COLUMN_LIMITS.outcomeReason),
             });
         } catch (error) {
             this.logger.warn(
@@ -95,18 +102,13 @@ export class EformsignWebhookEventWriter {
      */
     async countSince(since: Date): Promise<EformsignWebhookEventCounts> {
         try {
-            const grouped = await this.prisma.eformsign_webhook_event.groupBy({
-                by: ["outcome"],
-                where: { createdAt: { gte: since } },
-                _count: { _all: true },
-            });
+            const tallies = await this.repository.countByOutcomeSince(since);
             let received = 0;
             let dropped = 0;
-            for (const row of grouped) {
-                const count = row._count._all;
-                received += count;
-                if (EFORMSIGN_WEBHOOK_DROPPED_OUTCOMES.has(row.outcome as EformsignWebhookOutcome)) {
-                    dropped += count;
+            for (const tally of tallies) {
+                received += tally.count;
+                if (EFORMSIGN_WEBHOOK_DROPPED_OUTCOMES.has(tally.outcome as EformsignWebhookOutcome)) {
+                    dropped += tally.count;
                 }
             }
             return { received, dropped };
@@ -118,9 +120,6 @@ export class EformsignWebhookEventWriter {
 
     /** Retention sweep. Returns how many rows were removed. */
     async purgeOlderThan(cutoff: Date): Promise<number> {
-        const { count } = await this.prisma.eformsign_webhook_event.deleteMany({
-            where: { createdAt: { lt: cutoff } },
-        });
-        return count;
+        return this.repository.deleteOlderThan(cutoff);
     }
 }
