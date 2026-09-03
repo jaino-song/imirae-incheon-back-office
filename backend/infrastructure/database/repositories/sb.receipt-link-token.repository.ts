@@ -1,12 +1,13 @@
 import { Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { runSystemScope } from "infrastructure/tenant/run-system-scope";
 import {
     CreateReceiptLinkTokenData,
     ExpiredReceiptLinkToken,
     IReceiptLinkTokenRepository,
-    RECEIPT_LINK_MAX_FAILED_ATTEMPTS,
     ReceiptLinkTokenRecord,
+    ReserveVerificationAttemptResult,
     UpdateReceiptLinkTokenData,
 } from "domain/repositories/receipt-link-token.repository.interface";
 
@@ -53,10 +54,12 @@ function toRecord(row: RawRow): ReceiptLinkTokenRecord {
  * IS the credential, and the branch is not yet known — it is resolved BY the
  * lookup, not available before it. That is structurally identical to
  * `TenantGuard`'s own membership-lookup bypass (`tenant.guard.ts`,
- * `run-system-scope.ts`), so those three wrap their bodies in
- * `runSystemScope`, deliberately and auditedly bypassing tenant isolation for
- * a query that is legitimately cross-branch by design. The other methods
- * (`createReplacingActive`, `findExpired`, `deleteByIds`, `existsByStoragePath`,
+ * `run-system-scope.ts`), so those three (plus `reserveVerificationAttempt`,
+ * the atomic birthday-attempt reservation backing the same public `verify`
+ * endpoint) wrap their bodies in `runSystemScope`, deliberately and
+ * auditedly bypassing tenant isolation for a query that is legitimately
+ * cross-branch by design. The other methods (`createReplacingActive`,
+ * `findExpired`, `deleteByIds`, `existsByStoragePath`,
  * `findStoragePathsInUse`, `findActiveByJobId`) run under scheduler/delivery
  * context (no HTTP-origin ALS store, or an already-branch-scoped write from
  * `ReceiptLinkIssueService`) and stay unwrapped.
@@ -104,27 +107,76 @@ export class SbReceiptLinkTokenRepository implements IReceiptLinkTokenRepository
     }
 
     // Cross-branch by design: see the class comment above.
-    async incrementFailedAttempts(id: string, now: Date): Promise<{ failedAttempts: number; lockedAt: Date | null }> {
+    //
+    // ONE atomic statement (a locking CTE feeding a single UPDATE...FROM...RETURNING), not a
+    // read-then-decide-then-write sequence: two concurrent reservations against the same row
+    // always serialize on the row lock the CTE's `FOR UPDATE` takes, so neither can ever act on
+    // a stale pre-write snapshot of `locked_at`/`failed_attempts`. `before` captures that
+    // snapshot explicitly (aliased `b`) because, inside a single UPDATE's SET/RETURNING
+    // expressions, referencing the target table's own columns would otherwise resolve to
+    // whichever value THIS statement is writing, not the value the decision must be based on.
+    async reserveVerificationAttempt(
+        id: string,
+        now: Date,
+        lockWindowMs: number,
+        maxAttempts: number,
+    ): Promise<ReserveVerificationAttemptResult> {
         return runSystemScope(async () => {
-            const result = await this.prisma.$transaction(async (tx) => {
-                const incremented = await tx.receipt_link_token.update({
-                    where: { id },
-                    data: { failedAttempts: { increment: 1 } },
-                    select: { failedAttempts: true },
-                });
-
-                if (incremented.failedAttempts < RECEIPT_LINK_MAX_FAILED_ATTEMPTS) {
-                    return { failedAttempts: incremented.failedAttempts, lockedAt: null };
-                }
-
-                const locked = await tx.receipt_link_token.update({
-                    where: { id },
-                    data: { lockedAt: now },
-                    select: { failedAttempts: true, lockedAt: true },
-                });
-                return { failedAttempts: locked.failedAttempts, lockedAt: locked.lockedAt };
-            });
-            return result;
+            const rows = await this.prisma.$queryRaw<
+                Array<{ failedAttempts: number; lockedAt: Date | null; expectedBirthdayHash: string; wasLocked: boolean }>
+            >(Prisma.sql`
+                WITH before AS (
+                    SELECT id, locked_at, failed_attempts, expected_birthday_hash
+                    FROM receipt_link_token
+                    WHERE id = ${id}::uuid AND active AND expires_at > ${now}::timestamptz
+                    FOR UPDATE
+                )
+                UPDATE receipt_link_token t
+                SET
+                    failed_attempts = CASE
+                        WHEN b.locked_at IS NOT NULL
+                             AND b.locked_at + make_interval(secs => (${lockWindowMs}::double precision / 1000)) > ${now}::timestamptz
+                        THEN b.failed_attempts
+                        WHEN b.locked_at IS NOT NULL THEN 1
+                        ELSE b.failed_attempts + 1
+                    END,
+                    locked_at = CASE
+                        WHEN b.locked_at IS NOT NULL
+                             AND b.locked_at + make_interval(secs => (${lockWindowMs}::double precision / 1000)) > ${now}::timestamptz
+                        THEN b.locked_at
+                        WHEN b.locked_at IS NOT NULL THEN NULL
+                        WHEN b.failed_attempts + 1 >= ${maxAttempts}::int THEN ${now}::timestamptz
+                        ELSE NULL
+                    END
+                FROM before b
+                WHERE t.id = b.id
+                RETURNING
+                    t.failed_attempts AS "failedAttempts",
+                    t.locked_at AS "lockedAt",
+                    t.expected_birthday_hash AS "expectedBirthdayHash",
+                    (b.locked_at IS NOT NULL
+                        AND b.locked_at + make_interval(secs => (${lockWindowMs}::double precision / 1000)) > ${now}::timestamptz
+                    ) AS "wasLocked"
+            `);
+            const row = rows[0];
+            if (!row) {
+                // The CTE's WHERE (id AND active AND expires_at > now) matched zero rows: the
+                // token is missing, already inactive, or expired as of this same `now`. The
+                // caller re-reads the row to report the correct terminal reason.
+                return { outcome: "unusable" };
+            }
+            if (row.wasLocked) {
+                // Values unchanged: the statement still writes t.locked_at/failed_attempts
+                // above, it just writes back the pre-write value in this branch (see the row
+                // lock the CTE's FOR UPDATE holds for the duration of the write).
+                return { outcome: "locked", lockedUntil: new Date(row.lockedAt!.getTime() + lockWindowMs) };
+            }
+            return {
+                outcome: "recorded",
+                failedAttempts: row.failedAttempts,
+                lockedAt: row.lockedAt,
+                expectedBirthdayHash: row.expectedBirthdayHash,
+            };
         });
     }
 

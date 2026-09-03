@@ -18,7 +18,7 @@ import {
     UseGuards,
 } from "@nestjs/common";
 import { Response } from "express";
-import { FILE_STORAGE_PORT, FileStoragePort } from "domain/ports/file-storage.port";
+import { FILE_STORAGE_PORT, FileStorageObjectNotFoundError, FileStoragePort } from "domain/ports/file-storage.port";
 import { RateLimitGuard } from "infrastructure/auth/rate-limit.guard";
 import { ReceiptLinkTokenService, ReceiptLinkUnusableReason } from "application/services/receipt-link-token.service";
 import { VerifyReceiptBirthdayDto } from "interface/dto/receipt-link.dto";
@@ -46,9 +46,13 @@ export class ReceiptLinkController {
         @Inject(FILE_STORAGE_PORT) private readonly storage: FileStoragePort,
     ) {}
 
+    // Handler names below are deliberately prefixed (receiptStatus/receiptVerify, not
+    // status/verify): RateLimitGuard buckets on `${method}:${handler.name}`
+    // (rate-limit.guard.ts), so a bare "verify" here would share its rate-limit bucket with
+    // ServiceRecordEntryController's own POST "verify" handler — an unrelated public endpoint.
     @Get(":token/status")
     @UseGuards(RateLimitGuard)
-    async status(@Param("token") token: string) {
+    async receiptStatus(@Param("token") token: string) {
         const result = await this.tokenService.getStatus(token, new Date());
         if (!result.ok) throw unusableToHttp(result.reason);
         // Explicit projection, not the raw service object: a future field added to
@@ -67,7 +71,7 @@ export class ReceiptLinkController {
     @Post(":token/verify")
     @HttpCode(200)
     @UseGuards(RateLimitGuard)
-    async verify(@Param("token") token: string, @Body() body: VerifyReceiptBirthdayDto) {
+    async receiptVerify(@Param("token") token: string, @Body() body: VerifyReceiptBirthdayDto) {
         const result = await this.tokenService.verifyBirthday(token, body.birthday ?? "", new Date());
         if (result.ok) return result;
         switch (result.reason) {
@@ -96,7 +100,18 @@ export class ReceiptLinkController {
         const access = accessToken ? await this.tokenService.resolveAccess(token, accessToken, new Date()) : null;
         if (!access) throw new UnauthorizedException({ reason: "access_required" });
 
-        const png = await this.storage.download(access.storagePath);
+        let png: Buffer;
+        try {
+            png = await this.storage.download(access.storagePath);
+        } catch (error) {
+            // The row survived (access resolved) but its storage object is gone — e.g. reaped by
+            // the expiry sweep in a race with a still-live token row. Reads as "link expired",
+            // not an unhandled 500.
+            if (error instanceof FileStorageObjectNotFoundError) {
+                throw new GoneException({ reason: "expired" });
+            }
+            throw error;
+        }
         res.set({
             "Content-Type": "image/png",
             "Content-Length": String(png.length),

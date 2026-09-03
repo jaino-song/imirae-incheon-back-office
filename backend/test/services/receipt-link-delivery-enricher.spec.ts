@@ -61,6 +61,19 @@ describe("ReceiptLinkDeliveryEnricher", () => {
         expect(issueService.issue).toHaveBeenCalledWith(expect.objectContaining({ createdBy: "user-1" }));
     });
 
+    // F1: the job payload's receiptEformsignDocId (set by ReceiptLinkManualSendService for a
+    // manual send) must reach issue() so it renders that exact document.
+    it("forwards receiptEformsignDocId from the job payload to issue() when set", async () => {
+        const issueService = { issue: jest.fn().mockResolvedValue({ url: "u", tokenId: "t", expiresAt: new Date() }) };
+        const enricher = new ReceiptLinkDeliveryEnricher(new SmsTriggerPayloadEnricherRegistry(), issueService as never);
+        const job = makeJob("rule-1:client:7");
+        job.payload.receiptEformsignDocId = 77;
+
+        await enricher.enrich(job);
+
+        expect(issueService.issue).toHaveBeenCalledWith(expect.objectContaining({ eformsignDocId: 77 }));
+    });
+
     it("marks manual sends by their dedupe key", async () => {
         const issueService = { issue: jest.fn().mockResolvedValue({ url: "u", tokenId: "t", expiresAt: new Date() }) };
         const enricher = new ReceiptLinkDeliveryEnricher(new SmsTriggerPayloadEnricherRegistry(), issueService as never);

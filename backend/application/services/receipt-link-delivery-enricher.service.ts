@@ -23,12 +23,14 @@ export class ReceiptLinkDeliveryEnricher implements SmsTriggerPayloadEnricher, O
             throw new ReceiptLinkSkipError("no_contract_document");
         }
         const existingUrl = job.payload.templateVariables?.["receiptUrl"];
+        const receiptEformsignDocId = job.payload.receiptEformsignDocId;
         const issued = await this.issueService.issue({
             branchId: job.branchId,
             clientId: job.clientId,
             source: job.dedupeKey.includes(MANUAL_DEDUPE_MARKER) ? "manual" : "auto_trigger",
             jobId: job.id,
             createdBy: job.payload.sentByUserId ?? null,
+            ...(typeof receiptEformsignDocId === "number" ? { eformsignDocId: receiptEformsignDocId } : {}),
             ...(typeof existingUrl === "string" && existingUrl.length > 0 ? { existingUrl } : {}),
         });
         job.payload.templateVariables["receiptUrl"] = issued.url;

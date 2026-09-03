@@ -43,6 +43,8 @@ interface MakeServiceOverrides {
     client?: ClientFixture | null;
     doc?: DocFixture | null;
     docsByClient?: DocFixture[];
+    /** The row `eformsignDocRepository.findById` resolves to — the explicit-selection path. */
+    docById?: DocFixture | null;
     file?: { content: Buffer } | null;
     activeTokenForJob?: { id: string; expiresAt: Date } | null;
     storedPath?: boolean;
@@ -65,6 +67,9 @@ function makeService(overrides: MakeServiceOverrides = {}) {
     } as unknown as IClientRepository;
 
     const eformsignDocRepository = {
+        findById: jest
+            .fn()
+            .mockResolvedValue((overrides.docById === undefined ? doc : overrides.docById) as unknown as EformsignDocEntity | null),
         findByDocumentId: jest.fn().mockResolvedValue(doc as unknown as EformsignDocEntity | null),
         findByClientId: jest
             .fn()
@@ -236,6 +241,46 @@ describe("ReceiptLinkIssueService", () => {
         const preflight = await service.preflight({ branchId: BRANCH, clientId: 7 });
 
         expect(preflight.doc).toEqual({ id: 20, documentId: "new" });
+    });
+
+    // F1: manual re-send must render whichever document the staff explicitly selected, not
+    // whatever client.eDocId/newest-contract would auto-derive (a contract re-issue can leave
+    // those pointing at a different document than the one shown in the admin UI).
+    it("uses the explicitly selected document over the client-derived one when eformsignDocId is given", async () => {
+        const client: ClientFixture = { id: 7, name: "김산모", phone: "01012345678", voucherClient: true, birthday: "940315", eDocId: "doc-newer" };
+        const newerDoc: DocFixture = { id: 99, documentId: "doc-newer", documentKind: "contract", createdDate: new Date("2026-01-01"), clientId: 7 };
+        const olderDoc: DocFixture = { id: 42, documentId: "doc-older", documentKind: "contract", createdDate: new Date("2025-01-01"), clientId: 7 };
+        const { service, eformsignDocRepository } = makeService({ client, doc: newerDoc, docById: olderDoc });
+
+        const preflight = await service.preflight({ branchId: BRANCH, clientId: 7, eformsignDocId: 42 });
+
+        expect(eformsignDocRepository.findById).toHaveBeenCalledWith(BRANCH, 42);
+        expect(preflight.doc).toEqual({ id: 42, documentId: "doc-older" });
+        // The client-derived (eDocId) path must never be consulted once an explicit id wins.
+        expect(eformsignDocRepository.findByDocumentId).not.toHaveBeenCalled();
+    });
+
+    it("rejects an explicit eformsignDocId belonging to another client with no_contract_document", async () => {
+        const { service } = makeService({
+            docById: { id: 42, documentId: "doc-x", documentKind: "contract", clientId: 999 },
+        });
+        await expect(service.preflight({ branchId: BRANCH, clientId: 7, eformsignDocId: 42 }))
+            .rejects.toMatchObject({ skipReason: "no_contract_document" });
+    });
+
+    it("rejects an explicit eformsignDocId that is not a contract with no_contract_document", async () => {
+        const { service } = makeService({
+            docById: { id: 42, documentId: "doc-x", documentKind: "service_record_snapshot", clientId: 7 },
+        });
+        await expect(service.preflight({ branchId: BRANCH, clientId: 7, eformsignDocId: 42 }))
+            .rejects.toMatchObject({ skipReason: "no_contract_document" });
+    });
+
+    it("falls back to client-derived selection when eformsignDocId is absent (auto path unchanged)", async () => {
+        const { service, eformsignDocRepository } = makeService();
+        const preflight = await service.preflight({ branchId: BRANCH, clientId: 7 });
+        expect(eformsignDocRepository.findById).not.toHaveBeenCalled();
+        expect(preflight.doc).toEqual({ id: 42, documentId: "doc-ext-1" });
     });
 
     it("maps renderer and storage failures to skip reasons", async () => {

@@ -1,10 +1,14 @@
-import { INestApplication } from "@nestjs/common";
+import { INestApplication, RequestMethod } from "@nestjs/common";
+import { GUARDS_METADATA, METHOD_METADATA } from "@nestjs/common/constants";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
-import { FILE_STORAGE_PORT } from "domain/ports/file-storage.port";
+import { FILE_STORAGE_PORT, FileStorageObjectNotFoundError } from "domain/ports/file-storage.port";
 import { RateLimitGuard } from "infrastructure/auth/rate-limit.guard";
 import { ReceiptLinkTokenService } from "application/services/receipt-link-token.service";
 import { ReceiptLinkController } from "interface/controllers/receipt-link.controller";
+import { ServiceRecordEntryController } from "interface/controllers/service-record-entry.controller";
+import { AuthController } from "interface/controllers/auth.controller";
+import { PublicConsultationInquiryController } from "interface/controllers/consultation-inquiry.controller";
 import { GlobalValidationPipe } from "infrastructure/pipes/global-validation.pipe";
 
 describe("ReceiptLinkController", () => {
@@ -76,6 +80,21 @@ describe("ReceiptLinkController", () => {
         await request(app.getHttpServer()).post("/receipt-links/efr_x/verify").send({ birthday: "940315" }).expect(200, { ok: true, accessToken: "efra_a", clientName: "김산모" });
     });
 
+    // F6: no @MaxLength on the DTO — the service normalizes/rejects, so an over-long body must
+    // still reach it and come back as { reason: "invalid_format" }, not the class-validator
+    // pipe's plain message-array 400 (no `reason` field, which the BFF's label map depends on).
+    it("POST verify with a 13+ character birthday still reaches the service, which reports invalid_format (no attempt consumed)", async () => {
+        tokenService.verifyBirthday.mockResolvedValueOnce({ ok: false, reason: "invalid_format" });
+        const longBirthday = "1".repeat(13);
+
+        await request(app.getHttpServer())
+            .post("/receipt-links/efr_x/verify")
+            .send({ birthday: longBirthday })
+            .expect(400, { reason: "invalid_format" });
+
+        expect(tokenService.verifyBirthday).toHaveBeenCalledWith("efr_x", longBirthday, expect.any(Date));
+    });
+
     it("POST verify with a missing birthday reaches the service as an empty string and returns its invalid_format shape", async () => {
         tokenService.verifyBirthday.mockResolvedValueOnce({ ok: false, reason: "invalid_format" });
         await request(app.getHttpServer()).post("/receipt-links/efr_x/verify").send({}).expect(400, { reason: "invalid_format" });
@@ -109,6 +128,87 @@ describe("ReceiptLinkController", () => {
         const download = await request(app.getHttpServer()).get("/receipt-links/efr_x/image?download=1").set("Authorization", "Bearer efra_a").expect(200);
         expect(download.headers["content-disposition"]).toMatch(/^attachment; filename="[^"]+"; filename\*=UTF-8''%EC%98%81%EC%88%98%EC%A6%9D_/);
         expect(tokenService.resolveAccess).toHaveBeenLastCalledWith("efr_x", "efra_a", expect.any(Date));
+    });
+
+    // F4/M6: RateLimitGuard buckets on `${request.method.toLowerCase()}:${handler.name}`
+    // (rate-limit.guard.ts, getEndpointScope) — a handler-name collision between two
+    // RateLimitGuard-protected handlers of the SAME HTTP method silently shares one rate-limit
+    // bucket across unrelated endpoints, regardless of route path or controller. Rather than
+    // hardcoding two controllers, this walks every controller under backend/interface/controllers
+    // that imports RateLimitGuard (verified below to match a fresh grep) and, via Nest's own
+    // decorator metadata, finds every method actually guarded with @UseGuards(RateLimitGuard) —
+    // so a newly added guarded handler on ANY of these controllers is covered automatically,
+    // and a newly added controller must be added to CONTROLLERS_USING_RATE_LIMIT_GUARD below or
+    // this test's own "grep matches" self-check fails first.
+    const CONTROLLERS_USING_RATE_LIMIT_GUARD: Array<{ prototype: object; name: string }> = [
+        ServiceRecordEntryController,
+        AuthController,
+        PublicConsultationInquiryController,
+        ReceiptLinkController,
+    ];
+
+    it("backend/interface/controllers has exactly these RateLimitGuard-importing files (keep CONTROLLERS_USING_RATE_LIMIT_GUARD above in sync)", () => {
+        const fs = require("fs") as typeof import("fs");
+        const path = require("path") as typeof import("path");
+        const dir = path.resolve(__dirname, "../../interface/controllers");
+        const filesUsingGuard = fs
+            .readdirSync(dir)
+            .filter((f) => f.endsWith(".controller.ts"))
+            .filter((f) => fs.readFileSync(path.join(dir, f), "utf8").includes("RateLimitGuard"));
+
+        expect(filesUsingGuard.sort()).toEqual(
+            [
+                "auth.controller.ts",
+                "consultation-inquiry.controller.ts",
+                "receipt-link.controller.ts",
+                "service-record-entry.controller.ts",
+            ].sort(),
+        );
+    });
+
+    it("no two RateLimitGuard-protected handlers across any of these controllers share ${method}:${handler.name}", () => {
+        const methodName = (n: RequestMethod): string => RequestMethod[n]!.toLowerCase();
+
+        const guardedKeys: Array<{ key: string; controller: string }> = [];
+        for (const ctor of CONTROLLERS_USING_RATE_LIMIT_GUARD) {
+            const proto = ctor.prototype as Record<string, unknown>;
+            for (const name of Object.getOwnPropertyNames(proto)) {
+                if (name === "constructor") continue;
+                const handler = proto[name];
+                if (typeof handler !== "function") continue;
+                const guards = (Reflect.getMetadata(GUARDS_METADATA, handler) as unknown[] | undefined) ?? [];
+                if (!guards.includes(RateLimitGuard)) continue;
+
+                const requestMethod = Reflect.getMetadata(METHOD_METADATA, handler) as RequestMethod | undefined;
+                expect(requestMethod).not.toBeUndefined();
+                guardedKeys.push({ key: `${methodName(requestMethod!)}:${name}`, controller: ctor.name });
+            }
+        }
+
+        // Sanity: this must actually find handlers, or the metadata lookup itself is broken and
+        // the uniqueness assertion below would vacuously pass.
+        expect(guardedKeys.length).toBeGreaterThan(0);
+
+        const seen = new Map<string, string>();
+        const collisions: string[] = [];
+        for (const { key, controller } of guardedKeys) {
+            const owner = seen.get(key);
+            if (owner && owner !== controller) collisions.push(`${key} (${owner} vs ${controller})`);
+            else if (!owner) seen.set(key, controller);
+        }
+        expect(collisions).toEqual([]);
+    });
+
+    // F5: a missing storage object (e.g. reaped/never landed) must read as "link expired" (410),
+    // not surface as an unhandled 500.
+    it("GET image returns 410 { reason: expired } when the storage object is missing", async () => {
+        tokenService.resolveAccess.mockResolvedValue({ id: "t", storagePath: "receipts/b/1/missing.png", clientName: "김산모", expiresAt: new Date() });
+        storage.download.mockRejectedValueOnce(new FileStorageObjectNotFoundError("receipts/b/1/missing.png", "download"));
+
+        await request(app.getHttpServer())
+            .get("/receipt-links/efr_x/image")
+            .set("X-Receipt-Access-Token", "efra_a")
+            .expect(410, { reason: "expired" });
     });
 
     it("GET image percent-encodes an apostrophe in the client name for the RFC 5987 filename* value", async () => {

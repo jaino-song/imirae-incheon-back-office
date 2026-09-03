@@ -66,6 +66,14 @@ export interface IssueReceiptLinkParams {
      * idempotence note on `issue` below.
      */
     existingUrl?: string;
+    /**
+     * The exact contract document the caller already resolved (numeric `eformsign_doc.id`), when
+     * one is known — e.g. a manual send pins the document the staff selected in the UI. When
+     * present, `preflight` renders THIS document instead of re-deriving one from
+     * `client.eDocId`/newest-contract, which can point elsewhere after a contract re-issue. When
+     * absent, the client-derived auto path is unchanged.
+     */
+    eformsignDocId?: number;
 }
 
 export interface IssuedReceiptLink {
@@ -98,7 +106,7 @@ export class ReceiptLinkIssueService {
     ) {}
 
     /** Steps 1-4 of the pipeline: voucher, birthday, contract document, mirrored PDF. No rendering. */
-    async preflight(params: { branchId: string; clientId: number }): Promise<ReceiptLinkPreflight> {
+    async preflight(params: { branchId: string; clientId: number; eformsignDocId?: number }): Promise<ReceiptLinkPreflight> {
         const client = await this.clientRepository.findById(params.branchId, params.clientId);
         if (!client) throw new ReceiptLinkSkipError("no_contract_document");
         if (!client.voucherClient) throw new ReceiptLinkSkipError("not_voucher_client");
@@ -109,7 +117,9 @@ export class ReceiptLinkIssueService {
         const birthday = normalizeBirthdayInput(client.birthday ?? "");
         if (!birthday) throw new ReceiptLinkSkipError("missing_birthday");
 
-        const doc = await this.findContractDocument(params.branchId, client);
+        const doc = params.eformsignDocId !== undefined
+            ? await this.findExplicitContractDocument(params.branchId, params.eformsignDocId, client.id)
+            : await this.findContractDocument(params.branchId, client);
         if (!doc) throw new ReceiptLinkSkipError("no_contract_document");
 
         const pdf = await this.loadContractPdf(params.branchId, doc);
@@ -205,6 +215,25 @@ export class ReceiptLinkIssueService {
             .filter((doc) => doc.documentKind === "contract" && doc.id !== undefined)
             .sort((a, b) => b.createdDate.getTime() - a.createdDate.getTime())[0];
         return latest ? { id: latest.id as number, documentId: latest.documentId } : null;
+    }
+
+    /**
+     * The explicit-selection counterpart to `findContractDocument`: resolves exactly the
+     * document the caller named (by numeric id), requiring it to actually be a contract
+     * belonging to this client. Never falls back to client.eDocId or the newest contract — an
+     * explicit selection that doesn't check out is `no_contract_document`, not a silent
+     * substitution.
+     */
+    private async findExplicitContractDocument(
+        branchId: string,
+        eformsignDocId: number,
+        clientId: number,
+    ): Promise<ContractDocumentRef | null> {
+        const doc = await this.eformsignDocRepository.findById(branchId, eformsignDocId);
+        if (!doc || doc.id === undefined || doc.documentKind !== "contract" || doc.clientId !== clientId) {
+            return null;
+        }
+        return { id: doc.id, documentId: doc.documentId };
     }
 
     private async loadContractPdf(branchId: string, doc: ContractDocumentRef): Promise<Buffer | null> {

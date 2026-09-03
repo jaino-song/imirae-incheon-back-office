@@ -54,7 +54,7 @@ export interface SmsTemplateDeliveryConfig {
  * included in the approval fingerprint so an approved retry cannot silently
  * adopt a different title, template key, or provider routing rule.
  */
-export const SMS_DELIVERY_CONFIG_VERSION = "sms-template-delivery-v2";
+export const SMS_DELIVERY_CONFIG_VERSION = "sms-template-delivery-v1";
 export const SMS_DELIVERY_SNAPSHOT_VARIABLE = "__smsDeliverySnapshot";
 
 export interface SmsTriggerDeliverySnapshot {

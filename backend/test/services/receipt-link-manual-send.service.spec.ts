@@ -67,10 +67,39 @@ describe("ReceiptLinkManualSendService", () => {
         expect(result).toEqual({ jobId: "job-1", scheduledFor: expect.any(Date), clientName: "김산모" });
     });
 
+    // F1: the doc the staff selected must be threaded through to preflight and stamped on the
+    // job payload, so the enricher can force ReceiptLinkIssueService to render that exact
+    // document even if client.eDocId now points elsewhere (e.g. after a contract re-issue).
+    it("passes the selected document's numeric id to preflight and stores it on the job payload", async () => {
+        const { service, issueService, jobRepository } = makeService({
+            doc: { id: 77, documentId: "doc-older", clientId: 7 },
+        });
+
+        await service.send({ branchId: BRANCH, documentId: "doc-older", userId: "user-1" });
+
+        expect(issueService.preflight).toHaveBeenCalledWith({ branchId: BRANCH, clientId: 7, eformsignDocId: 77 });
+        const job = jobRepository.upsertPending.mock.calls[0]![0] as any;
+        expect(job.payload.receiptEformsignDocId).toBe(77);
+    });
+
     it("404s for an unknown document and 400s for a document without a client", async () => {
         await expect(makeService({ doc: null }).service.send({ branchId: BRANCH, documentId: "x", userId: null })).rejects.toBeInstanceOf(NotFoundException);
         await expect(makeService({ doc: { id: 1, documentId: "x", clientId: null } }).service.send({ branchId: BRANCH, documentId: "x", userId: null }))
             .rejects.toMatchObject({ response: { reason: "document_not_linked" } });
+    });
+
+    // M4 fix-round-1: a doc row with no numeric id can never be pinned via preflight's
+    // eformsignDocId (findExplicitContractDocument requires it) — silently falling back to
+    // client-derived auto-selection would pick a possibly DIFFERENT document than the one the
+    // caller is looking at, so this must 400 explicitly instead.
+    it("400s with no_contract_document instead of falling back to the auto path when the selected doc has no numeric id", async () => {
+        const { service, issueService } = makeService({
+            doc: { documentId: "doc-no-id", clientId: 7 },
+        });
+
+        await expect(service.send({ branchId: BRANCH, documentId: "doc-no-id", userId: null }))
+            .rejects.toMatchObject({ response: { reason: "no_contract_document" } });
+        expect(issueService.preflight).not.toHaveBeenCalled();
     });
 
     it("surfaces preflight skip reasons as 400 without enqueueing", async () => {
