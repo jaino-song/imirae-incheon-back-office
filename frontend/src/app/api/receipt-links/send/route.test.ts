@@ -208,4 +208,22 @@ describe("POST /api/receipt-links/send", () => {
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "Failed to send receipt link" });
   });
+
+  it("falls back to the fixed 500 message when request.text() itself rejects (never leaks error.message) (M5)", async () => {
+    // invalidJsonResponse() only handles malformed-JSON bodies (InvalidJsonBodyError) —
+    // a genuine transport/stream failure from request.text() is a different error type,
+    // for which invalidJsonResponse() returns null. Before the fix, that fell through to
+    // errorResponse() (bound in legacy-message mode for this route), which would surface
+    // error.message verbatim into the response body.
+    const request = createRequest();
+    jest.spyOn(request, "text").mockRejectedValue(new Error("stream reset by db-primary.internal:5432"));
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(payload).toEqual({ error: "Failed to send receipt link" });
+    expect(mockPost).not.toHaveBeenCalled();
+    expect(JSON.stringify(payload)).not.toContain("db-primary.internal");
+  });
 });

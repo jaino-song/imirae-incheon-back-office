@@ -2,7 +2,6 @@ import { isAxiosError } from "axios";
 import { NextRequest, NextResponse } from "next/server";
 import { serverAPIClient } from "@/lib/api/server";
 import {
-  errorResponse,
   getAuthHeaders,
   getAuthToken,
   invalidJsonResponse,
@@ -21,7 +20,18 @@ export async function POST(request: NextRequest) {
   try {
     body = await readJsonObjectBody(request);
   } catch (error) {
-    return invalidJsonResponse(error) ?? errorResponse(error, "send receipt link");
+    // invalidJsonResponse() only handles malformed-JSON bodies. If request.text() itself
+    // rejects (a genuine stream/transport failure, not a JSON parse issue), it returns
+    // null — never fall through to errorResponse() here: this route's errorResponse is
+    // bound in "legacy-message" mode (see ../../../../lib/api/route-utils.ts), which
+    // surfaces error.message verbatim (minus token/email scrubbing) into the client
+    // response, the same leak class fixed for the upstream-post catch below (M5).
+    const invalidJson = invalidJsonResponse(error);
+    if (invalidJson) {
+      return invalidJson;
+    }
+    logUpstreamError("send receipt link", error);
+    return NextResponse.json({ error: "Failed to send receipt link" }, { status: 500 });
   }
 
   const documentId = body.documentId;
