@@ -8,6 +8,7 @@ import type {
     TriggerTemplateCatalogItem,
     UpcomingMessageTriggerJob,
     UpdateMessageTriggerRuleDto,
+    UpdateMessageTriggerRuleBranchActivationDto,
 } from "../types";
 
 export const messageTriggersApi = {
@@ -17,6 +18,8 @@ export const messageTriggersApi = {
         api.post<MessageTriggerRule>("/message-trigger-rules", dto),
     update: (id: string, dto: UpdateMessageTriggerRuleDto) =>
         api.patch<MessageTriggerRule>(`/message-trigger-rules/${id}`, dto),
+    updateBranchActivation: (id: string, dto: UpdateMessageTriggerRuleBranchActivationDto) =>
+        api.put<MessageTriggerRule>(`/message-trigger-rules/${id}/branch-activation`, dto),
     delete: (id: string) => api.delete(`/message-trigger-rules/${id}`),
     listTemplates: (params: {
         eventType?: TriggerEventType;
