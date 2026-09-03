@@ -21,6 +21,7 @@ export const SYSTEM_TEMPLATE_KEYS = [
   'SURVEY',
   'SERVICE_INFO',
   'SERVICE_RECORD_LINK',
+  'SERVICE_END_NOTICE',
   'REMINDER',
   'INFO',
 ] as const;

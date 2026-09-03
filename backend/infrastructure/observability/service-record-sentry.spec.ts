@@ -28,6 +28,7 @@ import {
     captureServiceRecordError,
     filterAndSanitizeSentryEvent,
     getSentryOptions,
+    sanitizeSentryEvent,
     sanitizeSentryUrl,
 } from "./service-record-sentry";
 import { ServiceRecordSentryExceptionFilter } from "./service-record-sentry-exception.filter";
@@ -189,6 +190,25 @@ describe("service-record backend Sentry contract", () => {
                 },
             },
         });
+    });
+
+    it("redacts receipt-link tokens from URLs and from full Sentry events", () => {
+        expect(sanitizeSentryUrl("/receipt-links/efr_SECRET/verify")).toBe(
+            "/receipt-links/[Filtered]/verify",
+        );
+        expect(sanitizeSentryUrl("/api/receipt/efr_SECRET/image")).toBe(
+            "/api/receipt/[Filtered]/image",
+        );
+        expect(sanitizeSentryUrl("/receipt/efr_SECRET")).toBe("/receipt/[Filtered]");
+        expect(sanitizeSentryUrl("/receipt-links/send")).toBe("/receipt-links/send");
+
+        const result = sanitizeSentryEvent({
+            type: undefined,
+            tags: { feature: "service-records" },
+            request: { url: "/receipt-links/efr_SECRET/verify" },
+        });
+
+        expect(result.request?.url).toBe("/receipt-links/[Filtered]/verify");
     });
 
     it("keeps database failover events on unrelated API paths without retaining secrets", () => {
