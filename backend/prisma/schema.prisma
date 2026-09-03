@@ -1348,7 +1348,7 @@ model receipt_link_token {
   contentSha256        String        @map("content_sha256") @db.Char(64)
   byteSize             Int           @map("byte_size")
   source               String
-  createdBy            String?       @map("created_by") @db.Uuid
+  createdBy            String?       @map("created_by") @db.Uuid // Deliberately no FK to user: the audit value must survive user deletion.
   createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   branch               branch        @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   client               client?       @relation(fields: [clientId], references: [id], onDelete: SetNull, onUpdate: NoAction)

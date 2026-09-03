@@ -134,7 +134,6 @@
 | storage_path | varchar | |
 | content_sha256 | varchar | |
 | byte_size | int | |
-| message_log_id | int null | |
 | source | varchar | `auto_trigger` \| `manual` |
 | created_by | uuid null | 수동 발송 직원 |
 | created_at | timestamptz | |
