@@ -2072,6 +2072,22 @@
         ]
       },
       {
+        "name": "ReceiptLinkScreen",
+        "layer": "organism",
+        "import": "@/components/app/receipt-link-screen",
+        "file": "mobile/src/components/app/receipt-link-screen.tsx",
+        "exports": [
+          "ReceiptLinkScreen",
+          "ReceiptLinkScreenProps"
+        ],
+        "replaces": [
+          "receipt page-local verification and image UI"
+        ],
+        "requiredFor": [
+          "public receipt-link route assembly"
+        ]
+      },
+      {
         "name": "FileStorageScreen",
         "layer": "template",
         "import": "@/components/app/files/file-storage-screen",
