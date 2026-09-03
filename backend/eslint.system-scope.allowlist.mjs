@@ -34,17 +34,6 @@ export const systemScopeImportAllowlist = [
     // row's primary key and never touches branchId; the guard then calls
     // setBranchId so everything downstream is branch-scoped.
     "infrastructure/auth/call-ingest.guard.ts",
-    // ReceiptLinkManualSendService's best-effort scheduler nudge
-    // (MessageTriggerSchedulerService.dispatchDueJobs()) is only scope-safe
-    // from its own @Cron trigger (no ALS store). Called inline from the
-    // manual-send HTTP request it would trip the tenant-isolation
-    // extension's http_no_tenant/cross-branch-read checks, since the
-    // dispatcher scans due jobs across branches by design. The bypass wraps
-    // only that nudge, stays inside the existing try/catch (a failure here
-    // never fails the request — the lease holder's next minute tick picks
-    // the job up regardless), and does not touch the request's own
-    // branch-scoped writes above it.
-    "application/services/receipt-link-manual-send.service.ts",
     // SbReceiptLinkTokenRepository's token-keyed lookups (findByLinkTokenHash,
     // update, incrementFailedAttempts) back the public, unauthenticated
     // receipt-link status/verify endpoints: the presented link token IS the

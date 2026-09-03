@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import {
     MessageTriggerEventType,
@@ -15,10 +15,8 @@ import {
 } from "domain/repositories/message-trigger-rule.repository.interface";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
 import { IMessageTriggerJobRepository, MESSAGE_TRIGGER_JOB_REPOSITORY } from "domain/repositories/message-trigger-job.repository.interface";
-import { runSystemScope } from "infrastructure/tenant/run-system-scope";
 import { normalizePhone } from "application/utils/normalize-phone";
 import { MessageSenderApprovalService } from "./message-sender-approval.service";
-import { MessageTriggerSchedulerService } from "./message-trigger-scheduler.service";
 import { ReceiptLinkIssueService, ReceiptLinkSkipError } from "./receipt-link-issue.service";
 
 export interface ManualReceiptLinkSendParams {
@@ -35,17 +33,20 @@ export interface ManualReceiptLinkSendResult {
 
 @Injectable()
 export class ReceiptLinkManualSendService {
-    private readonly logger = new Logger(ReceiptLinkManualSendService.name);
-
     constructor(
         @Inject(EFORMSIGN_DOC_REPOSITORY) private readonly docRepository: IEformsignDocRepository,
         @Inject(MESSAGE_TRIGGER_RULE_REPOSITORY) private readonly ruleRepository: IMessageTriggerRuleRepository,
         private readonly issueService: ReceiptLinkIssueService,
         @Inject(MESSAGE_TRIGGER_JOB_REPOSITORY) private readonly jobRepository: IMessageTriggerJobRepository,
-        private readonly scheduler: MessageTriggerSchedulerService,
         private readonly senderApproval: MessageSenderApprovalService,
     ) {}
 
+    /**
+     * Enqueues a pending job with scheduledFor = now. Delivery happens on the lease holder's
+     * own minute-interval scheduler tick (MessageTriggerSchedulerService.dispatchDueJobs),
+     * which picks up any due job within 60 seconds — no in-request nudge is needed or
+     * attempted here.
+     */
     async send(params: ManualReceiptLinkSendParams): Promise<ManualReceiptLinkSendResult> {
         await this.senderApproval.ensureApproved(params.branchId);
 
@@ -92,16 +93,6 @@ export class ReceiptLinkManualSendService {
             },
         });
         const saved = await this.jobRepository.upsertPending(job);
-
-        // Best effort: the lease holder's minute cron picks the job up regardless. The
-        // scheduler is scope-safe only from @Cron (no ALS store) — called inline in this HTTP
-        // request it would trip the tenant-isolation extension, so the nudge runs under an
-        // explicit, audited system-scope bypass.
-        try {
-            await runSystemScope(() => this.scheduler.dispatchDueJobs());
-        } catch (error) {
-            this.logger.warn(`[ReceiptLink] scheduler nudge failed: ${error instanceof Error ? error.message : String(error)}`);
-        }
 
         return { jobId: saved.id, scheduledFor: now, clientName };
     }
