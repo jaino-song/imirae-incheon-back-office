@@ -13,6 +13,7 @@ import { SbMessageTriggerRuleRepository } from "infrastructure/database/reposito
 import { SupabaseStorageAdapter } from "infrastructure/adapters/supabase-storage.adapter";
 import { RateLimitGuard } from "infrastructure/auth/rate-limit.guard";
 import { PdfPageRasterizerService } from "infrastructure/pdf/pdf-page-rasterizer.service";
+import { ReceiptLinkCleanupSchedulerService } from "application/services/receipt-link-cleanup-scheduler.service";
 import { ReceiptLinkDeliveryEnricher } from "application/services/receipt-link-delivery-enricher.service";
 import { ReceiptLinkIssueService } from "application/services/receipt-link-issue.service";
 import { ReceiptLinkTokenService } from "application/services/receipt-link-token.service";
@@ -21,6 +22,7 @@ import { ReceiptLinkAdminController } from "interface/controllers/receipt-link-a
 import { ReceiptLinkController } from "interface/controllers/receipt-link.controller";
 import { EformsignDocModule } from "./eformsign-doc.module";
 import { MessageModule } from "./message.module";
+import { SchedulerLeaseModule } from "./scheduler-lease.module";
 import { SystemSettingModule } from "./system-setting.module";
 
 // Leaf module: imports MessageModule (registry, job repo, scheduler), EformsignDocModule
@@ -35,7 +37,7 @@ import { SystemSettingModule } from "./system-setting.module";
 // likewise provided directly here (DatabaseModule supplies its PrismaService dependency)
 // instead of importing AuthModule.
 @Module({
-    imports: [DatabaseModule, ConfigModule, MessageModule, EformsignDocModule, SystemSettingModule],
+    imports: [DatabaseModule, ConfigModule, MessageModule, EformsignDocModule, SystemSettingModule, SchedulerLeaseModule],
     controllers: [ReceiptLinkAdminController, ReceiptLinkController],
     providers: [
         SupabaseStorageAdapter,
@@ -50,6 +52,7 @@ import { SystemSettingModule } from "./system-setting.module";
         ReceiptLinkIssueService,
         ReceiptLinkDeliveryEnricher,
         ReceiptLinkManualSendService,
+        ReceiptLinkCleanupSchedulerService,
     ],
     exports: [ReceiptLinkIssueService, ReceiptLinkTokenService],
 })
