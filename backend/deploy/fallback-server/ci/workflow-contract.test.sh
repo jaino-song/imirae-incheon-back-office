@@ -15,8 +15,22 @@ assert_contains() {
     grep -Eq -- "$2" "$1" || fail "$3"
 }
 
+assert_text_contains() {
+    grep -Eq -- "$2" <<<"$1" || fail "$3"
+}
+
 assert_contains "$WORKFLOW" '^  resolve-backend-deploy-target:' \
     "backend CI must resolve exactly one production deployment target"
+assert_contains "$WORKFLOW" '^  wait-database-patches:' \
+    "backend CI must wait for the same-commit Database Patches run before resolving a deploy target"
+assert_contains "$WORKFLOW" 'run: bash backend/deploy/ci/wait-database-patches.sh' \
+    "the wait job must run the wait-database-patches script"
+
+resolve_target_job="$(sed -n '/^  resolve-backend-deploy-target:/,/^  deploy-lightsail:/p' "$WORKFLOW")"
+assert_text_contains "$resolve_target_job" 'needs:[[:space:]]*\[build-lightsail-image,[[:space:]]*wait-database-patches\]' \
+    "target resolution must depend on the Database Patches wait job"
+assert_text_contains "$resolve_target_job" "needs\.wait-database-patches\.result == 'success'" \
+    "target resolution must require the Database Patches wait job to succeed"
 assert_contains "$WORKFLOW" 'resolve-deploy-target\.mjs' \
     "backend CI must use the fail-closed target resolver"
 assert_contains "$WORKFLOW" 'FALLBACK_DNS_SHA256' \
