@@ -9,10 +9,13 @@ jest.mock("next/navigation", () => ({
 
 const mockUseParams = useParams as jest.Mock;
 
+// F3: deliberately NOT the page's BRANCH_FALLBACK constant ("인천 아이미래로") — a fixture
+// equal to the fallback would still pass even if the page ignored status.branchName
+// entirely and always rendered the fallback.
 const STATUS_VERIFY = {
     ok: true,
     state: "pending",
-    branchName: "인천 아이미래로",
+    branchName: "서울 아이미래로",
     expiresAt: "2026-10-03T00:00:00.000Z",
     remainingAttempts: 5,
     lockedUntil: null,
@@ -173,5 +176,125 @@ describe("ReceiptLinkPage", () => {
         await screen.findByRole("button", { name: "확인하기" });
         expect(await screen.findByText(/5회 연속 틀리면 30분 동안 확인이 잠깁니다/)).toBeInTheDocument();
         expect(container.querySelector(".rcpt-info")).toBeNull();
+    });
+
+    // F3: a page that ignores status.branchName entirely and always falls back would
+    // otherwise pass every other test above (they all use a non-fallback branchName).
+    it("falls back to the default branch name when /status returns an empty branchName (F3)", async () => {
+        global.fetch = jest.fn(async () => jsonResponse(200, { ...STATUS_VERIFY, branchName: "" })) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+
+        await screen.findByLabelText("산모 생년월일");
+        expect(screen.getByText("인천 아이미래로")).toBeInTheDocument();
+    });
+
+    // F2: non-410 !response.ok from /status must show the invalid-link screen.
+    it("shows the invalid-link screen when /status answers a non-410 error status (F2)", async () => {
+        global.fetch = jest.fn(async () => jsonResponse(404, { reason: "not_found" })) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+
+        await screen.findByRole("heading", { name: "사용할 수 없는 링크입니다" });
+    });
+
+    async function reachVerifyScreenAndSubmit(birthday: string) {
+        const input = await screen.findByLabelText("산모 생년월일");
+        fireEvent.change(input, { target: { value: birthday } });
+        fireEvent.click(screen.getByRole("button", { name: "확인하기" }));
+    }
+
+    // F2 — mutant guard: `if (response.status === 423 && body.lockedUntil)` → `if (false)`
+    // would fall through to the generic error message instead of the lock screen.
+    it("shows the lock screen and disables the button when verify answers 423 with lockedUntil (F2)", async () => {
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFY);
+            if (href.endsWith("/verify")) {
+                return jsonResponse(423, { reason: "locked", lockedUntil: "2026-09-03T01:00:00.000Z" });
+            }
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+        await reachVerifyScreenAndSubmit("940315");
+
+        await screen.findByText(/까지 확인이 잠겼습니다/);
+        expect(screen.getByRole("button", { name: "확인하기" })).toBeDisabled();
+    });
+
+    it("shows the expiry screen when verify answers 410 (F2)", async () => {
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFY);
+            if (href.endsWith("/verify")) return jsonResponse(410, { reason: "expired" });
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+        await reachVerifyScreenAndSubmit("940315");
+
+        await screen.findByRole("heading", { name: "링크 유효기간이 지났습니다" });
+    });
+
+    it("shows the format message when verify answers 400 invalid_format (F2)", async () => {
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFY);
+            if (href.endsWith("/verify")) return jsonResponse(400, { reason: "invalid_format" });
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+        await reachVerifyScreenAndSubmit("940315");
+
+        await screen.findByText("생년월일 6자리(YYMMDD)를 입력해 주세요.");
+    });
+
+    it("shows the generic error message when verify answers an unrecognised status (F2)", async () => {
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFY);
+            if (href.endsWith("/verify")) return jsonResponse(502, { reason: "unknown" });
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+        await reachVerifyScreenAndSubmit("940315");
+
+        await screen.findByText("확인 중 문제가 생겼습니다. 잠시 후 다시 시도해 주세요.");
+    });
+
+    it("shows the network-error message when the verify fetch throws (F2)", async () => {
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFY);
+            if (href.endsWith("/verify")) throw new Error("network down");
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+        await reachVerifyScreenAndSubmit("940315");
+
+        await screen.findByText("네트워크 연결을 확인해 주세요.");
+    });
+
+    it("shows the format message without calling verify when the birthday is not 6 or 8 digits (F2)", async () => {
+        let verifyCalled = false;
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFY);
+            if (href.endsWith("/verify")) {
+                verifyCalled = true;
+                return jsonResponse(200, { ok: true, clientName: "김산모" });
+            }
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+        await reachVerifyScreenAndSubmit("12345");
+
+        await screen.findByText("생년월일 6자리(YYMMDD)를 입력해 주세요.");
+        expect(verifyCalled).toBe(false);
     });
 });

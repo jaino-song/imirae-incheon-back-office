@@ -89,7 +89,9 @@ export default function ReceiptLinkPage() {
     const handleImageError = useCallback(async () => {
         if (screen.kind !== "image" || imageRetryParam) return;
         try {
-            const response = await fetch(`${api("/image")}${imageRetryParam}`);
+            // imageRetryParam is always "" here — the early return above already excludes the
+            // one case where it's set — so the probe URL is plainly the bare image path (M2).
+            const response = await fetch(api("/image"));
             if (!mountedRef.current) return;
             if (response.status === 401) {
                 void loadStatus();
@@ -120,12 +122,14 @@ export default function ReceiptLinkPage() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ birthday: digits }),
             });
+            if (!mountedRef.current) return;
             const body = (await response.json().catch(() => ({}))) as {
                 clientName?: string;
                 reason?: string;
                 remainingAttempts?: number;
                 lockedUntil?: string;
             };
+            if (!mountedRef.current) return;
             if (response.ok) {
                 setScreen({ kind: "image", branchName: screen.branchName, clientName: body.clientName || "산모" });
                 return;
@@ -153,9 +157,10 @@ export default function ReceiptLinkPage() {
             }
             setScreen({ ...screen, error: "확인 중 문제가 생겼습니다. 잠시 후 다시 시도해 주세요." });
         } catch {
+            if (!mountedRef.current) return;
             setScreen({ ...screen, error: "네트워크 연결을 확인해 주세요." });
         } finally {
-            setIsSubmitting(false);
+            if (mountedRef.current) setIsSubmitting(false);
         }
     };
 

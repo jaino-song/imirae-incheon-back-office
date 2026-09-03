@@ -17,10 +17,11 @@ function receiptApiPath(linkToken: string): string {
 }
 
 /** Raw access token only (no "Bearer " prefix) — the backend expects it verbatim
- *  in the X-Receipt-Access-Token header. */
+ *  in the X-Receipt-Access-Token header. The cookie is the only source: nothing on
+ *  this route ever sends an Authorization header, and honoring one would let a
+ *  proxy-injected bare `Authorization` header silently shadow a valid cookie and
+ *  return 401 for an otherwise-authenticated mother (M7). */
 export function getReceiptAccessToken(request: NextRequest): string {
-    const authorization = request.headers.get("authorization");
-    if (authorization) return authorization.replace(/^Bearer\s+/i, "").trim();
     return request.cookies.get(RECEIPT_ACCESS_COOKIE)?.value ?? "";
 }
 

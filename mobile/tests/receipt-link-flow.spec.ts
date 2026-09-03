@@ -6,10 +6,13 @@ const TOKEN = "efr_test";
 // Deliberately over-broad backend shape: even if /status ever leaked a name/phone
 // (it shouldn't — the controller's explicit projection omits them), the page must
 // never render either before the birthday challenge passes.
+// F3: deliberately NOT the page's BRANCH_FALLBACK constant ("인천 아이미래로") — a fixture
+// equal to the fallback would still pass e2e even if the page ignored status.branchName and
+// always rendered the fallback.
 const STATUS = {
     ok: true,
     state: "pending",
-    branchName: "인천 아이미래로",
+    branchName: "서울 아이미래로",
     expiresAt: "2026-10-03T00:00:00.000Z",
     remainingAttempts: 5,
     lockedUntil: null,
@@ -40,7 +43,7 @@ test("mother verifies her birthday and reaches the receipt image", async ({ page
 
     await page.goto(`/receipt/${TOKEN}`);
     await expect(page.getByRole("heading", { name: "본인부담금 영수증" })).toBeVisible();
-    await expect(page.getByText("인천 아이미래로")).toBeVisible();
+    await expect(page.getByText("서울 아이미래로")).toBeVisible();
     await expect(page.getByText("김산모")).toHaveCount(0);
     await expect(page.getByText(/010-\d{4}-\d{4}/)).toHaveCount(0);
 
