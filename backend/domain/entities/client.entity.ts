@@ -53,6 +53,15 @@ interface CreateClientProps {
     suppressGreetingSms?: boolean;
 }
 
+/**
+ * The single wording for "the submitted 서비스 기간 does not fit the service
+ * period". Four call sites across the domain, application, and agent layers
+ * raise it and their tests assert it verbatim, so it lives in one place.
+ */
+export function clientDurationOutOfRangeMessage(derivedDuration: number): string {
+    return `서비스 기간은 1일 이상 ${derivedDuration}일 이하여야 합니다. (시작일~종료일 영업일 기준)`;
+}
+
 function deriveCreatedClientDuration(
     startDate: Date | null,
     endDate: Date | null,
@@ -97,9 +106,7 @@ function deriveCreatedClientDuration(
             || suppliedDuration > derivedDuration
         )
     ) {
-        throw new Error(
-            `duration cannot exceed the Korean business-day count (${derivedDuration}) for the submitted service period`,
-        );
+        throw new Error(clientDurationOutOfRangeMessage(derivedDuration));
     }
     return suppliedDuration ?? derivedDuration;
 }

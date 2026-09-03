@@ -345,6 +345,77 @@ describe("ClientService", () => {
                 expect.anything(),
             );
         });
+
+        describe("service-period duration", () => {
+            // 2026-08-25 → 2026-09-14 is 15 Korean business days.
+            const servicePeriod = { startDate: "2026-08-25", endDate: "2026-09-14" };
+            const baseParams = {
+                name: "Duration Client",
+                careCenter: false,
+                voucherClient: true,
+                breastPump: false,
+                applyMessageAutomation: false,
+            };
+
+            function createdDuration() {
+                return createClientUsecase.execute.mock.calls[0]![1].duration;
+            }
+
+            it("derives the duration when the caller sends an explicit null alongside a complete service period", async () => {
+                // A create has no prior value to clear, so a null duration is
+                // the same "no opinion" the omitted case expresses. The client
+                // form always sends null, so rejecting it blocked every
+                // registration that carried both dates without a 서비스 기간.
+                const client = createClientEntity();
+                createClientUsecase.execute.mockResolvedValue(client);
+
+                await expect(service.create(branchId, {
+                    ...baseParams,
+                    ...servicePeriod,
+                    duration: null,
+                })).resolves.toBe(client);
+
+                expect(createdDuration()).toBe(15);
+            });
+
+            it("derives the duration when the caller omits it entirely", async () => {
+                const client = createClientEntity();
+                createClientUsecase.execute.mockResolvedValue(client);
+
+                await service.create(branchId, { ...baseParams, ...servicePeriod });
+
+                expect(createdDuration()).toBe(15);
+            });
+
+            it("keeps a supplied duration that fits inside the business-day count", async () => {
+                const client = createClientEntity();
+                createClientUsecase.execute.mockResolvedValue(client);
+
+                await service.create(branchId, { ...baseParams, ...servicePeriod, duration: 10 });
+
+                expect(createdDuration()).toBe(10);
+            });
+
+            it("still rejects a supplied duration that exceeds the business-day count", async () => {
+                await expect(service.create(branchId, {
+                    ...baseParams,
+                    ...servicePeriod,
+                    duration: 16,
+                })).rejects.toThrow("서비스 기간은 1일 이상 15일 이하여야 합니다.");
+
+                expect(createClientUsecase.execute).not.toHaveBeenCalled();
+            });
+
+            it("leaves the duration null when no service period was submitted", async () => {
+                const client = createClientEntity();
+                createClientUsecase.execute.mockResolvedValue(client);
+
+                await service.create(branchId, { ...baseParams, duration: null });
+
+                expect(createdDuration()).toBeNull();
+            });
+        });
+
         describe("given valid client data with primary employee", () => {
             it("should create the client and employee schedule atomically", async () => {
                 // Arrange
@@ -1768,7 +1839,7 @@ describe("ClientService", () => {
                 findClientByIdUsecase.execute.mockResolvedValue(existingClient);
 
                 await expect(service.update(branchId, 1, { duration: 103 }))
-                    .rejects.toThrow("duration cannot exceed the Korean business-day count (102)");
+                    .rejects.toThrow("서비스 기간은 1일 이상 102일 이하여야 합니다.");
                 expect(prismaService.$transaction).not.toHaveBeenCalled();
                 expect(prismaService.client.updateMany).not.toHaveBeenCalled();
             });

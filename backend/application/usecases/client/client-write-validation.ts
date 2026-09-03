@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException } from "@nestjs/common";
 
 import { assertValidPhone, normalizePhone } from "application/utils/normalize-phone";
-import { ClientEntity } from "domain/entities/client.entity";
+import { ClientEntity, clientDurationOutOfRangeMessage } from "domain/entities/client.entity";
 import { IClientRepository } from "domain/repositories/client.repository.interface";
 import { isServiceStatus, SERVICE_STATUS_VALUES } from "domain/value-objects/service-status.vo";
 import {
@@ -120,9 +120,7 @@ export function assertClientDurationMatchesDates(
     // are present, every supplied value must fit within the derived count.
     if (suppliedDuration === undefined || derivedDuration === null) return;
     if (suppliedDuration === null || !Number.isSafeInteger(suppliedDuration) || suppliedDuration < 1 || suppliedDuration > derivedDuration) {
-        throw new BadRequestException(
-            `duration cannot exceed the Korean business-day count (${derivedDuration}) for the submitted service period`,
-        );
+        throw new BadRequestException(clientDurationOutOfRangeMessage(derivedDuration));
     }
 }
 

@@ -12,6 +12,7 @@ import { clientAgentTargetSnapshot, clientAgentTargetVersion } from "./client-ag
 import { AgentActionCertainFailureError } from "application/agent/action-coordinator.service";
 import { readAgentActionEffect, recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
 import { normalizeClientPricing } from "domain/services/client-pricing";
+import { clientDurationOutOfRangeMessage } from "domain/entities/client.entity";
 import {
     assertClientDurationMatchesDates,
     assertAllowedClientArea,
@@ -271,9 +272,7 @@ async function validateClientWrite(
         const hasDateUpdate = existing !== null
             && (updates.startDate !== undefined || updates.endDate !== undefined);
         if (hasDateUpdate && derivedDuration !== null && updates.duration === null) {
-            throw new BadRequestException(
-                `duration cannot exceed the Korean business-day count (${derivedDuration}) for the submitted service period`,
-            );
+            throw new BadRequestException(clientDurationOutOfRangeMessage(derivedDuration));
         }
         if (hasDateUpdate && derivedDuration === null && updates.duration !== undefined && updates.duration !== null) {
             throw new BadRequestException("duration requires a complete service period");

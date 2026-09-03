@@ -40,7 +40,7 @@ import {
     lockClientForScheduleWrite,
     lockEmployeesForScheduleWrite,
 } from "application/policies/employee-schedule-invariants.policy";
-import { ClientEntity } from "domain/entities/client.entity";
+import { ClientEntity, clientDurationOutOfRangeMessage } from "domain/entities/client.entity";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
@@ -981,7 +981,11 @@ export class ClientService {
         const birthDate = parseClientDate(params.birthDate) ?? null;
         mergeAndValidateClientServicePeriod(null, { startDate, endDate });
         const derivedDuration = deriveClientDuration(startDate, endDate);
-        assertClientDurationMatchesDates(params.duration, derivedDuration);
+        // On create there is no prior duration to clear, so an explicit null
+        // carries the same "no opinion" as an omitted field and the count is
+        // derived from the dates. Only a supplied number is checked against
+        // them. Update keeps null's distinct explicit-clear meaning.
+        assertClientDurationMatchesDates(params.duration ?? undefined, derivedDuration);
         // A supplied duration is authoritative; the date-derived count is
         // only a fallback when the caller does not supply one.
         const duration = params.duration ?? derivedDuration ?? null;
@@ -1601,9 +1605,7 @@ export class ClientService {
         );
         assertClientDurationMatchesDates(params.duration, derivedDuration);
         if (hasDateUpdate && params.duration === null && derivedDuration !== null) {
-            throw new BadRequestException(
-                `duration cannot exceed the Korean business-day count (${derivedDuration}) for the submitted service period`,
-            );
+            throw new BadRequestException(clientDurationOutOfRangeMessage(derivedDuration));
         }
         if (hasDateUpdate && derivedDuration === null && params.duration !== undefined && params.duration !== null) {
             throw new BadRequestException("duration requires a complete service period");
