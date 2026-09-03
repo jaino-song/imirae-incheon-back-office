@@ -70,6 +70,27 @@ jobs:
           cache: 'pnpm'
           cache-dependency-path: pnpm-lock.yaml
 
+      # This runs inside the existing required backend check, so a preview -> main
+      # promotion cannot be merged when the public production route is unknown or
+      # no longer matches either approved deployment target.
+      - name: Show production backend target before main promotion
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        env:
+          DEPLOY_REF_NAME: main
+          FALLBACK_DNS_SHA256: ${{ secrets.FALLBACK_DNS_SHA256 }}
+          LIGHTSAIL_DNS_SHA256: ${{ secrets.LIGHTSAIL_DNS_SHA256 }}
+        run: |
+          set -euo pipefail
+          target_output="$(node backend/deploy/fallback-server/ci/resolve-deploy-target.mjs)"
+          case "$target_output" in
+            target=lightnode) target_label="LightNode production" ;;
+            target=lightsail) target_label="AWS Lightsail production" ;;
+            *) echo "::error::Production deployment target output is invalid."; exit 1 ;;
+          esac
+          printf '### Production backend deployment target\n\n**%s**\n\nResolved from the current public `api.babyjamjam.com` route.\n' \
+            "$target_label" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Production backend target::$target_label"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -300,7 +321,9 @@ jobs:
             "schedulers_enabled=true"
 
   build-lightsail-image:
-    name: build immutable Lightsail image
+    # The artifact is shared by both Lightsail and LightNode. Keep the stable job
+    # id for dependency wiring, but use a provider-neutral name in the Actions UI.
+    name: build immutable backend image
     if: github.event_name == 'push' && (github.ref_name == 'preview' || github.ref_name == 'main')
     needs: [verify, auth-e2e]
     timeout-minutes: 45
@@ -397,7 +420,23 @@ jobs:
 
       - name: Resolve the exclusive backend target
         id: resolve
-        run: node backend/deploy/fallback-server/ci/resolve-deploy-target.mjs >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          target_output="$(node backend/deploy/fallback-server/ci/resolve-deploy-target.mjs)"
+          printf '%s\n' "$target_output" >> "$GITHUB_OUTPUT"
+          case "$target_output" in
+            target=lightnode) target_label="LightNode production" ;;
+            target=lightsail)
+              if [[ "$DEPLOY_REF_NAME" == "preview" ]]; then
+                target_label="AWS Lightsail preview"
+              else
+                target_label="AWS Lightsail production"
+              fi
+              ;;
+            *) echo "::error::Backend deployment target output is invalid."; exit 1 ;;
+          esac
+          printf '### Backend deployment target\n\n**%s**\n' "$target_label" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Backend deployment target::$target_label"
 
   deploy-lightsail:
     name: deploy Lightsail backend

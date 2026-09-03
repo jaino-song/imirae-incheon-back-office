@@ -21,6 +21,8 @@ assert_text_contains() {
 
 assert_contains "$WORKFLOW" '^  resolve-backend-deploy-target:' \
     "backend CI must resolve exactly one production deployment target"
+assert_contains "$WORKFLOW" 'name:[[:space:]]*build immutable backend image' \
+    "the shared backend artifact must not be presented as a Lightsail-only image"
 assert_contains "$WORKFLOW" '^  wait-database-patches:' \
     "backend CI must wait for the same-commit Database Patches run before resolving a deploy target"
 assert_contains "$WORKFLOW" 'run: bash backend/deploy/ci/wait-database-patches.sh' \
@@ -38,6 +40,18 @@ extract_job() {
         found { print }
     ' "$WORKFLOW"
 }
+
+verify_job="$(extract_job '^  verify:')"
+assert_text_contains "$verify_job" 'Show production backend target before main promotion' \
+    "the required backend check must show the production target before main promotion"
+assert_text_contains "$verify_job" "github\.event_name == 'pull_request' && github\.base_ref == 'main'" \
+    "the production-target preflight must run only for pull requests targeting main"
+assert_text_contains "$verify_job" 'DEPLOY_REF_NAME:[[:space:]]*main' \
+    "the pre-main target preflight must resolve the production route"
+assert_text_contains "$verify_job" 'Production backend deployment target' \
+    "the pre-main target preflight must publish a visible Actions summary"
+assert_text_contains "$verify_job" '::notice title=Production backend target' \
+    "the pre-main target preflight must publish a visible Actions notice"
 
 wait_job="$(extract_job '^  wait-database-patches:')"
 assert_text_contains "$wait_job" 'group:[[:space:]]*backend-deploy-wait-' \
@@ -59,6 +73,10 @@ assert_text_contains "$resolve_target_job_joined" \
     "target resolution must require BOTH the build and the Database Patches wait job to succeed (not just either)"
 assert_contains "$WORKFLOW" 'resolve-deploy-target\.mjs' \
     "backend CI must use the fail-closed target resolver"
+assert_text_contains "$resolve_target_job" 'Backend deployment target' \
+    "the push-time target resolver must publish a visible Actions summary"
+assert_text_contains "$resolve_target_job" '::notice title=Backend deployment target' \
+    "the push-time target resolver must publish a visible Actions notice"
 assert_contains "$WORKFLOW" 'FALLBACK_DNS_SHA256' \
     "backend CI must compare the current route with the protected fallback identity"
 assert_contains "$WORKFLOW" 'LIGHTSAIL_DNS_SHA256' \

@@ -31,7 +31,7 @@
 |---|---|---|---|---|
 | `dev` | 통합 대상. 모든 feature/fix PR의 목적지 | 빌드 안 함 (2026-08-06부터, [외부] Ignored Build Step) | 배포 없음. 로컬 `localhost:3001`로 테스트 | `apply-dev` (prisma 경로 push 시) |
 | `preview` | 릴리스 후보 검증 | preview 빌드 | Lightsail `preview` 컨테이너 (`preview.api.babyjamjam.com`), push 시 자동 | `apply-preview` |
-| `main` | 프로덕션 | production 빌드 (`admin.babyjamjam.com`, `m.admin.babyjamjam.com`) | **AWS Lightsail** `production` 컨테이너 (`api.babyjamjam.com`), push 시 자동(같은 커밋의 `apply-production` 패치 성공 뒤). 장애 시 **LightNode VPS Fallback Server**(API-only warm standby) | `apply-production` |
+| `main` | 프로덕션 | production 빌드 (`admin.babyjamjam.com`, `m.admin.babyjamjam.com`) | 현재 `api.babyjamjam.com` DNS 소유권을 먼저 판별해 **AWS Lightsail** 또는 활성 **LightNode VPS Fallback Server**에 배포. push 시 자동(같은 커밋의 `apply-production` 패치 성공 뒤) | `apply-production` |
 
 규칙:
 
@@ -62,6 +62,7 @@ PR을 `dev`에 열면 아래 워크플로가 돌고, 필수 체크는 GitHub 브
 1. **로컬 최소 검증은 README의 목록 그대로.** `pnpm lint`, `pnpm lint:ui-architecture`, 앱별 `type-check`, `pnpm test`, `pnpm build`. CI가 잡아줄 것을 기다리지 않는다.
 2. **`lint:ui-architecture` baseline은 늘어날 수 없다.** 새 위반은 실패. 파일을 정리했으면 `docs/design-system/ui-debt-baseline.json`에서 제거한다.
 3. **preview push의 `deploy Lightsail backend` 잡이 빨간 것은 코드 문제가 아닐 수 있다.** 2026-08-30부터 AWS OIDC trust policy 오류(`Not authorized to perform sts:AssumeRoleWithWebIdentity`, PreviewDeployRole)로 실패 중. `gh run list --workflow=backend-ci.yml --branch=preview`로 `pull_request` 런과 `push` 런을 나눠 보고, `pull_request`가 green이면 PR은 정상이다. 수리는 IAM 쪽 별도 작업.
+   `preview`는 LightNode 전환 여부와 무관하게 항상 AWS Lightsail staging에 배포되므로, 이 오류는 Production 대상 판별로 우회하지 않는다.
 4. **CI 상태 조회에 `gh run list --commit <sha>`를 쓰지 않는다.** 실행이 있어도 빈 결과를 돌려준다 (2026-08-06 오보 사고). 다음을 쓴다:
    ```
    gh run list --branch <branch> --limit 6 --json headSha,name,status,conclusion \
@@ -118,9 +119,11 @@ PR을 `dev`에 열면 아래 워크플로가 돌고, 필수 체크는 GitHub 브
 
 ---
 
-## 4. 백엔드 배포 (Lightsail)
+## 4. 백엔드 배포 (Lightsail / LightNode)
 
-`preview`/`main` push → `backend-ci.yml`이 `backend/Dockerfile.lightsail`로 **불변 커밋 이미지**(`ghcr.io/jaino-song/babyjamjam-admin-backend:<sha>`)를 빌드 → OIDC로 브랜치 스코프 역할을 얻어 **고정 SSM 문서**로 호스트에 그 이미지를 활성화. 호스트는 이미지를 빌드하지 않는다.
+`preview`/`main` push → `backend-ci.yml`이 `backend/Dockerfile.lightsail`로 provider 공용 **불변 커밋 이미지**(`ghcr.io/jaino-song/babyjamjam-admin-backend:<sha>`)를 빌드한다. `preview`는 항상 AWS Lightsail staging으로 배포한다. `main`은 공개 `api.babyjamjam.com` A 레코드의 canonical hash를 승인된 두 target hash와 비교해 정확히 하나를 선택한다. AWS가 선택되면 OIDC와 고정 SSM 문서를 사용하고, LightNode가 선택되면 제한된 전용 CI SSH dispatcher를 사용한다. 알 수 없거나 혼합된 DNS는 어느 쪽에도 배포하지 않는다.
+
+`main` 대상 PR의 기존 필수 Backend CI 체크는 같은 DNS 판별을 설치·빌드 전에 실행하고 Actions summary와 notice에 `LightNode production` 또는 `AWS Lightsail production`을 표시한다. 따라서 Production 대상이 승인된 값과 다르면 병합 전에 fail-closed한다. 실제 push 배포에서도 DB patch 대기 뒤 대상을 다시 판별하므로 PR 확인 이후 DNS가 바뀐 경우에는 최신 공개 상태가 우선한다.
 
 | 항목 | 규칙 |
 |---|---|
