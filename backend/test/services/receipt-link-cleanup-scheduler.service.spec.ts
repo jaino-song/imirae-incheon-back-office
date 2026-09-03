@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { ReceiptLinkCleanupSchedulerService } from "application/services/receipt-link-cleanup-scheduler.service";
 
 function makeService(holdsLease = true) {
@@ -27,12 +29,16 @@ describe("ReceiptLinkCleanupSchedulerService", () => {
         expect(storageOrder!).toBeLessThan(rowsOrder!);
     });
 
-    it("keeps going when one storage delete fails", async () => {
+    // M3: a storage-delete failure must not orphan the PNG by deleting its row anyway — the
+    // row(s) referencing the still-undeleted object must linger so the next sweep can retry.
+    // collectExpired() exposes no per-id storagePath, so a failure cannot be attributed to a
+    // single id; the whole batch is withheld instead of deleted.
+    it("keeps going when one storage delete fails, and withholds the batch's rows so the next sweep retries", async () => {
         const { service, tokenService, storage } = makeService();
         storage.delete.mockRejectedValueOnce(new Error("not found"));
         const logSpy = jest.spyOn(service["logger"], "log").mockImplementation(() => undefined);
         await service.cleanupExpiredLinks(new Date());
-        expect(tokenService.deleteByIds).toHaveBeenCalled();
+        expect(tokenService.deleteByIds).toHaveBeenCalledWith([]);
         expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("0 images"));
     });
 
@@ -40,5 +46,15 @@ describe("ReceiptLinkCleanupSchedulerService", () => {
         const { service, tokenService } = makeService(false);
         await service.cleanupExpiredLinks(new Date());
         expect(tokenService.collectExpired).not.toHaveBeenCalled();
+    });
+
+    // M6: pin the cron schedule (nightly 04:30 KST) — consistent with
+    // scheduler-lease.drift.spec.ts's source-text approach for scheduler declarations.
+    it("runs on the literal schedule 30 4 * * * in Asia/Seoul", () => {
+        const source = readFileSync(
+            join(__dirname, "../../application/services/receipt-link-cleanup-scheduler.service.ts"),
+            "utf8",
+        );
+        expect(source).toContain('@Cron("30 4 * * *", { timeZone: "Asia/Seoul" })');
     });
 });
