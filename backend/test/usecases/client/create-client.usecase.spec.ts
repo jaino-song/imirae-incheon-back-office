@@ -99,7 +99,7 @@ describe("CreateClientUsecase", () => {
             };
 
             expect(() => usecase.execute(branchId, params)).toThrow(
-                "duration cannot exceed the Korean business-day count (4)",
+                "서비스 기간은 1일 이상 4일 이하여야 합니다.",
             );
             expect(mockRepository.getAllData()).toHaveLength(0);
         });

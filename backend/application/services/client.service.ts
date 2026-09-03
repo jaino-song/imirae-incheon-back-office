@@ -40,7 +40,7 @@ import {
     lockClientForScheduleWrite,
     lockEmployeesForScheduleWrite,
 } from "application/policies/employee-schedule-invariants.policy";
-import { ClientEntity } from "domain/entities/client.entity";
+import { ClientEntity, clientDurationOutOfRangeMessage } from "domain/entities/client.entity";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
@@ -1605,9 +1605,7 @@ export class ClientService {
         );
         assertClientDurationMatchesDates(params.duration, derivedDuration);
         if (hasDateUpdate && params.duration === null && derivedDuration !== null) {
-            throw new BadRequestException(
-                `duration cannot exceed the Korean business-day count (${derivedDuration}) for the submitted service period`,
-            );
+            throw new BadRequestException(clientDurationOutOfRangeMessage(derivedDuration));
         }
         if (hasDateUpdate && derivedDuration === null && params.duration !== undefined && params.duration !== null) {
             throw new BadRequestException("duration requires a complete service period");

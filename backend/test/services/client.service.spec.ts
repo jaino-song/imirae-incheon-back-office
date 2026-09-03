@@ -401,7 +401,7 @@ describe("ClientService", () => {
                     ...baseParams,
                     ...servicePeriod,
                     duration: 16,
-                })).rejects.toThrow("duration cannot exceed the Korean business-day count (15)");
+                })).rejects.toThrow("서비스 기간은 1일 이상 15일 이하여야 합니다.");
 
                 expect(createClientUsecase.execute).not.toHaveBeenCalled();
             });
@@ -1839,7 +1839,7 @@ describe("ClientService", () => {
                 findClientByIdUsecase.execute.mockResolvedValue(existingClient);
 
                 await expect(service.update(branchId, 1, { duration: 103 }))
-                    .rejects.toThrow("duration cannot exceed the Korean business-day count (102)");
+                    .rejects.toThrow("서비스 기간은 1일 이상 102일 이하여야 합니다.");
                 expect(prismaService.$transaction).not.toHaveBeenCalled();
                 expect(prismaService.client.updateMany).not.toHaveBeenCalled();
             });
