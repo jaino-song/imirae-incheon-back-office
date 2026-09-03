@@ -19,6 +19,7 @@ import {
 interface FakeRow extends ReceiptLinkTokenRecord {
     linkTokenHash: string;
     revokedAt: Date | null;
+    jobId: string | null;
 }
 
 class FakeReceiptLinkTokenRepository implements IReceiptLinkTokenRepository {
@@ -52,6 +53,7 @@ class FakeReceiptLinkTokenRepository implements IReceiptLinkTokenRepository {
             clientName: "김산모",
             linkTokenHash: data.linkTokenHash,
             revokedAt: null,
+            jobId: data.jobId,
         };
         this.rows.push(row);
         return { ...row };
@@ -98,6 +100,11 @@ class FakeReceiptLinkTokenRepository implements IReceiptLinkTokenRepository {
                 .map((r) => r.storagePath),
         );
         return Array.from(inUse);
+    }
+
+    async findActiveByJobId(jobId: string): Promise<ReceiptLinkTokenRecord | null> {
+        const row = this.rows.find((r) => r.jobId === jobId && r.active === true);
+        return row ? { ...row } : null;
     }
 }
 

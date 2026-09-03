@@ -91,4 +91,11 @@ export interface IReceiptLinkTokenRepository {
      *  `cutoff` (i.e. still "live"). Used to find which expired tokens' storage objects are safe
      *  to delete — no live token needs them — without removing any row first. */
     findStoragePathsInUse(storagePaths: string[], cutoff: Date): Promise<string[]>;
+    /**
+     * The active token already issued for this job, if any. Task 2.4's issue pipeline may be
+     * invoked more than once for the same dispatch job (e.g. a delivery that converges onto an
+     * earlier acceptance and never sends), and must not mint a second token for it — this is
+     * how it detects that a previous run already succeeded.
+     */
+    findActiveByJobId(jobId: string): Promise<ReceiptLinkTokenRecord | null>;
 }
