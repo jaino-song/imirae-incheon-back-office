@@ -1,7 +1,7 @@
 # 서비스 종료 안내 — 영수증 이미지 링크 발송 (Design Spec)
 
 **Date:** 2026-09-03
-**Status:** Design approved in chat — pending spec review
+**Status:** Implemented on branch `service-end-receipt-link` (2026-09-03). §4–§5.9 were re-aligned with the shipped code in Task 4.1; where the implementation deviates from the original design the reason is noted inline.
 **Author:** David Jinho Song (+ Claude)
 **Builds on:**
 - `2026-06-30-sms-trigger-any-system-template-design.md` (SMS 트리거 ↔ 시스템 템플릿 브리지, skip-and-log 가드 선례)
@@ -51,7 +51,7 @@
 
 ### 4.1 발송 파이프라인 (자동·수동 공통)
 
-`ReceiptLinkService.issueAndSend({ branchId, clientId, source, actorId? })` 하나로 통합한다. 단계와 실패 시 스킵 사유:
+`ReceiptLinkIssueService.issue({ branchId, clientId, source, jobId?, createdBy?, existingUrl? })`가 1~7단계를 맡고, 8단계는 기존 SMS 트리거 파이프라인이 맡는다: `ReceiptLinkDeliveryEnricher`가 `SERVICE_END_NOTICE` 잡의 발송 직전에 `issue()`를 호출해 `templateVariables.receiptUrl`·`buttonUrl`을 채운다(`SmsTriggerPayloadEnricherRegistry`). 자동·수동 모두 같은 잡 큐를 탄다 — 수동 발송은 합성 시스템 규칙 `system:service_end_notice`("서비스 종료 안내 (수동 발송)", `branchId = null`, `isDefault = false`, 모든 지점의 규칙 목록에 읽기 전용으로 보임)에 매달린 `scheduledFor = now` 잡을 `upsertPending`하고, 리스 보유 인스턴스의 매분 크론이 60초 안에 보낸다(즉시 발송 nudge는 tenant-bypass 린트 게이트 때문에 두지 않았다). 단계와 실패 시 스킵 사유:
 
 | 단계 | 동작 | 실패 시 사유 코드 |
 |---|---|---|
@@ -60,29 +60,29 @@
 | 3 | 계약 문서 선택: `client.eDocId`로 조회 → 없으면 `findByClientId` 중 `createdDate` 최신 | `no_contract_document` |
 | 4 | 미러 PDF 로드, 없으면 `syncMissingDocumentFile` 재동기화 | `pdf_unavailable` |
 | 5 | `PdfPageRasterizer.renderPage(pdf, 7)` → PNG | `render_failed` |
-| 6 | Storage 업로드 `receipts/{branchId}/{documentId}/{tokenId}.png` | `upload_failed` |
+| 6 | Storage 업로드 `receipts/{branchId}/{eformsignDocId}/{sha256}.png` (내용 해시 경로 — 같은 PNG는 재업로드하지 않는다) | `upload_failed` |
 | 7 | 같은 문서의 활성 토큰 `active=false, revokedAt=now`, 새 `receipt_link_token` 생성 | — |
 | 8 | 변수 `{ name, receiptUrl }`로 템플릿 렌더 → 기존 SMS 발송 경로 → `message_log` | 기존 발송 실패 처리 |
 
-스킵은 **재시도하지 않는 종결 처리**다(비용 안내 `missing_price_data` 선례). 자동 경로는 잡을 done으로 닫고 사유를 로그 `variables`에 남긴다. 수동 경로는 사유 코드를 400으로 돌려준다.
+스킵은 **재시도하지 않는 종결 처리**다(비용 안내 `missing_price_data` 선례). 자동 경로는 `ReceiptLinkSkipError`(`SmsTriggerDeliverySkipError` 하위)로 잡을 스킵 종결하고 사유를 로그에 남긴다. 수동 경로(`ReceiptLinkManualSendService`)는 잡을 만들기 **전에** 같은 preflight(1~4단계)를 돌려 사유를 400 `{ reason, message }`로 돌려주므로, 직원은 큐에 들어가기 전에 실패를 본다. 재발급 시 같은 잡의 활성 토큰이 아직 유효하고 `existingUrl`이 있으면 재렌더링 없이 그 URL을 재사용한다(재시도 idempotence).
 
 토큰 URL: `${MOBILE_RECEIPT_BASE_URL ?? MOBILE_SERVICE_RECORD_BASE_URL}/receipt/${linkToken}`.
 
 ### 4.2 산모 열람 흐름 (m.admin public)
 
-1. `GET /receipt/{token}` 페이지 진입 → BFF `GET /api/receipt/{token}/status` → 백엔드 `GET /receipt-links/:token/status` → `{ state: "active" | "expired" | "locked" | "revoked" | "not_found", verified: boolean }`.
-2. 생년월일 6자리 입력 → BFF `POST /api/receipt/{token}/verify { birthday }` → 백엔드 검증 → 성공 시 `accessToken` 발급, BFF가 HttpOnly 쿠키에 저장.
+1. `GET /receipt/{token}` 페이지 진입 → BFF `GET /api/receipt/{token}/status` → 백엔드 `GET /receipt-links/:token/status` → 200 `{ ok: true, state: "active" | "locked", branchName, expiresAt, remainingAttempts, lockedUntil }`(명시적 프로젝션 — 산모 이름·번호는 절대 포함하지 않는다) / 404 `{ reason: "not_found" }` / 410 `{ reason: "expired" | "revoked" }`. 페이지는 404·410을 각각 `not_found`·`expired` 화면으로 그린다(`revoked`도 만료 화면 — 별도 문구는 승인된 카피에 없다).
+2. 생년월일 6자리 입력 → BFF `POST /api/receipt/{token}/verify { birthday }` → 백엔드 검증 → 성공 시 `{ ok: true, accessToken, clientName }` → BFF는 `accessToken`을 HttpOnly 쿠키에만 넣고 브라우저에는 `{ ok: true, clientName }`만 돌려준다(산모 이름은 이 응답에서 처음 노출된다). 8자리 입력은 그대로 보내고 백엔드 `normalizeBirthdayInput`이 뒤 6자리로 축약한다.
 3. `<img src="/api/receipt/{token}/image">` → BFF가 쿠키의 accessToken을 헤더로 붙여 백엔드 `GET /receipt-links/:token/image` 호출 → `image/png`, `Content-Disposition: inline`, `Cache-Control: private, no-store`.
-4. "이미지 저장" 버튼 = 같은 URL에 `?download=1` → `Content-Disposition: attachment; filename="{산모명}_본인부담금영수증.png"`. iOS Safari는 길게 눌러 저장 안내 문구 병기.
+4. "이미지 저장" 버튼 = 같은 URL에 `?download=1` → `Content-Disposition: attachment; filename="영수증_{산모명}.png"`(RFC 5987 `filename*` 병기). 저장 방법 안내 문단은 두지 않는다(§5.6 목업 확정).
 
 ### 4.3 컴포넌트 배치
 
 | 계층 | 신규 | 수정 |
 |---|---|---|
-| shared | `SERVICE_END_NOTICE` 키, 스킵 사유 코드·라벨 맵 | `alimtalk.ts` 트리거 키 union, `SMS_TRIGGER_TEMPLATE_KEYS`, `SMS_TRIGGER_TO_SYSTEM_TEMPLATE` |
-| backend | `PdfPageRasterizer`, `ReceiptLinkTokenService`, `ReceiptLinkService`, `ReceiptLinkController`(공개 3개 + 수동 발송 1개), Prisma 모델, 스윕 크론 | 시스템 템플릿 레지스트리, 트리거 카탈로그, `SMS_TEMPLATE_DELIVERY`, `sms-trigger-delivery`의 변수 빌더, `DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG`, `env.tpl` |
-| mobile | `(public)/receipt/[token]` 페이지, `api/receipt/[token]/{status,verify,image}` BFF | `middleware.ts` PUBLIC_ROUTES, `(shell)/contracts/page.tsx` 액션, `services/api.ts` |
-| frontend | 확인 다이얼로그 컴포넌트 | 문서 미리보기 푸터, `services/api.ts`, 트리거 규칙 폼의 라벨 맵 3종 |
+| shared | `SERVICE_END_NOTICE` 키 | `alimtalk.ts` 트리거 키 union, `SMS_TRIGGER_TEMPLATE_KEYS`, `SMS_TRIGGER_TO_SYSTEM_TEMPLATE` (사유 라벨 맵은 shared export 표면을 건드리지 않으려고 앱별 파일 `frontend/src/lib/receipt-link.ts`·`mobile/src/lib/receipt-link.ts`에 같은 내용으로 둔다) |
+| backend | `PdfPageRasterizerService`, `ReceiptLinkTokenService`, `ReceiptLinkIssueService`, `ReceiptLinkManualSendService`, `ReceiptLinkDeliveryEnricher`, `ReceiptLinkCleanupSchedulerService`, `ReceiptLinkController`(공개 3개) + `ReceiptLinkAdminController`(수동 발송 1개), `ReceiptLinkModule`, Prisma 모델 + 도메인 리포지토리(`IReceiptLinkTokenRepository`/`SbReceiptLinkTokenRepository`, 공개 경로 메서드는 `runSystemScope`로 tenant-isolation 통과) | 시스템 템플릿 레지스트리, 트리거 카탈로그, `SMS_TEMPLATE_DELIVERY`, `sms-trigger-delivery`의 변수 빌더, `DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG`, `env.tpl` |
+| mobile | `(public)/receipt/[token]` 페이지·`layout.tsx`(탭 제목), `api/receipt/[token]/{status,verify,image}` BFF, `lib/api/receipt-auth.ts`, `lib/receipt-link.ts`, BFF `api/receipt-links/send` | `middleware.ts` PUBLIC_ROUTES/PUBLIC_API_ROUTES, `(shell)/contracts/page.tsx` 액션, `services/api.ts` |
+| frontend | `ReceiptSendConfirmDialog`, `lib/receipt-link.ts`, BFF `api/receipt-links/send` | `SharedDocumentPreviewDialog.receiptSendAction`, `ContractDocumentPreviewModal`, 계약 페이지 mutation, `services/api.ts`, 트리거 규칙 폼의 라벨 맵 3종 |
 | db patch | `receipt_link_token` 생성 SQL, `graceDays` 7 패치 SQL | — |
 
 ## 5. Detailed design
@@ -122,9 +122,10 @@
 | branch_id | uuid | |
 | client_id | int | FK client, SetNull |
 | eformsign_doc_id | int | FK eformsign_doc |
+| job_id | text null | 발급을 유발한 `message_trigger_job.id` — 재시도 시 같은 잡의 활성 토큰 재사용에 쓴다 |
 | link_token_hash | varchar unique | sha256(`efr_` + 32바이트 base64url 평문). 평문은 URL에만 존재(제공기록지 `linkTokenHash`와 동일 정책) |
 | expected_birthday_hash | varchar | sha256(`RECEIPT_LINK_HASH_SALT` + YYMMDD) |
-| access_token_hash | varchar null | sha256(accessToken) |
+| access_token_hash | varchar null unique | sha256(accessToken) |
 | verified_at | timestamptz null | |
 | failed_attempts | int default 0 | |
 | locked_at | timestamptz null | |
@@ -132,13 +133,13 @@
 | active | boolean default true | |
 | revoked_at | timestamptz null | 재발급으로 무효화된 시각 |
 | storage_path | varchar | |
-| content_sha256 | varchar | |
+| content_sha256 | char(64) | Storage 경로의 파일명이기도 하다 |
 | byte_size | int | |
-| source | varchar | `auto_trigger` \| `manual` |
+| source | varchar | `auto_trigger` \| `manual` (CHECK 제약) |
 | created_by | uuid null | 수동 발송 직원 |
 | created_at | timestamptz | |
 
-인덱스: `(eformsign_doc_id, active)`, `(expires_at)`. 마이그레이션은 additive만, database-patches 워크플로의 하드코딩 SQL로 적용한다.
+인덱스: `(eformsign_doc_id, active)`, `(job_id)`, `(expires_at)`, `(branch_id)`, unique `link_token_hash`, unique `access_token_hash`. 마이그레이션 `20260904000000_add_receipt_link_token`은 additive·멱등(`IF NOT EXISTS`) SQL이며 database-patches 워크플로 3환경 블록에 모두 배선돼 있다. `receipt_link_token`은 `TENANT_MODELS`에 등록돼 tenant-isolation 확장의 감시 대상이다.
 
 ### 5.3 렌더러 — `PdfPageRasterizer`
 
@@ -164,26 +165,29 @@
 - 생년월일 정규화: 숫자만 6자리. 입력이 8자리(YYYYMMDD)면 뒤 6자리로 축약해 비교.
 - 검증 실패 → `failed_attempts++`; 5회 도달 시 `locked_at = now`, 30분 잠금(제공기록지 상수 재사용). 잠금 중엔 `locked` 상태 반환.
 - 성공 → `accessToken`(32바이트 랜덤) 발급, 해시 저장, `verified_at` 기록. accessToken 유효기간은 링크 만료와 동일.
-- 만료·비활성 토큰은 status에서 `expired`/`revoked`로 구분해 산모에게 "새 링크를 요청해 주세요" 안내.
-- 속도 제한: 공개 엔드포인트 3개 모두 제공기록지 컨트롤러와 같은 IP 기반 throttle.
+- 만료·비활성 토큰은 백엔드 status가 410 `expired`/`revoked`로 구분한다. m.admin 페이지는 둘 다 만료 화면(§5.6 확정 카피)으로 그린다 — 재발급으로 revoke된 구 링크를 연 산모도 "유효기간이 지났습니다"를 본다(별도 문구는 승인되지 않았다).
+- 속도 제한: `status`·`verify`는 제공기록지 컨트롤러와 같은 `RateLimitGuard`(IP당 100회/15분). `image`는 접근 토큰 자체가 게이트라 throttle을 두지 않는다. BFF는 클라이언트의 `X-Forwarded-For`를 백엔드로 전달하지 않는다(위조 가능 헤더로 throttle을 우회할 수 있어 제거) — 따라서 백엔드는 m.admin 서버 IP 하나로 집계한다(제공기록지 BFF와 같은 기존 특성).
 
 ### 5.5 백엔드 API
 
 | 메서드 | 경로 | 가드 | 응답 |
 |---|---|---|---|
-| POST | `/receipt-links/send` | Jwt + Tenant + 발신 승인(`ensureApproved`) | `{ tokenId, expiresAt, messageLogId }` 또는 400 `{ code: <스킵 사유> }` |
-| GET | `/receipt-links/:token/status` | 공개, throttle | `{ state, verified, expiresAt }` |
-| POST | `/receipt-links/:token/verify` | 공개, throttle | `{ accessToken, expiresAt }` / 401 / 423(locked) / 410(expired) |
-| GET | `/receipt-links/:token/image?download=0\|1` | 공개 + `X-Receipt-Access-Token` | PNG 스트림 / 401 / 410 |
+| POST | `/receipt-links/send` | Jwt + Tenant + 발신 승인(`ensureApproved`) | 200 `{ jobId, scheduledFor, clientName }` / 400 `{ reason, message }`(preflight 스킵 사유 또는 `document_not_linked`, `missing_phone`) / 404 `{ reason: "document_not_found" }` / 403 `{ message }`(발신 승인 없음) 또는 `{ reason: "branch_required" }` |
+| GET | `/receipt-links/:token/status` | 공개, throttle | 200 `{ ok, state: "active"\|"locked", branchName, expiresAt, remainingAttempts, lockedUntil }` / 404 `{ reason: "not_found" }` / 410 `{ reason: "expired"\|"revoked" }` |
+| POST | `/receipt-links/:token/verify` | 공개, throttle | 200 `{ ok: true, accessToken, clientName }` / 401 `{ reason: "verification_failed", remainingAttempts }` / 423 `{ reason: "locked", lockedUntil }` / 400 `{ reason: "invalid_format" }` / 404 / 410 |
+| GET | `/receipt-links/:token/image?download=0\|1` | 공개 + `X-Receipt-Access-Token`(또는 `Authorization: Bearer`) | PNG 스트림(`Content-Length`, `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff`) / 401 `{ reason: "access_required" }`(토큰 없음·불일치·만료 모두) |
 
-수동 발송 요청 본문은 `{ documentId }`. 백엔드가 문서의 `clientId`로 산모를 찾는다(문서에 산모가 연결되지 않았으면 `no_contract_document` 대신 `document_not_linked`).
+수동 발송 요청 본문은 `{ documentId }`(eformsign documentId; BFF가 비어 있으면 400 `invalid_request`로 먼저 거른다). 백엔드가 문서의 `clientId`로 산모를 찾는다(문서에 산모가 연결되지 않았으면 `no_contract_document` 대신 `document_not_linked`; 연락처가 없거나 형식이 틀리면 `missing_phone`). 400/404 본문은 BFF(frontend·mobile)가 상태·본문 그대로 전달한다 — 공유 `errorResponse`는 `reason`을 버리므로 쓰지 않는다. 5xx는 일반 오류 본문으로 감춘다.
+
+수동 발송 사유 라벨(두 앱 동일): `not_voucher_client`, `missing_birthday`, `no_contract_document`, `document_not_linked`, `document_not_found`, `pdf_unavailable`, `missing_phone`; 맵에 없는 사유는 서버 `message`(문자열일 때만) → 공통 폴백 순으로 안내한다.
 
 ### 5.6 m.admin — 산모 공개 페이지
 
 - 라우트 `mobile/src/app/(public)/receipt/[token]/page.tsx`, BFF `mobile/src/app/api/receipt/[token]/{status,verify,image}/route.ts`.
 - `middleware.ts` PUBLIC_ROUTES에 `/receipt`, `/api/receipt` 추가.
 - 화면 상태: `loading` → `verify`(생년월일 입력, 잘못된 입력 횟수 표시) → `image`(이미지 + "이미지 저장") → `expired` / `locked` / `not_found`.
-- 쿠키: `receipt_access_{tokenId}` HttpOnly, SameSite=Lax, 만료는 링크 만료와 동일.
+- 쿠키: 이름 `receipt_access`, `Path=/api/receipt/{token}`(토큰별 격리), HttpOnly, SameSite=Lax, 프로덕션에서 Secure, Max-Age 30일 고정. 링크 만료와 정확히 같지는 않지만 백엔드가 `image` 요청마다 `expires_at`을 재검증하므로 쿠키가 접근을 연장하지 못한다(verify 응답에 `expiresAt`이 없어 `min()`을 계산하지 않았다).
+- 탭 제목: `(public)/receipt/[token]/layout.tsx`가 metadata title "본인부담금 영수증"을 준다(상위 레이아웃의 "서비스 제공기록지"를 상속하지 않도록).
 - **화면 목업(사용자 수정본, 2026-09-03 확정):** https://claude.ai/code/artifact/b8525136-d170-4aae-a635-be51a0f83770 — 제공기록지 공개 페이지와 같은 비주얼(파랑 `#004aad` 상단바 + 진행 막대, 12px 라운드 입력, 굵은 파랑 버튼, 시스템 고딕). 목업에서 확정된 카피·구성:
   - 상단바: 제목 "본인부담금 영수증", 지점명, 단계 크럼("1단계 · 본인 확인" / "2단계 · 영수증 저장"), 진행 막대 50% → 100%.
   - `verify`: 제목 "산모님 본인 확인", 설명 "본인부담금 영수증은 산모님 본인만 열람하실 수 있습니다. 계약 시 등록하신 생년월일을 입력해 주세요.", 라벨 "산모 생년월일", placeholder "예) 940315", 보조문구 "주민등록번호 앞 6자리", 버튼 "확인하기", 안내 박스 "입력하신 생년월일은 본인 확인에만 사용되며 저장되지 않습니다. 확인 후 영수증 이미지를 바로 내려받으실 수 있습니다." **확인 전에는 산모 이름을 노출하지 않는다.**
@@ -194,30 +198,24 @@
 
 ### 5.7 관리자 UI — 데스크톱 + 모바일 동일 적용
 
-공통 계약: 같은 API, 같은 확인 흐름(수신 번호·메시지 미리보기 → 발송 → 결과 토스트), 같은 사유 라벨 맵(`packages/shared`).
+공통 계약: 같은 API, 같은 확인 흐름(확인 다이얼로그 → 발송 → 결과 토스트), 같은 사유 라벨 맵(앱별 파일, 내용 동일 — §4.3).
 
-- **frontend**: `shared-document-preview-dialog.tsx` 푸터의 "영수증" 버튼 옆에 "영수증 링크 보내기". `ContractDocumentPreviewModal`이 `onSendReceiptLink` 콜백을 넘긴다. 노출 조건은 문서에 `clientId`가 있을 때(완료 여부 무관). 기존 "영수증" 다운로드 버튼의 완료 게이트는 유지.
-- **mobile shell**: `(shell)/contracts/page.tsx`의 영수증 다운로드·공유 액션 옆에 같은 액션. 확인은 바텀시트 스타일.
-- 확인 다이얼로그 내용: 수신 산모 이름·번호, 렌더링된 메시지 미리보기(URL 자리는 "발송 시 생성됨" 표시), 발송 버튼. 성공 시 만료일 토스트. 400 사유는 라벨 맵으로 안내(예: "바우처 산모가 아닙니다", "산모 생년월일이 등록되지 않았습니다").
+- **frontend**: `SharedDocumentPreviewDialog`가 `receiptSendAction?: ReactNode` 슬롯을 받고, `ContractDocumentPreviewModal`이 푸터 파일 액션 영역의 "영수증" 다운로드 버튼 옆에 "영수증 문자 발송" 버튼(`…_footer_file-actions_receipt-send`)을 넣는다. 버튼은 `onSendReceiptLink` 핸들러가 주어지면 항상 보이고(대상 판정은 백엔드 preflight가 한다), 기존 "영수증" 다운로드 버튼의 완료 게이트는 유지. 계약 페이지가 `useMutation`을 소유하고, 확인은 `ReceiptSendConfirmDialog`(`…_dialogs_receipt-send-confirm`).
+- **mobile shell**: `(shell)/contracts/page.tsx` 상세 액션에 "영수증 문자"(`mobile_contracts_detail-sheet_stack_detail-page_actions_receipt-send`), 확인은 `ApprovalTwoButtonModal`(`…_dialogs_receipt-send-confirm`, 설명 문구 표시).
+- 확인 다이얼로그 내용: 수신 산모 **이름만**(연락처는 표시하지 않는다 — 전역 no-phone 규칙), "본인부담금 영수증 링크가 담긴 문자를 1분 내 발송합니다. 링크는 30일간 유효하며, 산모님이 생년월일로 본인 확인 후 열람합니다.", 발송 버튼. 원안의 렌더링된 메시지 미리보기는 두지 않았다(본문이 고정 템플릿이고 URL은 발송 시 생성되므로 정적 문구의 사본만 늘어난다). 성공 토스트: "{이름} 산모님께 1분 내 발송됩니다. 링크는 30일간 유효합니다." 400 사유는 라벨 맵으로 안내(§5.5). 수동 발송은 백엔드에서 dedupe하지 않으므로(재발송 허용) 확인 다이얼로그와 `isPending` 비활성화가 오클릭의 유일한 방어다.
 - 트리거 규칙 폼: `TRIGGER_TEMPLATE_MESSAGE_FALLBACKS`, `TEMPLATE_LABELS` ×2에 새 키 추가(exhaustive Record). 드롭다운·미리보기는 데이터 드리븐이라 자동 노출.
 
 ### 5.8 자동 완료 유예일 7일
 
 - `DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG.graceDays: 0 → 7`.
 - 정책 테스트 경계: 종료일+6일 미대상, +7일 대상.
-- 일회성 SQL 패치: 설정은 `system_setting(key, value)`에 키 `branch:{branchId}:contract_automation:auto_finalize`, 값은 JSON 문자열로 저장된다(`system-setting.service.ts:46`). 패치 SQL(database-patches 워크플로, 하드코딩):
-  ```sql
-  UPDATE system_setting
-  SET value = jsonb_set(value::jsonb, '{graceDays}', '7', true)::text,
-      updated_at = now()
-  WHERE key LIKE 'branch:%:contract_automation:auto_finalize';
-  ```
+- 일회성 SQL 패치 `20260904000100_contract_auto_finalize_grace_days_7`: 설정은 `system_setting(key, value)`에 키 `branch:{branchId}:contract_automation:auto_finalize`, 값은 JSON 문자열로 저장된다(`system-setting.service.ts:46`). database-patches 워크플로는 이 파일을 push마다 재실행하므로 `DO $$` 블록으로 (1) 행별 `::jsonb` 캐스트 실패·비객체 값은 건너뛰고, (2) `updated_at < '2026-09-04'`인 행만 `jsonb_set(value, '{graceDays}', '7')`로 고친다 — 이후 운영자가 바꾼 값을 재실행이 덮어쓰지 않도록.
 - UI 기본값 표시도 7로 맞춘다.
 - 기준일은 현재처럼 계약서 문서의 종료일. 메시지 `SERVICE_END`의 `client.endDate`와는 별개 기준을 유지한다(둘 다 기존 기준).
 
 ### 5.9 정리 스윕
 
-매일 1회 크론: `expires_at < now - 7일`인 토큰의 Storage 객체 삭제 후 행은 유지(감사용, `storage_path = null`). 재발급으로 revoke된 토큰의 PNG도 같은 스윕에서 정리.
+`ReceiptLinkCleanupSchedulerService` — 매일 04:30 KST, 스케줄러 리스 보유 인스턴스만: `expires_at < now - 1일`인 토큰(회당 최대 1000행)을 모아 다른 활성 행이 참조하지 않는 Storage 객체를 먼저 지우고(실패는 경고 후 계속), 그 다음 행을 삭제한다. 원안의 "행 유지·`storage_path = null`"은 채택하지 않았다 — `storage_path`가 NOT NULL이고 감사 기록은 `message_log`가 이미 보유한다. 재발급으로 revoke된 토큰도 `expires_at`이 지나면 같은 스윕에서 정리된다. 객체→행 순서는 스윕 도중 크래시 시 다음 날 재시도가 가능하도록 테스트로 고정돼 있다.
 
 ### 5.10 환경 변수
 
@@ -240,7 +238,7 @@
 
 **e2e(backend).** 수동 발송 → status active → verify 실패 5회 → locked → 잠금 해제 후 성공 → image 200 → 재발급 후 구 토큰 revoked → 만료 후 410.
 
-**e2e(mobile Playwright).** 공개 페이지 입력 → 이미지 표시 → 저장 버튼 응답 헤더 → 만료·잠금 화면. shell 계약 페이지 발송 액션 → 확인 시트 → 성공 토스트.
+**e2e(mobile Playwright).** 공개 페이지 입력 → 이미지 표시 → 저장 버튼 응답 헤더 → 만료·잠금 화면. shell 계약 페이지 발송 액션 → 확인 모달 → 성공 토스트.
 
 **프론트.** 미리보기 푸터 버튼 노출 조건, 확인 다이얼로그, 사유 라벨. 트리거 규칙 폼에 새 템플릿 노출·미리보기.
 
