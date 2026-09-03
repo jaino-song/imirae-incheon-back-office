@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { EformsignWebhookController } from "interface/controllers/eformsign-webhook.controller";
 import { EformsignWebhookService } from "application/services/eformsign-webhook.service";
+import { EformsignWebhookEventWriter } from "application/services/eformsign-webhook-event.service";
 import {
     UpdateEformsignDocStatusUsecase,
     LinkDocumentToClientUsecase,
@@ -28,6 +29,7 @@ import { ServiceRecordEntryModule } from "./service-record-entry.module";
     providers: [
         WebhookGuard,
         EformsignWebhookService,
+        EformsignWebhookEventWriter,
         UpdateEformsignDocStatusUsecase,
         LinkDocumentToClientUsecase,
         {

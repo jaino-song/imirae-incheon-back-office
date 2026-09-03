@@ -94,6 +94,11 @@ const DOCUMENT_STATUS_BADGE_STATUS = {
     "알 수 없음": "pending",
     "서명 완료": "signed",
     "검토 필요": "review",
+    // Unreachable from this panel — its documents are fetched by client id, so
+    // every one of them is claimed by definition. Present because the label map
+    // is exhaustive, and mapped like 검토 필요 so that if a path ever does reach
+    // here the row reads as needing attention rather than as a draft.
+    "고객 등록 필요": "review",
     "계약 완료": "completed",
     "기간 만료": "expired",
 } satisfies Record<DocumentStatusLabel, Parameters<typeof StatusBadge>[0]["status"]>;

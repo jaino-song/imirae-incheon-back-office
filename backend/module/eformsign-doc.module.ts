@@ -45,6 +45,7 @@ import { CreateAndSendServiceRecordSnapshotUsecase } from "application/usecases/
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
 import { EformsignDocReconcileSchedulerService } from "application/services/eformsign-doc-reconcile-scheduler.service";
+import { EformsignWebhookEventWriter } from "application/services/eformsign-webhook-event.service";
 import { ContractAutoFinalizeSchedulerService } from "application/services/contract-auto-finalize-scheduler.service";
 import { NotificationModule } from "module/notification.module";
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
@@ -127,6 +128,9 @@ import { EformsignDispatchBoundaryService } from "application/services/eformsign
         EformsignBackfillLockService,
         EformsignOperationLockService,
         EformsignDocReconcileSchedulerService,
+        // The scheduler owns the ledger's retention sweep; the writer itself is
+        // also provided by the webhook module, which has its own instance.
+        EformsignWebhookEventWriter,
         ContractAutoFinalizeSchedulerService,
         EformsignDocumentMirrorService,
         ServiceRecordLifecycleService,

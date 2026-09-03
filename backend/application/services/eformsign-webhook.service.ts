@@ -33,6 +33,9 @@ import { EMPLOYEE_SCHEDULE_REPOSITORY, IEmployeeScheduleRepository } from "domai
 import { EMPLOYEE_REPOSITORY, IEmployeeRepository } from "domain/repositories/employee.repository.interface";
 import { EformsignDocEntity, EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
+import { EFORMSIGN_WEBHOOK_OUTCOME } from "domain/constants/eformsign-webhook-outcome.constants";
+import { EformsignWebhookEventWriter } from "./eformsign-webhook-event.service";
+import { EformsignWebhookTrace } from "./eformsign-webhook-trace";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { ServiceRecordLifecycleService } from "./service-record-lifecycle.service";
 import { EformsignDocumentSnapshotService } from "./eformsign-document-snapshot.service";
@@ -62,6 +65,11 @@ const DOCUMENT_STATUS = {
     // Approval actions
     DOC_ACCEPT_APPROVAL: "doc_accept_approval",        // 결재 승인
     DOC_REJECT_APPROVAL: "doc_reject_approval",        // 결재 거부
+
+    // Reviewer actions (제공기관 검토) — see mapStatus for why these matter
+    DOC_REQUEST_REVIEWER: "doc_request_reviewer",      // 검토 요청
+    DOC_ACCEPT_REVIEWER: "doc_accept_reviewer",        // 검토 완료
+    DOC_REJECT_REVIEWER: "doc_reject_reviewer",        // 검토 반려
 
     // Final states
     DOC_COMPLETE: "doc_complete",                   // 문서 완료
@@ -117,7 +125,7 @@ export interface EformsignWebhookProcessResult {
 
 const COMPLETED_STATUS_CODES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
 const REJECTED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045", "047", "049", "061", "071", "080", "099"]);
-const UNASSIGNED_REVIEW_STATUS_DETAILS: Record<string, string> = {
+const REVIEW_STAGE_STATUS_DETAILS: Record<string, string> = {
     "070": "검토 요청",
     "071": "검토 반려",
     "072": "검토 완료",
@@ -155,6 +163,10 @@ export class EformsignWebhookService {
         private readonly documentMirrorService?: EformsignDocumentMirrorService,
         @Optional()
         private readonly completedMirrorReconciler?: ReconcileCompletedMirroredEformsignDocUsecase,
+        // Appended last on purpose: the constructor is called positionally from
+        // several specs, so a new dependency has to be optional and terminal.
+        @Optional()
+        private readonly webhookEventWriter?: EformsignWebhookEventWriter,
     ) {}
 
     /**
@@ -177,19 +189,48 @@ export class EformsignWebhookService {
         return serviceRecordTemplateIds.has(templateId);
     }
 
+    /**
+     * One ledger row per delivery. The row is written in `finally` so that
+     * every one of the two dozen early returns below is covered without each
+     * of them having to remember, and an outcome nobody set arrives as
+     * `unrecorded` rather than silently counting as a success.
+     */
     async processWebhook(
         payload: EformsignWebhookPayloadDto,
         context: EformsignWebhookProcessingContext = {},
+    ): Promise<EformsignWebhookProcessResult | undefined> {
+        const trace = new EformsignWebhookTrace(payload);
+        try {
+            return await this.processWebhookTraced(payload, context, trace);
+        } catch (error) {
+            trace.settle(
+                EFORMSIGN_WEBHOOK_OUTCOME.ERROR,
+                sanitizeEformsignErrorMessage(error),
+            );
+            throw error;
+        } finally {
+            await this.webhookEventWriter?.append(trace.toInput());
+        }
+    }
+
+    private async processWebhookTraced(
+        payload: EformsignWebhookPayloadDto,
+        context: EformsignWebhookProcessingContext,
+        trace: EformsignWebhookTrace,
     ): Promise<EformsignWebhookProcessResult | undefined> {
         const { webhook_id, document, ready_document_pdf, document_action } = payload;
         const documentId = document?.id ?? ready_document_pdf?.document_id ?? document_action?.document_id;
         if (!documentId) {
             this.logger.warn(`Ignoring webhook ${webhook_id}: missing document identifier`);
+            trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.MISSING_DOCUMENT_ID);
             return;
         }
 
         const localDocument = await this.findLocalDocument(documentId);
         if (localDocument === undefined) {
+            // Not "no such document" — findLocalDocument returns undefined only
+            // when the lookup itself failed or the row could not be mapped.
+            trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.ERROR, "local document lookup failed");
             return;
         }
 
@@ -212,22 +253,29 @@ export class EformsignWebhookService {
                         `Mirrored external document ${documentId} from webhook ${webhook_id} as unassigned`,
                     );
                 }
+                trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.APPLIED, "mirrored as unassigned");
             } catch (error) {
                 if (error instanceof EformsignDocOwnershipConflictError) {
                     return this.retryBranchOwnedWebhookAfterOwnershipConflict(
                         payload,
                         documentId,
                         context,
+                        trace,
                     );
                 }
                 if (error instanceof EformsignDocStaleUpdateError) {
                     this.logger.log(
                         `Ignoring stale webhook ${webhook_id} for unassigned document ${documentId}`,
                     );
+                    trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_STALE_EVENT, "mirror refused a stale update");
                     return;
                 }
                 this.logger.warn(
                     `Failed to mirror external document ${documentId} from webhook ${webhook_id}: ` +
+                    sanitizeEformsignErrorMessage(error),
+                );
+                trace.settle(
+                    EFORMSIGN_WEBHOOK_OUTCOME.MIRROR_FAILED,
                     sanitizeEformsignErrorMessage(error),
                 );
             }
@@ -236,13 +284,14 @@ export class EformsignWebhookService {
 
         if (localDocument.branchId === null) {
             try {
-                await this.updateUnassignedDocumentFromWebhook(payload, localDocument.document);
+                await this.updateUnassignedDocumentFromWebhook(payload, localDocument.document, trace);
             } catch (error) {
                 if (error instanceof EformsignDocOwnershipConflictError) {
                     return this.retryBranchOwnedWebhookAfterOwnershipConflict(
                         payload,
                         documentId,
                         context,
+                        trace,
                     );
                 }
                 // The row already holds state at least as new as this event. Retrying it as
@@ -251,10 +300,15 @@ export class EformsignWebhookService {
                     this.logger.log(
                         `Ignoring stale webhook ${webhook_id} for unassigned document ${documentId}`,
                     );
+                    trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_STALE_EVENT, "stored row is newer");
                     return;
                 }
                 this.logger.warn(
                     `Failed to update unassigned document ${documentId} from webhook ${webhook_id}: ` +
+                    sanitizeEformsignErrorMessage(error),
+                );
+                trace.settle(
+                    EFORMSIGN_WEBHOOK_OUTCOME.ERROR,
                     sanitizeEformsignErrorMessage(error),
                 );
             }
@@ -265,6 +319,7 @@ export class EformsignWebhookService {
             payload,
             localDocument.branchId,
             context,
+            trace,
         );
     }
 
@@ -344,11 +399,16 @@ export class EformsignWebhookService {
         payload: EformsignWebhookPayloadDto,
         documentId: string,
         context: EformsignWebhookProcessingContext,
+        trace: EformsignWebhookTrace,
     ): Promise<EformsignWebhookProcessResult | undefined> {
         const localDocument = await this.findLocalDocument(documentId);
         if (!localDocument || localDocument.branchId === null) {
             this.logger.warn(
                 `Could not retry webhook ${payload.webhook_id} after document ${documentId} ownership changed`,
+            );
+            trace.settle(
+                EFORMSIGN_WEBHOOK_OUTCOME.DOCUMENT_NOT_FOUND,
+                "ownership changed mid-processing and the branch-owned row was not found",
             );
             return;
         }
@@ -360,6 +420,7 @@ export class EformsignWebhookService {
             payload,
             localDocument.branchId,
             context,
+            trace,
         );
     }
 
@@ -367,6 +428,7 @@ export class EformsignWebhookService {
         payload: EformsignWebhookPayloadDto,
         branchId: string,
         context: EformsignWebhookProcessingContext,
+        trace: EformsignWebhookTrace,
     ): Promise<EformsignWebhookProcessResult | undefined> {
         const { event_type, webhook_id, document, ready_document_pdf } = payload;
         const resolvedBranchId = branchId;
@@ -377,6 +439,7 @@ export class EformsignWebhookService {
             return this.handleDocumentEvent(
                 resolvedBranchId,
                 document,
+                trace,
                 context.mirroredDocument,
                 context.deferCompletionEvent,
                 context.deferCompletionEffects,
@@ -389,6 +452,7 @@ export class EformsignWebhookService {
             await this.handleDocumentActionEvent(
                 resolvedBranchId,
                 document,
+                trace,
                 context.mirroredDocument,
             );
             return;
@@ -399,6 +463,7 @@ export class EformsignWebhookService {
             return this.handleReadyDocumentPdfEvent(
                 resolvedBranchId,
                 ready_document_pdf,
+                trace,
                 context.mirroredDocument,
                 context.deferCompletionEvent,
                 context.deferCompletionEffects,
@@ -406,6 +471,7 @@ export class EformsignWebhookService {
         }
 
         this.logger.warn(`Unknown webhook event type: ${event_type}`);
+        trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.UNKNOWN_EVENT_TYPE, event_type);
         return;
     }
 
@@ -416,6 +482,7 @@ export class EformsignWebhookService {
     private async handleReadyDocumentPdfEvent(
         branchid: string,
         pdfEvent: NonNullable<EformsignWebhookPayloadDto["ready_document_pdf"]>,
+        trace: EformsignWebhookTrace,
         mirroredDocument?: EformsignApiDocumentResponse | null,
         deferCompletionEvent = false,
         deferCompletionEffects = false,
@@ -444,6 +511,7 @@ export class EformsignWebhookService {
                 template_name,
                 webhookSourceUpdatedDate(mirroredDocument?.updated_date),
             );
+            this.traceCompletionClaim(trace, claimResult);
             if (claimResult !== "claimed") {
                 let duplicateServiceRecordLifecycleChanged = false;
                 if (claimResult === "duplicate" && deferCompletionEffects) {
@@ -502,8 +570,13 @@ export class EformsignWebhookService {
         }
 
         const { statusType, statusDetail } = this.mapStatus(status);
+        trace.mapped(statusType, statusDetail).source(webhookSourceUpdatedDate(mirroredDocument?.updated_date));
         try {
             if (!this.isCurrentMirrorStatus(mirroredDocument, statusType)) {
+                trace.settle(
+                    EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_STALE_MIRROR,
+                    `mirror is ${normalizeEformsignStatusCode(mirroredDocument?.current_status.status_type)}`,
+                );
                 return;
             }
             const applied = await this.updateStatusAndLinkClient(branchid, {
@@ -518,13 +591,21 @@ export class EformsignWebhookService {
                 templateName: template_name,
                 sourceUpdatedDate: webhookSourceUpdatedDate(mirroredDocument?.updated_date),
             });
-            if (!applied) return;
+            if (!applied) {
+                trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_STALE_PROJECTION);
+                return;
+            }
 
+            trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.APPLIED);
             this.logger.log(`Document ${documentId} status updated from PDF event: ${status} -> ${statusDetail}`);
         } catch (error) {
             this.logger.warn(
                 `[ready_document_pdf] Document ${documentId} not found in DB. ` +
                 "Ensure frontend calls POST /eformsign-docs to create the record with clientId first. Error: " +
+                sanitizeEformsignErrorMessage(error),
+            );
+            trace.settle(
+                EFORMSIGN_WEBHOOK_OUTCOME.DOCUMENT_NOT_FOUND,
                 sanitizeEformsignErrorMessage(error),
             );
             return;
@@ -542,6 +623,7 @@ export class EformsignWebhookService {
     private async handleDocumentActionEvent(
         branchid: string,
         document: NonNullable<EformsignWebhookPayloadDto["document"]>,
+        trace: EformsignWebhookTrace,
         mirroredDocument?: EformsignApiDocumentResponse | null,
     ): Promise<void> {
         const {
@@ -562,6 +644,7 @@ export class EformsignWebhookService {
             ? normalizeEformsignStatusCode(mirroredDocument.current_status.status_type)
             : "020";
 
+        trace.mapped(statusType, statusDetail).source(webhookSourceUpdatedDate(document.updated_date));
         try {
             const applied = await this.updateStatusAndLinkClient(branchid, {
                 documentId,
@@ -575,13 +658,21 @@ export class EformsignWebhookService {
                 templateName: template_name,
                 sourceUpdatedDate: webhookSourceUpdatedDate(document.updated_date),
             });
-            if (!applied) return;
+            if (!applied) {
+                trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_STALE_PROJECTION);
+                return;
+            }
 
+            trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.APPLIED);
             this.logger.log(`Document ${documentId} action recorded: ${action}`);
         } catch (error) {
             this.logger.warn(
                 `[document_action] Document ${documentId} not found in DB. ` +
                 "Ensure frontend calls POST /eformsign-docs to create the record first. Error: " +
+                sanitizeEformsignErrorMessage(error),
+            );
+            trace.settle(
+                EFORMSIGN_WEBHOOK_OUTCOME.DOCUMENT_NOT_FOUND,
                 sanitizeEformsignErrorMessage(error),
             );
             return;
@@ -593,6 +684,7 @@ export class EformsignWebhookService {
     private async handleDocumentEvent(
         branchid: string,
         document: NonNullable<EformsignWebhookPayloadDto["document"]>,
+        trace: EformsignWebhookTrace,
         mirroredDocument?: EformsignApiDocumentResponse | null,
         deferCompletionEvent = false,
         deferCompletionEffects = false,
@@ -610,6 +702,7 @@ export class EformsignWebhookService {
         this.logger.log(`Document event: ${documentId} -> status=${status}`);
 
         const { statusType, statusDetail } = this.mapStatus(status);
+        trace.mapped(statusType, statusDetail).source(webhookSourceUpdatedDate(document.updated_date));
 
         if (status === DOCUMENT_STATUS.DOC_COMPLETE) {
             const shouldReturnClaim = deferCompletionEvent || deferCompletionEffects;
@@ -623,6 +716,7 @@ export class EformsignWebhookService {
                 template_name,
                 webhookSourceUpdatedDate(document.updated_date),
             );
+            this.traceCompletionClaim(trace, claimResult);
             if (claimResult !== "claimed") {
                 let duplicateServiceRecordLifecycleChanged = false;
                 if (claimResult === "duplicate" && deferCompletionEffects) {
@@ -658,6 +752,10 @@ export class EformsignWebhookService {
         } else {
             try {
                 if (!this.isCurrentMirrorStatus(mirroredDocument, statusType)) {
+                    trace.settle(
+                        EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_STALE_MIRROR,
+                        `mirror is ${normalizeEformsignStatusCode(mirroredDocument?.current_status.status_type)}`,
+                    );
                     return;
                 }
                 const applied = await this.updateStatusAndLinkClient(branchid, {
@@ -672,13 +770,21 @@ export class EformsignWebhookService {
                     templateName: template_name,
                     sourceUpdatedDate: webhookSourceUpdatedDate(document.updated_date),
                 });
-                if (!applied) return;
+                if (!applied) {
+                    trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_STALE_PROJECTION);
+                    return;
+                }
 
+                trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.APPLIED);
                 this.logger.log(`Document ${documentId} status updated: ${status} -> ${statusDetail}`);
             } catch (error) {
                 this.logger.warn(
                     `[${status}] Document ${documentId} not found in DB. ` +
                     "Ensure frontend calls POST /eformsign-docs to create the record with clientId first. Error: " +
+                    sanitizeEformsignErrorMessage(error),
+                );
+                trace.settle(
+                    EFORMSIGN_WEBHOOK_OUTCOME.DOCUMENT_NOT_FOUND,
                     sanitizeEformsignErrorMessage(error),
                 );
                 return;
@@ -763,6 +869,30 @@ export class EformsignWebhookService {
             "Ensure frontend calls POST /eformsign-docs to create the record with clientId first."
         );
         return "missing";
+    }
+
+    /**
+     * The completion path never reaches updateStatusAndLinkClient — the claim is
+     * the write — so its four dispositions are translated here instead.
+     */
+    private traceCompletionClaim(
+        trace: EformsignWebhookTrace,
+        claimResult: EformsignWebhookCompletionClaim,
+    ): void {
+        switch (claimResult) {
+            case "claimed":
+                trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.COMPLETION_CLAIMED);
+                return;
+            case "duplicate":
+                trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.COMPLETION_DUPLICATE);
+                return;
+            case "stale":
+                trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_STALE_PROJECTION, "completion claim was stale");
+                return;
+            case "missing":
+                trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.DOCUMENT_NOT_FOUND, "no row to claim completion on");
+                return;
+        }
     }
 
     private async updateStatusAndLinkClient(
@@ -981,6 +1111,7 @@ export class EformsignWebhookService {
     private async updateUnassignedDocumentFromWebhook(
         payload: EformsignWebhookPayloadDto,
         existing: EformsignDocEntity,
+        trace: EformsignWebhookTrace,
     ): Promise<void> {
         const { event_type, webhook_id, document, ready_document_pdf } = payload;
         let statusType: string;
@@ -1029,8 +1160,11 @@ export class EformsignWebhookService {
             this.logger.warn(
                 `Unknown webhook event type for unassigned document ${existing.documentId}: ${event_type}`,
             );
+            trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.UNKNOWN_EVENT_TYPE, event_type);
             return;
         }
+
+        trace.mapped(statusType, statusDetail);
 
         if (
             updatedTimestamp !== undefined
@@ -1038,6 +1172,10 @@ export class EformsignWebhookService {
         ) {
             this.logger.log(
                 `Ignoring stale webhook ${webhook_id} for ${existing.documentId}: event timestamp ${updatedTimestamp} precedes stored updatedDate ${existing.updatedDate.getTime()}`,
+            );
+            trace.settle(
+                EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_STALE_EVENT,
+                `event precedes stored updatedDate ${existing.updatedDate.toISOString()}`,
             );
             return;
         }
@@ -1050,6 +1188,10 @@ export class EformsignWebhookService {
             this.logger.log(
                 `ignoring backward transition ${statusType} after ${existing.statusType} for ${existing.documentId}`,
             );
+            trace.settle(
+                EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_BACKWARD_TRANSITION,
+                `${statusType} after ${existing.statusType}`,
+            );
             return;
         }
 
@@ -1058,6 +1200,10 @@ export class EformsignWebhookService {
             && !UNASSIGNED_TERMINAL_STATUS_CODES.has(statusType)
         ) {
             this.logger.log(`ignoring stale downgrade ${statusType} for ${existing.documentId}`);
+            trace.settle(
+                EFORMSIGN_WEBHOOK_OUTCOME.IGNORED_BACKWARD_TRANSITION,
+                `downgrade from terminal ${existing.statusType} to ${statusType}`,
+            );
             return;
         }
 
@@ -1084,6 +1230,7 @@ export class EformsignWebhookService {
             updateCreatedDate: false,
         });
         await this.bumpCompanySnapshotEpoch();
+        trace.settle(EFORMSIGN_WEBHOOK_OUTCOME.APPLIED, "unassigned document updated");
         this.logger.log(
             `Updated unassigned document ${existing.documentId} from webhook ${webhook_id}: event_type=${event_type}`,
         );
@@ -1100,7 +1247,7 @@ export class EformsignWebhookService {
 
     private mapUnassignedStatus(status: string): { statusType: string; statusDetail: string } {
         const statusType = normalizeEformsignStatusCode(status);
-        const statusDetail = UNASSIGNED_REVIEW_STATUS_DETAILS[statusType];
+        const statusDetail = REVIEW_STAGE_STATUS_DETAILS[statusType];
         if (statusDetail) {
             return { statusType, statusDetail };
         }
@@ -1147,7 +1294,13 @@ export class EformsignWebhookService {
         localStatusType: string,
         mirroredDocument?: EformsignApiDocumentResponse | null,
     ): Promise<void> {
-        if (localStatusType !== "060") {
+        // A cheap pre-filter that avoids a vendor read on irrelevant events;
+        // isReviewRequiredStatus below is the real test. 070 belongs here now
+        // that mapStatus projects the reviewer request as 070 instead of
+        // collapsing it to 060 — without it the fix would silently take the
+        // "검토 필요" push away from the very event that needs it. 071/072 stay
+        // out: isReviewRequiredStatus rejects them as terminal anyway.
+        if (localStatusType !== "060" && localStatusType !== "070") {
             return;
         }
 
@@ -1248,6 +1401,26 @@ export class EformsignWebhookService {
                 return { statusType: "060", statusDetail: "결재 승인" };
             case DOCUMENT_STATUS.DOC_TEMPSAVE_PARTICIPANT:
                 return { statusType: "060", statusDetail: "임시 저장" };
+
+            // Reviewer stage (제공기관 검토). These fell through to the default
+            // below, which collapses every unknown status to 060 — so a branch
+            // owned row could not reach 070 through a webhook at all, and once
+            // the mirror had advanced to 070 the resulting 060 update was
+            // discarded as stale by isCurrentMirrorStatus. The projection then
+            // sat at the participant stage for the whole review, and only the
+            // 6-hourly reconcile sweep ever corrected it. Codes match
+            // normalizeEformsignStatusCode's table; details match
+            // REVIEW_STAGE_STATUS_DETAILS, shared with mapUnassignedStatus so the
+            // two paths cannot label the same stage differently.
+            case DOCUMENT_STATUS.DOC_REQUEST_REVIEWER:
+            case DOCUMENT_STATUS.DOC_ACCEPT_REVIEWER:
+            case DOCUMENT_STATUS.DOC_REJECT_REVIEWER: {
+                const statusType = normalizeEformsignStatusCode(status);
+                return {
+                    statusType,
+                    statusDetail: REVIEW_STAGE_STATUS_DETAILS[statusType] ?? status,
+                };
+            }
 
             // Default - pending
             default:

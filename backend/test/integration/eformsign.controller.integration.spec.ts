@@ -1038,6 +1038,12 @@ describe("EformsignController (Integration)", () => {
             stepName?: string;
             customerName?: string | null;
             templateId?: string;
+            /**
+             * Defaults to a claimed row. A mirrored row with no client resolves
+             * to the "unassigned" display status rather than "review", so a
+             * fixture that means "an ordinary document" has to say so.
+             */
+            clientId?: number | null;
         }) => {
             const createdDate = new Date(overrides.createdDate ?? "2026-07-01T00:00:00.000Z");
             return EformsignDocEntity.reconstitute({
@@ -1064,7 +1070,7 @@ describe("EformsignController (Integration)", () => {
                 stepRecipientSms: "01012345678",
                 expiredDate: new Date("2026-08-01T00:00:00.000Z"),
                 expired: false,
-                clientId: null,
+                clientId: overrides.clientId === undefined ? 42 : overrides.clientId,
                 documentKind: null,
                 employeeScheduleId: null,
                 templateId: overrides.templateId ?? "template-1",
@@ -1328,6 +1334,41 @@ describe("EformsignController (Integration)", () => {
             ]);
             expect(response.body.total_rows).toBe(1);
             expect(response.body.has_more).toBe(false);
+        });
+
+        it("stamps display_status, and marks an unclaimed row 미배정 rather than 검토 필요", async () => {
+            // The whole point of the field: the client renders the label and
+            // decides whether to draw the 검토 완료 button from it. An unclaimed
+            // row reaching the client as "review" is what drew a button whose
+            // only possible answer was a 403.
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
+                createMirrorRow({
+                    documentId: "claimed-review",
+                    createdDate: "2026-07-03T00:00:00.000Z",
+                    statusType: "070",
+                    stepType: "06",
+                    stepName: "제공기관 확인",
+                }),
+                createMirrorRow({
+                    documentId: "unclaimed-review",
+                    createdDate: "2026-07-02T00:00:00.000Z",
+                    statusType: "070",
+                    stepType: "06",
+                    stepName: "제공기관 확인",
+                    clientId: null,
+                }),
+            ]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token");
+
+            expect(response.status).toBe(200);
+            expect(response.body.documents.map(
+                (doc: { id: string; display_status: string }) => [doc.id, doc.display_status],
+            )).toEqual([
+                ["claimed-review", "review"],
+                ["unclaimed-review", "unassigned"],
+            ]);
         });
 
         it("rejects unsupported display-status filters", async () => {
