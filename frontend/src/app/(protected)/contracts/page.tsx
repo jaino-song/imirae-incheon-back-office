@@ -1123,7 +1123,10 @@ export default function ContractsPage() {
   );
 }
 
-function ContractDetail({
+// Exported (in addition to the page default export) so page.test.tsx can render it in
+// isolation to prove the receipt-send trigger/confirm-dialog wiring behaviorally, without
+// standing up the full ContractsPage list/search tree.
+export function ContractDetail({
   "data-component": dataComponent,
   document: doc,
   documentClientSummary,
@@ -2285,11 +2288,17 @@ function ContractDetail({
             : undefined
         }
         isReviewConfirming={isFinalizePending}
-        onSendReceiptLink={() =>
-          setReceiptSendTarget({
-            id: detailedDocument.id,
-            customerName: customerName === CUSTOMER_NAME_PLACEHOLDER ? "" : customerName,
-          })
+        // 영수증 문자 발송 is a maternity-contract action ("서비스 종료 안내" — the
+        // contract's receipt link). ContractDetail is also instantiated for the
+        // 제공기록지 preview surface (reviewAction="preview"), which must not offer it.
+        onSendReceiptLink={
+          reviewAction === "preview"
+            ? undefined
+            : () =>
+                setReceiptSendTarget({
+                  id: detailedDocument.id,
+                  customerName: customerName === CUSTOMER_NAME_PLACEHOLDER ? "" : customerName,
+                })
         }
         isSendingReceiptLink={sendReceiptLink.isPending}
       />

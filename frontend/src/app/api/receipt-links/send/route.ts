@@ -6,6 +6,7 @@ import {
   getAuthHeaders,
   getAuthToken,
   invalidJsonResponse,
+  logUpstreamError,
   readJsonObjectBody,
   unauthorizedResponse,
 } from "@/lib/api/route-utils";
@@ -49,6 +50,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(error.response?.data ?? { reason: "unknown" }, { status });
       }
     }
-    return errorResponse(error, "send receipt link");
+    // Only log unexpected failures (no upstream response, or a 5xx) — expected business
+    // rejections (missing_phone, document_not_found, etc.) are routine and forwarded above.
+    // Never use errorResponse() here: its legacy-message mode surfaces upstreamData.error /
+    // upstreamData.message verbatim (minus token/email scrubbing), which can leak file paths,
+    // DB hosts, or other internal diagnostics from a 5xx body into the client response.
+    logUpstreamError("send receipt link", error);
+    return NextResponse.json({ error: "Failed to send receipt link" }, { status: 500 });
   }
 }
