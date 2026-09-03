@@ -290,6 +290,26 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
         });
     }
 
+    async ensureSystemRule(rule: MessageTriggerRuleEntity, transaction?: Prisma.TransactionClient): Promise<void> {
+        await (transaction ?? this.prisma).message_trigger_rule.upsert({
+            where: { id: rule.id },
+            create: {
+                id: rule.id,
+                branchId: null,
+                name: rule.name,
+                isActive: rule.isActive,
+                eventType: rule.eventType,
+                offsetType: rule.offsetType,
+                offsetDays: rule.offsetDays,
+                recipientType: rule.recipientType,
+                templateKey: rule.templateKey,
+                isDefault: rule.isDefault,
+                jobsStale: rule.jobsStale,
+            },
+            update: {},
+        });
+    }
+
     async clearJobsStaleIfUnchanged(
         ruleId: string,
         updatedAtAtReadTime: Date,
