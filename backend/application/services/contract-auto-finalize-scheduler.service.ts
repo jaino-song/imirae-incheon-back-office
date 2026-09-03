@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Cron } from "@nestjs/schedule";
+import { DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG } from "domain/entities/system-setting.entity";
 import {
     EFORMSIGN_DOC_REPOSITORY,
     IEformsignDocRepository,
@@ -114,7 +115,7 @@ export class ContractAutoFinalizeSchedulerService {
             branchId,
             this.systemSettingService
                 ? await this.systemSettingService.getContractAutoFinalizeConfig(branchId)
-                : { enabled: true, graceDays: 0, maxAttempts: CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS },
+                : DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG,
         ] as const)));
 
         const due: ReviewStageContract[] = [];

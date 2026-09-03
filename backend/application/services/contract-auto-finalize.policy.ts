@@ -4,6 +4,7 @@
  * tested without a scheduler or a database in the frame.
  */
 
+import { DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG } from "domain/entities/system-setting.entity";
 import type { ReviewStageContract } from "domain/repositories/eformsign-doc.repository.interface";
 
 /** Initial attempt plus two retries, per the approved design. */
@@ -41,7 +42,7 @@ export function evaluateAutoFinalize(
     if (contract.contractEndDate < context.sinceDate) {
         return { eligible: false, reason: "before-activation" };
     }
-    const dueDate = addCalendarDays(contract.contractEndDate, context.graceDays ?? 0);
+    const dueDate = addCalendarDays(contract.contractEndDate, context.graceDays ?? DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG.graceDays);
     if (dueDate > context.todayKst) {
         return { eligible: false, reason: "end-date-not-passed" };
     }
