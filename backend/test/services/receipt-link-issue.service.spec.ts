@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { ConfigService } from "@nestjs/config";
 import { ClientEntity } from "domain/entities/client.entity";
-import { FileStoragePort } from "domain/ports/file-storage.port";
+import { FileStorageObjectNotFoundError, FileStoragePort } from "domain/ports/file-storage.port";
 import { IClientRepository } from "domain/repositories/client.repository.interface";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import { IEformsignDocRepository } from "domain/repositories/eformsign-doc.repository.interface";
@@ -48,6 +48,7 @@ interface MakeServiceOverrides {
     file?: { content: Buffer } | null;
     activeTokenForJob?: { id: string; expiresAt: Date } | null;
     storedPath?: boolean;
+    storageObject?: Buffer | null;
     baseUrl?: string;
     serviceRecordBaseUrl?: string;
 }
@@ -105,13 +106,31 @@ function makeService(overrides: MakeServiceOverrides = {}) {
         renderPageToPng: jest.fn().mockResolvedValue(PNG),
     } as unknown as PdfPageRasterizerService;
 
+    const issuedTokenStoragePaths = new Map<string, string>();
     const tokenService = {
-        issue: jest.fn().mockResolvedValue(ISSUED_TOKEN),
+        issue: jest.fn(async (params: { storagePath: string }) => {
+            issuedTokenStoragePaths.set(ISSUED_TOKEN.linkToken, params.storagePath);
+            return ISSUED_TOKEN;
+        }),
     } as unknown as ReceiptLinkTokenService;
 
+    const storagePath = `receipts/${BRANCH}/42/${PNG_SHA}.png`;
+    const storageObjects = new Map<string, Buffer>();
+    const initialStorageObject = overrides.storageObject === undefined && overrides.storedPath
+        ? PNG
+        : overrides.storageObject;
+    if (initialStorageObject) storageObjects.set(storagePath, initialStorageObject);
+
     const storage: FileStoragePort = {
-        upload: jest.fn().mockResolvedValue("receipts/x"),
-        download: jest.fn(),
+        upload: jest.fn(async (file: Buffer, path: string) => {
+            storageObjects.set(path, file);
+            return path;
+        }),
+        download: jest.fn(async (path: string) => {
+            const file = storageObjects.get(path);
+            if (!file) throw new FileStorageObjectNotFoundError(path, "download");
+            return file;
+        }),
         delete: jest.fn(),
         createSignedUrl: jest.fn(),
         ensureBucketExists: jest.fn(),
@@ -139,7 +158,9 @@ function makeService(overrides: MakeServiceOverrides = {}) {
         config,
         rasterizer,
         tokenService,
+        issuedTokenStoragePaths,
         storage,
+        storageObjects,
     };
 }
 
@@ -302,6 +323,22 @@ describe("ReceiptLinkIssueService", () => {
         const { service, storage } = makeService();
         (storage.upload as jest.Mock).mockRejectedValue(new Error("The resource already exists"));
         await expect(service.issue({ branchId: BRANCH, clientId: 7, source: "manual" })).resolves.toMatchObject({ tokenId: "tok-1" });
+    });
+
+    it("re-uploads when an expired row references a storage object already deleted", async () => {
+        const { service, storage, storageObjects, issuedTokenStoragePaths } = makeService({
+            storedPath: true,
+            storageObject: null,
+        });
+
+        const result = await service.issue({ branchId: BRANCH, clientId: 7, source: "manual" });
+
+        const linkToken = result.url.slice(result.url.lastIndexOf("/") + 1);
+        const issuedStoragePath = issuedTokenStoragePaths.get(linkToken);
+        if (!issuedStoragePath) throw new Error("issued receipt URL did not resolve to a storage path");
+        expect(result.url).toBe("https://m.admin.example/receipt/efr_abc");
+        expect(storage.upload).toHaveBeenCalledWith(PNG, issuedStoragePath, "image/png");
+        expect(storageObjects.get(issuedStoragePath)).toEqual(PNG);
     });
 
     it("falls back to MOBILE_SERVICE_RECORD_BASE_URL when MOBILE_RECEIPT_BASE_URL is unset", () => {

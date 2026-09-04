@@ -2,7 +2,11 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createHash } from "node:crypto";
 import { ClientEntity } from "domain/entities/client.entity";
-import { FILE_STORAGE_PORT, FileStoragePort } from "domain/ports/file-storage.port";
+import {
+    FILE_STORAGE_PORT,
+    FileStorageObjectNotFoundError,
+    FileStoragePort,
+} from "domain/ports/file-storage.port";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { EFORMSIGN_DOC_REPOSITORY, IEformsignDocRepository } from "domain/repositories/eformsign-doc.repository.interface";
 import {
@@ -162,7 +166,20 @@ export class ReceiptLinkIssueService {
         const contentSha256 = createHash("sha256").update(png).digest("hex");
         const storagePath = `receipts/${params.branchId}/${doc.id}/${contentSha256}.png`;
         const alreadyStored = await this.receiptLinkTokenRepository.existsByStoragePath(storagePath);
-        if (!alreadyStored) {
+        let shouldUpload = !alreadyStored;
+        if (alreadyStored) {
+            try {
+                await this.storage.download(storagePath);
+            } catch (error) {
+                if (error instanceof FileStorageObjectNotFoundError) {
+                    shouldUpload = true;
+                } else {
+                    this.logger.error(`[ReceiptLink] storage check failed for ${storagePath}: ${describe(error)}`);
+                    throw new ReceiptLinkSkipError("upload_failed");
+                }
+            }
+        }
+        if (shouldUpload) {
             try {
                 await this.storage.upload(png, storagePath, "image/png");
             } catch (error) {
