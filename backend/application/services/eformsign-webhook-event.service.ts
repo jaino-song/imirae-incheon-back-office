@@ -15,11 +15,11 @@ import { getPrismaErrorCode } from "infrastructure/database/prisma-error.utils";
  * Raw Prisma errors carry invocation metadata, so log lines must summarize
  * them instead of interpolating the error object itself.
  */
-function safeDatabaseFailureSummary(error: unknown): string {
+function safeDatabaseFailureSummary(error: unknown, operation = "operation"): string {
     const errorCode = getPrismaErrorCode(error);
     return errorCode
-        ? `database operation failed (code=${errorCode})`
-        : "database operation failed";
+        ? `database ${operation} failed (code=${errorCode})`
+        : `database ${operation} failed`;
 }
 
 export interface EformsignWebhookEventInput {
@@ -103,7 +103,7 @@ export class EformsignWebhookEventWriter {
             });
         } catch (error) {
             this.logger.warn(
-                `Failed to record eformsign webhook event for ${input.documentId ?? "unknown document"}: ${safeDatabaseFailureSummary(error)}`,
+                `Failed to record eformsign webhook event for ${input.documentId ?? "unknown document"}: ${safeDatabaseFailureSummary(error, "append")}`,
             );
         }
     }
