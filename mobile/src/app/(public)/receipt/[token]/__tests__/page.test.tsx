@@ -71,6 +71,9 @@ describe("ReceiptLinkPage", () => {
         render(<ReceiptLinkPage />);
 
         expect(await screen.findByRole("link", { name: "이미지 저장" })).toBeInTheDocument();
+        expect(screen.getByRole("heading", { name: "산모님 영수증" })).toBeInTheDocument();
+        expect(screen.getByRole("img", { name: "산모님 본인부담금 영수증" })).toBeInTheDocument();
+        expect(screen.queryByText("산모 산모님 영수증")).not.toBeInTheDocument();
         expect(screen.queryByLabelText("산모 생년월일")).not.toBeInTheDocument();
         expect(global.fetch).toHaveBeenNthCalledWith(2, "/api/receipt/efr_t/image", { cache: "no-store" });
     });

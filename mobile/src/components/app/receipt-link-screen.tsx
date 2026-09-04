@@ -17,7 +17,7 @@ type Screen =
     | { kind: "locked"; branchName: string; lockedUntil: string }
     | { kind: "expired" }
     | { kind: "invalid" }
-    | { kind: "image"; branchName: string; clientName: string };
+    | { kind: "image"; branchName: string; clientName: string | null };
 
 const BRANCH_FALLBACK = "인천 아이미래로";
 const FOOTER = "이 링크는 발송일로부터 30일간 유효합니다.";
@@ -71,7 +71,7 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
                 const imageResponse = await fetch(api("/image"), { cache: "no-store" });
                 if (!mountedRef.current) return;
                 if (imageResponse.ok) {
-                    setScreen({ kind: "image", branchName, clientName: "산모" });
+                    setScreen({ kind: "image", branchName, clientName: null });
                     return;
                 }
                 if (imageResponse.status === 401) {
@@ -162,7 +162,7 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
             };
             if (!mountedRef.current) return;
             if (response.ok) {
-                setScreen({ kind: "image", branchName: screen.branchName, clientName: body.clientName || "산모" });
+                setScreen({ kind: "image", branchName: screen.branchName, clientName: body.clientName || null });
                 return;
             }
             if (response.status === 423 && body.lockedUntil) {
@@ -198,6 +198,7 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
     const stepLabel = screen.kind === "image" ? "2단계 · 영수증 저장" : "1단계 · 본인 확인";
     const progress = screen.kind === "image" ? 100 : 50;
     const branchName = "branchName" in screen ? screen.branchName : BRANCH_FALLBACK;
+    const receiptOwnerLabel = screen.kind === "image" && screen.clientName ? `${screen.clientName} 산모님` : "산모님";
 
     return (
         <main className="rcpt" data-component="mobile_receipt_public-page">
@@ -275,13 +276,13 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
             {screen.kind === "image" ? (
                 <section className="rcpt-card" data-component="mobile_receipt_public-page_image">
                     <div className="rcpt-titlerow">
-                        <h2>{screen.clientName} 산모님 영수증</h2>
+                        <h2>{receiptOwnerLabel} 영수증</h2>
                         <span className="rcpt-chip">확인 완료</span>
                     </div>
                     <img
                         className="rcpt-img"
                         src={`${api("/image")}${imageRetryParam}`}
-                        alt={`${screen.clientName} 산모님 본인부담금 영수증`}
+                        alt={`${receiptOwnerLabel} 본인부담금 영수증`}
                         onError={() => void handleImageError()}
                     />
                     <a
