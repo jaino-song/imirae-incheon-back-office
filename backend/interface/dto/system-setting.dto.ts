@@ -63,12 +63,24 @@ export class ClientRegistrationPolicyAutomationStatusDto {
     webhookConfigured!: boolean;
     sweepEnabled!: boolean;
     sweepRunnable!: boolean;
+    /**
+     * Inbound webhook deliveries in the last 24 hours, and how many of them
+     * changed nothing. "Configured" only says the endpoint could be called;
+     * these two say whether anything actually arrived and landed.
+     */
+    webhookReceived24h!: number;
+    webhookDropped24h!: number;
 
-    static from(automation: EformsignAutomationStatus): ClientRegistrationPolicyAutomationStatusDto {
+    static from(
+        automation: EformsignAutomationStatus,
+        webhookCounts: { received: number; dropped: number } = { received: 0, dropped: 0 },
+    ): ClientRegistrationPolicyAutomationStatusDto {
         const dto = new ClientRegistrationPolicyAutomationStatusDto();
         dto.webhookConfigured = automation.webhookConfigured;
         dto.sweepEnabled = automation.sweepEnabled;
         dto.sweepRunnable = automation.sweepRunnable;
+        dto.webhookReceived24h = webhookCounts.received;
+        dto.webhookDropped24h = webhookCounts.dropped;
         return dto;
     }
 }
@@ -82,11 +94,12 @@ export class ClientRegistrationPolicyResponseDto {
         clientAutoRegistration: boolean,
         greetingOnAutoRegistration: boolean,
         automation: EformsignAutomationStatus,
+        webhookCounts?: { received: number; dropped: number },
     ): ClientRegistrationPolicyResponseDto {
         const dto = new ClientRegistrationPolicyResponseDto();
         dto.clientAutoRegistration = clientAutoRegistration;
         dto.greetingOnAutoRegistration = greetingOnAutoRegistration;
-        dto.automation = ClientRegistrationPolicyAutomationStatusDto.from(automation);
+        dto.automation = ClientRegistrationPolicyAutomationStatusDto.from(automation, webhookCounts);
         return dto;
     }
 }

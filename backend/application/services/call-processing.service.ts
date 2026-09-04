@@ -21,7 +21,7 @@ import {
 } from "domain/ports/call-refinement.port";
 import { CALL_REFINEMENT_PROMPT_VERSION } from "application/services/call-refinement.prompt";
 import { CALL_VOCABULARY } from "domain/constants/call-vocabulary";
-import { assertValidPhone, extractPhoneCandidates, normalizePhone } from "application/utils/normalize-phone";
+import { assertValidPhone, extractPhoneCandidates, INVALID_PHONE_MESSAGE, normalizePhone } from "application/utils/normalize-phone";
 
 const BOOLEAN_FIELDS = new Set(["careCenter", "voucherClient", "breastPump"]);
 const NUMBER_FIELDS = new Set(["duration"]);
@@ -360,7 +360,7 @@ export class CallProcessingService {
             let value: string | number | boolean | null = proposal.value;
             if (proposal.field === "phone" && proposal.value !== null) {
                 if (typeof proposal.value !== "string") {
-                    throw new BadRequestException("phone must be a valid Korean phone number");
+                    throw new BadRequestException(INVALID_PHONE_MESSAGE);
                 }
                 assertValidPhone(proposal.value);
             }

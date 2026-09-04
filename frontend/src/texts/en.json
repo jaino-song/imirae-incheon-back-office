@@ -437,7 +437,7 @@
       "registered-date-unknown": "Unknown",
       "phone-required": "Please enter a phone number",
       "work-area-required": "Please select at least one work area",
-      "error-phone-duplicate": "This phone number is already registered. Please enter a different phone number.",
+      "error-phone-duplicate": "This phone number is already registered. Search for the provider by phone number instead.",
       "error-create-failed": "Failed to register provider. Please try again.",
       "error-update-failed": "Failed to update provider information. Please try again.",
       "error-save-failed": "Failed to save. Please try again.",

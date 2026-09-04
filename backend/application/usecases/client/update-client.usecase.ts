@@ -47,7 +47,7 @@ export class UpdateClientUsecase {
         assertNonNullableClientPatch(updates);
         const client = await this.clientRepository.findById(branchid, id);
         if (!client) {
-            throw new NotFoundException(`Client with id ${id} not found`);
+            throw new NotFoundException(`고객을 찾을 수 없습니다. (id: ${id})`);
         }
 
         client.update(updates);
@@ -85,7 +85,7 @@ export class UpdateClientUsecase {
 function assertNonNullableClientPatch(updates: UpdateClientParams): void {
     for (const field of ["name", "voucherClient", "breastPump"] as const) {
         if (Object.prototype.hasOwnProperty.call(updates, field) && updates[field] === null) {
-            throw new BadRequestException(`${field} cannot be null`);
+            throw new BadRequestException(`${field} 항목은 비울 수 없습니다.`);
         }
     }
 }

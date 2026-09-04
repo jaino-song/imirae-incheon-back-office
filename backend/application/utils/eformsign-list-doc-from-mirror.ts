@@ -33,6 +33,20 @@ export const MIRROR_UNKNOWN_RECIPIENT_NAME = "수신자";
  */
 export const MIRROR_RECIPIENT_NAME_KEY = "_mirror_recipient_name";
 
+/**
+ * Set when the row has no client attached, and carried the same way as the two
+ * names above: the list rules must not read it, but the display status resolved
+ * at serve time must.
+ *
+ * Keyed on clientId because that is the field the review actually needs — the
+ * finalize path refuses a document without one, and the eformsign-console
+ * documents that land here have clientId, branchId and documentKind all null
+ * together. Without this the list resolved such a row to "review", drew a live
+ * 검토 완료 button on it, and answered the click with a 403 the operator had no
+ * way to interpret.
+ */
+export const MIRROR_UNASSIGNED_KEY = "_mirror_unassigned";
+
 
 export function eformsignListDocFromMirror(document: EformsignDocEntity): EformsignListDoc {
     return {
@@ -59,6 +73,7 @@ export function eformsignListDocFromMirror(document: EformsignDocEntity): Eforms
         ...(document.customerName === null
             ? {}
             : { [MIRROR_CUSTOMER_NAME_KEY]: document.customerName }),
+        ...(document.clientId === null ? { [MIRROR_UNASSIGNED_KEY]: true } : {}),
         // No `fields`, deliberately, even though the mirror holds a customerName. The
         // vendor's list endpoint is fetched without include_fields — only the
         // single-document fetch asks for them — so the served search never sees a customer

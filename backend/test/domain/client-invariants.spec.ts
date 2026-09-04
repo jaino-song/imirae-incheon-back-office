@@ -106,7 +106,7 @@ describe("client pricing and service-period invariants", () => {
             fullPrice: "1000",
             grant: "0",
             actualPrice: "1000",
-        })).toThrow("duration cannot exceed the Korean business-day count (6)");
+        })).toThrow("서비스 기간은 1일 이상 6일 이하여야 합니다.");
         const legacyFormatted = ClientEntity.reconstitute(
             1,
             requiredClientProps.name,
@@ -158,7 +158,7 @@ describe("client pricing and service-period invariants", () => {
         // not equal it.
         expect(() => assertClientDurationMatchesDates(5, 6)).not.toThrow();
         expect(() => assertClientDurationMatchesDates(7, 6))
-            .toThrow("duration cannot exceed the Korean business-day count (6)");
+            .toThrow("서비스 기간은 1일 이상 6일 이하여야 합니다.");
         expect(() => deriveClientDuration(
             new Date("2028-01-03T00:00:00.000Z"),
             new Date("2028-01-04T00:00:00.000Z"),
@@ -186,7 +186,7 @@ describe("client pricing and service-period invariants", () => {
         entity.update({ duration: 7 });
         expect(entity.duration).toBe(7);
         expect(() => entity.update({ duration: 8 }))
-            .toThrow("duration cannot exceed the Korean business-day count (7)");
+            .toThrow("서비스 기간은 1일 이상 7일 이하여야 합니다.");
         expect(entity.duration).toBe(7);
 
         // An unrelated profile-only update must not re-derive and overwrite

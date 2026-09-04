@@ -167,6 +167,7 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         const settings = {
             getClientAutoRegistrationEnabled: jest.fn().mockResolvedValue(true),
             getGreetingOnAutoRegistrationEnabled: jest.fn().mockResolvedValue(false),
+            getEformsignTemplateBranch: jest.fn().mockResolvedValue(null),
         };
         const messageTrigger = {
             ensureDefaultRulesForBranch: jest.fn().mockResolvedValue(undefined),
@@ -203,7 +204,7 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         });
         const { transaction, settings, usecase } = setup(document);
 
-        await expect(usecase.execute("doc-1")).rejects.toThrow("valid Korean phone number");
+        await expect(usecase.execute("doc-1")).rejects.toThrow("올바른 국내 전화번호 형식이 아닙니다.");
 
         expect(settings.getClientAutoRegistrationEnabled).not.toHaveBeenCalled();
         expect(transaction.client.create).not.toHaveBeenCalled();
@@ -244,6 +245,118 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
                 eDocId: null,
             },
             data: { eDocId: "doc-1" },
+        });
+    });
+
+    it("does not link a client from another branch when a branchless document template has an owner", async () => {
+        const { transaction, settings, usecase } = setup();
+        settings.getEformsignTemplateBranch.mockResolvedValue({
+            branchId: "branch-2",
+            effectiveFrom: new Date("2026-07-01T00:00:00.000Z"),
+        });
+        transaction.client.findMany.mockImplementation(({ where }) =>
+            Promise.resolve(
+                where.branchId === "branch-2"
+                    ? []
+                    : [{
+                        id: 21,
+                        branchId: "branch-1",
+                        phone: "010-1234-5678",
+                        eDocId: null,
+                    }],
+            ),
+        );
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("no_branch");
+
+        expect(transaction.client.findMany).toHaveBeenCalledWith({
+            where: {
+                phone: { not: null },
+                branchId: "branch-2",
+                OR: [{ phone: { endsWith: "5678" } }],
+            },
+            select: {
+                id: true,
+                branchId: true,
+                phone: true,
+                eDocId: true,
+            },
+        });
+        expect(transaction.eformsign_doc.updateMany).not.toHaveBeenCalled();
+        expect(transaction.client.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("links the matching client in the owning branch of a branchless document template", async () => {
+        const { transaction, settings, usecase } = setup();
+        settings.getEformsignTemplateBranch.mockResolvedValue({
+            branchId: "branch-2",
+            effectiveFrom: new Date("2026-07-01T00:00:00.000Z"),
+        });
+        transaction.client.findMany.mockImplementation(({ where }) =>
+            Promise.resolve(
+                where.branchId === "branch-2"
+                    ? [{
+                        id: 22,
+                        branchId: "branch-2",
+                        phone: "+82 10 1234 5678",
+                        eDocId: null,
+                    }]
+                    : [],
+            ),
+        );
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("linked");
+
+        expect(transaction.eformsign_doc.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: {
+                    branchId: "branch-2",
+                    clientId: 22,
+                    documentKind: "contract",
+                },
+            }),
+        );
+        expect(transaction.client.updateMany).toHaveBeenCalledWith({
+            where: {
+                id: 22,
+                branchId: "branch-2",
+                eDocId: null,
+            },
+            data: { eDocId: "doc-1" },
+        });
+    });
+
+    it("preserves the global unique lookup when a branchless document has no template owner", async () => {
+        const { transaction, settings, usecase } = setup();
+        transaction.client.findMany.mockImplementation(({ where }) =>
+            Promise.resolve(
+                typeof where.branchId === "object"
+                    ? [{
+                        id: 21,
+                        branchId: "branch-1",
+                        phone: "010-1234-5678",
+                        eDocId: null,
+                    }]
+                    : [],
+            ),
+        );
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("linked");
+
+        expect(settings.getEformsignTemplateBranch)
+            .toHaveBeenCalledWith("contract-template");
+        expect(transaction.client.findMany).toHaveBeenCalledWith({
+            where: {
+                phone: { not: null },
+                branchId: { not: null },
+                OR: [{ phone: { endsWith: "5678" } }],
+            },
+            select: {
+                id: true,
+                branchId: true,
+                phone: true,
+                eDocId: true,
+            },
         });
     });
 
@@ -1135,6 +1248,76 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         transaction.client.findMany.mockResolvedValue([]);
 
         await expect(usecase.execute("doc-1")).resolves.toBe("no_branch");
+        expect(transaction.client.create).not.toHaveBeenCalled();
+    });
+
+    it("resolves a branchless contract from the branch its template is registered to", async () => {
+        const document = mirroredDocument({
+            customerPhone: "01012345678",
+            detailPayload: contractDetail(),
+        });
+        const { prisma, transaction, settings, usecase } = setup(document);
+        settings.getEformsignTemplateBranch.mockResolvedValue({
+            branchId: "branch-2",
+            effectiveFrom: new Date("2026-07-01T00:00:00.000Z"),
+        });
+        transaction.client.findMany.mockResolvedValue([]);
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+
+        expect(settings.getEformsignTemplateBranch)
+            .toHaveBeenCalledWith("contract-template");
+        expect(transaction.client.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({ branchId: "branch-2" }),
+            select: { id: true },
+        });
+        // The template answered, so the creator-membership fallback never runs.
+        expect(prisma.user.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("leaves a contract created before its template mapping took effect unregistered", async () => {
+        const document = mirroredDocument({
+            customerPhone: "01012345678",
+            detailPayload: contractDetail(),
+            createdDate: new Date("2026-06-30T23:59:59.000Z"),
+        });
+        const { prisma, transaction, settings, usecase } = setup(document);
+        settings.getEformsignTemplateBranch.mockResolvedValue({
+            branchId: "branch-2",
+            effectiveFrom: new Date("2026-07-01T00:00:00.000Z"),
+        });
+        prisma.user.findFirst.mockResolvedValue({
+            ownedBranches: [],
+            userBranches: [],
+        });
+        transaction.client.findMany.mockResolvedValue([]);
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("no_branch");
+
+        expect(settings.getEformsignTemplateBranch)
+            .toHaveBeenCalledWith("contract-template");
+        // Out of window means fall through to the creator fallback, not short-circuit.
+        expect(prisma.user.findFirst).toHaveBeenCalled();
+        expect(transaction.client.create).not.toHaveBeenCalled();
+    });
+
+    it("does not auto-register through a template mapping to a branch that disabled it", async () => {
+        const document = mirroredDocument({
+            customerPhone: "01012345678",
+            detailPayload: contractDetail(),
+        });
+        const { transaction, settings, usecase } = setup(document);
+        settings.getEformsignTemplateBranch.mockResolvedValue({
+            branchId: "branch-2",
+            effectiveFrom: new Date("2026-07-01T00:00:00.000Z"),
+        });
+        settings.getClientAutoRegistrationEnabled.mockResolvedValue(false);
+        transaction.client.findMany.mockResolvedValue([]);
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("no_branch");
+
+        expect(settings.getClientAutoRegistrationEnabled)
+            .toHaveBeenCalledWith("branch-2");
         expect(transaction.client.create).not.toHaveBeenCalled();
     });
 

@@ -10,7 +10,7 @@ import { plainToInstance } from "class-transformer";
 import { validate as validateDto } from "class-validator";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { ClientService } from "application/services/client.service";
-import { assertValidPhone, InvalidPhoneError, normalizePhone } from "application/utils/normalize-phone";
+import { assertValidPhone, INVALID_PHONE_MESSAGE, InvalidPhoneError, normalizePhone } from "application/utils/normalize-phone";
 import { PROPOSAL_FIELDS } from "application/services/call-extraction.prompt";
 import {
     ConfirmDraftDto,
@@ -27,7 +27,7 @@ function assertPhoneProposalValues(proposals: ReadonlyArray<{ field: string; val
     for (const proposal of proposals) {
         if (proposal.field !== "phone" || proposal.value === null || proposal.value === undefined) continue;
         if (typeof proposal.value !== "string") {
-            throw new BadRequestException("phone must be a valid Korean phone number");
+            throw new BadRequestException(INVALID_PHONE_MESSAGE);
         }
         try {
             assertValidPhone(proposal.value);
