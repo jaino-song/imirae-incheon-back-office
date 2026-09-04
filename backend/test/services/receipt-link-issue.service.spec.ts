@@ -470,4 +470,23 @@ describe("ReceiptLinkIssueService", () => {
 
         expect(tokenService.issue).not.toHaveBeenCalled();
     });
+
+    it("does not replace a token created after the pre-lock read when the lock is no longer contended", async () => {
+        const { service, tokenService, receiptLinkTokenRepository } = makeService({
+            jobLockContended: false,
+        });
+        (receiptLinkTokenRepository.findActiveByJobId as jest.Mock)
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ id: "winner", expiresAt: new Date("2026-10-01T00:00:00Z") });
+
+        await expect(service.issue({
+            branchId: BRANCH,
+            clientId: 7,
+            source: "auto_trigger",
+            jobId: "job-race",
+        })).rejects.toBeInstanceOf(ReceiptLinkIssuanceConflictError);
+
+        expect(receiptLinkTokenRepository.findActiveByJobId).toHaveBeenCalledTimes(2);
+        expect(tokenService.issue).not.toHaveBeenCalled();
+    });
 });

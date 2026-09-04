@@ -16,6 +16,7 @@ import {
 import {
     IReceiptLinkTokenRepository,
     RECEIPT_LINK_TOKEN_REPOSITORY,
+    ReceiptLinkTokenRecord,
 } from "domain/repositories/receipt-link-token.repository.interface";
 import { PdfPageRasterizerService } from "infrastructure/pdf/pdf-page-rasterizer.service";
 import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
@@ -155,8 +156,9 @@ export class ReceiptLinkIssueService {
      * `existingUrl` (the payload's current url), that url is returned as-is with no render,
      * upload, or mint. Plaintext link tokens are never stored, so without `existingUrl` there is
      * nothing to return — a later, non-overlapping retry mints anew, while overlapping attempts
-     * share the in-flight result in this instance. Across instances, a contended database lock
-     * prevents the loser from revoking the winner's URL when it cannot reconstruct that URL.
+     * share the in-flight result in this instance. Across instances, the locked re-check compares
+     * the token identity from before preparation so the loser cannot revoke a winner that acquired
+     * and released the lock before the loser reached it.
      */
     async issue(params: IssueReceiptLinkParams): Promise<IssuedReceiptLink> {
         const jobId = params.jobId;
@@ -180,7 +182,8 @@ export class ReceiptLinkIssueService {
     }
 
     private async issueForJob(params: IssueReceiptLinkParams & { jobId: string }): Promise<IssuedReceiptLink> {
-        const reusable = await this.findReusableJobToken(params, new Date());
+        const activeBeforeLock = await this.receiptLinkTokenRepository.findActiveByJobId(params.jobId);
+        const reusable = this.toReusableJobToken(params, activeBeforeLock, new Date());
         if (reusable) return reusable;
 
         // Rendering and content-addressed upload are safe to repeat and can be slow, so keep them
@@ -194,6 +197,11 @@ export class ReceiptLinkIssueService {
             async (contended) => {
                 const active = await this.receiptLinkTokenRepository.findActiveByJobId(params.jobId);
                 if (active && active.expiresAt.getTime() > Date.now()) {
+                    // Lock contention only describes the instant pg_try_advisory_xact_lock ran.
+                    // A different row proves another issuer won even if it already released the lock.
+                    if (active.id !== activeBeforeLock?.id) {
+                        throw new ReceiptLinkIssuanceConflictError();
+                    }
                     if (params.existingUrl) {
                         return { url: params.existingUrl, tokenId: active.id, expiresAt: active.expiresAt };
                     }
@@ -204,11 +212,11 @@ export class ReceiptLinkIssueService {
         );
     }
 
-    private async findReusableJobToken(
+    private toReusableJobToken(
         params: IssueReceiptLinkParams & { jobId: string },
+        active: ReceiptLinkTokenRecord | null,
         now: Date,
-    ): Promise<IssuedReceiptLink | null> {
-        const active = await this.receiptLinkTokenRepository.findActiveByJobId(params.jobId);
+    ): IssuedReceiptLink | null {
         // An "active" row can still be past its expiresAt (nightly cleanup hasn't reaped it
         // yet) — short-circuiting on that would hand the caller back a dead link.
         if (!active || active.expiresAt.getTime() <= now.getTime() || !params.existingUrl) return null;
