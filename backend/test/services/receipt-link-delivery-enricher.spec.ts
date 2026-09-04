@@ -94,6 +94,40 @@ describe("ReceiptLinkDeliveryEnricher", () => {
         );
     });
 
+    it("validates the exact receipt URL in a staged retry without issuing a replacement", async () => {
+        const issueService = {
+            issue: jest.fn(),
+        };
+        const tokenService = { getStatus: jest.fn().mockResolvedValue({ ok: true }) };
+        const enricher = new ReceiptLinkDeliveryEnricher(
+            new SmsTriggerPayloadEnricherRegistry(),
+            issueService as never,
+            tokenService as never,
+        );
+        const job = makeJob("agent-sms-retry:action-1", "https://m.admin.example/receipt/efr_live");
+
+        await enricher.validateStagedSnapshot(job);
+
+        expect(tokenService.getStatus).toHaveBeenCalledWith("efr_live", expect.any(Date));
+        expect(issueService.issue).not.toHaveBeenCalled();
+    });
+
+    it.each(["revoked", "expired"] as const)(
+        "rejects a %s receipt URL in a staged retry",
+        async (reason) => {
+            const tokenService = { getStatus: jest.fn().mockResolvedValue({ ok: false, reason }) };
+            const enricher = new ReceiptLinkDeliveryEnricher(
+                new SmsTriggerPayloadEnricherRegistry(),
+                { issue: jest.fn() } as never,
+                tokenService as never,
+            );
+
+            await expect(enricher.validateStagedSnapshot(
+                makeJob("agent-sms-retry:action-1", "https://m.admin.example/receipt/efr_stale"),
+            )).rejects.toMatchObject({ reason: "receipt_link_unusable" });
+        },
+    );
+
     it("rejects with ReceiptLinkSkipError(no_contract_document) when the job has no branchId", async () => {
         const issueService = { issue: jest.fn() };
         const enricher = new ReceiptLinkDeliveryEnricher(new SmsTriggerPayloadEnricherRegistry(), issueService as never);

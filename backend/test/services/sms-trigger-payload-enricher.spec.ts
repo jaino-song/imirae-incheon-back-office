@@ -8,6 +8,7 @@ import {
     SmsTriggerDeliverySkipError,
     SmsTriggerPayloadEnricherRegistry,
 } from "application/services/sms-trigger-payload-enricher.registry";
+import { ReceiptLinkDeliveryEnricher } from "application/services/receipt-link-delivery-enricher.service";
 import { MessageModule } from "module/message.module";
 import { MessageTriggerSchedulerService } from "application/services/message-trigger-scheduler.service";
 
@@ -131,13 +132,15 @@ describe("SmsTriggerDeliveryService.sendJob with enrichers", () => {
     // with no template-key filter (findRetryableJob applies none). Enriching such a job would mutate
     // templateVariables after that snapshot was hashed and approved, making resolveDeliverySnapshot's
     // staged-vs-canonical hash comparison reject with "changed after staging" and the provider never
-    // called. The enricher must not run at all for a job that already carries a staged snapshot.
-    it("skips the enricher entirely when the job already carries a staged delivery snapshot", async () => {
+    // called. Mutating enrichment must not run for a staged snapshot, but the exact approved
+    // receipt capability still needs a read-only liveness check immediately before dispatch.
+    it("skips mutating enrichment and validates a staged delivery snapshot", async () => {
         const registry = new SmsTriggerPayloadEnricherRegistry();
         const enrich = jest.fn(async (job: MessageTriggerJobEntity) => {
             job.payload.templateVariables["receiptUrl"] = "https://should-not-run.example/receipt";
         });
-        registry.register(MessageTriggerTemplateKey.SERVICE_END_NOTICE, { enrich });
+        const validateStagedSnapshot = jest.fn().mockResolvedValue(undefined);
+        registry.register(MessageTriggerTemplateKey.SERVICE_END_NOTICE, { enrich, validateStagedSnapshot });
         const { service, sendSmsJob } = makeService(registry);
         const job = makeJob();
         job.payload.templateVariables[SMS_DELIVERY_SNAPSHOT_VARIABLE] = JSON.stringify({ staged: true });
@@ -145,8 +148,44 @@ describe("SmsTriggerDeliveryService.sendJob with enrichers", () => {
         await expect(service.sendJob(job)).resolves.toBe(true);
 
         expect(enrich).not.toHaveBeenCalled();
+        expect(validateStagedSnapshot).toHaveBeenCalledWith(job);
         expect(job.payload.templateVariables["receiptUrl"]).toBeUndefined();
         expect(sendSmsJob).toHaveBeenCalledTimes(1);
+    });
+
+    it("cancels a staged SERVICE_END_NOTICE retry when its approved receipt link was revoked", async () => {
+        const registry = new SmsTriggerPayloadEnricherRegistry();
+        const tokenService = { getStatus: jest.fn().mockResolvedValue({ ok: false, reason: "revoked" }) };
+        const enricher = new ReceiptLinkDeliveryEnricher(
+            registry,
+            { issue: jest.fn() } as never,
+            tokenService as never,
+        );
+        enricher.onModuleInit();
+        const { service, sendSmsJob, aligo } = makeService(registry);
+        const job = makeJob();
+        job.payload.templateVariables["receiptUrl"] = "https://m.admin.example/receipt/efr_revoked";
+        job.payload.templateVariables[SMS_DELIVERY_SNAPSHOT_VARIABLE] = JSON.stringify({ staged: true });
+
+        await expect(service.sendJob(job)).resolves.toBe(false);
+
+        expect(tokenService.getStatus).toHaveBeenCalledWith("efr_revoked", expect.any(Date));
+        expect(job.status).toBe("canceled");
+        expect(sendSmsJob).not.toHaveBeenCalled();
+        expect(aligo.sendSms).not.toHaveBeenCalled();
+    });
+
+    it("cancels a staged SERVICE_END_NOTICE retry when receipt validation is unavailable", async () => {
+        const { service, sendSmsJob, aligo } = makeService(new SmsTriggerPayloadEnricherRegistry());
+        const job = makeJob();
+        job.payload.templateVariables["receiptUrl"] = "https://m.admin.example/receipt/efr_unchecked";
+        job.payload.templateVariables[SMS_DELIVERY_SNAPSHOT_VARIABLE] = JSON.stringify({ staged: true });
+
+        await expect(service.sendJob(job)).resolves.toBe(false);
+
+        expect(job.status).toBe("canceled");
+        expect(sendSmsJob).not.toHaveBeenCalled();
+        expect(aligo.sendSms).not.toHaveBeenCalled();
     });
 });
 
