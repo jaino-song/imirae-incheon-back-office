@@ -8,7 +8,7 @@ jest.mock("next/navigation", () => ({
 }));
 
 const mockUseParams = useParams as jest.Mock;
-const MAX_BROWSER_TIMEOUT_MS = 2_147_483_647;
+const MAX_LOCK_REFRESH_DELAY_MS = 30 * 60 * 1000;
 
 // F3: deliberately NOT the page's BRANCH_FALLBACK constant ("인천 아이미래로") — a fixture
 // equal to the fallback would still pass even if the page ignored status.branchName
@@ -321,7 +321,7 @@ describe("ReceiptLinkPage", () => {
         expect(statusFetchCount).toBe(3);
     });
 
-    it("caps a far-future lock refresh at the browser timeout limit without polling immediately", async () => {
+    it("re-checks within the server maximum lock duration when the client clock is behind", async () => {
         jest.useFakeTimers();
         jest.setSystemTime(new Date("2026-09-03T00:00:00.000Z"));
         const setTimeoutSpy = jest.spyOn(window, "setTimeout");
@@ -340,13 +340,20 @@ describe("ReceiptLinkPage", () => {
 
         const scheduledDelays = setTimeoutSpy.mock.calls.map(([, delay]) => delay);
         setTimeoutSpy.mockRestore();
-        expect(scheduledDelays).toContain(MAX_BROWSER_TIMEOUT_MS);
-        expect(scheduledDelays.every((delay) => typeof delay !== "number" || delay <= MAX_BROWSER_TIMEOUT_MS)).toBe(true);
+        expect(scheduledDelays).toContain(MAX_LOCK_REFRESH_DELAY_MS);
+        expect(scheduledDelays.every((delay) => typeof delay !== "number" || delay <= MAX_LOCK_REFRESH_DELAY_MS)).toBe(
+            true,
+        );
 
         await act(async () => {
             await jest.advanceTimersByTimeAsync(1_000);
         });
         expect(statusFetchCount).toBe(1);
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(MAX_LOCK_REFRESH_DELAY_MS - 1_000);
+        });
+        expect(statusFetchCount).toBe(2);
     });
 
     it("cancels recurring lock refreshes when the screen unmounts", async () => {
