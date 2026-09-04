@@ -271,9 +271,54 @@ describe("ReceiptLinkPage", () => {
         expect(statusFetchCount).toBe(2);
     });
 
-    it("cancels the lock-expiry refresh when the screen unmounts", async () => {
+    it("keeps re-checking a server lock when the client clock is ahead", async () => {
         jest.useFakeTimers();
-        jest.setSystemTime(new Date("2026-09-03T00:30:00.000Z"));
+        jest.setSystemTime(new Date("2026-09-03T01:05:00.000Z"));
+        let statusFetchCount = 0;
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) {
+                statusFetchCount += 1;
+                return jsonResponse(
+                    200,
+                    statusFetchCount < 3
+                        ? {
+                              ...STATUS_VERIFY,
+                              remainingAttempts: 0,
+                              lockedUntil: "2026-09-03T01:00:00.000Z",
+                          }
+                        : STATUS_VERIFY,
+                );
+            }
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+
+        expect(await screen.findByText(/5회 연속 틀려 .*까지 확인이 잠겼습니다\./)).toBeInTheDocument();
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(0);
+        });
+        expect(statusFetchCount).toBe(1);
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(1_000);
+        });
+        expect(statusFetchCount).toBe(2);
+        expect(screen.getByRole("button", { name: "확인하기" })).toBeDisabled();
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(1_000);
+        });
+
+        await waitFor(() => expect(screen.getByLabelText("산모 생년월일")).toBeEnabled());
+        expect(statusFetchCount).toBe(3);
+    });
+
+    it("cancels recurring lock refreshes when the screen unmounts", async () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date("2026-09-03T01:05:00.000Z"));
         let statusFetchCount = 0;
         global.fetch = jest.fn(async () => {
             statusFetchCount += 1;
@@ -287,10 +332,15 @@ describe("ReceiptLinkPage", () => {
         const { unmount } = render(<ReceiptLinkPage />);
         await screen.findByText(/5회 연속 틀려 .*까지 확인이 잠겼습니다\./);
 
-        unmount();
-        await jest.advanceTimersByTimeAsync(30 * 60 * 1000);
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(1_000);
+        });
+        expect(statusFetchCount).toBe(2);
 
-        expect(statusFetchCount).toBe(1);
+        unmount();
+        await jest.advanceTimersByTimeAsync(10_000);
+
+        expect(statusFetchCount).toBe(2);
     });
 
     // F3: a page that ignores status.branchName entirely and always falls back would

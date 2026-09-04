@@ -22,6 +22,7 @@ type Screen =
 const BRANCH_FALLBACK = "인천 아이미래로";
 const FOOTER = "이 링크는 발송일로부터 30일간 유효합니다.";
 const MAX_ATTEMPTS = 5;
+const MIN_LOCK_REFRESH_DELAY_MS = 1_000;
 
 function formatLockedUntil(iso: string): string {
     const date = new Date(iso);
@@ -66,7 +67,10 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
             const status = (await response.json()) as Status;
             if (!mountedRef.current) return;
             const branchName = status.branchName || BRANCH_FALLBACK;
-            if (status.lockedUntil) return setScreen({ kind: "locked", branchName, lockedUntil: status.lockedUntil });
+            if (status.lockedUntil) {
+                setScreen({ kind: "locked", branchName, lockedUntil: status.lockedUntil });
+                return status.lockedUntil;
+            }
             if (status.state === "verified") {
                 const imageResponse = await fetch(api("/image"), { cache: "no-store" });
                 if (!mountedRef.current) return;
@@ -99,12 +103,27 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
     useEffect(() => {
         if (!lockedUntil) return;
 
-        const refreshDelay = Math.max(0, new Date(lockedUntil).getTime() - Date.now());
-        const timeout = window.setTimeout(() => {
-            void loadStatus();
-        }, refreshDelay);
+        let isCancelled = false;
+        let timeout: number | undefined;
 
-        return () => window.clearTimeout(timeout);
+        const scheduleRefresh = (authoritativeLockedUntil: string) => {
+            const remainingLockMs = new Date(authoritativeLockedUntil).getTime() - Date.now();
+            const refreshDelay = Number.isFinite(remainingLockMs)
+                ? Math.max(MIN_LOCK_REFRESH_DELAY_MS, remainingLockMs)
+                : MIN_LOCK_REFRESH_DELAY_MS;
+
+            timeout = window.setTimeout(async () => {
+                const nextLockedUntil = await loadStatus();
+                if (!isCancelled && nextLockedUntil) scheduleRefresh(nextLockedUntil);
+            }, refreshDelay);
+        };
+
+        scheduleRefresh(lockedUntil);
+
+        return () => {
+            isCancelled = true;
+            if (timeout !== undefined) window.clearTimeout(timeout);
+        };
     }, [loadStatus, lockedUntil]);
 
     // The <img>'s error event carries no status code, and /status doesn't consult the
