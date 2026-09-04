@@ -51,7 +51,9 @@ describe("mobile service-record Sentry scope", () => {
     expect(sanitizeSentryUrl("/receipt-links/efr_SECRET/verify")).not.toContain("efr_SECRET");
     expect(sanitizeSentryUrl("/receipt-links/efr_SECRET/status")).not.toContain("efr_SECRET");
     expect(sanitizeSentryUrl("/receipt-links/efr_SECRET/image")).not.toContain("efr_SECRET");
+    expect(sanitizeSentryUrl("/receipt-links/efr_SECRET/access")).not.toContain("efr_SECRET");
     expect(sanitizeSentryUrl("/receipt-links/efr_SECRET/verify")).toBe("/receipt-links/[Filtered]/verify");
+    expect(sanitizeSentryUrl("/receipt-links/efr_SECRET/access")).toBe("/receipt-links/[Filtered]/access");
     // Existing cases still pass unchanged.
     expect(sanitizeSentryUrl("/receipt/efr_SECRET")).toBe("/receipt/[Filtered]");
     expect(sanitizeSentryUrl("/api/receipt/efr_SECRET/status")).not.toContain("efr_SECRET");

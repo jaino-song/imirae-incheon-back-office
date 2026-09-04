@@ -72,17 +72,17 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
                 return status.lockedUntil;
             }
             if (status.state === "verified") {
-                const imageResponse = await fetch(api("/image"), { cache: "no-store" });
+                const accessResponse = await fetch(api("/access"), { cache: "no-store" });
                 if (!mountedRef.current) return;
-                if (imageResponse.ok) {
+                if (accessResponse.ok) {
                     setScreen({ kind: "image", branchName, clientName: null });
                     return;
                 }
-                if (imageResponse.status === 401) {
+                if (accessResponse.status === 401) {
                     setScreen({ kind: "verify", branchName, remainingAttempts: status.remainingAttempts, error: null });
                     return;
                 }
-                if (imageResponse.status === 410) {
+                if (accessResponse.status === 410) {
                     setScreen({ kind: "expired" });
                     return;
                 }

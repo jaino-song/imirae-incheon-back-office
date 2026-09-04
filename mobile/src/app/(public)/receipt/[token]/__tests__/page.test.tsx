@@ -64,7 +64,7 @@ describe("ReceiptLinkPage", () => {
         global.fetch = jest.fn(async (url: unknown) => {
             const href = String(url);
             if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFIED);
-            if (href.endsWith("/image")) return jsonResponse(200, {});
+            if (href.endsWith("/access")) return jsonResponse(200, { ok: true, clientName: "김산모" });
             throw new Error(`unexpected fetch: ${href}`);
         }) as unknown as typeof fetch;
 
@@ -72,17 +72,21 @@ describe("ReceiptLinkPage", () => {
 
         expect(await screen.findByRole("link", { name: "이미지 저장" })).toBeInTheDocument();
         expect(screen.getByRole("heading", { name: "산모님 영수증" })).toBeInTheDocument();
-        expect(screen.getByRole("img", { name: "산모님 본인부담금 영수증" })).toBeInTheDocument();
+        expect(screen.getByRole("img", { name: "산모님 본인부담금 영수증" })).toHaveAttribute(
+            "src",
+            "/api/receipt/efr_t/image",
+        );
         expect(screen.queryByText("산모 산모님 영수증")).not.toBeInTheDocument();
         expect(screen.queryByLabelText("산모 생년월일")).not.toBeInTheDocument();
-        expect(global.fetch).toHaveBeenNthCalledWith(2, "/api/receipt/efr_t/image", { cache: "no-store" });
+        expect(global.fetch).toHaveBeenNthCalledWith(2, "/api/receipt/efr_t/access", { cache: "no-store" });
+        expect(global.fetch).not.toHaveBeenCalledWith("/api/receipt/efr_t/image", expect.anything());
     });
 
     it("falls back to birthday verification when a verified status has a stale receipt access cookie", async () => {
         global.fetch = jest.fn(async (url: unknown) => {
             const href = String(url);
             if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFIED);
-            if (href.endsWith("/image")) return jsonResponse(401, { reason: "access_required" });
+            if (href.endsWith("/access")) return jsonResponse(401, { reason: "access_required" });
             throw new Error(`unexpected fetch: ${href}`);
         }) as unknown as typeof fetch;
 
@@ -90,14 +94,14 @@ describe("ReceiptLinkPage", () => {
 
         expect(await screen.findByLabelText("산모 생년월일")).toBeInTheDocument();
         expect(screen.queryByRole("link", { name: "이미지 저장" })).not.toBeInTheDocument();
-        expect(global.fetch).toHaveBeenNthCalledWith(2, "/api/receipt/efr_t/image", { cache: "no-store" });
+        expect(global.fetch).toHaveBeenNthCalledWith(2, "/api/receipt/efr_t/access", { cache: "no-store" });
     });
 
     it("shows the safe invalid-link screen when a verified-session image probe fails", async () => {
         global.fetch = jest.fn(async (url: unknown) => {
             const href = String(url);
             if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFIED);
-            if (href.endsWith("/image")) {
+            if (href.endsWith("/access")) {
                 return jsonResponse(500, {
                     message: "connect ECONNREFUSED db-primary.internal:5432",
                 });
