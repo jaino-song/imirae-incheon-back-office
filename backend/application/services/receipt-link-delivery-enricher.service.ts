@@ -1,6 +1,11 @@
-import { Injectable, OnModuleInit, Optional } from "@nestjs/common";
+import { Inject, Injectable, OnModuleInit, Optional } from "@nestjs/common";
 import { MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
+import {
+    FILE_STORAGE_PORT,
+    FileStorageObjectNotFoundError,
+    FileStoragePort,
+} from "domain/ports/file-storage.port";
 import { ReceiptLinkIssueService, ReceiptLinkSkipError } from "./receipt-link-issue.service";
 import { ReceiptLinkTokenService } from "./receipt-link-token.service";
 import {
@@ -11,6 +16,13 @@ import {
 
 export const MANUAL_DEDUPE_MARKER = ":manual:";
 
+function receiptLinkUnusableError(): SmsTriggerDeliverySkipError {
+    return new SmsTriggerDeliverySkipError(
+        "receipt_link_unusable",
+        "승인된 영수증 링크가 만료되었거나 취소되어 재시도하지 않았습니다",
+    );
+}
+
 /** Issues the receipt link at delivery time so the 30-day window starts when the SMS goes out. */
 @Injectable()
 export class ReceiptLinkDeliveryEnricher implements SmsTriggerPayloadEnricher, OnModuleInit {
@@ -19,6 +31,9 @@ export class ReceiptLinkDeliveryEnricher implements SmsTriggerPayloadEnricher, O
         private readonly issueService: ReceiptLinkIssueService,
         @Optional()
         private readonly tokenService?: ReceiptLinkTokenService,
+        @Optional()
+        @Inject(FILE_STORAGE_PORT)
+        private readonly storage?: FileStoragePort,
     ) {}
 
     onModuleInit(): void {
@@ -56,17 +71,22 @@ export class ReceiptLinkDeliveryEnricher implements SmsTriggerPayloadEnricher, O
             linkToken = undefined;
         }
         if (!linkToken || !this.tokenService) {
-            throw new SmsTriggerDeliverySkipError(
-                "receipt_link_unusable",
-                "승인된 영수증 링크가 만료되었거나 취소되어 재시도하지 않았습니다",
-            );
+            throw receiptLinkUnusableError();
         }
         const status = await this.tokenService.getStatus(linkToken, new Date());
         if (!status.ok) {
-            throw new SmsTriggerDeliverySkipError(
-                "receipt_link_unusable",
-                "승인된 영수증 링크가 만료되었거나 취소되어 재시도하지 않았습니다",
-            );
+            throw receiptLinkUnusableError();
+        }
+        if (!this.storage) {
+            throw receiptLinkUnusableError();
+        }
+        try {
+            await this.storage.createSignedUrl(status.storagePath);
+        } catch (error) {
+            if (error instanceof FileStorageObjectNotFoundError) {
+                throw receiptLinkUnusableError();
+            }
+            throw error;
         }
     }
 }

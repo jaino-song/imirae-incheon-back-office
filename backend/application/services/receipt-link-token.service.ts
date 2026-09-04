@@ -44,6 +44,7 @@ export type ReceiptLinkStatus =
           ok: true;
           state: "pending" | "verified";
           branchName: string;
+          storagePath: string;
           expiresAt: string;
           remainingAttempts: number;
           lockedUntil: string | null;
@@ -178,6 +179,7 @@ export class ReceiptLinkTokenService {
             ok: true,
             state: row.verifiedAt ? "verified" : "pending",
             branchName: row.branchName ?? "",
+            storagePath: row.storagePath,
             expiresAt: row.expiresAt.toISOString(),
             remainingAttempts: lockedUntil ? 0 : Math.max(0, RECEIPT_LINK_MAX_FAILED_ATTEMPTS - failed),
             lockedUntil: lockedUntil ? lockedUntil.toISOString() : null,

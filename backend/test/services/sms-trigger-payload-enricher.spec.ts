@@ -1,5 +1,6 @@
 import { MessageTriggerRecipientType, MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
+import { FileStorageObjectNotFoundError } from "domain/ports/file-storage.port";
 import {
     SMS_DELIVERY_SNAPSHOT_VARIABLE,
     SmsTriggerDeliveryService,
@@ -170,6 +171,36 @@ describe("SmsTriggerDeliveryService.sendJob with enrichers", () => {
         await expect(service.sendJob(job)).resolves.toBe(false);
 
         expect(tokenService.getStatus).toHaveBeenCalledWith("efr_revoked", expect.any(Date));
+        expect(job.status).toBe("canceled");
+        expect(sendSmsJob).not.toHaveBeenCalled();
+        expect(aligo.sendSms).not.toHaveBeenCalled();
+    });
+
+    it("cancels a staged SERVICE_END_NOTICE retry when its receipt object no longer exists", async () => {
+        const registry = new SmsTriggerPayloadEnricherRegistry();
+        const tokenService = {
+            getStatus: jest.fn().mockResolvedValue({ ok: true, storagePath: "receipts/branch/missing.png" }),
+        };
+        const storage = {
+            createSignedUrl: jest.fn().mockRejectedValue(
+                new FileStorageObjectNotFoundError("receipts/branch/missing.png", "signed-url"),
+            ),
+        };
+        const enricher = new ReceiptLinkDeliveryEnricher(
+            registry,
+            { issue: jest.fn() } as never,
+            tokenService as never,
+            storage as never,
+        );
+        enricher.onModuleInit();
+        const { service, sendSmsJob, aligo } = makeService(registry);
+        const job = makeJob();
+        job.payload.templateVariables["receiptUrl"] = "https://m.admin.example/receipt/efr_stale";
+        job.payload.templateVariables[SMS_DELIVERY_SNAPSHOT_VARIABLE] = JSON.stringify({ staged: true });
+
+        await expect(service.sendJob(job)).resolves.toBe(false);
+
+        expect(storage.createSignedUrl).toHaveBeenCalledWith("receipts/branch/missing.png");
         expect(job.status).toBe("canceled");
         expect(sendSmsJob).not.toHaveBeenCalled();
         expect(aligo.sendSms).not.toHaveBeenCalled();

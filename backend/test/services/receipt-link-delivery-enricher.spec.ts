@@ -1,5 +1,6 @@
 import { MessageTriggerRecipientType, MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
+import { FileStorageObjectNotFoundError } from "domain/ports/file-storage.port";
 import { ReceiptLinkDeliveryEnricher } from "application/services/receipt-link-delivery-enricher.service";
 import { ReceiptLinkSkipError } from "application/services/receipt-link-issue.service";
 import { SmsTriggerPayloadEnricherRegistry } from "application/services/sms-trigger-payload-enricher.registry";
@@ -98,18 +99,46 @@ describe("ReceiptLinkDeliveryEnricher", () => {
         const issueService = {
             issue: jest.fn(),
         };
-        const tokenService = { getStatus: jest.fn().mockResolvedValue({ ok: true }) };
+        const tokenService = {
+            getStatus: jest.fn().mockResolvedValue({ ok: true, storagePath: "receipts/branch/receipt.png" }),
+        };
+        const storage = { createSignedUrl: jest.fn().mockResolvedValue("https://storage.example/signed") };
         const enricher = new ReceiptLinkDeliveryEnricher(
             new SmsTriggerPayloadEnricherRegistry(),
             issueService as never,
             tokenService as never,
+            storage as never,
         );
         const job = makeJob("agent-sms-retry:action-1", "https://m.admin.example/receipt/efr_live");
+        const approvedPayload = structuredClone(job.payload);
 
         await enricher.validateStagedSnapshot(job);
 
         expect(tokenService.getStatus).toHaveBeenCalledWith("efr_live", expect.any(Date));
+        expect(storage.createSignedUrl).toHaveBeenCalledWith("receipts/branch/receipt.png");
+        expect(job.payload).toEqual(approvedPayload);
         expect(issueService.issue).not.toHaveBeenCalled();
+    });
+
+    it("rejects a staged retry when the token row exists but its receipt object is missing", async () => {
+        const tokenService = {
+            getStatus: jest.fn().mockResolvedValue({ ok: true, storagePath: "receipts/branch/missing.png" }),
+        };
+        const storage = {
+            createSignedUrl: jest.fn().mockRejectedValue(
+                new FileStorageObjectNotFoundError("receipts/branch/missing.png", "signed-url"),
+            ),
+        };
+        const enricher = new ReceiptLinkDeliveryEnricher(
+            new SmsTriggerPayloadEnricherRegistry(),
+            { issue: jest.fn() } as never,
+            tokenService as never,
+            storage as never,
+        );
+
+        await expect(enricher.validateStagedSnapshot(
+            makeJob("agent-sms-retry:action-1", "https://m.admin.example/receipt/efr_stale"),
+        )).rejects.toMatchObject({ reason: "receipt_link_unusable" });
     });
 
     it.each(["revoked", "expired"] as const)(

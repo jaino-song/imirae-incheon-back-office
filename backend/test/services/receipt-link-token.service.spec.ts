@@ -270,6 +270,7 @@ describe("ReceiptLinkTokenService", () => {
             ok: true,
             state: "pending",
             branchName: "인천 아이미래로",
+            storagePath: "receipts/b/42/abc.png",
             expiresAt: new Date(NOW.getTime() + RECEIPT_LINK_TTL_MS).toISOString(),
             remainingAttempts: RECEIPT_LINK_MAX_FAILED_ATTEMPTS,
             lockedUntil: null,
