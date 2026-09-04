@@ -8,6 +8,7 @@ jest.mock("next/navigation", () => ({
 }));
 
 const mockUseParams = useParams as jest.Mock;
+const STATUS_ENDPOINT_REQUEST_LIMIT = 100;
 const MAX_LOCK_REFRESH_DELAY_MS = 30 * 60 * 1000;
 
 // F3: deliberately NOT the page's BRANCH_FALLBACK constant ("인천 아이미래로") — a fixture
@@ -308,17 +309,67 @@ describe("ReceiptLinkPage", () => {
         expect(statusFetchCount).toBe(1);
 
         await act(async () => {
-            await jest.advanceTimersByTimeAsync(1_000);
+            await jest.advanceTimersByTimeAsync(10_000);
         });
         expect(statusFetchCount).toBe(2);
         expect(screen.getByRole("button", { name: "확인하기" })).toBeDisabled();
 
         await act(async () => {
-            await jest.advanceTimersByTimeAsync(1_000);
+            await jest.advanceTimersByTimeAsync(20_000);
         });
 
         await waitFor(() => expect(screen.getByLabelText("산모 생년월일")).toBeEnabled());
         expect(statusFetchCount).toBe(3);
+    });
+
+    it("backs off clock-skew refreshes below the status endpoint rate limit", async () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date("2026-09-03T01:05:00.000Z"));
+        let statusFetchCount = 0;
+        global.fetch = jest.fn(async () => {
+            statusFetchCount += 1;
+            return jsonResponse(200, {
+                ...STATUS_VERIFY,
+                remainingAttempts: 0,
+                lockedUntil: "2026-09-03T01:00:00.000Z",
+            });
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+        await screen.findByText(/5회 연속 틀려 .*까지 확인이 잠겼습니다\./);
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(15 * 60 * 1000);
+        });
+
+        expect(statusFetchCount).toBeLessThan(STATUS_ENDPOINT_REQUEST_LIMIT);
+    });
+
+    it("uses bounded backoff when lockedUntil is not a valid timestamp", async () => {
+        jest.useFakeTimers();
+        const setTimeoutSpy = jest.spyOn(window, "setTimeout");
+        let statusFetchCount = 0;
+        global.fetch = jest.fn(async () => {
+            statusFetchCount += 1;
+            return jsonResponse(200, {
+                ...STATUS_VERIFY,
+                remainingAttempts: 0,
+                lockedUntil: "not-a-timestamp",
+            });
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+        await screen.findByText(/5회 연속 틀려 .*까지 확인이 잠겼습니다\./);
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(10_000);
+        });
+
+        const scheduledDelays = setTimeoutSpy.mock.calls.map(([, delay]) => delay);
+        expect(statusFetchCount).toBe(2);
+        expect(scheduledDelays.every((delay) => typeof delay !== "number" || delay <= MAX_LOCK_REFRESH_DELAY_MS)).toBe(
+            true,
+        );
     });
 
     it("re-checks within the server maximum lock duration when the client clock is behind", async () => {
@@ -373,7 +424,7 @@ describe("ReceiptLinkPage", () => {
         await screen.findByText(/5회 연속 틀려 .*까지 확인이 잠겼습니다\./);
 
         await act(async () => {
-            await jest.advanceTimersByTimeAsync(1_000);
+            await jest.advanceTimersByTimeAsync(10_000);
         });
         expect(statusFetchCount).toBe(2);
 

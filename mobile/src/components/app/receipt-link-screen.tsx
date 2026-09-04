@@ -23,6 +23,8 @@ const BRANCH_FALLBACK = "인천 아이미래로";
 const FOOTER = "이 링크는 발송일로부터 30일간 유효합니다.";
 const MAX_ATTEMPTS = 5;
 const MIN_LOCK_REFRESH_DELAY_MS = 1_000;
+const INITIAL_CLOCK_SKEW_REFRESH_DELAY_MS = 10_000;
+const MAX_CLOCK_SKEW_REFRESH_DELAY_MS = 5 * 60 * 1000;
 const MAX_LOCK_REFRESH_DELAY_MS = 30 * 60 * 1000;
 
 function formatLockedUntil(iso: string): string {
@@ -106,12 +108,23 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
 
         let isCancelled = false;
         let timeout: number | undefined;
+        let clockSkewRefreshDelayMs = INITIAL_CLOCK_SKEW_REFRESH_DELAY_MS;
 
         const scheduleRefresh = (authoritativeLockedUntil: string) => {
             const remainingLockMs = new Date(authoritativeLockedUntil).getTime() - Date.now();
-            const refreshDelay = Number.isFinite(remainingLockMs)
+            const hasFutureDeadline = Number.isFinite(remainingLockMs) && remainingLockMs > 0;
+            const refreshDelay = hasFutureDeadline
                 ? Math.min(MAX_LOCK_REFRESH_DELAY_MS, Math.max(MIN_LOCK_REFRESH_DELAY_MS, remainingLockMs))
-                : MIN_LOCK_REFRESH_DELAY_MS;
+                : clockSkewRefreshDelayMs;
+
+            if (hasFutureDeadline) {
+                clockSkewRefreshDelayMs = INITIAL_CLOCK_SKEW_REFRESH_DELAY_MS;
+            } else {
+                clockSkewRefreshDelayMs = Math.min(
+                    MAX_CLOCK_SKEW_REFRESH_DELAY_MS,
+                    clockSkewRefreshDelayMs * 2,
+                );
+            }
 
             timeout = window.setTimeout(async () => {
                 const nextLockedUntil = await loadStatus();
