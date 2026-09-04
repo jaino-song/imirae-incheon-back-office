@@ -23,6 +23,7 @@ const BRANCH_FALLBACK = "인천 아이미래로";
 const FOOTER = "이 링크는 발송일로부터 30일간 유효합니다.";
 const MAX_ATTEMPTS = 5;
 const MIN_LOCK_REFRESH_DELAY_MS = 1_000;
+const MAX_LOCK_REFRESH_DELAY_MS = 2_147_483_647;
 
 function formatLockedUntil(iso: string): string {
     const date = new Date(iso);
@@ -109,7 +110,7 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
         const scheduleRefresh = (authoritativeLockedUntil: string) => {
             const remainingLockMs = new Date(authoritativeLockedUntil).getTime() - Date.now();
             const refreshDelay = Number.isFinite(remainingLockMs)
-                ? Math.max(MIN_LOCK_REFRESH_DELAY_MS, remainingLockMs)
+                ? Math.min(MAX_LOCK_REFRESH_DELAY_MS, Math.max(MIN_LOCK_REFRESH_DELAY_MS, remainingLockMs))
                 : MIN_LOCK_REFRESH_DELAY_MS;
 
             timeout = window.setTimeout(async () => {
