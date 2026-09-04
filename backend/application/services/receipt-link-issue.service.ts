@@ -15,6 +15,7 @@ import {
 } from "domain/repositories/eformsign-document-mirror.repository.interface";
 import {
     IReceiptLinkTokenRepository,
+    IReceiptLinkTokenIssuanceRepository,
     RECEIPT_LINK_TOKEN_REPOSITORY,
     ReceiptLinkTokenRecord,
 } from "domain/repositories/receipt-link-token.repository.interface";
@@ -194,8 +195,8 @@ export class ReceiptLinkIssueService {
         }
         return this.receiptLinkTokenRepository.withJobIssuanceLock<IssuedReceiptLink>(
             params.jobId,
-            async (contended) => {
-                const active = await this.receiptLinkTokenRepository.findActiveByJobId(params.jobId);
+            async (contended, transactionRepository) => {
+                const active = await transactionRepository.findActiveByJobId(params.jobId);
                 if (active && active.expiresAt.getTime() > Date.now()) {
                     // Lock contention only describes the instant pg_try_advisory_xact_lock ran.
                     // A different row proves another issuer won even if it already released the lock.
@@ -207,7 +208,7 @@ export class ReceiptLinkIssueService {
                     }
                     if (contended) throw new ReceiptLinkIssuanceConflictError();
                 }
-                return this.mint(params, prepared);
+                return this.mint(params, prepared, transactionRepository);
             },
         );
     }
@@ -264,9 +265,13 @@ export class ReceiptLinkIssueService {
         return { client, doc, png, storagePath, contentSha256 };
     }
 
-    private async mint(params: IssueReceiptLinkParams, prepared: PreparedReceiptLink): Promise<IssuedReceiptLink> {
+    private async mint(
+        params: IssueReceiptLinkParams,
+        prepared: PreparedReceiptLink,
+        issuanceRepository?: IReceiptLinkTokenIssuanceRepository,
+    ): Promise<IssuedReceiptLink> {
         const { client, doc, png, storagePath, contentSha256 } = prepared;
-        const token = await this.tokenService.issue({
+        const issueParams = {
             branchId: params.branchId,
             clientId: client.id,
             eformsignDocId: doc.id,
@@ -277,7 +282,10 @@ export class ReceiptLinkIssueService {
             byteSize: png.length,
             source: params.source,
             createdBy: params.createdBy ?? null,
-        });
+        };
+        const token = issuanceRepository
+            ? await this.tokenService.issue(issueParams, issuanceRepository)
+            : await this.tokenService.issue(issueParams);
 
         return { url: this.buildReceiptUrl(token.linkToken), tokenId: token.id, expiresAt: token.expiresAt };
     }

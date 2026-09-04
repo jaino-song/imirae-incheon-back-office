@@ -72,7 +72,24 @@ export type ReserveVerificationAttemptResult =
     | { outcome: "recorded"; failedAttempts: number; lockedAt: Date | null; expectedBirthdayHash: string }
     | { outcome: "unusable" };
 
-export interface IReceiptLinkTokenRepository {
+/**
+ * Receipt-token operations that must share the database client holding an issuance lock.
+ * Infrastructure supplies a transaction-bound implementation, keeping Prisma out of the
+ * domain and application contracts.
+ */
+export interface IReceiptLinkTokenIssuanceRepository {
+    /**
+     * Replaces a document's active token: whichever token is currently active for
+     * `eformsignDocId` is revoked and the new one is created, as one atomic unit. A failed
+     * create can never leave the document with zero active tokens, and the revoke and the
+     * create can never be observed independently.
+     */
+    createReplacingActive(data: CreateReceiptLinkTokenData, now: Date): Promise<ReceiptLinkTokenRecord>;
+    /** The active token already issued for this job, if any. */
+    findActiveByJobId(jobId: string): Promise<ReceiptLinkTokenRecord | null>;
+}
+
+export interface IReceiptLinkTokenRepository extends IReceiptLinkTokenIssuanceRepository {
     /**
      * Serializes issuance attempts for one delivery job across application instances. The
      * callback receives whether this attempt had to wait for another holder; callers use that
@@ -80,18 +97,13 @@ export interface IReceiptLinkTokenRepository {
      * Optional so isolated domain/application fakes that do not exercise concurrency need not
      * emulate a database lock.
      */
-    withJobIssuanceLock?<T>(jobId: string, operation: (contended: boolean) => Promise<T>): Promise<T>;
+    withJobIssuanceLock?<T>(
+        jobId: string,
+        operation: (contended: boolean, repository: IReceiptLinkTokenIssuanceRepository) => Promise<T>,
+    ): Promise<T>;
     /** The token this hash belongs to, with its branch and client display names, or null if no
      *  such token was ever issued. */
     findByLinkTokenHash(linkTokenHash: string): Promise<ReceiptLinkTokenRecord | null>;
-    /**
-     * Replaces a document's active token: whichever token is currently active for
-     * `eformsignDocId` is revoked and the new one is created, as one atomic unit. A failed
-     * create can never leave the document with zero active tokens, and the revoke and the
-     * create can never be observed independently (no window where two tokens are active, or
-     * where the old one is gone and the new one isn't there yet).
-     */
-    createReplacingActive(data: CreateReceiptLinkTokenData, now: Date): Promise<ReceiptLinkTokenRecord>;
     /** Applies a partial state change (verification outcome, post-lock-window reset, ...) to
      *  one token. */
     update(id: string, data: UpdateReceiptLinkTokenData): Promise<ReceiptLinkTokenRecord>;
@@ -131,11 +143,4 @@ export interface IReceiptLinkTokenRepository {
      *  `cutoff` (i.e. still "live"). Used to find which expired tokens' storage objects are safe
      *  to delete — no live token needs them — without removing any row first. */
     findStoragePathsInUse(storagePaths: string[], cutoff: Date): Promise<string[]>;
-    /**
-     * The active token already issued for this job, if any. Task 2.4's issue pipeline may be
-     * invoked more than once for the same dispatch job (e.g. a delivery that converges onto an
-     * earlier acceptance and never sends), and must not mint a second token for it — this is
-     * how it detects that a previous run already succeeded.
-     */
-    findActiveByJobId(jobId: string): Promise<ReceiptLinkTokenRecord | null>;
 }

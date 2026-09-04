@@ -94,6 +94,10 @@ function makeService(overrides: MakeServiceOverrides = {}) {
         syncDocument: jest.fn().mockResolvedValue({}),
     } as unknown as EformsignDocumentMirrorService;
 
+    const lockScopedRepository = {
+        createReplacingActive: jest.fn(),
+        findActiveByJobId: jest.fn().mockResolvedValue(overrides.activeTokenForJob ?? null),
+    };
     const receiptLinkTokenRepository = {
         existsByStoragePath: jest.fn().mockResolvedValue(!!overrides.storedPath),
         findActiveByJobId: jest.fn().mockResolvedValue(overrides.activeTokenForJob ?? null),
@@ -101,8 +105,8 @@ function makeService(overrides: MakeServiceOverrides = {}) {
             ? {}
             : {
                 withJobIssuanceLock: jest.fn(
-                    async (_jobId: string, operation: (contended: boolean) => Promise<unknown>) =>
-                        operation(overrides.jobLockContended === true),
+                    async (_jobId: string, operation: (contended: boolean, repository: unknown) => Promise<unknown>) =>
+                        operation(overrides.jobLockContended === true, lockScopedRepository),
                 ),
             }),
     } as unknown as IReceiptLinkTokenRepository;
@@ -168,6 +172,7 @@ function makeService(overrides: MakeServiceOverrides = {}) {
         mirrorRepository,
         documentMirrorService,
         receiptLinkTokenRepository,
+        lockScopedRepository,
         config,
         rasterizer,
         tokenService,
@@ -472,11 +477,10 @@ describe("ReceiptLinkIssueService", () => {
     });
 
     it("does not replace a token created after the pre-lock read when the lock is no longer contended", async () => {
-        const { service, tokenService, receiptLinkTokenRepository } = makeService({
+        const { service, tokenService, receiptLinkTokenRepository, lockScopedRepository } = makeService({
             jobLockContended: false,
         });
-        (receiptLinkTokenRepository.findActiveByJobId as jest.Mock)
-            .mockResolvedValueOnce(null)
+        (lockScopedRepository.findActiveByJobId as jest.Mock)
             .mockResolvedValueOnce({ id: "winner", expiresAt: new Date("2026-10-01T00:00:00Z") });
 
         await expect(service.issue({
@@ -486,7 +490,25 @@ describe("ReceiptLinkIssueService", () => {
             jobId: "job-race",
         })).rejects.toBeInstanceOf(ReceiptLinkIssuanceConflictError);
 
-        expect(receiptLinkTokenRepository.findActiveByJobId).toHaveBeenCalledTimes(2);
+        expect(receiptLinkTokenRepository.findActiveByJobId).toHaveBeenCalledTimes(1);
+        expect(lockScopedRepository.findActiveByJobId).toHaveBeenCalledTimes(1);
         expect(tokenService.issue).not.toHaveBeenCalled();
+    });
+
+    it("uses the lock-scoped repository for the final re-check and token mint", async () => {
+        const { service, tokenService, receiptLinkTokenRepository, lockScopedRepository } = makeService({
+            jobLockContended: false,
+        });
+
+        await service.issue({
+            branchId: BRANCH,
+            clientId: 7,
+            source: "auto_trigger",
+            jobId: "job-race",
+        });
+
+        expect(receiptLinkTokenRepository.findActiveByJobId).toHaveBeenCalledTimes(1);
+        expect(lockScopedRepository.findActiveByJobId).toHaveBeenCalledWith("job-race");
+        expect(tokenService.issue).toHaveBeenCalledWith(expect.any(Object), lockScopedRepository);
     });
 });

@@ -141,21 +141,71 @@ describe("SbReceiptLinkTokenRepository.withJobIssuanceLock", () => {
     };
 
     it("reports contention and waits on the same transaction-scoped advisory lock", async () => {
+        const activeRow = {
+            id: "token-existing",
+            eformsignDocId: 42,
+            accessTokenHash: null,
+            expectedBirthdayHash: "birthday-hash",
+            verifiedAt: null,
+            failedAttempts: 0,
+            lockedAt: null,
+            expiresAt: new Date("2026-10-01T00:00:00Z"),
+            active: true,
+            storagePath: "receipts/branch/42/existing.png",
+            branch: { name: "Branch" },
+            client: { name: "Client" },
+        };
+        const createdRow = { ...activeRow, id: "token-created" };
         const queryRaw = jest.fn()
             .mockResolvedValueOnce([{ acquired: false }])
             .mockResolvedValueOnce([{ pg_advisory_xact_lock: null }]);
-        const transaction = jest.fn(async (operation: (tx: unknown) => Promise<unknown>) => operation({
+        const findFirst = jest.fn().mockResolvedValue(activeRow);
+        const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+        const create = jest.fn().mockResolvedValue(createdRow);
+        const tx = {
             $queryRaw: queryRaw,
-        }));
-        const repository = new SbReceiptLinkTokenRepository({ $transaction: transaction } as unknown as PrismaService);
-        const operation = jest.fn().mockResolvedValue("issued");
+            receipt_link_token: { findFirst, updateMany, create },
+        };
+        const transaction = jest.fn(async (operation: (client: typeof tx) => Promise<unknown>) => operation(tx));
+        const rootFindFirst = jest.fn(() => {
+            throw new Error("root Prisma client must not be used while the job lock is held");
+        });
+        const rootPrisma = {
+            $transaction: transaction,
+            receipt_link_token: { findFirst: rootFindFirst },
+        } as unknown as PrismaService;
+        const repository = new SbReceiptLinkTokenRepository(rootPrisma);
+        const operation = jest.fn(async (_contended, scopedRepository) => {
+            const active = await scopedRepository.findActiveByJobId("job-race");
+            await scopedRepository.createReplacingActive({
+                branchId: "branch",
+                clientId: 7,
+                eformsignDocId: 42,
+                jobId: "job-race",
+                linkTokenHash: "link-hash",
+                expectedBirthdayHash: "birthday-hash",
+                expiresAt: new Date("2026-10-01T00:00:00Z"),
+                storagePath: "receipts/branch/42/new.png",
+                contentSha256: "content-hash",
+                byteSize: 123,
+                source: "auto_trigger",
+                createdBy: null,
+                createdAt: new Date("2026-09-01T00:00:00Z"),
+            }, new Date("2026-09-01T00:00:00Z"));
+            return active?.id;
+        });
 
-        await expect(repository.withJobIssuanceLock("job-race", operation)).resolves.toBe("issued");
+        await expect(repository.withJobIssuanceLock("job-race", operation)).resolves.toBe("token-existing");
 
-        expect(operation).toHaveBeenCalledWith(true);
+        expect(operation).toHaveBeenCalledWith(true, expect.any(Object));
         expect(queryRaw).toHaveBeenCalledTimes(2);
         expect(getSqlText(queryRaw.mock.calls[0]![0])).toContain("pg_try_advisory_xact_lock");
         expect(getSqlText(queryRaw.mock.calls[1]![0])).toContain("pg_advisory_xact_lock");
+        expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { jobId: "job-race", active: true } }));
+        expect(updateMany).toHaveBeenCalledTimes(1);
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(rootFindFirst).not.toHaveBeenCalled();
+        expect(transaction).toHaveBeenCalledTimes(1);
     });
 });
 
