@@ -66,6 +66,24 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
             if (!mountedRef.current) return;
             const branchName = status.branchName || BRANCH_FALLBACK;
             if (status.lockedUntil) return setScreen({ kind: "locked", branchName, lockedUntil: status.lockedUntil });
+            if (status.state === "verified") {
+                const imageResponse = await fetch(api("/image"), { cache: "no-store" });
+                if (!mountedRef.current) return;
+                if (imageResponse.ok) {
+                    setScreen({ kind: "image", branchName, clientName: "산모" });
+                    return;
+                }
+                if (imageResponse.status === 401) {
+                    setScreen({ kind: "verify", branchName, remainingAttempts: status.remainingAttempts, error: null });
+                    return;
+                }
+                if (imageResponse.status === 410) {
+                    setScreen({ kind: "expired" });
+                    return;
+                }
+                setScreen({ kind: "invalid" });
+                return;
+            }
             setScreen({ kind: "verify", branchName, remainingAttempts: status.remainingAttempts, error: null });
         } catch {
             if (!mountedRef.current) return;

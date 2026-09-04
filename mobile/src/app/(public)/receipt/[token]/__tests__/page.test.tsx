@@ -21,6 +21,11 @@ const STATUS_VERIFY = {
     lockedUntil: null,
 };
 
+const STATUS_VERIFIED = {
+    ...STATUS_VERIFY,
+    state: "verified",
+};
+
 function jsonResponse(status: number, body: unknown): Response {
     return {
         ok: status >= 200 && status < 300,
@@ -53,6 +58,54 @@ describe("ReceiptLinkPage", () => {
             name: "김산모 산모님 본인부담금 영수증",
         })) as HTMLImageElement;
     }
+
+    it("resumes the image screen when a verified status has a valid receipt access cookie", async () => {
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFIED);
+            if (href.endsWith("/image")) return jsonResponse(200, {});
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+
+        expect(await screen.findByRole("link", { name: "이미지 저장" })).toBeInTheDocument();
+        expect(screen.queryByLabelText("산모 생년월일")).not.toBeInTheDocument();
+        expect(global.fetch).toHaveBeenNthCalledWith(2, "/api/receipt/efr_t/image", { cache: "no-store" });
+    });
+
+    it("falls back to birthday verification when a verified status has a stale receipt access cookie", async () => {
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFIED);
+            if (href.endsWith("/image")) return jsonResponse(401, { reason: "access_required" });
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+
+        expect(await screen.findByLabelText("산모 생년월일")).toBeInTheDocument();
+        expect(screen.queryByRole("link", { name: "이미지 저장" })).not.toBeInTheDocument();
+        expect(global.fetch).toHaveBeenNthCalledWith(2, "/api/receipt/efr_t/image", { cache: "no-store" });
+    });
+
+    it("shows the safe invalid-link screen when a verified-session image probe fails", async () => {
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFIED);
+            if (href.endsWith("/image")) {
+                return jsonResponse(500, {
+                    message: "connect ECONNREFUSED db-primary.internal:5432",
+                });
+            }
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+
+        expect(await screen.findByRole("heading", { name: "사용할 수 없는 링크입니다" })).toBeInTheDocument();
+        expect(screen.queryByText(/db-primary\.internal/)).not.toBeInTheDocument();
+    });
 
     it("re-checks status and returns to the verify screen when the image fetch answers 401 (stale/absent access cookie) (C1)", async () => {
         let imageFetchCount = 0;
