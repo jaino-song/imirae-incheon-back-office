@@ -9,6 +9,29 @@ sed '$d' "$ROOT/operator.sh" >"$COPY"
 # shellcheck disable=SC1090
 source "$COPY"
 fail(){ echo "FAIL: $*" >&2; exit 1; }
+
+# Exercise the production environment validator against isolated placeholder
+# fixtures without reading the host's protected backend.env.
+ENV_VALIDATION_COPY="$TMP/operator-env-validation.sh"
+ENV_VALIDATION_FILE="$TMP/backend.env"
+ENV_VALIDATION_OWNER="$(id -un):$(id -gn):600"
+sed \
+    -e '$d' \
+    -e "s|readonly ENV_FILE=.*|readonly ENV_FILE=\"$ENV_VALIDATION_FILE\"|" \
+    -e "s|/usr/bin/stat -c '%U:%G:%a' \"\\\$ENV_FILE\"|/usr/bin/printf '%s\\\\n' '$ENV_VALIDATION_OWNER'|" \
+    -e "s|root:root:600|$ENV_VALIDATION_OWNER|" \
+    "$ROOT/operator.sh" >"$ENV_VALIDATION_COPY"
+for key in "${REQUIRED_ENV_KEYS[@]}"; do
+    [[ "$key" == RECEIPT_LINK_HASH_SALT ]] || printf '%s=present\n' "$key"
+done >"$ENV_VALIDATION_FILE"
+chmod 600 "$ENV_VALIDATION_FILE"
+if bash -c 'source "$1"; validate_env_file' _ "$ENV_VALIDATION_COPY" 2>/dev/null; then
+    fail 'environment validation accepted missing RECEIPT_LINK_HASH_SALT'
+fi
+printf '%s=present\n' RECEIPT_LINK_HASH_SALT >>"$ENV_VALIDATION_FILE"
+bash -c 'source "$1"; validate_env_file' _ "$ENV_VALIDATION_COPY" \
+    || fail 'environment validation rejected present RECEIPT_LINK_HASH_SALT'
+
 calls=''
 active_compose(){ calls+="stop "; return 0; }
 container_id_for(){ return 1; }

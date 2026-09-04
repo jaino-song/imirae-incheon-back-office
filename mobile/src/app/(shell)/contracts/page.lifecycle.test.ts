@@ -28,4 +28,50 @@ describe("mobile contracts action lifecycle", () => {
       "shouldOpenFinalizeIframe(fallbackHint, transportOutcomeUnknown)",
     );
   });
+
+  it("wires the receipt-link send action through a busy confirm modal", () => {
+    expect(source).toContain("setIsSendingReceiptLink(true)");
+    expect(source).toContain("disabled: isSendingReceiptLink");
+    expect(source).toContain(
+      "mobile_contracts_detail-sheet_stack_detail-page_actions_receipt-send",
+    );
+    expect(source).toContain(
+      "mobile_contracts_detail-sheet_stack_detail-page_dialogs_receipt-send-confirm",
+    );
+    expect(source).toContain(
+      "`${result.clientName} 산모님께 1분 내 발송됩니다. 링크는 30일간 유효합니다.`",
+    );
+  });
+
+  // Textual pin, not a render test (see audit brief F2): the trigger's onClick only
+  // opens the confirm modal — it must never call eformsignApi.sendReceiptLink or the
+  // handleSendReceiptLink mutation itself. Mutant that must fail: the action's onClick
+  // becoming a no-op (or calling the mutation directly, skipping the confirm modal).
+  it("pins the receipt-send trigger to opening the confirm modal, and the modal's approve action to the send mutation", () => {
+    expect(source).toContain("onClick: () => setIsReceiptSendConfirmOpen(true)");
+    expect(source).toContain("onApprove={handleSendReceiptLink}");
+    expect(source).toContain(
+      "const handleSendReceiptLink = async () => {\n    setIsSendingReceiptLink(true);",
+    );
+    expect(source).toContain("const result = await eformsignApi.sendReceiptLink(doc.id);");
+  });
+
+  it("blanks the shared UNKNOWN_CUSTOMER_NAME placeholder before building the receipt-send confirm copy (F6)", () => {
+    expect(source).toContain(
+      "const receiptSendCustomerName =\n    resolvedCustomerName === UNKNOWN_CUSTOMER_NAME ? \"\" : resolvedCustomerName;",
+    );
+    expect(source).toContain(
+      "description={`${receiptSendCustomerName ? `${receiptSendCustomerName} 산모님께 ` : \"\"}본인부담금 영수증 링크가 담긴 문자를 1분 내 발송합니다.",
+    );
+  });
+
+  // Textual pin (audit-b fix round 1, I1): ContractDetailContent is shared with the
+  // 제공기록지 (service-record) detail — isServiceRecord only gated the sheet title, so
+  // "영수증 문자" still rendered there even though a service record has no receipt to send.
+  // Mutant that must fail: removing the isServiceRecord gate around the action entry.
+  it("gates the 영수증 문자 action out of the 제공기록지 (service-record) detail (I1)", () => {
+    expect(source).toContain(
+      "...(isServiceRecord\n                    ? []\n                    : [\n                        {\n                          label: \"영수증 문자\",",
+    );
+  });
 });

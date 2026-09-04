@@ -15,6 +15,12 @@ import {
     SERVICE_RECORD_LINK_SMS_TITLE,
     SERVICE_RECORD_LINK_SMS_TRIGGER_TYPE,
 } from "domain/constants/service-record-link-message";
+import {
+    SERVICE_END_NOTICE_SMS_AUTOMATION_KEY,
+    SERVICE_END_NOTICE_SMS_LOG_TEMPLATE_KEY,
+    SERVICE_END_NOTICE_SMS_TITLE,
+    SERVICE_END_NOTICE_SMS_TRIGGER_TYPE,
+} from "domain/constants/service-end-notice-message";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
 import { TriggerJobDeferredError } from "domain/errors/trigger-job-deferred.error";
 import {
@@ -32,6 +38,7 @@ import {
     buildSmsProviderAcceptanceKey,
     SmsProviderAcceptanceService,
 } from "./sms-provider-acceptance.service";
+import { SmsTriggerDeliverySkipError, SmsTriggerPayloadEnricherRegistry } from "./sms-trigger-payload-enricher.registry";
 
 export interface SmsTemplateDeliveryConfig {
     smsLogTemplateKey: string;
@@ -182,6 +189,13 @@ export const SMS_TEMPLATE_DELIVERY: Partial<Record<MessageTriggerTemplateKey, Sm
         title: SERVICE_RECORD_LINK_SMS_TITLE,
         systemTemplateKey: SystemTemplateKey.SERVICE_RECORD_LINK,
     },
+    [MessageTriggerTemplateKey.SERVICE_END_NOTICE]: {
+        smsLogTemplateKey: SERVICE_END_NOTICE_SMS_LOG_TEMPLATE_KEY,
+        automationKey: SERVICE_END_NOTICE_SMS_AUTOMATION_KEY,
+        triggerType: SERVICE_END_NOTICE_SMS_TRIGGER_TYPE,
+        title: SERVICE_END_NOTICE_SMS_TITLE,
+        systemTemplateKey: SystemTemplateKey.SERVICE_END_NOTICE,
+    },
 };
 
 @Injectable()
@@ -195,6 +209,8 @@ export class SmsTriggerDeliveryService {
         private readonly logRepository: IMessageLogRepository,
         @Optional()
         private readonly acceptanceService?: SmsProviderAcceptanceService,
+        @Optional()
+        private readonly enricherRegistry?: SmsTriggerPayloadEnricherRegistry,
     ) {}
 
     canHandle(templateKey: MessageTriggerTemplateKey): boolean {
@@ -341,8 +357,33 @@ export class SmsTriggerDeliveryService {
         }
 
         try {
+            // A staged snapshot (agent-approved retry: message-external-agent-capabilities.provider.ts)
+            // already carries a message body that was hashed and approved before this dispatch.
+            // Enriching now would change job.payload.templateVariables and make the canonical
+            // re-render diverge from what was approved, so resolveDeliverySnapshot's staged-vs-canonical
+            // hash check would reject with "changed after staging" and the provider would never be
+            // called. Skip mutating enrichment for a staged snapshot, while allowing its enricher
+            // to validate that an approved external capability is still usable.
+            const hasStagedSnapshot = this.hasStagedDeliverySnapshot(job);
+            const enricher = this.enricherRegistry?.get(job.templateKey) ?? null;
+            if (hasStagedSnapshot && job.templateKey === MessageTriggerTemplateKey.SERVICE_END_NOTICE) {
+                if (!enricher?.validateStagedSnapshot) {
+                    throw new SmsTriggerDeliverySkipError(
+                        "receipt_link_validation_unavailable",
+                        "승인된 영수증 링크를 확인할 수 없어 재시도하지 않았습니다",
+                    );
+                }
+                await enricher.validateStagedSnapshot(job);
+            } else if (!hasStagedSnapshot && enricher) {
+                await enricher.enrich(job);
+            }
             return await this.sendSmsJob(job, config);
         } catch (error) {
+            if (error instanceof SmsTriggerDeliverySkipError) {
+                job.cancel(`메시지 발송 건너뜀: ${error.message}`);
+                this.logger.warn(`[SMS Automation] ${job.templateKey} skipped for job ${job.id}: ${error.reason}`);
+                return false;
+            }
             if (error instanceof MissingSmsTemplateVariablesError) {
                 job.cancel(`메시지 발송 건너뜀: 필수 정보 누락 (${error.variableKeys.join(", ")})`);
                 this.logger.warn(
@@ -352,6 +393,15 @@ export class SmsTriggerDeliveryService {
             }
             throw error;
         }
+    }
+
+    /**
+     * True when this job's payload already carries a staged delivery snapshot
+     * (SMS_DELIVERY_SNAPSHOT_VARIABLE) — i.e. an agent-approved retry whose message
+     * body was already resolved, hashed, and approved before this dispatch.
+     */
+    private hasStagedDeliverySnapshot(job: MessageTriggerJobEntity): boolean {
+        return Boolean(job.payload.templateVariables[SMS_DELIVERY_SNAPSHOT_VARIABLE]);
     }
 
     private async sendSmsJob(

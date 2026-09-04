@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Send } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,8 @@ interface ContractDocumentPreviewModalProps {
   canDownloadReceipt?: boolean;
   onReviewConfirm?: () => void;
   isReviewConfirming?: boolean;
+  onSendReceiptLink?: () => void;
+  isSendingReceiptLink?: boolean;
 }
 
 function formatDate(timestamp: number): string {
@@ -42,6 +44,8 @@ export function ContractDocumentPreviewModal({
   canDownloadReceipt = false,
   onReviewConfirm,
   isReviewConfirming = false,
+  onSendReceiptLink,
+  isSendingReceiptLink = false,
 }: ContractDocumentPreviewModalProps) {
   if (!document) {
     return null;
@@ -92,6 +96,20 @@ export function ContractDocumentPreviewModal({
         canDownloadReceipt ? eformsignApi.getDocumentReceiptDownloadUrl(document.id) : undefined
       }
       receiptDownloadFileName={`${document.document_name || document.id} 영수증.pdf`}
+      receiptSendAction={onSendReceiptLink ? (
+        <Button
+          key="receipt-send"
+          variant="positive-outline"
+          size="sm"
+          data-component={`${dataComponent}_footer_file-actions_receipt-send`}
+          onClick={onSendReceiptLink}
+          disabled={isSendingReceiptLink}
+          className="min-w-[88px] border-v3-primary"
+        >
+          {isSendingReceiptLink ? <Spinner className="mr-2 h-4 w-4" /> : <Send className="mr-2 h-4 w-4" />}
+          영수증 문자 발송
+        </Button>
+      ) : undefined}
       overlayLabel="PDF 미리보기"
       previewKey={document.id}
       footerAction={onReviewConfirm ? (
