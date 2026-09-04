@@ -81,7 +81,7 @@ export class SbReceiptLinkTokenRepository implements IReceiptLinkTokenRepository
             `);
             const acquired = rows[0]?.acquired === true;
             if (!acquired) {
-                await tx.$queryRaw(Prisma.sql`
+                await tx.$executeRaw(Prisma.sql`
                     SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
                 `);
             }

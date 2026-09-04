@@ -156,14 +156,17 @@ describe("SbReceiptLinkTokenRepository.withJobIssuanceLock", () => {
             client: { name: "Client" },
         };
         const createdRow = { ...activeRow, id: "token-created" };
-        const queryRaw = jest.fn()
+        const queryRaw = jest
+            .fn()
             .mockResolvedValueOnce([{ acquired: false }])
-            .mockResolvedValueOnce([{ pg_advisory_xact_lock: null }]);
+            .mockRejectedValueOnce(new Error("blocking void lock must not be decoded as rows"));
+        const executeRaw = jest.fn().mockResolvedValue(1);
         const findFirst = jest.fn().mockResolvedValue(activeRow);
         const updateMany = jest.fn().mockResolvedValue({ count: 1 });
         const create = jest.fn().mockResolvedValue(createdRow);
         const tx = {
             $queryRaw: queryRaw,
+            $executeRaw: executeRaw,
             receipt_link_token: { findFirst, updateMany, create },
         };
         const transaction = jest.fn(async (operation: (client: typeof tx) => Promise<unknown>) => operation(tx));
@@ -198,9 +201,10 @@ describe("SbReceiptLinkTokenRepository.withJobIssuanceLock", () => {
         await expect(repository.withJobIssuanceLock("job-race", operation)).resolves.toBe("token-existing");
 
         expect(operation).toHaveBeenCalledWith(true, expect.any(Object));
-        expect(queryRaw).toHaveBeenCalledTimes(2);
+        expect(queryRaw).toHaveBeenCalledTimes(1);
+        expect(executeRaw).toHaveBeenCalledTimes(1);
         expect(getSqlText(queryRaw.mock.calls[0]![0])).toContain("pg_try_advisory_xact_lock");
-        expect(getSqlText(queryRaw.mock.calls[1]![0])).toContain("pg_advisory_xact_lock");
+        expect(getSqlText(executeRaw.mock.calls[0]![0])).toContain("pg_advisory_xact_lock");
         expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { jobId: "job-race", active: true } }));
         expect(updateMany).toHaveBeenCalledTimes(1);
         expect(create).toHaveBeenCalledTimes(1);
