@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useParams } from "next/navigation";
 
 import ReceiptLinkPage from "../page";
@@ -42,6 +42,7 @@ describe("ReceiptLinkPage", () => {
     });
 
     afterEach(() => {
+        jest.useRealTimers();
         global.fetch = originalFetch;
         jest.restoreAllMocks();
     });
@@ -229,6 +230,64 @@ describe("ReceiptLinkPage", () => {
         await screen.findByRole("button", { name: "확인하기" });
         expect(await screen.findByText(/5회 연속 틀리면 30분 동안 확인이 잠깁니다/)).toBeInTheDocument();
         expect(container.querySelector(".rcpt-info")).toBeNull();
+    });
+
+    it("re-checks status and unlocks the open screen when lockedUntil elapses", async () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date("2026-09-03T00:30:00.000Z"));
+        let statusFetchCount = 0;
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) {
+                statusFetchCount += 1;
+                return jsonResponse(
+                    200,
+                    statusFetchCount === 1
+                        ? {
+                              ...STATUS_VERIFY,
+                              remainingAttempts: 0,
+                              lockedUntil: "2026-09-03T01:00:00.000Z",
+                          }
+                        : STATUS_VERIFY,
+                );
+            }
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+
+        expect(await screen.findByText(/5회 연속 틀려 .*까지 확인이 잠겼습니다\./)).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "확인하기" })).toBeDisabled();
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(30 * 60 * 1000);
+        });
+
+        await waitFor(() => expect(screen.getByLabelText("산모 생년월일")).toBeEnabled());
+        expect(screen.getByRole("button", { name: "확인하기" })).toBeEnabled();
+        expect(statusFetchCount).toBe(2);
+    });
+
+    it("cancels the lock-expiry refresh when the screen unmounts", async () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date("2026-09-03T00:30:00.000Z"));
+        let statusFetchCount = 0;
+        global.fetch = jest.fn(async () => {
+            statusFetchCount += 1;
+            return jsonResponse(200, {
+                ...STATUS_VERIFY,
+                remainingAttempts: 0,
+                lockedUntil: "2026-09-03T01:00:00.000Z",
+            });
+        }) as unknown as typeof fetch;
+
+        const { unmount } = render(<ReceiptLinkPage />);
+        await screen.findByText(/5회 연속 틀려 .*까지 확인이 잠겼습니다\./);
+
+        unmount();
+        await jest.advanceTimersByTimeAsync(30 * 60 * 1000);
+
+        expect(statusFetchCount).toBe(1);
     });
 
     // F3: a page that ignores status.branchName entirely and always falls back would

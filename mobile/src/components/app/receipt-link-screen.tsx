@@ -38,6 +38,7 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
     const [screen, setScreen] = useState<Screen>({ kind: "loading" });
     const [birthday, setBirthday] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const lockedUntil = screen.kind === "locked" ? screen.lockedUntil : null;
     // Cache-busting suffix for the receipt <img> src, set once (and only once — see
     // handleImageError) after a transient image load failure to trigger a single retry.
     const [imageRetryParam, setImageRetryParam] = useState("");
@@ -94,6 +95,17 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
     useEffect(() => {
         void loadStatus();
     }, [loadStatus]);
+
+    useEffect(() => {
+        if (!lockedUntil) return;
+
+        const refreshDelay = Math.max(0, new Date(lockedUntil).getTime() - Date.now());
+        const timeout = window.setTimeout(() => {
+            void loadStatus();
+        }, refreshDelay);
+
+        return () => window.clearTimeout(timeout);
+    }, [loadStatus, lockedUntil]);
 
     // The <img>'s error event carries no status code, and /status doesn't consult the
     // access cookie (it's public/unauthenticated) — so it can't tell a revoked link apart
