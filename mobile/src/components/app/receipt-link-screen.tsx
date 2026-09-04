@@ -17,11 +17,15 @@ type Screen =
     | { kind: "locked"; branchName: string; lockedUntil: string }
     | { kind: "expired" }
     | { kind: "invalid" }
-    | { kind: "image"; branchName: string; clientName: string };
+    | { kind: "image"; branchName: string; clientName: string | null };
 
 const BRANCH_FALLBACK = "인천 아이미래로";
 const FOOTER = "이 링크는 발송일로부터 30일간 유효합니다.";
 const MAX_ATTEMPTS = 5;
+const MIN_LOCK_REFRESH_DELAY_MS = 1_000;
+const INITIAL_CLOCK_SKEW_REFRESH_DELAY_MS = 10_000;
+const MAX_CLOCK_SKEW_REFRESH_DELAY_MS = 5 * 60 * 1000;
+const MAX_LOCK_REFRESH_DELAY_MS = 30 * 60 * 1000;
 
 function formatLockedUntil(iso: string): string {
     const date = new Date(iso);
@@ -38,6 +42,7 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
     const [screen, setScreen] = useState<Screen>({ kind: "loading" });
     const [birthday, setBirthday] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const lockedUntil = screen.kind === "locked" ? screen.lockedUntil : null;
     // Cache-busting suffix for the receipt <img> src, set once (and only once — see
     // handleImageError) after a transient image load failure to trigger a single retry.
     const [imageRetryParam, setImageRetryParam] = useState("");
@@ -65,7 +70,28 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
             const status = (await response.json()) as Status;
             if (!mountedRef.current) return;
             const branchName = status.branchName || BRANCH_FALLBACK;
-            if (status.lockedUntil) return setScreen({ kind: "locked", branchName, lockedUntil: status.lockedUntil });
+            if (status.lockedUntil) {
+                setScreen({ kind: "locked", branchName, lockedUntil: status.lockedUntil });
+                return status.lockedUntil;
+            }
+            if (status.state === "verified") {
+                const accessResponse = await fetch(api("/access"), { cache: "no-store" });
+                if (!mountedRef.current) return;
+                if (accessResponse.ok) {
+                    setScreen({ kind: "image", branchName, clientName: null });
+                    return;
+                }
+                if (accessResponse.status === 401) {
+                    setScreen({ kind: "verify", branchName, remainingAttempts: status.remainingAttempts, error: null });
+                    return;
+                }
+                if (accessResponse.status === 410) {
+                    setScreen({ kind: "expired" });
+                    return;
+                }
+                setScreen({ kind: "invalid" });
+                return;
+            }
             setScreen({ kind: "verify", branchName, remainingAttempts: status.remainingAttempts, error: null });
         } catch {
             if (!mountedRef.current) return;
@@ -76,6 +102,43 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
     useEffect(() => {
         void loadStatus();
     }, [loadStatus]);
+
+    useEffect(() => {
+        if (!lockedUntil) return;
+
+        let isCancelled = false;
+        let timeout: number | undefined;
+        let clockSkewRefreshDelayMs = INITIAL_CLOCK_SKEW_REFRESH_DELAY_MS;
+
+        const scheduleRefresh = (authoritativeLockedUntil: string) => {
+            const remainingLockMs = new Date(authoritativeLockedUntil).getTime() - Date.now();
+            const hasFutureDeadline = Number.isFinite(remainingLockMs) && remainingLockMs > 0;
+            const refreshDelay = hasFutureDeadline
+                ? Math.min(MAX_LOCK_REFRESH_DELAY_MS, Math.max(MIN_LOCK_REFRESH_DELAY_MS, remainingLockMs))
+                : clockSkewRefreshDelayMs;
+
+            if (hasFutureDeadline) {
+                clockSkewRefreshDelayMs = INITIAL_CLOCK_SKEW_REFRESH_DELAY_MS;
+            } else {
+                clockSkewRefreshDelayMs = Math.min(
+                    MAX_CLOCK_SKEW_REFRESH_DELAY_MS,
+                    clockSkewRefreshDelayMs * 2,
+                );
+            }
+
+            timeout = window.setTimeout(async () => {
+                const nextLockedUntil = await loadStatus();
+                if (!isCancelled && nextLockedUntil) scheduleRefresh(nextLockedUntil);
+            }, refreshDelay);
+        };
+
+        scheduleRefresh(lockedUntil);
+
+        return () => {
+            isCancelled = true;
+            if (timeout !== undefined) window.clearTimeout(timeout);
+        };
+    }, [loadStatus, lockedUntil]);
 
     // The <img>'s error event carries no status code, and /status doesn't consult the
     // access cookie (it's public/unauthenticated) — so it can't tell a revoked link apart
@@ -132,7 +195,7 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
             };
             if (!mountedRef.current) return;
             if (response.ok) {
-                setScreen({ kind: "image", branchName: screen.branchName, clientName: body.clientName || "산모" });
+                setScreen({ kind: "image", branchName: screen.branchName, clientName: body.clientName || null });
                 return;
             }
             if (response.status === 423 && body.lockedUntil) {
@@ -168,6 +231,7 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
     const stepLabel = screen.kind === "image" ? "2단계 · 영수증 저장" : "1단계 · 본인 확인";
     const progress = screen.kind === "image" ? 100 : 50;
     const branchName = "branchName" in screen ? screen.branchName : BRANCH_FALLBACK;
+    const receiptOwnerLabel = screen.kind === "image" && screen.clientName ? `${screen.clientName} 산모님` : "산모님";
 
     return (
         <main className="rcpt" data-component="mobile_receipt_public-page">
@@ -245,13 +309,13 @@ export function ReceiptLinkScreen({ token }: ReceiptLinkScreenProps) {
             {screen.kind === "image" ? (
                 <section className="rcpt-card" data-component="mobile_receipt_public-page_image">
                     <div className="rcpt-titlerow">
-                        <h2>{screen.clientName} 산모님 영수증</h2>
+                        <h2>{receiptOwnerLabel} 영수증</h2>
                         <span className="rcpt-chip">확인 완료</span>
                     </div>
                     <img
                         className="rcpt-img"
                         src={`${api("/image")}${imageRetryParam}`}
-                        alt={`${screen.clientName} 산모님 본인부담금 영수증`}
+                        alt={`${receiptOwnerLabel} 본인부담금 영수증`}
                         onError={() => void handleImageError()}
                     />
                     <a

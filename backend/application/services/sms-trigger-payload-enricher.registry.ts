@@ -7,10 +7,10 @@ import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.ent
  * Throw SmsTriggerDeliverySkipError to cancel the job with a human-readable reason
  * instead of failing it (mirrors MissingSmsTemplateVariablesError handling).
  *
- * Not invoked at all when the job already carries a staged delivery snapshot
- * (SMS_DELIVERY_SNAPSHOT_VARIABLE) — that job's message body was already
- * resolved and approved, so sms-trigger-delivery.service.ts's sendJob skips
- * enrichment for it entirely (see hasStagedDeliverySnapshot).
+ * enrich() is not invoked when the job already carries a staged delivery
+ * snapshot (SMS_DELIVERY_SNAPSHOT_VARIABLE). validateStagedSnapshot() may run
+ * instead to fail closed when an approved external capability has since become
+ * unusable, without mutating the approved payload.
  *
  * MUST be idempotent per job.id for every other job it does run for. sendJob
  * runs enrich() before SmsTriggerDeliveryService's duplicate-dispatch
@@ -27,6 +27,8 @@ import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.ent
  */
 export interface SmsTriggerPayloadEnricher {
     enrich(job: MessageTriggerJobEntity): Promise<void>;
+    /** Validate an already-approved staged payload without mutating its contents. */
+    validateStagedSnapshot?(job: MessageTriggerJobEntity): Promise<void>;
 }
 
 export class SmsTriggerDeliverySkipError extends Error {

@@ -88,6 +88,20 @@ export class ReceiptLinkController {
         }
     }
 
+    // Authenticated metadata-only probe for restoring a verified browser session.
+    // Deliberately does not touch storage: the following image request is the sole
+    // download of the PNG body.
+    @Get(":token/access")
+    async receiptAccess(
+        @Param("token") token: string,
+        @Headers("x-receipt-access-token") headerToken: string | undefined,
+    ) {
+        const accessToken = headerToken?.trim() ?? "";
+        const access = accessToken ? await this.tokenService.resolveAccess(token, accessToken, new Date()) : null;
+        if (!access) throw new UnauthorizedException({ reason: "access_required" });
+        return { ok: true, clientName: access.clientName };
+    }
+
     // No RateLimitGuard here: the image endpoint is gated by the access token itself
     // (minted only after a successful birthday verification), not by request rate.
     @Get(":token/image")

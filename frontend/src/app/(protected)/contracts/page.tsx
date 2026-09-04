@@ -80,8 +80,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormField, FormHelperText, FormTextInput } from "@/components/app/ui/form-section";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -2140,40 +2140,41 @@ export function ContractDetail({
               {customerName} 님에게 전자문서 작성을 재요청 할까요?
             </DialogDescription>
           </DialogHeader>
-          <div
+          <FormField
             data-component={`${dataComponent}_dialogs_rerequest_phone-field`}
             className="pb-[calc(8px*var(--glint-ui-scale,1))]"
+            htmlFor={`contract-rerequest-phone-${doc.id}`}
+            label="전송 전화번호"
           >
-            <Label
-              htmlFor={`contract-rerequest-phone-${doc.id}`}
-              className="mb-[calc(8px*var(--glint-ui-scale,1))] block text-[calc(11.52px*var(--glint-ui-scale,1))] font-semibold uppercase tracking-[0.08em] text-v3-text-muted"
-            >
-              전송 전화번호
-            </Label>
-            <Input
+            <FormTextInput
+              data-component={`${dataComponent}_dialogs_rerequest_phone-field_input`}
               id={`contract-rerequest-phone-${doc.id}`}
               type="tel"
               inputMode="numeric"
-              variant="v3"
               placeholder="010-1234-5678"
               value={formatPhoneNumber(recipientPhoneDigits)}
               onChange={(event) =>
                 setRecipientPhone(normalizePhoneNumber(event.target.value).slice(0, 11))
               }
               maxLength={13}
-              className={cn(
-                "h-[calc(48px*var(--glint-ui-scale,1))] rounded-[16px] border-[1.5px] border-v3-border bg-white px-[calc(16px*var(--glint-ui-scale,1))] text-[calc(13.6px*var(--glint-ui-scale,1))] text-v3-dark shadow-none transition-all focus-visible:border-v3-primary focus-visible:shadow-[0_0_0_3px_hsla(214,100%,34%,0.08)]",
-                hasEditedRecipientPhone &&
-                  !isRecipientPhoneValid &&
-                  "border-v3-burgundy focus-visible:border-v3-burgundy focus-visible:shadow-[0_0_0_3px_hsla(348,83%,47%,0.08)]"
-              )}
+              className="h-[calc(48px*var(--glint-ui-scale,1))] px-[calc(16px*var(--glint-ui-scale,1))]"
+              error={hasEditedRecipientPhone && !isRecipientPhoneValid}
+              aria-describedby={
+                hasEditedRecipientPhone && !isRecipientPhoneValid
+                  ? `contract-rerequest-phone-error-${doc.id}`
+                  : undefined
+              }
             />
             {hasEditedRecipientPhone && !isRecipientPhoneValid && (
-              <p className="mt-[calc(8px*var(--glint-ui-scale,1))] text-[calc(12px*var(--glint-ui-scale,1))] font-medium text-v3-burgundy">
+              <FormHelperText
+                id={`contract-rerequest-phone-error-${doc.id}`}
+                data-component={`${dataComponent}_dialogs_rerequest_phone-field_error`}
+                tone="error"
+              >
                 전송할 전화번호를 올바르게 입력해 주세요.
-              </p>
+              </FormHelperText>
             )}
-          </div>
+          </FormField>
           <DialogFooter>
             <Button
               variant="neutral"
@@ -2234,27 +2235,23 @@ export function ContractDetail({
             </div>
           ) : (
             <>
-              <div
+              <FormField
                 data-component={`${dataComponent}_dialogs_finalize_end-date-field`}
                 className="pb-[calc(8px*var(--glint-ui-scale,1))]"
+                htmlFor={`contract-finalize-end-date-${doc.id}`}
+                label="서비스 완료일"
               >
-                <Label
-                  htmlFor={`contract-finalize-end-date-${doc.id}`}
-                  className="mb-[calc(8px*var(--glint-ui-scale,1))] block text-[calc(11.52px*var(--glint-ui-scale,1))] font-semibold uppercase tracking-[0.08em] text-v3-text-muted"
-                >
-                  서비스 완료일
-                </Label>
-                <Input
+                <FormTextInput
+                  data-component={`${dataComponent}_dialogs_finalize_end-date-field_input`}
                   id={`contract-finalize-end-date-${doc.id}`}
                   type="text"
                   inputMode="numeric"
-                  variant="v3"
                   placeholder="YYYY-MM-DD"
                   pattern="\d{4}-\d{2}-\d{2}"
                   value={finalizeEndDate}
                   onChange={(event) => setFinalizeEndDate(formatIsoDateInput(event.target.value))}
                 />
-              </div>
+              </FormField>
               <DialogFooter className="sm:justify-stretch">
                 <Button
                   variant="neutral"

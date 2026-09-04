@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useParams } from "next/navigation";
 
 import ReceiptLinkPage from "../page";
@@ -8,6 +8,8 @@ jest.mock("next/navigation", () => ({
 }));
 
 const mockUseParams = useParams as jest.Mock;
+const STATUS_ENDPOINT_REQUEST_LIMIT = 100;
+const MAX_LOCK_REFRESH_DELAY_MS = 30 * 60 * 1000;
 
 // F3: deliberately NOT the page's BRANCH_FALLBACK constant ("인천 아이미래로") — a fixture
 // equal to the fallback would still pass even if the page ignored status.branchName
@@ -19,6 +21,11 @@ const STATUS_VERIFY = {
     expiresAt: "2026-10-03T00:00:00.000Z",
     remainingAttempts: 5,
     lockedUntil: null,
+};
+
+const STATUS_VERIFIED = {
+    ...STATUS_VERIFY,
+    state: "verified",
 };
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -39,6 +46,7 @@ describe("ReceiptLinkPage", () => {
     afterEach(() => {
         global.fetch = originalFetch;
         jest.restoreAllMocks();
+        jest.useRealTimers();
     });
 
     // C1(b): the <img>'s error event carries no status code — onError must probe the image
@@ -53,6 +61,61 @@ describe("ReceiptLinkPage", () => {
             name: "김산모 산모님 본인부담금 영수증",
         })) as HTMLImageElement;
     }
+
+    it("resumes the image screen when a verified status has a valid receipt access cookie", async () => {
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFIED);
+            if (href.endsWith("/access")) return jsonResponse(200, { ok: true, clientName: "김산모" });
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+
+        expect(await screen.findByRole("link", { name: "이미지 저장" })).toBeInTheDocument();
+        expect(screen.getByRole("heading", { name: "산모님 영수증" })).toBeInTheDocument();
+        expect(screen.getByRole("img", { name: "산모님 본인부담금 영수증" })).toHaveAttribute(
+            "src",
+            "/api/receipt/efr_t/image",
+        );
+        expect(screen.queryByText("산모 산모님 영수증")).not.toBeInTheDocument();
+        expect(screen.queryByLabelText("산모 생년월일")).not.toBeInTheDocument();
+        expect(global.fetch).toHaveBeenNthCalledWith(2, "/api/receipt/efr_t/access", { cache: "no-store" });
+        expect(global.fetch).not.toHaveBeenCalledWith("/api/receipt/efr_t/image", expect.anything());
+    });
+
+    it("falls back to birthday verification when a verified status has a stale receipt access cookie", async () => {
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFIED);
+            if (href.endsWith("/access")) return jsonResponse(401, { reason: "access_required" });
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+
+        expect(await screen.findByLabelText("산모 생년월일")).toBeInTheDocument();
+        expect(screen.queryByRole("link", { name: "이미지 저장" })).not.toBeInTheDocument();
+        expect(global.fetch).toHaveBeenNthCalledWith(2, "/api/receipt/efr_t/access", { cache: "no-store" });
+    });
+
+    it("shows the safe invalid-link screen when a verified-session image probe fails", async () => {
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) return jsonResponse(200, STATUS_VERIFIED);
+            if (href.endsWith("/access")) {
+                return jsonResponse(500, {
+                    message: "connect ECONNREFUSED db-primary.internal:5432",
+                });
+            }
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+
+        expect(await screen.findByRole("heading", { name: "사용할 수 없는 링크입니다" })).toBeInTheDocument();
+        expect(screen.queryByText(/db-primary\.internal/)).not.toBeInTheDocument();
+    });
 
     it("re-checks status and returns to the verify screen when the image fetch answers 401 (stale/absent access cookie) (C1)", async () => {
         let imageFetchCount = 0;
@@ -176,6 +239,199 @@ describe("ReceiptLinkPage", () => {
         await screen.findByRole("button", { name: "확인하기" });
         expect(await screen.findByText(/5회 연속 틀리면 30분 동안 확인이 잠깁니다/)).toBeInTheDocument();
         expect(container.querySelector(".rcpt-info")).toBeNull();
+    });
+
+    it("re-checks status and unlocks the open screen when lockedUntil elapses", async () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date("2026-09-03T00:30:00.000Z"));
+        let statusFetchCount = 0;
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) {
+                statusFetchCount += 1;
+                return jsonResponse(
+                    200,
+                    statusFetchCount === 1
+                        ? {
+                              ...STATUS_VERIFY,
+                              remainingAttempts: 0,
+                              lockedUntil: "2026-09-03T01:00:00.000Z",
+                          }
+                        : STATUS_VERIFY,
+                );
+            }
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+
+        expect(await screen.findByText(/5회 연속 틀려 .*까지 확인이 잠겼습니다\./)).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "확인하기" })).toBeDisabled();
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(30 * 60 * 1000);
+        });
+
+        await waitFor(() => expect(screen.getByLabelText("산모 생년월일")).toBeEnabled());
+        expect(screen.getByRole("button", { name: "확인하기" })).toBeEnabled();
+        expect(statusFetchCount).toBe(2);
+    });
+
+    it("keeps re-checking a server lock when the client clock is ahead", async () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date("2026-09-03T01:05:00.000Z"));
+        let statusFetchCount = 0;
+        global.fetch = jest.fn(async (url: unknown) => {
+            const href = String(url);
+            if (href.endsWith("/status")) {
+                statusFetchCount += 1;
+                return jsonResponse(
+                    200,
+                    statusFetchCount < 3
+                        ? {
+                              ...STATUS_VERIFY,
+                              remainingAttempts: 0,
+                              lockedUntil: "2026-09-03T01:00:00.000Z",
+                          }
+                        : STATUS_VERIFY,
+                );
+            }
+            throw new Error(`unexpected fetch: ${href}`);
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+
+        expect(await screen.findByText(/5회 연속 틀려 .*까지 확인이 잠겼습니다\./)).toBeInTheDocument();
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(0);
+        });
+        expect(statusFetchCount).toBe(1);
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(10_000);
+        });
+        expect(statusFetchCount).toBe(2);
+        expect(screen.getByRole("button", { name: "확인하기" })).toBeDisabled();
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(20_000);
+        });
+
+        await waitFor(() => expect(screen.getByLabelText("산모 생년월일")).toBeEnabled());
+        expect(statusFetchCount).toBe(3);
+    });
+
+    it("backs off clock-skew refreshes below the status endpoint rate limit", async () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date("2026-09-03T01:05:00.000Z"));
+        let statusFetchCount = 0;
+        global.fetch = jest.fn(async () => {
+            statusFetchCount += 1;
+            return jsonResponse(200, {
+                ...STATUS_VERIFY,
+                remainingAttempts: 0,
+                lockedUntil: "2026-09-03T01:00:00.000Z",
+            });
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+        await screen.findByText(/5회 연속 틀려 .*까지 확인이 잠겼습니다\./);
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(15 * 60 * 1000);
+        });
+
+        expect(statusFetchCount).toBeLessThan(STATUS_ENDPOINT_REQUEST_LIMIT);
+    });
+
+    it("uses bounded backoff when lockedUntil is not a valid timestamp", async () => {
+        jest.useFakeTimers();
+        const setTimeoutSpy = jest.spyOn(window, "setTimeout");
+        let statusFetchCount = 0;
+        global.fetch = jest.fn(async () => {
+            statusFetchCount += 1;
+            return jsonResponse(200, {
+                ...STATUS_VERIFY,
+                remainingAttempts: 0,
+                lockedUntil: "not-a-timestamp",
+            });
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+        await screen.findByText(/5회 연속 틀려 .*까지 확인이 잠겼습니다\./);
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(10_000);
+        });
+
+        const scheduledDelays = setTimeoutSpy.mock.calls.map(([, delay]) => delay);
+        expect(statusFetchCount).toBe(2);
+        expect(scheduledDelays.every((delay) => typeof delay !== "number" || delay <= MAX_LOCK_REFRESH_DELAY_MS)).toBe(
+            true,
+        );
+    });
+
+    it("re-checks within the server maximum lock duration when the client clock is behind", async () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date("2026-09-03T00:00:00.000Z"));
+        const setTimeoutSpy = jest.spyOn(window, "setTimeout");
+        let statusFetchCount = 0;
+        global.fetch = jest.fn(async () => {
+            statusFetchCount += 1;
+            return jsonResponse(200, {
+                ...STATUS_VERIFY,
+                remainingAttempts: 0,
+                lockedUntil: "2026-10-03T00:00:00.000Z",
+            });
+        }) as unknown as typeof fetch;
+
+        render(<ReceiptLinkPage />);
+        await screen.findByText(/5회 연속 틀려 .*까지 확인이 잠겼습니다\./);
+
+        const scheduledDelays = setTimeoutSpy.mock.calls.map(([, delay]) => delay);
+        setTimeoutSpy.mockRestore();
+        expect(scheduledDelays).toContain(MAX_LOCK_REFRESH_DELAY_MS);
+        expect(scheduledDelays.every((delay) => typeof delay !== "number" || delay <= MAX_LOCK_REFRESH_DELAY_MS)).toBe(
+            true,
+        );
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(1_000);
+        });
+        expect(statusFetchCount).toBe(1);
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(MAX_LOCK_REFRESH_DELAY_MS - 1_000);
+        });
+        expect(statusFetchCount).toBe(2);
+    });
+
+    it("cancels recurring lock refreshes when the screen unmounts", async () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date("2026-09-03T01:05:00.000Z"));
+        let statusFetchCount = 0;
+        global.fetch = jest.fn(async () => {
+            statusFetchCount += 1;
+            return jsonResponse(200, {
+                ...STATUS_VERIFY,
+                remainingAttempts: 0,
+                lockedUntil: "2026-09-03T01:00:00.000Z",
+            });
+        }) as unknown as typeof fetch;
+
+        const { unmount } = render(<ReceiptLinkPage />);
+        await screen.findByText(/5회 연속 틀려 .*까지 확인이 잠겼습니다\./);
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(10_000);
+        });
+        expect(statusFetchCount).toBe(2);
+
+        unmount();
+        await jest.advanceTimersByTimeAsync(10_000);
+
+        expect(statusFetchCount).toBe(2);
     });
 
     // F3: a page that ignores status.branchName entirely and always falls back would
