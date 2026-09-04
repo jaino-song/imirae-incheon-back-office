@@ -195,7 +195,7 @@ export class ReceiptLinkIssueService {
         }
         return this.receiptLinkTokenRepository.withJobIssuanceLock<IssuedReceiptLink>(
             params.jobId,
-            async (contended, transactionRepository) => {
+            async (_contended, transactionRepository) => {
                 const active = await transactionRepository.findActiveByJobId(params.jobId);
                 if (active && active.expiresAt.getTime() > Date.now()) {
                     // Lock contention only describes the instant pg_try_advisory_xact_lock ran.
@@ -206,7 +206,6 @@ export class ReceiptLinkIssueService {
                     if (params.existingUrl) {
                         return { url: params.existingUrl, tokenId: active.id, expiresAt: active.expiresAt };
                     }
-                    if (contended) throw new ReceiptLinkIssuanceConflictError();
                 }
                 return this.mint(params, prepared, transactionRepository);
             },

@@ -460,11 +460,33 @@ describe("ReceiptLinkIssueService", () => {
         expect(tokenService.issue).toHaveBeenCalledTimes(1);
     });
 
-    it("does not replace the winner's active token after waiting on the same job lock", async () => {
+    it("mints after waiting when the competing issuer rolls back without replacing the active token", async () => {
         const { service, tokenService } = makeService({
-            activeTokenForJob: { id: "winner", expiresAt: new Date("2026-10-01T00:00:00Z") },
+            activeTokenForJob: { id: "active-before-lock", expiresAt: new Date("2026-10-01T00:00:00Z") },
             jobLockContended: true,
         });
+
+        await expect(service.issue({
+            branchId: BRANCH,
+            clientId: 7,
+            source: "auto_trigger",
+            jobId: "job-race",
+        })).resolves.toEqual({
+            url: "https://m.admin.example/receipt/efr_abc",
+            tokenId: "tok-1",
+            expiresAt: new Date("2026-10-03T00:00:00Z"),
+        });
+
+        expect(tokenService.issue).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not replace a winner committed while waiting on the same job lock", async () => {
+        const { service, tokenService, lockScopedRepository } = makeService({
+            activeTokenForJob: { id: "active-before-lock", expiresAt: new Date("2026-10-01T00:00:00Z") },
+            jobLockContended: true,
+        });
+        (lockScopedRepository.findActiveByJobId as jest.Mock)
+            .mockResolvedValueOnce({ id: "committed-winner", expiresAt: new Date("2026-10-01T00:00:00Z") });
 
         await expect(service.issue({
             branchId: BRANCH,
