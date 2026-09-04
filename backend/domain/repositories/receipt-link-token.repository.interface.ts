@@ -73,6 +73,14 @@ export type ReserveVerificationAttemptResult =
     | { outcome: "unusable" };
 
 export interface IReceiptLinkTokenRepository {
+    /**
+     * Serializes issuance attempts for one delivery job across application instances. The
+     * callback receives whether this attempt had to wait for another holder; callers use that
+     * signal to avoid replacing the winner's active token when no plaintext URL is available.
+     * Optional so isolated domain/application fakes that do not exercise concurrency need not
+     * emulate a database lock.
+     */
+    withJobIssuanceLock?<T>(jobId: string, operation: (contended: boolean) => Promise<T>): Promise<T>;
     /** The token this hash belongs to, with its branch and client display names, or null if no
      *  such token was ever issued. */
     findByLinkTokenHash(linkTokenHash: string): Promise<ReceiptLinkTokenRecord | null>;

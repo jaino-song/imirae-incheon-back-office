@@ -131,6 +131,34 @@ describe("SbReceiptLinkTokenRepository.reserveVerificationAttempt", () => {
     });
 });
 
+describe("SbReceiptLinkTokenRepository.withJobIssuanceLock", () => {
+    const getSqlText = (value: unknown): string => {
+        if (typeof value === "object" && value !== null && "strings" in value) {
+            const strings = (value as { strings?: unknown }).strings;
+            if (Array.isArray(strings)) return strings.join("");
+        }
+        return String(value);
+    };
+
+    it("reports contention and waits on the same transaction-scoped advisory lock", async () => {
+        const queryRaw = jest.fn()
+            .mockResolvedValueOnce([{ acquired: false }])
+            .mockResolvedValueOnce([{ pg_advisory_xact_lock: null }]);
+        const transaction = jest.fn(async (operation: (tx: unknown) => Promise<unknown>) => operation({
+            $queryRaw: queryRaw,
+        }));
+        const repository = new SbReceiptLinkTokenRepository({ $transaction: transaction } as unknown as PrismaService);
+        const operation = jest.fn().mockResolvedValue("issued");
+
+        await expect(repository.withJobIssuanceLock("job-race", operation)).resolves.toBe("issued");
+
+        expect(operation).toHaveBeenCalledWith(true);
+        expect(queryRaw).toHaveBeenCalledTimes(2);
+        expect(getSqlText(queryRaw.mock.calls[0]![0])).toContain("pg_try_advisory_xact_lock");
+        expect(getSqlText(queryRaw.mock.calls[1]![0])).toContain("pg_advisory_xact_lock");
+    });
+});
+
 // M6: findStoragePathsInUse's cutoff boundary must be inclusive (gte) — a row expiring at
 // exactly the sweep's cutoff instant is still "in use" as of that instant, so its storage path
 // must not be treated as an orphan and deleted out from under it.

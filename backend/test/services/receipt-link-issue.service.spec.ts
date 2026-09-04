@@ -14,7 +14,11 @@ import { PdfPageRasterizerService } from "infrastructure/pdf/pdf-page-rasterizer
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
 import { ReceiptLinkTokenService } from "application/services/receipt-link-token.service";
 import { SmsTriggerDeliverySkipError } from "application/services/sms-trigger-payload-enricher.registry";
-import { ReceiptLinkIssueService, ReceiptLinkSkipError } from "application/services/receipt-link-issue.service";
+import {
+    ReceiptLinkIssuanceConflictError,
+    ReceiptLinkIssueService,
+    ReceiptLinkSkipError,
+} from "application/services/receipt-link-issue.service";
 
 const BRANCH = "11111111-1111-1111-1111-111111111111";
 const PDF = Buffer.from("%PDF-1.4 fake");
@@ -47,6 +51,7 @@ interface MakeServiceOverrides {
     docById?: DocFixture | null;
     file?: { content: Buffer } | null;
     activeTokenForJob?: { id: string; expiresAt: Date } | null;
+    jobLockContended?: boolean;
     storedPath?: boolean;
     storageObject?: Buffer | null;
     baseUrl?: string;
@@ -92,6 +97,14 @@ function makeService(overrides: MakeServiceOverrides = {}) {
     const receiptLinkTokenRepository = {
         existsByStoragePath: jest.fn().mockResolvedValue(!!overrides.storedPath),
         findActiveByJobId: jest.fn().mockResolvedValue(overrides.activeTokenForJob ?? null),
+        ...(overrides.jobLockContended === undefined
+            ? {}
+            : {
+                withJobIssuanceLock: jest.fn(
+                    async (_jobId: string, operation: (contended: boolean) => Promise<unknown>) =>
+                        operation(overrides.jobLockContended === true),
+                ),
+            }),
     } as unknown as IReceiptLinkTokenRepository;
 
     const config = {
@@ -411,5 +424,50 @@ describe("ReceiptLinkIssueService", () => {
         expect(storage.upload).toHaveBeenCalled();
         expect(tokenService.issue).toHaveBeenCalled();
         expect(result).toEqual({ url: "https://m.admin.example/receipt/efr_abc", tokenId: "tok-1", expiresAt: new Date("2026-10-03T00:00:00Z") });
+    });
+
+    it("shares one issued url between overlapping attempts for the same job", async () => {
+        let releaseIssue: (() => void) | undefined;
+        const issueStarted = new Promise<void>((resolve) => {
+            releaseIssue = resolve;
+        });
+        let finishIssue: (() => void) | undefined;
+        const issueCanFinish = new Promise<void>((resolve) => {
+            finishIssue = resolve;
+        });
+        const { service, tokenService } = makeService();
+        (tokenService.issue as jest.Mock).mockImplementation(async () => {
+            releaseIssue?.();
+            await issueCanFinish;
+            return ISSUED_TOKEN;
+        });
+        const params = { branchId: BRANCH, clientId: 7, source: "auto_trigger" as const, jobId: "job-race" };
+
+        const first = service.issue(params);
+        await issueStarted;
+        const second = service.issue(params);
+        finishIssue?.();
+
+        await expect(Promise.all([first, second])).resolves.toEqual([
+            { url: "https://m.admin.example/receipt/efr_abc", tokenId: "tok-1", expiresAt: new Date("2026-10-03T00:00:00Z") },
+            { url: "https://m.admin.example/receipt/efr_abc", tokenId: "tok-1", expiresAt: new Date("2026-10-03T00:00:00Z") },
+        ]);
+        expect(tokenService.issue).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not replace the winner's active token after waiting on the same job lock", async () => {
+        const { service, tokenService } = makeService({
+            activeTokenForJob: { id: "winner", expiresAt: new Date("2026-10-01T00:00:00Z") },
+            jobLockContended: true,
+        });
+
+        await expect(service.issue({
+            branchId: BRANCH,
+            clientId: 7,
+            source: "auto_trigger",
+            jobId: "job-race",
+        })).rejects.toBeInstanceOf(ReceiptLinkIssuanceConflictError);
+
+        expect(tokenService.issue).not.toHaveBeenCalled();
     });
 });

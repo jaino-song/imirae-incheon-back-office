@@ -12,6 +12,7 @@ import {
 } from "domain/repositories/receipt-link-token.repository.interface";
 
 const INCLUDE_NAMES = { branch: { select: { name: true } }, client: { select: { name: true } } } as const;
+const JOB_ISSUANCE_LOCK_NAMESPACE = "babyjamjam:receipt-link-job-issuance:v1";
 
 interface RawRow {
     id: string;
@@ -67,6 +68,25 @@ function toRecord(row: RawRow): ReceiptLinkTokenRecord {
 @Injectable()
 export class SbReceiptLinkTokenRepository implements IReceiptLinkTokenRepository {
     constructor(private readonly prisma: PrismaService) {}
+
+    async withJobIssuanceLock<T>(
+        jobId: string,
+        operation: (contended: boolean) => Promise<T>,
+    ): Promise<T> {
+        return this.prisma.$transaction(async (tx) => {
+            const lockKey = `${JOB_ISSUANCE_LOCK_NAMESPACE}:${jobId}`;
+            const rows = await tx.$queryRaw<Array<{ acquired: boolean }>>(Prisma.sql`
+                SELECT pg_try_advisory_xact_lock(hashtextextended(${lockKey}, 0)) AS acquired
+            `);
+            const acquired = rows[0]?.acquired === true;
+            if (!acquired) {
+                await tx.$queryRaw(Prisma.sql`
+                    SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
+                `);
+            }
+            return operation(!acquired);
+        });
+    }
 
     // Cross-branch by design: see the class comment above.
     async findByLinkTokenHash(linkTokenHash: string): Promise<ReceiptLinkTokenRecord | null> {

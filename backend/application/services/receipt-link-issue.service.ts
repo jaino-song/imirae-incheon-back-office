@@ -51,6 +51,13 @@ export class ReceiptLinkSkipError extends SmsTriggerDeliverySkipError {
     }
 }
 
+export class ReceiptLinkIssuanceConflictError extends Error {
+    constructor() {
+        super("Receipt link issuance is already in progress for this delivery job");
+        this.name = "ReceiptLinkIssuanceConflictError";
+    }
+}
+
 export interface ReceiptLinkPreflight {
     client: { id: number; name: string; phone: string | null; birthday: string };
     doc: { id: number; documentId: string };
@@ -91,9 +98,18 @@ interface ContractDocumentRef {
     documentId: string;
 }
 
+interface PreparedReceiptLink {
+    client: ReceiptLinkPreflight["client"];
+    doc: ContractDocumentRef;
+    png: Buffer;
+    storagePath: string;
+    contentSha256: string;
+}
+
 @Injectable()
 export class ReceiptLinkIssueService {
     private readonly logger = new Logger(ReceiptLinkIssueService.name);
+    private readonly inFlightJobIssuances = new Map<string, Promise<IssuedReceiptLink>>();
 
     constructor(
         @Inject(CLIENT_REPOSITORY) private readonly clientRepository: IClientRepository,
@@ -138,21 +154,68 @@ export class ReceiptLinkIssueService {
      * sends). When an active token already exists for `jobId` and the caller supplies
      * `existingUrl` (the payload's current url), that url is returned as-is with no render,
      * upload, or mint. Plaintext link tokens are never stored, so without `existingUrl` there is
-     * nothing to return — this mints anew, which is safe: `ReceiptLinkTokenService.issue`
-     * revokes the document's previously active token as part of the same write.
+     * nothing to return — a later, non-overlapping retry mints anew, while overlapping attempts
+     * share the in-flight result in this instance. Across instances, a contended database lock
+     * prevents the loser from revoking the winner's URL when it cannot reconstruct that URL.
      */
     async issue(params: IssueReceiptLinkParams): Promise<IssuedReceiptLink> {
-        const now = new Date();
-        if (params.jobId) {
-            const active = await this.receiptLinkTokenRepository.findActiveByJobId(params.jobId);
-            // An "active" row can still be past its expiresAt (nightly cleanup hasn't reaped it
-            // yet) — short-circuiting on that would hand the caller back a dead link. Fall
-            // through to mint a fresh one instead.
-            if (active && active.expiresAt.getTime() > now.getTime() && params.existingUrl) {
-                return { url: params.existingUrl, tokenId: active.id, expiresAt: active.expiresAt };
-            }
+        const jobId = params.jobId;
+        if (!jobId) {
+            const prepared = await this.prepare(params);
+            return this.mint(params, prepared);
         }
 
+        const inFlight = this.inFlightJobIssuances.get(jobId);
+        if (inFlight) return inFlight;
+
+        const issuance = this.issueForJob({ ...params, jobId });
+        this.inFlightJobIssuances.set(jobId, issuance);
+        try {
+            return await issuance;
+        } finally {
+            if (this.inFlightJobIssuances.get(jobId) === issuance) {
+                this.inFlightJobIssuances.delete(jobId);
+            }
+        }
+    }
+
+    private async issueForJob(params: IssueReceiptLinkParams & { jobId: string }): Promise<IssuedReceiptLink> {
+        const reusable = await this.findReusableJobToken(params, new Date());
+        if (reusable) return reusable;
+
+        // Rendering and content-addressed upload are safe to repeat and can be slow, so keep them
+        // outside the database lock. Only the final re-check plus token mint is serialized.
+        const prepared = await this.prepare(params);
+        if (!this.receiptLinkTokenRepository.withJobIssuanceLock) {
+            return this.mint(params, prepared);
+        }
+        return this.receiptLinkTokenRepository.withJobIssuanceLock<IssuedReceiptLink>(
+            params.jobId,
+            async (contended) => {
+                const active = await this.receiptLinkTokenRepository.findActiveByJobId(params.jobId);
+                if (active && active.expiresAt.getTime() > Date.now()) {
+                    if (params.existingUrl) {
+                        return { url: params.existingUrl, tokenId: active.id, expiresAt: active.expiresAt };
+                    }
+                    if (contended) throw new ReceiptLinkIssuanceConflictError();
+                }
+                return this.mint(params, prepared);
+            },
+        );
+    }
+
+    private async findReusableJobToken(
+        params: IssueReceiptLinkParams & { jobId: string },
+        now: Date,
+    ): Promise<IssuedReceiptLink | null> {
+        const active = await this.receiptLinkTokenRepository.findActiveByJobId(params.jobId);
+        // An "active" row can still be past its expiresAt (nightly cleanup hasn't reaped it
+        // yet) — short-circuiting on that would hand the caller back a dead link.
+        if (!active || active.expiresAt.getTime() <= now.getTime() || !params.existingUrl) return null;
+        return { url: params.existingUrl, tokenId: active.id, expiresAt: active.expiresAt };
+    }
+
+    private async prepare(params: IssueReceiptLinkParams): Promise<PreparedReceiptLink> {
         const { client, doc, pdf } = await this.preflight(params);
 
         let png: Buffer;
@@ -190,6 +253,11 @@ export class ReceiptLinkIssueService {
             }
         }
 
+        return { client, doc, png, storagePath, contentSha256 };
+    }
+
+    private async mint(params: IssueReceiptLinkParams, prepared: PreparedReceiptLink): Promise<IssuedReceiptLink> {
+        const { client, doc, png, storagePath, contentSha256 } = prepared;
         const token = await this.tokenService.issue({
             branchId: params.branchId,
             clientId: client.id,
