@@ -100,7 +100,7 @@ export function IssueCallIngestTokenDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent data-component={DATA_COMPONENT} data-source-component={SOURCE_COMPONENT}>
+      <DialogContent data-component={DATA_COMPONENT} data-source-component={SOURCE_COMPONENT} className="sm:max-w-md">
         {issued ? (
           <>
             <DialogHeader data-component={`${DATA_COMPONENT}_issued-header`}>
