@@ -213,4 +213,34 @@ describe("MessageTriggerList", () => {
 
     expect(screen.getByText("등록된 자동 전송 트리거가 없습니다.")).toBeInTheDocument();
   });
+
+  // M5: a branchless (system) rule — e.g. the manual-send synthetic rule — must not be
+  // editable or toggleable, mirroring the desktop guard in TriggerRulesManager.tsx.
+  it("hides the edit affordance and disables the toggle for a branchless system rule (M5)", async () => {
+    const onEdit = jest.fn();
+    const rule = createRule({ id: "rule-system", branchId: null, name: "수동 발송 규칙" });
+    mockUseMessageTriggerRules.mockReturnValue({ data: [rule], isError: false, isLoading: false });
+
+    renderPage(onEdit);
+
+    await screen.findByText("수동 발송 규칙");
+    expect(screen.queryByRole("button", { name: "수동 발송 규칙 설정" })).not.toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", { name: "수동 발송 규칙 비활성화" });
+    expect(toggle).toBeDisabled();
+    fireEvent.click(toggle);
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it("disables the row toggle for a branchless system rule when no onEdit is provided (M5)", async () => {
+    const rule = createRule({ id: "rule-system", branchId: null, name: "수동 발송 규칙" });
+    mockUseMessageTriggerRules.mockReturnValue({ data: [rule], isError: false, isLoading: false });
+
+    renderPage();
+
+    const row = await screen.findByRole("button", { name: /수동 발송 규칙/ });
+    expect(row).toBeDisabled();
+    fireEvent.click(row);
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
 });

@@ -74,6 +74,10 @@ RESEND_FROM_EMAIL=admin@babyjamjam.com
 
 # Local-only service record testing. Fallback only — `pnpm start:dev` auto-resolves the current LAN IP and overrides this (scripts/start-dev-lan.mjs).
 MOBILE_SERVICE_RECORD_BASE_URL="http://192.168.219.142:3002"
+# 영수증 링크 베이스 URL (m.admin). 비우면 MOBILE_SERVICE_RECORD_BASE_URL → https://m.admin.babyjamjam.com 순으로 폴백
+MOBILE_RECEIPT_BASE_URL="http://192.168.219.142:3002"
+# 생년월일 해시 솔트 (비밀값)
+RECEIPT_LINK_HASH_SALT=
 SERVICE_RECORD_AUTO_FINALIZE_ENABLED=true
 EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID="f091d768fb2c4a74b429525b428337f7"
 EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID_10="0dca5a5ace7d47e6a911c6bfa3103534"

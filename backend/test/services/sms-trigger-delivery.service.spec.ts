@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { AligoService } from "application/services/aligo.service";
 import {
+    SMS_DELIVERY_CONFIG_VERSION,
     SMS_TEMPLATE_DELIVERY,
     SmsTriggerDeliveryService,
 } from "application/services/sms-trigger-delivery.service";
@@ -20,6 +21,13 @@ import { MessageLogEntity } from "domain/entities/message-log.entity";
 import { IMessageLogRepository } from "domain/repositories/message-log.repository.interface";
 
 describe("SmsTriggerDeliveryService", () => {
+    // F7: adding a new template key to the catalog cannot change an existing key's configHash —
+    // the routing/mapping shape for already-shipped templates hasn't changed, so bumping this
+    // version needlessly forces re-approval of every staged snapshot across the whole system.
+    it("SMS_DELIVERY_CONFIG_VERSION stays at v1 (adding a template key alone must not force a version bump)", () => {
+        expect(SMS_DELIVERY_CONFIG_VERSION).toBe("sms-template-delivery-v1");
+    });
+
     const branchId = "branch-1";
 
     const captureError = async (promise: Promise<unknown>): Promise<unknown> => {
@@ -770,6 +778,9 @@ describe("SMS system-template variable coverage", () => {
         bankName: "fixture-bankName",
         accNum: "fixture-accNum",
         serviceRecordUrl: "fixture-serviceRecordUrl",
+        // Normally injected by the delivery-time payload enricher, not derived from the
+        // client record; the fixture supplies it directly so SERVICE_END_NOTICE renders here.
+        receiptUrl: "fixture-receiptUrl",
     };
 
     const smsTemplateCases = Object.values(MESSAGE_TRIGGER_TEMPLATE_CATALOG)
@@ -885,6 +896,26 @@ describe("SMS system-template variable coverage", () => {
             expect(logRepository.save).not.toHaveBeenCalled();
         },
     );
+
+    it("cancels SERVICE_END_NOTICE without a provider call when receiptUrl is missing entirely", async () => {
+        // receiptUrl is injected by the delivery-time payload enricher (a later task), not
+        // derived here — confirm the delivery service still refuses to send when it's absent,
+        // not just when it's blank.
+        const { aligoService, logRepository, service } = createDeliveryHarness();
+        const { receiptUrl: _receiptUrl, ...variablesWithoutReceiptUrl } = allTemplateVariables;
+        const job = createJob(
+            MessageTriggerTemplateKey.SERVICE_END_NOTICE,
+            MessageTriggerRecipientType.CLIENT,
+            variablesWithoutReceiptUrl,
+        );
+
+        await expect(service.sendJob(job)).resolves.toBe(false);
+
+        expect(job.status).toBe("canceled");
+        expect(job.cancelReason).toContain("receiptUrl");
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+        expect(logRepository.save).not.toHaveBeenCalled();
+    });
 
     it("cancels a template with an unresolved required custom variable", async () => {
         const { aligoService, logRepository, service } = createDeliveryHarness();
