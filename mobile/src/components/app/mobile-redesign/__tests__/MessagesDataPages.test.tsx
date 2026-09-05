@@ -165,6 +165,60 @@ describe("mobile message data pages (merged 발송 기록 screen)", () => {
     expect(container.querySelector('[data-component$="_zone-past_header"]')).toHaveTextContent("지난 발송 1건");
   });
 
+  it("keeps the past zone visible at a zero count too", () => {
+    mockUseUpcomingMessageTriggerJobs.mockReturnValue({ isLoading: false, isError: false, data: [cancelableJob] });
+    mockUseMessageHistory.mockReturnValue({ isLoading: false, isError: false, data: [] });
+
+    const { container } = render(<MessagesHistoryPage />);
+
+    expect(container.querySelector('[data-component$="_zone-past"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-component$="_zone-past_header"]')).toHaveTextContent("지난 발송 0건");
+    expect(container.querySelector('[data-component$="_zone-upcoming_header"]')).toHaveTextContent("예정 1건");
+  });
+
+  it("shows the skeleton panel, not the empty state, on a cold load with no cached data", () => {
+    mockUseUpcomingMessageTriggerJobs.mockReturnValue({ isLoading: true, isError: false, data: undefined });
+    mockUseMessageHistory.mockReturnValue({ isLoading: true, isError: false, data: undefined });
+
+    const { container } = render(<MessagesHistoryPage />);
+
+    // Nothing is settled, so totalVisibleCount is 0 — but a loading panel must
+    // never collapse into "표시할 메시지가 없습니다.".
+    expect(screen.queryByText("표시할 메시지가 없습니다.")).not.toBeInTheDocument();
+    expect(container.querySelector('[data-component$="_zone-upcoming"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-component$="_zone-past"]')).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-component$="_zone-upcoming_row-skeleton"]')).toHaveLength(3);
+    expect(container.querySelectorAll('[data-component$="_zone-past_row-skeleton"]')).toHaveLength(4);
+    expect(screen.getByRole("status")).toHaveTextContent("불러오고 있습니다");
+    // The filter pills must not publish confident zeros next to skeletons.
+    expect(container.querySelectorAll('.filter-pill-skeleton')).toHaveLength(5);
+  });
+
+  it("shows a zone's error message with no fabricated count", () => {
+    mockUseUpcomingMessageTriggerJobs.mockReturnValue({ isLoading: false, isError: true, data: undefined });
+    mockUseMessageHistory.mockReturnValue({ isLoading: false, isError: false, data: [sentRecord] });
+
+    const { container } = render(<MessagesHistoryPage />);
+
+    expect(screen.getByText("발송 예정 내역을 불러오지 못했습니다.")).toBeInTheDocument();
+    expect(container.querySelector('[data-component$="_zone-upcoming_header_count"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-component$="_zone-upcoming_header"]')).toHaveTextContent("예정");
+    // The healthy zone is unaffected.
+    expect(container.querySelector('[data-component$="_zone-past_header"]')).toHaveTextContent("지난 발송 1건");
+  });
+
+  it("shows the past zone's error message while the upcoming zone still loads", () => {
+    mockUseUpcomingMessageTriggerJobs.mockReturnValue({ isLoading: true, isError: false, data: undefined });
+    mockUseMessageHistory.mockReturnValue({ isLoading: false, isError: true, data: undefined });
+
+    const { container } = render(<MessagesHistoryPage />);
+
+    expect(screen.getByText("발송 기록을 불러오지 못했습니다.")).toBeInTheDocument();
+    expect(container.querySelector('[data-component$="_zone-past_header_count"]')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('[data-component$="_zone-past_row-skeleton"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-component$="_zone-upcoming_row-skeleton"]')).toHaveLength(3);
+  });
+
   it("collapses to the empty state only when both zones are settled and empty", () => {
     mockUseUpcomingMessageTriggerJobs.mockReturnValue({ isLoading: false, isError: false, data: [] });
     mockUseMessageHistory.mockReturnValue({ isLoading: false, isError: false, data: [] });
@@ -195,7 +249,7 @@ describe("mobile message data pages (merged 발송 기록 screen)", () => {
     ]) {
       const node = container.querySelector(`[data-component$="${suffix}"]`);
       expect(node).toBeInTheDocument();
-      expect(node).toHaveAttribute("data-slot", "skeleton");
+      expect(node).toHaveAttribute("data-source-component", "ListCountSkeleton");
       expect(node?.textContent ?? "").not.toMatch(/\d/);
     }
   });

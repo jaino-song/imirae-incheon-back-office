@@ -55,7 +55,7 @@ import {
   MobileDetailSheet,
 } from "@/components/app/mobile-redesign/detail-sheet";
 import { MessageSectionNav } from "@/components/app/mobile-redesign/MessageSectionNav";
-import { ListCard } from "@/components/app/mobile-redesign/primitives";
+import { ListCard, ListCountSkeleton } from "@/components/app/mobile-redesign/primitives";
 import { Skeleton } from "@/components/ui/skeleton";
 import "@/components/app/mobile-redesign/redesign.css";
 
@@ -64,7 +64,7 @@ interface StatusMeta {
   icon: LucideIcon;
 }
 
-type MessageFilterItem = { label: string; count: React.ReactNode; active?: boolean };
+type MessageFilterItem = { label: string; count: React.ReactNode; active?: boolean; skeleton?: boolean };
 
 const STATUS_FILTER_ORDER: MessageRecordStatusFilter[] = ["all", "upcoming", "sent", "failed", "canceled"];
 
@@ -193,19 +193,41 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-// Loading placeholder shaped like a real row (icon + two copy lines), so the
-// list keeps its layout while either query is in flight. Mirrors desktop's
-// AnimatedSlotList skeleton slots instead of a single centered spinner.
-function RowSkeleton({ dataComponent }: { dataComponent: string }) {
+// Loading placeholder for one row, shaped like the row it stands in for so the
+// list does not reflow when the data lands: an upcoming row puts a badge above
+// a timestamp in a split trailing column, a past row stacks three copy lines
+// with the badge underneath. Mirrors desktop's AnimatedSlotList skeleton slots
+// instead of the single centered spinner this replaced.
+function RowSkeleton({ dataComponent, variant }: {
+  dataComponent: string;
+  variant: "upcoming" | "past";
+}) {
+  const line = "rounded-md bg-v3-dim-white";
+
   return (
     <div className="message-data-row" data-component={dataComponent} aria-hidden>
-      <Skeleton className="h-10 w-10 flex-none rounded-xl" />
-      <div className="message-data-row-copy">
-        <div className="message-data-row-info">
-          <Skeleton className="h-3 w-24 rounded-md" />
-          <Skeleton className="mt-2 h-3 w-40 max-w-full rounded-md" />
+      <Skeleton className="h-10 w-10 flex-none rounded-xl bg-v3-dim-white" />
+      {variant === "upcoming" ? (
+        <div className="message-data-row-copy message-data-row-copy-split">
+          <div className="message-data-row-info">
+            <Skeleton className={`h-3 w-24 ${line}`} />
+            <Skeleton className={`mt-1 h-3 w-32 max-w-full ${line}`} />
+          </div>
+          <div className="message-data-status-group">
+            <Skeleton className="h-5 w-16 rounded-full bg-v3-dim-white" />
+            <Skeleton className={`h-3 w-12 ${line}`} />
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="message-data-row-copy">
+          <div className="message-data-row-info">
+            <Skeleton className={`h-3 w-28 ${line}`} />
+            <Skeleton className={`mt-1 h-3 w-40 max-w-full ${line}`} />
+            <Skeleton className={`mt-1 h-3 w-20 ${line}`} />
+          </div>
+          <Skeleton className="mt-1 h-5 w-16 rounded-full bg-v3-dim-white" />
+        </div>
+      )}
     </div>
   );
 }
@@ -216,12 +238,7 @@ function ZoneCount({ dataComponent, isLoading, value }: {
   value: number;
 }) {
   if (isLoading) {
-    return (
-      <Skeleton
-        className="inline-block h-3 w-7 translate-y-[1px] rounded-full"
-        data-component={dataComponent}
-      />
-    );
+    return <ListCountSkeleton data-component={dataComponent} />;
   }
 
   return <span data-component={dataComponent}>{`${value}건`}</span>;
@@ -370,6 +387,11 @@ export function MessagesHistoryPage() {
     ? (statusFilter === "all" ? historyRecords : historyRecords.filter((record) => record.status === statusFilter))
     : [];
 
+  // Both queries gate the whole list: they settle at different times, so keying
+  // each zone off its own flag would show real rows next to a loading zone.
+  // Same rule as desktop, where a cached history query makes that routine.
+  const isPanelLoading = isUpcomingLoading || isHistoryLoading;
+
   const filterCounts: Record<MessageRecordStatusFilter, number> = {
     all: upcomingJobs.length + historyRecords.length,
     upcoming: upcomingJobs.length,
@@ -378,12 +400,19 @@ export function MessagesHistoryPage() {
     canceled: historyRecords.filter((record) => record.status === "canceled").length,
   };
 
+  // While either query is in flight every filterCounts entry is the empty-array
+  // default standing in for a number nobody has fetched, so the pills would
+  // publish confident zeros right beside the skeletoned counts. Skeleton them
+  // too, the way the sibling list screens do.
   const filterItems: MessageFilterItem[] = STATUS_FILTER_ORDER.map((filter) => ({
     label: MESSAGE_RECORD_STATUS_FILTER_LABELS[filter],
-    count: filter === "failed"
-      ? <span className="messages-filter-count-danger">{filterCounts[filter]}</span>
-      : filterCounts[filter],
+    count: isPanelLoading
+      ? ""
+      : filter === "failed"
+        ? <span className="messages-filter-count-danger">{filterCounts[filter]}</span>
+        : filterCounts[filter],
     active: filter === statusFilter,
+    skeleton: isPanelLoading,
   }));
 
   const handleFilterChange = (label: string) => {
@@ -412,14 +441,16 @@ export function MessagesHistoryPage() {
     }
   };
 
-  // Both queries gate the whole list: the history query is often already cached
-  // while the upcoming one is still in flight, so keying each zone off its own
-  // flag would show real rows next to a loading zone. Same rule as desktop.
-  const isPanelLoading = isUpcomingLoading || isHistoryLoading;
   const totalVisibleCount = visibleUpcomingJobs.length + visibleHistoryRecords.length;
   // A zone stays visible at zero so its "예정 0건" label still reads; only a
-  // settled, error-free, entirely empty list collapses to the empty state.
-  const isOverallEmpty = !isPanelLoading && !isUpcomingError && !isHistoryError && totalVisibleCount === 0;
+  // settled, error-free, entirely empty list collapses to the empty state. An
+  // error counts only while its own zone is on screen — a filtered-away zone
+  // cannot show its message, so letting it suppress the empty state would
+  // leave the screen explaining nothing.
+  const isOverallEmpty = !isPanelLoading
+    && !(showUpcomingZone && isUpcomingError)
+    && !(showHistoryZone && isHistoryError)
+    && totalVisibleCount === 0;
   const upcomingZoneVisible = showUpcomingZone && !isOverallEmpty;
   const historyZoneVisible = showHistoryZone && !isOverallEmpty;
 
@@ -441,16 +472,21 @@ export function MessagesHistoryPage() {
           <MessagePageShell
             title="발송 기록"
             count={isPanelLoading ? (
-              // Carries the loading announcement the removed spinner used to
-              // make; the zone counts and row placeholders stay decorative so
-              // a screen reader hears it once, not five times.
-              <Skeleton
-                role="status"
-                aria-label="발송 기록 불러오는 중"
-                className="inline-block h-3 w-8 rounded-full align-middle"
-                data-component={`${HISTORY_LIST_BASE}_content_list-card_header_count`}
-              />
-            ) : `${totalVisibleCount}건`}
+              // The status region carries real text, not just a label: an empty
+              // labelled region is never announced, and this replaces the only
+              // loading announcement the screen had. Zone counts and row
+              // placeholders stay silent so it is heard once, not five times.
+              <>
+                <ListCountSkeleton
+                  data-component={`${HISTORY_LIST_BASE}_content_list-card_header_count`}
+                />
+                <span role="status" className="sr-only">발송 기록을 불러오고 있습니다.</span>
+              </>
+            ) : (
+              <span data-component={`${HISTORY_LIST_BASE}_content_list-card_header_count`}>
+                {`${totalVisibleCount}건`}
+              </span>
+            )}
             activeSection="history"
             dataComponent={HISTORY_LIST_BASE}
             filters={filterItems}
@@ -486,6 +522,7 @@ export function MessagesHistoryPage() {
                       <RowSkeleton
                         key={index}
                         dataComponent={`${HISTORY_LIST_BASE}_content_list-card_body_zone-upcoming_row-skeleton`}
+                        variant="upcoming"
                       />
                     ))
                   ) : (
@@ -523,6 +560,7 @@ export function MessagesHistoryPage() {
                       <RowSkeleton
                         key={index}
                         dataComponent={`${HISTORY_LIST_BASE}_content_list-card_body_zone-past_row-skeleton`}
+                        variant="past"
                       />
                     ))
                   ) : (

@@ -82,6 +82,11 @@ test.describe("mobile messages navigation", () => {
   });
 
   test("shows live SMS history data on the dedicated history route", async ({ page }) => {
+    // Both queries gate the list now, so the zones stay skeletoned until the
+    // upcoming request settles too — stub it rather than waiting on a backend.
+    await page.route("**/api/message-trigger-jobs/upcoming**", async (route: Route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
     await page.route("**/api/message-logs**", async (route: Route) => {
       await route.fulfill({
         status: 200,
@@ -146,6 +151,10 @@ test.describe("mobile messages navigation", () => {
   });
 
   test("shows upcoming SMS jobs in the merged record screen's upcoming zone", async ({ page }) => {
+    // Same reason as the history test above: the past query gates this zone too.
+    await page.route("**/api/message-logs**", async (route: Route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
     await page.route("**/api/message-trigger-jobs/upcoming**", async (route: Route) => {
       await route.fulfill({
         status: 200,
