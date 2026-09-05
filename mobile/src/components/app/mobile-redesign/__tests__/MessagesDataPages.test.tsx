@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MESSAGE_JOB_CANCEL_COPY } from "@babyjamjam/shared";
 
@@ -179,11 +179,15 @@ describe("mobile message data pages (merged 발송 기록 screen)", () => {
       ],
     });
 
-    render(<MessagesHistoryPage />);
+    const { container } = render(<MessagesHistoryPage />);
 
     expect(screen.getByText(/김문자/)).toBeInTheDocument();
     expect(screen.queryByText("김알림톡")).not.toBeInTheDocument();
-    expect(screen.getByText("발송 성공")).toBeInTheDocument();
+    // Scoped to the past zone: the "발송" status filter chip now reads
+    // "발송 성공" too (see MESSAGE_RECORD_STATUS_FILTER_LABELS), so an
+    // unscoped query would also match that chip, not just this row's badge.
+    const pastZone = container.querySelector('[data-component$="_zone-past"]') as HTMLElement;
+    expect(within(pastZone).getByText("발송 성공")).toBeInTheDocument();
   });
 
   it("shows a canceled row's reason inline, prefixed with 사유", () => {
@@ -261,8 +265,13 @@ describe("mobile message data pages (merged 발송 기록 screen)", () => {
     expect(container.querySelector('[data-component$="_zone-upcoming"]')).toBeInTheDocument();
     expect(container.querySelector('[data-component$="_zone-past"]')).not.toBeInTheDocument();
 
-    // "취소" filter: zone 1 hidden, zone 2 shows only the canceled row.
-    await user.click(screen.getByRole("button", { name: /^취소/ }));
+    // "발송 취소" filter: zone 1 hidden, zone 2 shows only the canceled row.
+    // Scoped to the filter bar: the upcoming zone's still-visible cancel-row
+    // button (MESSAGE_JOB_CANCEL_COPY.action) is also exactly "발송 취소",
+    // and the filter chip's label now shares that wording too (see
+    // MESSAGE_RECORD_STATUS_FILTER_LABELS), so an unscoped query would match both.
+    const filterBar = container.querySelector('[data-component$="_filters"]') as HTMLElement;
+    await user.click(within(filterBar).getByRole("button", { name: /^발송 취소/ }));
     expect(container.querySelector('[data-component$="_zone-upcoming"]')).not.toBeInTheDocument();
     expect(screen.getByText("취소 고객")).toBeInTheDocument();
     expect(screen.queryByText(/김문자/)).not.toBeInTheDocument();

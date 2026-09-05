@@ -3,6 +3,7 @@ import {
   MESSAGE_JOB_STATUS_BADGE_VARIANT,
   MESSAGE_JOB_STATUS_LABELS,
   MESSAGE_LOG_STATUS_BADGE_VARIANT,
+  MESSAGE_RECORD_STATUS_FILTER_LABELS,
   MESSAGE_SECTION_DEFINITIONS,
   formatMessageFailureReason,
   getMessageChannelLabel,
@@ -114,6 +115,14 @@ describe("shared message presentation contract", () => {
       sent: "발송 성공",
       failed: "발송 실패",
       pending: "재시도 대기",
+      canceled: "발송 취소",
+    });
+    // The past-status filter tabs must read exactly like the past-row badges.
+    expect(MESSAGE_RECORD_STATUS_FILTER_LABELS).toEqual({
+      all: "전체",
+      upcoming: "예정",
+      sent: "발송 성공",
+      failed: "발송 실패",
       canceled: "발송 취소",
     });
     expect(MESSAGE_JOB_STATUS_LABELS).toEqual({
