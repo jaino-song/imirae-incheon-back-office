@@ -2,7 +2,11 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createHash } from "node:crypto";
 import { ClientEntity } from "domain/entities/client.entity";
-import { FILE_STORAGE_PORT, FileStoragePort } from "domain/ports/file-storage.port";
+import {
+    FILE_STORAGE_PORT,
+    FileStorageObjectNotFoundError,
+    FileStoragePort,
+} from "domain/ports/file-storage.port";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { EFORMSIGN_DOC_REPOSITORY, IEformsignDocRepository } from "domain/repositories/eformsign-doc.repository.interface";
 import {
@@ -11,7 +15,9 @@ import {
 } from "domain/repositories/eformsign-document-mirror.repository.interface";
 import {
     IReceiptLinkTokenRepository,
+    IReceiptLinkTokenIssuanceRepository,
     RECEIPT_LINK_TOKEN_REPOSITORY,
+    ReceiptLinkTokenRecord,
 } from "domain/repositories/receipt-link-token.repository.interface";
 import { PdfPageRasterizerService } from "infrastructure/pdf/pdf-page-rasterizer.service";
 import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
@@ -44,6 +50,13 @@ export class ReceiptLinkSkipError extends SmsTriggerDeliverySkipError {
     constructor(readonly skipReason: ReceiptLinkSkipReason) {
         super(skipReason, RECEIPT_LINK_SKIP_MESSAGES[skipReason]);
         this.name = "ReceiptLinkSkipError";
+    }
+}
+
+export class ReceiptLinkIssuanceConflictError extends Error {
+    constructor() {
+        super("Receipt link issuance is already in progress for this delivery job");
+        this.name = "ReceiptLinkIssuanceConflictError";
     }
 }
 
@@ -87,9 +100,18 @@ interface ContractDocumentRef {
     documentId: string;
 }
 
+interface PreparedReceiptLink {
+    client: ReceiptLinkPreflight["client"];
+    doc: ContractDocumentRef;
+    png: Buffer;
+    storagePath: string;
+    contentSha256: string;
+}
+
 @Injectable()
 export class ReceiptLinkIssueService {
     private readonly logger = new Logger(ReceiptLinkIssueService.name);
+    private readonly inFlightJobIssuances = new Map<string, Promise<IssuedReceiptLink>>();
 
     constructor(
         @Inject(CLIENT_REPOSITORY) private readonly clientRepository: IClientRepository,
@@ -134,21 +156,74 @@ export class ReceiptLinkIssueService {
      * sends). When an active token already exists for `jobId` and the caller supplies
      * `existingUrl` (the payload's current url), that url is returned as-is with no render,
      * upload, or mint. Plaintext link tokens are never stored, so without `existingUrl` there is
-     * nothing to return — this mints anew, which is safe: `ReceiptLinkTokenService.issue`
-     * revokes the document's previously active token as part of the same write.
+     * nothing to return — a later, non-overlapping retry mints anew, while overlapping attempts
+     * share the in-flight result in this instance. Across instances, the locked re-check compares
+     * the token identity from before preparation so the loser cannot revoke a winner that acquired
+     * and released the lock before the loser reached it.
      */
     async issue(params: IssueReceiptLinkParams): Promise<IssuedReceiptLink> {
-        const now = new Date();
-        if (params.jobId) {
-            const active = await this.receiptLinkTokenRepository.findActiveByJobId(params.jobId);
-            // An "active" row can still be past its expiresAt (nightly cleanup hasn't reaped it
-            // yet) — short-circuiting on that would hand the caller back a dead link. Fall
-            // through to mint a fresh one instead.
-            if (active && active.expiresAt.getTime() > now.getTime() && params.existingUrl) {
-                return { url: params.existingUrl, tokenId: active.id, expiresAt: active.expiresAt };
-            }
+        const jobId = params.jobId;
+        if (!jobId) {
+            const prepared = await this.prepare(params);
+            return this.mint(params, prepared);
         }
 
+        const inFlight = this.inFlightJobIssuances.get(jobId);
+        if (inFlight) return inFlight;
+
+        const issuance = this.issueForJob({ ...params, jobId });
+        this.inFlightJobIssuances.set(jobId, issuance);
+        try {
+            return await issuance;
+        } finally {
+            if (this.inFlightJobIssuances.get(jobId) === issuance) {
+                this.inFlightJobIssuances.delete(jobId);
+            }
+        }
+    }
+
+    private async issueForJob(params: IssueReceiptLinkParams & { jobId: string }): Promise<IssuedReceiptLink> {
+        const activeBeforeLock = await this.receiptLinkTokenRepository.findActiveByJobId(params.jobId);
+        const reusable = this.toReusableJobToken(params, activeBeforeLock, new Date());
+        if (reusable) return reusable;
+
+        // Rendering and content-addressed upload are safe to repeat and can be slow, so keep them
+        // outside the database lock. Only the final re-check plus token mint is serialized.
+        const prepared = await this.prepare(params);
+        if (!this.receiptLinkTokenRepository.withJobIssuanceLock) {
+            return this.mint(params, prepared);
+        }
+        return this.receiptLinkTokenRepository.withJobIssuanceLock<IssuedReceiptLink>(
+            params.jobId,
+            async (_contended, transactionRepository) => {
+                const active = await transactionRepository.findActiveByJobId(params.jobId);
+                if (active && active.expiresAt.getTime() > Date.now()) {
+                    // Lock contention only describes the instant pg_try_advisory_xact_lock ran.
+                    // A different row proves another issuer won even if it already released the lock.
+                    if (active.id !== activeBeforeLock?.id) {
+                        throw new ReceiptLinkIssuanceConflictError();
+                    }
+                    if (params.existingUrl) {
+                        return { url: params.existingUrl, tokenId: active.id, expiresAt: active.expiresAt };
+                    }
+                }
+                return this.mint(params, prepared, transactionRepository);
+            },
+        );
+    }
+
+    private toReusableJobToken(
+        params: IssueReceiptLinkParams & { jobId: string },
+        active: ReceiptLinkTokenRecord | null,
+        now: Date,
+    ): IssuedReceiptLink | null {
+        // An "active" row can still be past its expiresAt (nightly cleanup hasn't reaped it
+        // yet) — short-circuiting on that would hand the caller back a dead link.
+        if (!active || active.expiresAt.getTime() <= now.getTime() || !params.existingUrl) return null;
+        return { url: params.existingUrl, tokenId: active.id, expiresAt: active.expiresAt };
+    }
+
+    private async prepare(params: IssueReceiptLinkParams): Promise<PreparedReceiptLink> {
         const { client, doc, pdf } = await this.preflight(params);
 
         let png: Buffer;
@@ -162,7 +237,20 @@ export class ReceiptLinkIssueService {
         const contentSha256 = createHash("sha256").update(png).digest("hex");
         const storagePath = `receipts/${params.branchId}/${doc.id}/${contentSha256}.png`;
         const alreadyStored = await this.receiptLinkTokenRepository.existsByStoragePath(storagePath);
-        if (!alreadyStored) {
+        let shouldUpload = !alreadyStored;
+        if (alreadyStored) {
+            try {
+                await this.storage.download(storagePath);
+            } catch (error) {
+                if (error instanceof FileStorageObjectNotFoundError) {
+                    shouldUpload = true;
+                } else {
+                    this.logger.error(`[ReceiptLink] storage check failed for ${storagePath}: ${describe(error)}`);
+                    throw new ReceiptLinkSkipError("upload_failed");
+                }
+            }
+        }
+        if (shouldUpload) {
             try {
                 await this.storage.upload(png, storagePath, "image/png");
             } catch (error) {
@@ -173,7 +261,16 @@ export class ReceiptLinkIssueService {
             }
         }
 
-        const token = await this.tokenService.issue({
+        return { client, doc, png, storagePath, contentSha256 };
+    }
+
+    private async mint(
+        params: IssueReceiptLinkParams,
+        prepared: PreparedReceiptLink,
+        issuanceRepository?: IReceiptLinkTokenIssuanceRepository,
+    ): Promise<IssuedReceiptLink> {
+        const { client, doc, png, storagePath, contentSha256 } = prepared;
+        const issueParams = {
             branchId: params.branchId,
             clientId: client.id,
             eformsignDocId: doc.id,
@@ -184,7 +281,10 @@ export class ReceiptLinkIssueService {
             byteSize: png.length,
             source: params.source,
             createdBy: params.createdBy ?? null,
-        });
+        };
+        const token = issuanceRepository
+            ? await this.tokenService.issue(issueParams, issuanceRepository)
+            : await this.tokenService.issue(issueParams);
 
         return { url: this.buildReceiptUrl(token.linkToken), tokenId: token.id, expiresAt: token.expiresAt };
     }

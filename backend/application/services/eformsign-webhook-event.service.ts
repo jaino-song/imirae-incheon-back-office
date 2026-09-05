@@ -9,6 +9,18 @@ import {
     EFORMSIGN_WEBHOOK_EVENT_REPOSITORY,
     IEformsignWebhookEventRepository,
 } from "domain/repositories/eformsign-webhook-event.repository.interface";
+import { getPrismaErrorCode } from "infrastructure/database/prisma-error.utils";
+
+/**
+ * Raw Prisma errors carry invocation metadata, so log lines must summarize
+ * them instead of interpolating the error object itself.
+ */
+function safeDatabaseFailureSummary(error: unknown): string {
+    const errorCode = getPrismaErrorCode(error);
+    return errorCode
+        ? `database operation failed (code=${errorCode})`
+        : "database operation failed";
+}
 
 export interface EformsignWebhookEventInput {
     webhookId?: string | null;
@@ -91,7 +103,7 @@ export class EformsignWebhookEventWriter {
             });
         } catch (error) {
             this.logger.warn(
-                `Failed to record eformsign webhook event for ${input.documentId ?? "unknown document"}: ${error}`,
+                `Failed to record eformsign webhook event for ${input.documentId ?? "unknown document"}: ${safeDatabaseFailureSummary(error)}`,
             );
         }
     }
@@ -113,7 +125,7 @@ export class EformsignWebhookEventWriter {
             }
             return { received, dropped };
         } catch (error) {
-            this.logger.warn(`Failed to count eformsign webhook events: ${error}`);
+            this.logger.warn(`Failed to count eformsign webhook events: ${safeDatabaseFailureSummary(error)}`);
             return { received: 0, dropped: 0 };
         }
     }

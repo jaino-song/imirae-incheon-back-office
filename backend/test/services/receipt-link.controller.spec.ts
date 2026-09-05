@@ -128,6 +128,36 @@ describe("ReceiptLinkController", () => {
         await request(app.getHttpServer()).post("/receipt-links/efr_x/verify").send({ birthday: "940315" }).expect(404, { reason: "not_found" });
     });
 
+    it("GET access validates the access token without downloading the receipt image", async () => {
+        tokenService.resolveAccess.mockResolvedValue({
+            id: "t",
+            storagePath: "receipts/b/1/a.png",
+            clientName: "김산모",
+            expiresAt: new Date(),
+        });
+
+        await request(app.getHttpServer())
+            .get("/receipt-links/efr_x/access")
+            .set("X-Receipt-Access-Token", "efra_a")
+            .expect(200, { ok: true, clientName: "김산모" });
+
+        expect(tokenService.resolveAccess).toHaveBeenCalledWith("efr_x", "efra_a", expect.any(Date));
+        expect(storage.download).not.toHaveBeenCalled();
+    });
+
+    it("GET access fails closed when the access token is absent or invalid", async () => {
+        await request(app.getHttpServer()).get("/receipt-links/efr_x/access").expect(401, {
+            reason: "access_required",
+        });
+        expect(tokenService.resolveAccess).not.toHaveBeenCalled();
+
+        tokenService.resolveAccess.mockResolvedValue(null);
+        await request(app.getHttpServer())
+            .get("/receipt-links/efr_x/access")
+            .set("X-Receipt-Access-Token", "stale")
+            .expect(401, { reason: "access_required" });
+    });
+
     it("GET image requires the access token and streams the png with a download disposition on demand", async () => {
         await request(app.getHttpServer()).get("/receipt-links/efr_x/image").expect(401);
         expect(tokenService.resolveAccess).not.toHaveBeenCalled();

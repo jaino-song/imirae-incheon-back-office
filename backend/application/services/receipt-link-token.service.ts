@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
     IReceiptLinkTokenRepository,
+    IReceiptLinkTokenIssuanceRepository,
     RECEIPT_LINK_MAX_FAILED_ATTEMPTS,
     RECEIPT_LINK_TOKEN_REPOSITORY,
     ReceiptLinkTokenRecord,
@@ -43,6 +44,7 @@ export type ReceiptLinkStatus =
           ok: true;
           state: "pending" | "verified";
           branchName: string;
+          storagePath: string;
           expiresAt: string;
           remainingAttempts: number;
           lockedUntil: string | null;
@@ -111,7 +113,10 @@ export class ReceiptLinkTokenService {
         return sha256(`${this.requireSalt()}:${yymmdd}`);
     }
 
-    async issue(params: IssueReceiptLinkTokenParams): Promise<IssuedReceiptLinkToken> {
+    async issue(
+        params: IssueReceiptLinkTokenParams,
+        issuanceRepository: IReceiptLinkTokenIssuanceRepository = this.repository,
+    ): Promise<IssuedReceiptLinkToken> {
         // Must normalize before hashing: verifyBirthday always normalizes its input first, so an
         // un-normalized expected hash (e.g. from an 8-digit or malformed birthday) would mint a
         // link nobody could ever open.
@@ -124,7 +129,7 @@ export class ReceiptLinkTokenService {
         const linkToken = `efr_${randomBytes(32).toString("base64url")}`;
         const expiresAt = new Date(now.getTime() + RECEIPT_LINK_TTL_MS);
 
-        const row = await this.repository.createReplacingActive(
+        const row = await issuanceRepository.createReplacingActive(
             {
                 branchId: params.branchId,
                 clientId: params.clientId,
@@ -174,6 +179,7 @@ export class ReceiptLinkTokenService {
             ok: true,
             state: row.verifiedAt ? "verified" : "pending",
             branchName: row.branchName ?? "",
+            storagePath: row.storagePath,
             expiresAt: row.expiresAt.toISOString(),
             remainingAttempts: lockedUntil ? 0 : Math.max(0, RECEIPT_LINK_MAX_FAILED_ATTEMPTS - failed),
             lockedUntil: lockedUntil ? lockedUntil.toISOString() : null,

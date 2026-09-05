@@ -6,6 +6,7 @@ import { NextRequest } from "next/server";
 import { serverAPIClient } from "@/lib/api/server";
 import { getServerRuntimeConfig } from "@/lib/env";
 import { POST as verify } from "../receipt/[token]/verify/route";
+import { GET as access } from "../receipt/[token]/access/route";
 import { GET as image } from "../receipt/[token]/image/route";
 import { GET as status } from "../receipt/[token]/status/route";
 
@@ -228,6 +229,45 @@ describe("receipt BFF routes", () => {
         const body = (await response.json()) as { ok?: boolean };
         expect(body.ok).toBeUndefined();
         expect(response.headers.get("set-cookie")).toBeNull();
+    });
+
+    it("access probes the HttpOnly cookie without downloading the receipt image", async () => {
+        const denied = await access(new NextRequest("http://localhost/api/receipt/efr_t/access"), params);
+        expect(denied.status).toBe(401);
+        expect(await denied.json()).toEqual({ reason: "access_required" });
+        expect(denied.headers.get("cache-control")).toContain("no-store");
+        expect(mockGet).not.toHaveBeenCalled();
+
+        mockGet.mockResolvedValue({
+            status: 200,
+            data: { ok: true, clientName: "김산모", storagePath: "receipts/private.png" },
+        });
+        const request = new NextRequest("http://localhost/api/receipt/efr_t/access", {
+            headers: { cookie: "receipt_access=efra_secret" },
+        });
+        const response = await access(request, params);
+
+        expect(mockGet).toHaveBeenCalledWith("/receipt-links/efr_t/access", {
+            headers: { "X-Receipt-Access-Token": "efra_secret" },
+        });
+        expect(response.status).toBe(200);
+        expect(response.headers.get("cache-control")).toContain("no-store");
+        expect(await response.json()).toEqual({ ok: true, clientName: "김산모" });
+    });
+
+    it.each([
+        [401, { reason: "access_required" }],
+        [410, { reason: "expired" }],
+    ])("access preserves a fail-closed %i backend response", async (statusCode, body) => {
+        mockGet.mockRejectedValue(axiosClientError(statusCode, body));
+        const request = new NextRequest("http://localhost/api/receipt/efr_t/access", {
+            headers: { cookie: "receipt_access=stale" },
+        });
+
+        const response = await access(request, params);
+
+        expect(response.status).toBe(statusCode);
+        expect(await response.json()).toEqual(body);
     });
 
     it("image requires the cookie and streams the png with the backend's headers", async () => {

@@ -21,16 +21,16 @@ const SECRET_ASSIGNMENT_PATTERN =
 const SERVICE_RECORD_ACCESS_TOKEN_PATTERN =
   /(\/(?:api\/)?service-record\/(?:link\/)?)[^/?#\s]+/gi;
 // The mother-facing public receipt link (spec §4.2/§5.5): /receipt/<token> (page route),
-// /api/receipt/<token>/status|verify|image (mobile BFF route), and the server-side axios
-// call the BFF itself makes to the backend, /receipt-links/<token>/status|verify|image
+// /api/receipt/<token>/status|verify|access|image (mobile BFF route), and the server-side axios
+// call the BFF itself makes to the backend, /receipt-links/<token>/status|verify|access|image
 // (M3 — this shape was previously left unredacted). The second alternative's token capture
-// is deliberately restricted to when it's followed by /status, /verify or /image: those are
+// is deliberately restricted to one of those receipt paths: those are
 // the only receipt-links/<token>/... shapes that carry a token. Without that lookahead the
 // pattern would also swallow the literal, token-free admin route "/api/receipt-links/send"
 // (documentId travels in the body, not the URL) and redact "send" itself, which must stay
 // visible for debugging.
 const RECEIPT_LINK_TOKEN_PATTERN =
-  /(\/(?:api\/)?receipt\/)[^/?#\s]+|(\/receipt-links\/)[^/?#\s]+(?=\/(?:status|verify|image)(?:[/?#]|$))/gi;
+  /(\/(?:api\/)?receipt\/)[^/?#\s]+|(\/receipt-links\/)[^/?#\s]+(?=\/(?:status|verify|access|image)(?:[/?#]|$))/gi;
 const SERVICE_RECORD_RESOURCE_ID_PATTERN =
   /(\/(?:api\/)?(?:admin\/service-records\/(?:client|schedules)|schedule-change-requests\/schedules)\/)[^/?#\s]+/gi;
 const SERVICE_RECORD_SESSION_ID_PATTERN =
