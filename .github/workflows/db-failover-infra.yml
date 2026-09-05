@@ -125,7 +125,7 @@ jobs:
 
       - name: Authenticate package-only AWS session
         if: env.SAM_PACKAGE_BUCKET != '' && env.SAM_PACKAGE_ROLE_ARN != ''
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ env.SAM_PACKAGE_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -201,7 +201,7 @@ jobs:
           SENTRY_EXPECTED_ENVIRONMENT: preview
         run: node scripts/audit-sentry-rule.mjs
       - name: Authenticate to the protected preview environment
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -282,7 +282,7 @@ jobs:
           SENTRY_EXPECTED_ENVIRONMENT: production
         run: node scripts/audit-sentry-rule.mjs
       - name: Authenticate to the protected production environment
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
