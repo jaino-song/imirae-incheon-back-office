@@ -6,12 +6,14 @@ import {
     CreateReceiptLinkTokenData,
     ExpiredReceiptLinkToken,
     IReceiptLinkTokenRepository,
+    IReceiptLinkTokenIssuanceRepository,
     ReceiptLinkTokenRecord,
     ReserveVerificationAttemptResult,
     UpdateReceiptLinkTokenData,
 } from "domain/repositories/receipt-link-token.repository.interface";
 
 const INCLUDE_NAMES = { branch: { select: { name: true } }, client: { select: { name: true } } } as const;
+const JOB_ISSUANCE_LOCK_NAMESPACE = "babyjamjam:receipt-link-job-issuance:v1";
 
 interface RawRow {
     id: string;
@@ -68,6 +70,30 @@ function toRecord(row: RawRow): ReceiptLinkTokenRecord {
 export class SbReceiptLinkTokenRepository implements IReceiptLinkTokenRepository {
     constructor(private readonly prisma: PrismaService) {}
 
+    async withJobIssuanceLock<T>(
+        jobId: string,
+        operation: (contended: boolean, repository: IReceiptLinkTokenIssuanceRepository) => Promise<T>,
+    ): Promise<T> {
+        return this.prisma.$transaction(async (tx) => {
+            const lockKey = `${JOB_ISSUANCE_LOCK_NAMESPACE}:${jobId}`;
+            const rows = await tx.$queryRaw<Array<{ acquired: boolean }>>(Prisma.sql`
+                SELECT pg_try_advisory_xact_lock(hashtextextended(${lockKey}, 0)) AS acquired
+            `);
+            const acquired = rows[0]?.acquired === true;
+            if (!acquired) {
+                await tx.$executeRaw(Prisma.sql`
+                    SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
+                `);
+            }
+            const transactionRepository: IReceiptLinkTokenIssuanceRepository = {
+                createReplacingActive: async (data, now) =>
+                    toRecord(await this.createReplacingActiveWithClient(tx, data, now)),
+                findActiveByJobId: (lockedJobId) => this.findActiveByJobIdWithClient(tx, lockedJobId),
+            };
+            return operation(!acquired, transactionRepository);
+        });
+    }
+
     // Cross-branch by design: see the class comment above.
     async findByLinkTokenHash(linkTokenHash: string): Promise<ReceiptLinkTokenRecord | null> {
         return runSystemScope(async () => {
@@ -80,17 +106,23 @@ export class SbReceiptLinkTokenRepository implements IReceiptLinkTokenRepository
     }
 
     async createReplacingActive(data: CreateReceiptLinkTokenData, now: Date): Promise<ReceiptLinkTokenRecord> {
-        const row = await this.prisma.$transaction(async (tx) => {
-            await tx.receipt_link_token.updateMany({
-                // Branch-pinned per the tenant-isolation extension's write-pin rule: the
-                // revoke targets only the issuing branch's previously active token for
-                // this document, matching the branch the new row is created under.
-                where: { eformsignDocId: data.eformsignDocId, active: true, branchId: data.branchId },
-                data: { active: false, revokedAt: now },
-            });
-            return tx.receipt_link_token.create({ data, include: INCLUDE_NAMES });
-        });
+        const row = await this.prisma.$transaction((tx) => this.createReplacingActiveWithClient(tx, data, now));
         return toRecord(row);
+    }
+
+    private async createReplacingActiveWithClient(
+        client: Prisma.TransactionClient,
+        data: CreateReceiptLinkTokenData,
+        now: Date,
+    ) {
+        await client.receipt_link_token.updateMany({
+            // Branch-pinned per the tenant-isolation extension's write-pin rule: the
+            // revoke targets only the issuing branch's previously active token for
+            // this document, matching the branch the new row is created under.
+            where: { eformsignDocId: data.eformsignDocId, active: true, branchId: data.branchId },
+            data: { active: false, revokedAt: now },
+        });
+        return client.receipt_link_token.create({ data, include: INCLUDE_NAMES });
     }
 
     // Cross-branch by design: see the class comment above. This is the verify()
@@ -214,7 +246,14 @@ export class SbReceiptLinkTokenRepository implements IReceiptLinkTokenRepository
     }
 
     async findActiveByJobId(jobId: string): Promise<ReceiptLinkTokenRecord | null> {
-        const row = await this.prisma.receipt_link_token.findFirst({
+        return this.findActiveByJobIdWithClient(this.prisma, jobId);
+    }
+
+    private async findActiveByJobIdWithClient(
+        client: Pick<PrismaService, "receipt_link_token"> | Prisma.TransactionClient,
+        jobId: string,
+    ): Promise<ReceiptLinkTokenRecord | null> {
+        const row = await client.receipt_link_token.findFirst({
             where: { jobId, active: true },
             orderBy: { createdAt: "desc" },
             include: INCLUDE_NAMES,

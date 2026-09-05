@@ -9,6 +9,7 @@ import {
 import {
     CreateReceiptLinkTokenData,
     IReceiptLinkTokenRepository,
+    IReceiptLinkTokenIssuanceRepository,
     ReceiptLinkTokenRecord,
     ReserveVerificationAttemptResult,
     UpdateReceiptLinkTokenData,
@@ -188,6 +189,32 @@ describe("ReceiptLinkTokenService", () => {
         expect(RECEIPT_LINK_LOCK_MS).toBe(30 * 60 * 1000);
     });
 
+    it("uses an issuance-scoped repository when one is supplied", async () => {
+        const { repository, service } = makeService();
+        const createReplacingActive = jest.fn().mockResolvedValue({ id: "tx-row" });
+        const transactionRepository = {
+            createReplacingActive,
+            findActiveByJobId: jest.fn(),
+        } as unknown as IReceiptLinkTokenIssuanceRepository;
+
+        const result = await service.issue({
+            branchId: "11111111-1111-1111-1111-111111111111",
+            clientId: 7,
+            eformsignDocId: 42,
+            jobId: "job-locked",
+            birthday: "940315",
+            storagePath: "receipts/b/42/tx.png",
+            contentSha256: "b".repeat(64),
+            byteSize: 1000,
+            source: "auto_trigger",
+            now: NOW,
+        }, transactionRepository);
+
+        expect(createReplacingActive).toHaveBeenCalledTimes(1);
+        expect(repository.rows).toHaveLength(0);
+        expect(result.id).toBe("tx-row");
+    });
+
     // M1: issue() accepts a jobId and the repository must be able to look the row back up by
     // it — this is the round-trip the manual-send/enricher flow relies on to avoid re-issuing.
     it("issue({ jobId }) round-trips through findActiveByJobId", async () => {
@@ -243,6 +270,7 @@ describe("ReceiptLinkTokenService", () => {
             ok: true,
             state: "pending",
             branchName: "인천 아이미래로",
+            storagePath: "receipts/b/42/abc.png",
             expiresAt: new Date(NOW.getTime() + RECEIPT_LINK_TTL_MS).toISOString(),
             remainingAttempts: RECEIPT_LINK_MAX_FAILED_ATTEMPTS,
             lockedUntil: null,

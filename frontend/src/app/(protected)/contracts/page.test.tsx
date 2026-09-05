@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
 import { api } from "@/lib/api/client";
@@ -156,7 +156,7 @@ async function renderContractDetailAndOpenPreview() {
     </QueryClientProvider>,
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "문서 보기" }));
+  fireEvent.click(await screen.findByRole("button", { name: "문서 보기" }));
   await screen.findByTestId("pdf-document");
 
   const sendButton = document.body.querySelector(
@@ -191,6 +191,36 @@ describe("ContractDetail manual receipt-send interaction", () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  it("replaces detail actions with a non-interactive skeleton while loading", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const doc = receiptDetailDocumentFixture();
+    let resolveDetail: (document: EformsignDocument) => void = () => {};
+    const pendingDetail = new Promise<EformsignDocument>((resolve) => {
+      resolveDetail = resolve;
+    });
+    jest.spyOn(eformsignApi, "getDocument").mockReturnValue(pendingDetail as never);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ContractDetail data-component="desktop_contracts_detail" document={doc} />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("status", { name: "계약 작업 불러오는 중" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "문서 보기" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "검토 완료 확인" })).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveDetail(doc);
+      await pendingDetail;
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByRole("status", { name: "계약 작업 불러오는 중" })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "문서 보기" })).toBeInTheDocument();
   });
 
   it("clicking the trigger opens the confirm dialog without calling the send API", async () => {
@@ -266,7 +296,7 @@ describe("ContractDetail manual receipt-send interaction", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "문서 보기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "문서 보기" }));
     await screen.findByTestId("pdf-document");
 
     expect(screen.queryByRole("button", { name: "영수증 문자 발송" })).toBeNull();
