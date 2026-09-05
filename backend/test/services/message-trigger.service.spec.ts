@@ -1,4 +1,4 @@
-import { ConflictException } from "@nestjs/common";
+import { ConflictException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
     MessageTriggerService,
@@ -24,6 +24,10 @@ import {
 } from "domain/entities/message-trigger-job.entity";
 import { MessageTriggerRuleEntity } from "domain/entities/message-trigger-rule.entity";
 import { TriggerJobDeferredError } from "domain/errors/trigger-job-deferred.error";
+import {
+    SERVICE_RECORD_LINK_BRANCH_DISABLED_REASON,
+    SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON,
+} from "domain/constants/service-record-link-message";
 
 jest.mock("infrastructure/database/schema-capabilities", () => ({
     hasColumn: jest.fn().mockResolvedValue(true),
@@ -162,6 +166,16 @@ describe("MessageTriggerService", () => {
         findRecentByBranch: jest.fn().mockResolvedValue([]),
     });
 
+    /** Default: no branch override present, matching pre-feature behaviour (global rule always governs). */
+    const createOverrideRepository = () => ({
+        findOne: jest.fn().mockResolvedValue(null),
+        findAllByBranch: jest.fn().mockResolvedValue([]),
+        upsert: jest.fn().mockImplementation(async (branchId: string, ruleId: string, isActive: boolean) => (
+            { branchId, ruleId, isActive }
+        )),
+        cancelJobsForBranchRule: jest.fn().mockResolvedValue(undefined),
+    });
+
     const createMessageSenderApprovalService = () => ({
         ensureApproved: jest.fn().mockResolvedValue(undefined),
         isApproved: jest.fn().mockResolvedValue(true),
@@ -252,6 +266,11 @@ describe("MessageTriggerService", () => {
             message_trigger_job: {
                 findMany: jest.fn().mockResolvedValue([]),
             },
+            // updateRuleBranchActivation reads the fixed global rule directly (not through
+            // ruleRepository), to check whether a global kill switch blocks re-enabling.
+            message_trigger_rule: {
+                findUnique: jest.fn().mockResolvedValue(null),
+            },
             $transaction: jest.fn().mockImplementation(
                 async (operation: (transaction: typeof writeTransaction) => Promise<unknown>) =>
                     operation(writeTransaction),
@@ -261,6 +280,7 @@ describe("MessageTriggerService", () => {
         const messageLogRepository = createMessageLogRepository();
         const systemTemplateService = createSystemTemplateService();
         const templateAutomationLock = createTemplateAutomationLock(prisma);
+        const overrideRepository = createOverrideRepository();
         const service = new MessageTriggerService(
             prisma as never,
             {} as never,
@@ -270,6 +290,8 @@ describe("MessageTriggerService", () => {
             messageLogRepository as never,
             systemTemplateService as never,
             templateAutomationLock as never,
+            undefined,
+            overrideRepository as never,
         );
 
         const internals = service as unknown as ServiceInternals;
@@ -284,6 +306,7 @@ describe("MessageTriggerService", () => {
             jobRepository,
             messageSenderApprovalService,
             systemTemplateService,
+            overrideRepository,
             templateAutomationLock,
         };
     };
@@ -695,6 +718,133 @@ describe("MessageTriggerService", () => {
         expect(ruleRepository.create).not.toHaveBeenCalled();
         expect(internals.rebuildJobsForRule).not.toHaveBeenCalled();
         expect(rules).toEqual([existingRule]);
+    });
+
+    describe("branch-activation overlay on listRules", () => {
+        it("marks a global rule isLockedByGlobal when it is disabled and no branch override exists", async () => {
+            const { service, ruleRepository, overrideRepository, messageSenderApprovalService } = createService();
+            const globalRule = createRule({ id: "rule-global", isActive: false });
+            globalRule.branchId = null;
+            ruleRepository.findAll.mockResolvedValue([globalRule]);
+            // Skip default-trigger provisioning so this test stays focused on the overlay.
+            messageSenderApprovalService.isApproved.mockResolvedValue(false);
+
+            const rules = await service.listRules(branchId);
+
+            expect(overrideRepository.findAllByBranch).toHaveBeenCalledWith(branchId);
+            expect(rules).toHaveLength(1);
+            expect(rules[0]?.isLockedByGlobal).toBe(true);
+            expect(rules[0]?.isActive).toBe(false);
+        });
+
+        it("keeps isLockedByGlobal true and effective isActive false even when the branch opted back in — a global kill switch cannot be overridden by an opt-out-only override", async () => {
+            const { service, ruleRepository, overrideRepository, messageSenderApprovalService } = createService();
+            const globalRule = createRule({ id: "rule-global", isActive: false });
+            globalRule.branchId = null;
+            ruleRepository.findAll.mockResolvedValue([globalRule]);
+            messageSenderApprovalService.isApproved.mockResolvedValue(false);
+            overrideRepository.findAllByBranch.mockResolvedValue([
+                { branchId, ruleId: "rule-global", isActive: true },
+            ]);
+
+            const rules = await service.listRules(branchId);
+
+            expect(rules[0]?.isLockedByGlobal).toBe(true);
+            expect(rules[0]?.isActive).toBe(false);
+        });
+
+        it("reports effective isActive false for a branch that opted out of an active global rule, without locking it", async () => {
+            const { service, ruleRepository, overrideRepository, messageSenderApprovalService } = createService();
+            const globalRule = createRule({ id: "rule-global", isActive: true });
+            globalRule.branchId = null;
+            ruleRepository.findAll.mockResolvedValue([globalRule]);
+            messageSenderApprovalService.isApproved.mockResolvedValue(false);
+            overrideRepository.findAllByBranch.mockResolvedValue([
+                { branchId, ruleId: "rule-global", isActive: false },
+            ]);
+
+            const rules = await service.listRules(branchId);
+
+            expect(rules[0]?.isLockedByGlobal).toBe(false);
+            expect(rules[0]?.isActive).toBe(false);
+        });
+    });
+
+    describe("updateRuleBranchActivation", () => {
+        it("rejects re-enabling a branch (409) when the global rule itself is disabled", async () => {
+            const { service, prisma } = createService();
+            prisma.message_trigger_rule.findUnique.mockResolvedValue({
+                id: "rule-global",
+                branchId: null,
+                isActive: false,
+            });
+
+            await expect(service.updateRuleBranchActivation(branchId, "rule-global", true))
+                .rejects.toBeInstanceOf(ConflictException);
+        });
+
+        it("rejects (404) a branch-owned rule id — branch-activation only applies to global rules", async () => {
+            const { service, prisma } = createService();
+            prisma.message_trigger_rule.findUnique.mockResolvedValue({
+                id: "rule-1",
+                branchId: "branch-1",
+                isActive: true,
+            });
+
+            await expect(service.updateRuleBranchActivation(branchId, "rule-1", false))
+                .rejects.toBeInstanceOf(NotFoundException);
+        });
+
+        it("rejects (404) when the rule id does not exist at all", async () => {
+            const { service, prisma } = createService();
+            prisma.message_trigger_rule.findUnique.mockResolvedValue(null);
+
+            await expect(service.updateRuleBranchActivation(branchId, "missing-rule", false))
+                .rejects.toBeInstanceOf(NotFoundException);
+        });
+
+        it("opting out upserts the override and cancels the branch's jobs with the disabled reason", async () => {
+            const { service, prisma, ruleRepository, overrideRepository, messageSenderApprovalService } =
+                createService();
+            prisma.message_trigger_rule.findUnique.mockResolvedValue({
+                id: "rule-global",
+                branchId: null,
+                isActive: true,
+            });
+            const globalRule = createRule({ id: "rule-global", isActive: true });
+            globalRule.branchId = null;
+            ruleRepository.findAll.mockResolvedValue([globalRule]);
+            messageSenderApprovalService.isApproved.mockResolvedValue(false);
+
+            await service.updateRuleBranchActivation(branchId, "rule-global", false);
+
+            expect(overrideRepository.upsert).toHaveBeenCalledWith(branchId, "rule-global", false);
+            expect(overrideRepository.cancelJobsForBranchRule).toHaveBeenCalledWith(
+                branchId,
+                "rule-global",
+                SERVICE_RECORD_LINK_BRANCH_DISABLED_REASON,
+                SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON,
+            );
+        });
+
+        it("opting back in upserts the override without canceling any jobs", async () => {
+            const { service, prisma, ruleRepository, overrideRepository, messageSenderApprovalService } =
+                createService();
+            prisma.message_trigger_rule.findUnique.mockResolvedValue({
+                id: "rule-global",
+                branchId: null,
+                isActive: true,
+            });
+            const globalRule = createRule({ id: "rule-global", isActive: true });
+            globalRule.branchId = null;
+            ruleRepository.findAll.mockResolvedValue([globalRule]);
+            messageSenderApprovalService.isApproved.mockResolvedValue(false);
+
+            await service.updateRuleBranchActivation(branchId, "rule-global", true);
+
+            expect(overrideRepository.upsert).toHaveBeenCalledWith(branchId, "rule-global", true);
+            expect(overrideRepository.cancelJobsForBranchRule).not.toHaveBeenCalled();
+        });
     });
 
     it("createRule synchronously reconciles the new rule generation before returning", async () => {

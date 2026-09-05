@@ -1,5 +1,11 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { ConflictException, ExecutionContext, INestApplication, ValidationPipe } from "@nestjs/common";
+import {
+    ConflictException,
+    ExecutionContext,
+    INestApplication,
+    NotFoundException,
+    ValidationPipe,
+} from "@nestjs/common";
 import request from "supertest";
 import { MessageTriggerController } from "interface/controllers/message-trigger.controller";
 import {
@@ -43,6 +49,7 @@ describe("MessageTriggerController (Integration)", () => {
         createRule: jest.Mock;
         getRule: jest.Mock;
         updateRule: jest.Mock;
+        updateRuleBranchActivation: jest.Mock;
         deleteRule: jest.Mock;
         listTemplates: jest.Mock;
     };
@@ -155,6 +162,7 @@ describe("MessageTriggerController (Integration)", () => {
             createRule: jest.fn(),
             getRule: jest.fn(),
             updateRule: jest.fn(),
+            updateRuleBranchActivation: jest.fn(),
             deleteRule: jest.fn(),
             listTemplates: jest.fn(),
         };
@@ -463,6 +471,58 @@ describe("MessageTriggerController (Integration)", () => {
 
             expect(response.status).toBe(400);
             expect(triggerService.updateRule).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("PUT /message-trigger-rules/:id/branch-activation", () => {
+        it("forwards the branch opt-out/opt-in to the service and returns the resulting rule", async () => {
+            triggerService.updateRuleBranchActivation.mockResolvedValue(
+                createMockRule({ id: "rule-global", branchId: null, isActive: false }),
+            );
+
+            const response = await request(app.getHttpServer())
+                .put("/message-trigger-rules/rule-global/branch-activation")
+                .send({ isActive: false });
+
+            expect(response.status).toBe(200);
+            expect(triggerService.updateRuleBranchActivation).toHaveBeenCalledWith(
+                branchId,
+                "rule-global",
+                false,
+            );
+        });
+
+        it("surfaces a 409 conflict when enabling a branch under a disabled global rule", async () => {
+            triggerService.updateRuleBranchActivation.mockRejectedValue(
+                new ConflictException("Global rule is disabled"),
+            );
+
+            const response = await request(app.getHttpServer())
+                .put("/message-trigger-rules/rule-global/branch-activation")
+                .send({ isActive: true });
+
+            expect(response.status).toBe(409);
+        });
+
+        it("surfaces a 404 not-found for a branch-owned rule id", async () => {
+            triggerService.updateRuleBranchActivation.mockRejectedValue(
+                new NotFoundException("Trigger rule rule-1 not found"),
+            );
+
+            const response = await request(app.getHttpServer())
+                .put("/message-trigger-rules/rule-1/branch-activation")
+                .send({ isActive: false });
+
+            expect(response.status).toBe(404);
+        });
+
+        it("rejects a non-boolean isActive payload", async () => {
+            const response = await request(app.getHttpServer())
+                .put("/message-trigger-rules/rule-global/branch-activation")
+                .send({ isActive: "yes" });
+
+            expect(response.status).toBe(400);
+            expect(triggerService.updateRuleBranchActivation).not.toHaveBeenCalled();
         });
     });
 

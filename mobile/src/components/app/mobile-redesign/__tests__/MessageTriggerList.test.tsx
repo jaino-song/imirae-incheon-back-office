@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MessageTriggerList } from "../MessageTriggerList";
 import {
   useMessageTriggerRules,
+  useUpdateMessageTriggerRuleBranchActivation,
   useUpdateMessageTriggerRule,
 } from "@/features/message-triggers/hooks/use-message-triggers";
 import type { MessageTriggerRule } from "@/features/message-triggers/types";
@@ -11,6 +12,7 @@ import { fetchAllMessageLogs } from "@/lib/messages/logs";
 
 jest.mock("@/features/message-triggers/hooks/use-message-triggers", () => ({
   useMessageTriggerRules: jest.fn(),
+  useUpdateMessageTriggerRuleBranchActivation: jest.fn(),
   useUpdateMessageTriggerRule: jest.fn(),
 }));
 
@@ -20,6 +22,7 @@ jest.mock("@/lib/messages/logs", () => ({
 
 const mockUseMessageTriggerRules = useMessageTriggerRules as jest.Mock;
 const mockUseUpdateMessageTriggerRule = useUpdateMessageTriggerRule as jest.Mock;
+const mockUseUpdateMessageTriggerRuleBranchActivation = useUpdateMessageTriggerRuleBranchActivation as jest.Mock;
 const mockFetchAllMessageLogs = fetchAllMessageLogs as jest.Mock;
 
 function createRule(overrides: Partial<MessageTriggerRule> = {}): MessageTriggerRule {
@@ -70,6 +73,7 @@ function renderPage(onEdit?: (rule: MessageTriggerRule) => void) {
 
 describe("MessageTriggerList", () => {
   const updateMutate = jest.fn();
+  const branchActivationMutate = jest.fn();
 
   beforeEach(() => {
     updateMutate.mockClear();
@@ -77,6 +81,10 @@ describe("MessageTriggerList", () => {
     mockUseUpdateMessageTriggerRule.mockReturnValue({
       isPending: false,
       mutate: updateMutate,
+    });
+    mockUseUpdateMessageTriggerRuleBranchActivation.mockReturnValue({
+      isPending: false,
+      mutate: branchActivationMutate,
     });
     mockUseMessageTriggerRules.mockReturnValue({
       data: [],
@@ -168,6 +176,36 @@ describe("MessageTriggerList", () => {
     });
   });
 
+  it("uses branch activation for global rules without sending the content DTO", async () => {
+    mockUseMessageTriggerRules.mockReturnValue({
+      data: [createRule({ id: "global-rule", branchId: null, isActive: true })],
+      isError: false,
+      isLoading: false,
+    });
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /실제 서비스 시작 규칙/ }));
+
+    expect(branchActivationMutate).toHaveBeenCalledWith({
+      id: "global-rule",
+      dto: { isActive: false },
+    });
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it("disables a global-locked rule toggle", async () => {
+    mockUseMessageTriggerRules.mockReturnValue({
+      data: [createRule({ branchId: null, isLockedByGlobal: true })],
+      isError: false,
+      isLoading: false,
+    });
+
+    renderPage();
+
+    expect(await screen.findByRole("button", { name: /실제 서비스 시작 규칙/ })).toBeDisabled();
+  });
+
   it("separates rule editing from the active toggle in management mode", async () => {
     const onEdit = jest.fn();
     const rule = createRule({ isActive: true });
@@ -214,9 +252,10 @@ describe("MessageTriggerList", () => {
     expect(screen.getByText("등록된 자동 전송 트리거가 없습니다.")).toBeInTheDocument();
   });
 
-  // M5: a branchless (system) rule — e.g. the manual-send synthetic rule — must not be
-  // editable or toggleable, mirroring the desktop guard in TriggerRulesManager.tsx.
-  it("hides the edit affordance and disables the toggle for a branchless system rule (M5)", async () => {
+  // M5: a branchless (system) rule is never editable (content is fixed), but this branch may
+  // still opt out of it — the toggle stays live and routes through branch activation, never the
+  // content DTO. Only isLockedByGlobal disables it (covered above).
+  it("hides the edit affordance but keeps the toggle live for a branchless system rule (M5)", async () => {
     const onEdit = jest.fn();
     const rule = createRule({ id: "rule-system", branchId: null, name: "수동 발송 규칙" });
     mockUseMessageTriggerRules.mockReturnValue({ data: [rule], isError: false, isLoading: false });
@@ -225,22 +264,25 @@ describe("MessageTriggerList", () => {
 
     await screen.findByText("수동 발송 규칙");
     expect(screen.queryByRole("button", { name: "수동 발송 규칙 설정" })).not.toBeInTheDocument();
+    expect(onEdit).not.toHaveBeenCalled();
 
     const toggle = screen.getByRole("button", { name: "수동 발송 규칙 비활성화" });
-    expect(toggle).toBeDisabled();
+    expect(toggle).toBeEnabled();
     fireEvent.click(toggle);
+    expect(branchActivationMutate).toHaveBeenCalledWith({ id: "rule-system", dto: { isActive: false } });
     expect(updateMutate).not.toHaveBeenCalled();
   });
 
-  it("disables the row toggle for a branchless system rule when no onEdit is provided (M5)", async () => {
+  it("keeps the row toggle live for a branchless system rule when no onEdit is provided (M5)", async () => {
     const rule = createRule({ id: "rule-system", branchId: null, name: "수동 발송 규칙" });
     mockUseMessageTriggerRules.mockReturnValue({ data: [rule], isError: false, isLoading: false });
 
     renderPage();
 
     const row = await screen.findByRole("button", { name: /수동 발송 규칙/ });
-    expect(row).toBeDisabled();
+    expect(row).toBeEnabled();
     fireEvent.click(row);
+    expect(branchActivationMutate).toHaveBeenCalledWith({ id: "rule-system", dto: { isActive: false } });
     expect(updateMutate).not.toHaveBeenCalled();
   });
 });

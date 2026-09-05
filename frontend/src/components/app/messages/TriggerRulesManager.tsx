@@ -39,6 +39,7 @@ import {
   useMessageTriggerTemplates,
   useCreateMessageTriggerRule,
   useUpdateMessageTriggerRule,
+  useUpdateMessageTriggerRuleBranchActivation,
   useDeleteMessageTriggerRule,
 } from "@/features/message-triggers/hooks/use-message-triggers";
 import {
@@ -298,6 +299,7 @@ export function TriggerRulesManager({
   const { data: rulesData = [], isLoading } = useMessageTriggerRules();
   const createMutation = useCreateMessageTriggerRule();
   const updateMutation = useUpdateMessageTriggerRule();
+  const branchActivationMutation = useUpdateMessageTriggerRuleBranchActivation();
   const deleteMutation = useDeleteMessageTriggerRule();
 
   const rules = useMemo(() => (Array.isArray(rulesData) ? rulesData : []), [rulesData]);
@@ -561,15 +563,18 @@ export function TriggerRulesManager({
   };
 
   const handleRuleActiveToggle = async (rule: MessageTriggerRule, checked: boolean) => {
-    if (isTriggerRulesLocked || rule.branchId === null) return;
-
-    const dto = normalizeDto({
-      ...toFormState(rule),
-      isActive: checked,
-    });
-
     try {
-      await updateMutation.mutateAsync({ id: rule.id, dto });
+      if (isTriggerRulesLocked || rule.isLockedByGlobal) return;
+
+      if (rule.branchId === null) {
+        await branchActivationMutation.mutateAsync({ id: rule.id, dto: { isActive: checked } });
+      } else {
+        const dto = normalizeDto({
+          ...toFormState(rule),
+          isActive: checked,
+        });
+        await updateMutation.mutateAsync({ id: rule.id, dto });
+      }
       if (effectiveSelectedRuleId === rule.id) {
         setFormState((current) => ({ ...current, isActive: checked }));
       }
@@ -709,7 +714,7 @@ export function TriggerRulesManager({
                             <Switch
                               aria-label={`${item.title} 활성화`}
                               checked={item.active}
-                              disabled={isTriggerRulesLocked || item.rule.branchId === null || updateMutation.isPending}
+                              disabled={isTriggerRulesLocked || item.rule.isLockedByGlobal === true || updateMutation.isPending || branchActivationMutation.isPending}
                               onClick={(event) => event.stopPropagation()}
                               onCheckedChange={(checked) => {
                                 void handleRuleActiveToggle(item.rule, checked);
@@ -759,7 +764,7 @@ export function TriggerRulesManager({
               isLoading={isDetailLoading}
               title={effectiveSelectedRuleId === "new" ? "새 발송 규칙" : selectedRule?.name ?? "발송 규칙"}
               subtitle={isSelectedSystemRule
-                ? "서비스 배정 시 제공인력에게 자동 발송되는 읽기 전용 시스템 루틴입니다."
+                ? "내용은 고정되어 있지만 이 지점에서 발송 여부를 켜고 끌 수 있는 시스템 루틴입니다."
                 : copy.detailSubtitle}
               tabs={
                 <DetailTabs
