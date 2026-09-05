@@ -362,9 +362,19 @@ export class SmsTriggerDeliveryService {
             // Enriching now would change job.payload.templateVariables and make the canonical
             // re-render diverge from what was approved, so resolveDeliverySnapshot's staged-vs-canonical
             // hash check would reject with "changed after staging" and the provider would never be
-            // called. Skip enrichment entirely for a job that already carries a staged snapshot.
-            const enricher = this.hasStagedDeliverySnapshot(job) ? null : this.enricherRegistry?.get(job.templateKey) ?? null;
-            if (enricher) {
+            // called. Skip mutating enrichment for a staged snapshot, while allowing its enricher
+            // to validate that an approved external capability is still usable.
+            const hasStagedSnapshot = this.hasStagedDeliverySnapshot(job);
+            const enricher = this.enricherRegistry?.get(job.templateKey) ?? null;
+            if (hasStagedSnapshot && job.templateKey === MessageTriggerTemplateKey.SERVICE_END_NOTICE) {
+                if (!enricher?.validateStagedSnapshot) {
+                    throw new SmsTriggerDeliverySkipError(
+                        "receipt_link_validation_unavailable",
+                        "승인된 영수증 링크를 확인할 수 없어 재시도하지 않았습니다",
+                    );
+                }
+                await enricher.validateStagedSnapshot(job);
+            } else if (!hasStagedSnapshot && enricher) {
                 await enricher.enrich(job);
             }
             return await this.sendSmsJob(job, config);

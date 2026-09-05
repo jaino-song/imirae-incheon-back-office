@@ -84,6 +84,42 @@ describe("EformsignWebhookEventWriter", () => {
         await expect(writer.countSince(new Date())).resolves.toEqual({ received: 0, dropped: 0 });
     });
 
+    /**
+     * Raw Prisma errors carry invocation metadata; the log line must carry
+     * only the safe summary, never the error object itself.
+     */
+    it("logs a sanitized summary, not the raw error, when the insert fails", async () => {
+        const prismaLikeError = Object.assign(
+            new Error("db query invocation failed: connection string postgresql://user:hunter2@db"),
+            { code: "P2002", meta: { target: ["phone"], secret: "hunter2" } },
+        );
+        append.mockRejectedValue(prismaLikeError);
+
+        await writer.append({ documentId: "doc-1", outcome: EFORMSIGN_WEBHOOK_OUTCOME.APPLIED });
+
+        const warn = (Logger.prototype.warn as jest.Mock).mock.calls.at(-1)![0] as string;
+        expect(warn).toContain("code=P2002");
+        expect(warn).not.toContain("hunter2");
+        expect(warn).not.toContain("postgresql://");
+        expect(warn).not.toContain(prismaLikeError.message);
+    });
+
+    it("logs a sanitized summary, not the raw error, when the count fails", async () => {
+        const prismaLikeError = Object.assign(
+            new Error("db query invocation failed: connection string postgresql://user:hunter2@db"),
+            { code: "P1017", meta: { host: "db.internal" } },
+        );
+        countByOutcomeSince.mockRejectedValue(prismaLikeError);
+
+        await expect(writer.countSince(new Date())).resolves.toEqual({ received: 0, dropped: 0 });
+
+        const warn = (Logger.prototype.warn as jest.Mock).mock.calls.at(-1)![0] as string;
+        expect(warn).toContain("code=P1017");
+        expect(warn).not.toContain("hunter2");
+        expect(warn).not.toContain("db.internal");
+        expect(warn).not.toContain(prismaLikeError.message);
+    });
+
     it("reports how many rows the purge removed", async () => {
         deleteOlderThan.mockResolvedValue(42);
         const cutoff = new Date("2026-06-05T00:00:00.000Z");
