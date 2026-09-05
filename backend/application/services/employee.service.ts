@@ -24,7 +24,7 @@ import {
     IEmployeeRepository,
     PaginatedEmployeeWorkHistory,
 } from "domain/repositories/employee.repository.interface";
-import { assertRequiredPhone, InvalidPhoneError, normalizePhone } from "application/utils/normalize-phone";
+import { assertRequiredPhone, INVALID_PHONE_MESSAGE, InvalidPhoneError, normalizePhone } from "application/utils/normalize-phone";
 import { MessageAutomationIntentService } from "./message-automation-intent.service";
 import { MessageTriggerService } from "./message-trigger.service";
 
@@ -35,7 +35,7 @@ function assertEmployeePhoneInput(phone: string | null | undefined): string {
         return assertRequiredPhone(phone);
     } catch (error) {
         if (error instanceof InvalidPhoneError) {
-            throw new BadRequestException("Phone number must be a valid Korean phone number");
+            throw new BadRequestException(INVALID_PHONE_MESSAGE);
         }
         throw error;
     }

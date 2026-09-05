@@ -192,7 +192,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         } as const;
 
         await expect(capability.execute(context, { name: "홍길동", phone })).rejects.toThrow(
-            "Phone number must be a valid Korean phone number",
+            "연락처가 올바른 국내 전화번호 형식이 아닙니다.",
         );
         expect(clientRepository.findByPhone).not.toHaveBeenCalled();
         expect(voucherServiceSelection.execute).not.toHaveBeenCalled();
@@ -209,7 +209,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         } as const;
 
         await expect(capability.execute(context, { id: 1, phone: "not-a-phone" })).rejects.toThrow(
-            "Phone number must be a valid Korean phone number",
+            "연락처가 올바른 국내 전화번호 형식이 아닙니다.",
         );
         expect(findClient.execute).not.toHaveBeenCalled();
         expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -793,7 +793,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         await capability.execute(context, { name: "김영희", phone: "01033334444", areaId: "global" });
         await expect(capability.execute(context, {
             name: "박철수", phone: "01055556666", areaId: "foreign",
-        })).rejects.toThrow("areaId must reference an available area");
+        })).rejects.toThrow("선택한 관할 지역을 사용할 수 없습니다.");
 
         expect(prisma.area.findFirst).toHaveBeenNthCalledWith(1, expect.objectContaining({
             where: { id: "local", OR: [{ branchId: "branch-a" }, { branchId: null }] },
@@ -813,7 +813,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         clientRepository.findByPhone.mockResolvedValueOnce(existingClient);
         await expect(createCapability.execute(context, {
             name: "신규", phone: "010-1234-5678",
-        })).rejects.toThrow("phone");
+        })).rejects.toThrow("이미 같은 전화번호의 고객이 있습니다.");
         expect(clientRepository.findByPhone).toHaveBeenLastCalledWith("branch-a", "01012345678");
         expect(createClient.execute).not.toHaveBeenCalled();
 
@@ -822,7 +822,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         expect(updateClient.execute).toHaveBeenCalledWith("branch-a", 1, expect.objectContaining({ phone: "010-1234-5678" }));
 
         clientRepository.findByPhone.mockResolvedValueOnce({ ...existingClient, id: 2 });
-        await expect(updateCapability.execute(context, { id: 1, phone: "010 1234 5678" })).rejects.toThrow("phone");
+        await expect(updateCapability.execute(context, { id: 1, phone: "010 1234 5678" })).rejects.toThrow("이미 같은 전화번호의 고객이 있습니다.");
         expect(updateClient.execute).toHaveBeenCalledTimes(1);
     });
 
@@ -843,7 +843,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         expect(updateClient.execute).toHaveBeenLastCalledWith("branch-a", 1, expect.objectContaining({ startDate: null }));
 
         await expect(capability.execute(context, { id: 1, endDate: null, duration: 5 }))
-            .rejects.toThrow("duration requires a complete service period");
+            .rejects.toThrow("서비스 기간을 지정하려면 시작일과 종료일이 모두 있어야 합니다.");
         expect(updateClient.execute).toHaveBeenCalledTimes(2);
 
         await expect(capability.executeApprovedTarget!(context, { id: 1, startDate: "2025-01-01", endDate: "2024-01-01" }, "approved-target"))

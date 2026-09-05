@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 
 import { CreateEmployeeUsecase } from "application/usecases/employee/create-employee.usecase";
 
@@ -40,6 +40,29 @@ export interface EformsignContractClientCandidateResponse {
 }
 
 /**
+ * Why the 바우처 유형/기간 backfill did not produce a selection. `null` on a
+ * resolved selection; the first three values are ordinary states rather than
+ * failures.
+ */
+type VoucherSelectionSkip =
+    | "not-voucher-client"
+    | "already-in-contract"
+    | "no-service-period"
+    | "fewer-than-two-amounts"
+    | "no-matching-price-row"
+    | "ambiguous-price-rows"
+    | "invalid-price-row-duration";
+
+interface VoucherSelectionOutcome {
+    selection: { type: string; duration: number } | null;
+    skipped: VoucherSelectionSkip | null;
+    year?: number;
+    amountCount?: number;
+    priceRowCount?: number;
+    matchCount?: number;
+}
+
+/**
  * 미연결 계약서에서 고객 등록 폼 프리필용 후보를 읽어온다.
  * 자동 등록(LinkMirroredEformsignDocByPhoneUsecase)과 같은 필드·별칭 테이블을
  * 사용하되, 등록 폼에서는 전화번호를 검증하지 못해도 다른 상세 필드를 보존한다.
@@ -51,6 +74,8 @@ export interface EformsignContractClientCandidateResponse {
  */
 @Injectable()
 export class GetContractClientCandidateUsecase {
+    private readonly logger = new Logger(GetContractClientCandidateUsecase.name);
+
     constructor(
         private readonly prisma: PrismaService,
         private readonly createEmployee: CreateEmployeeUsecase,
@@ -85,10 +110,14 @@ export class GetContractClientCandidateUsecase {
             primary: employeeIds.primaryEmployeeId !== null,
             secondary: employeeIds.secondaryEmployeeId !== null,
         };
-        const voucherSelection = candidate
+        const voucherOutcome = candidate
             ? await this.resolveVoucherSelection(candidate, resolvedProvider.primary)
             : null;
         if (!candidate) {
+            this.logger.warn(
+                `Contract ${document.documentId} has no parseable detail payload;`
+                + " the registration form opens with every extracted field empty.",
+            );
             return {
                 documentId: document.documentId,
                 extracted: false,
@@ -112,6 +141,17 @@ export class GetContractClientCandidateUsecase {
             };
         }
 
+        const resolvedVoucher = {
+            type: voucherOutcome?.selection?.type ?? candidate.type,
+            duration: voucherOutcome?.selection?.duration ?? candidate.duration,
+        };
+        this.logPrefillGaps(
+            document.documentId,
+            candidate,
+            voucherOutcome ?? { selection: null, skipped: null },
+            resolvedVoucher,
+        );
+
         return {
             documentId: document.documentId,
             extracted: true,
@@ -123,8 +163,8 @@ export class GetContractClientCandidateUsecase {
             startDate: toDateOnly(candidate.startDate),
             endDate: toDateOnly(candidate.endDate),
             ...employeeIds,
-                type: voucherSelection?.type ?? candidate.type,
-                duration: voucherSelection?.duration ?? candidate.duration,
+            type: resolvedVoucher.type,
+            duration: resolvedVoucher.duration,
             fullPrice: candidate.fullPrice,
             grant: candidate.grant,
             actualPrice: candidate.actualPrice,
@@ -220,12 +260,18 @@ export class GetContractClientCandidateUsecase {
     private async resolveVoucherSelection(
         candidate: EformsignContractClientPrefillCandidate,
         hasResolvedPrimaryProvider = false,
-    ): Promise<{ type: string; duration: number } | null> {
-        if (!candidate.voucherClient || (candidate.type && candidate.duration)) return null;
+    ): Promise<VoucherSelectionOutcome> {
+        // Year and amount count are computed before the guards so every
+        // outcome, including the early ones, can report them to the log.
         const year = (candidate.startDate ?? candidate.endDate)?.getUTCFullYear();
         const amounts = [candidate.fullPrice, candidate.grant, candidate.actualPrice]
             .filter((value): value is string => Boolean(value));
-        if (!year || amounts.length < 2) return null;
+        const base = { selection: null, year, amountCount: amounts.length };
+
+        if (!candidate.voucherClient) return { ...base, skipped: "not-voucher-client" };
+        if (candidate.type && candidate.duration) return { ...base, skipped: "already-in-contract" };
+        if (!year) return { ...base, skipped: "no-service-period" };
+        if (amounts.length < 2) return { ...base, skipped: "fewer-than-two-amounts" };
 
         const businessDayDuration = candidate.startDate && candidate.endDate
             ? countBusinessDaysKr(
@@ -255,12 +301,87 @@ export class GetContractClientCandidateUsecase {
                 && (!candidate.actualPrice || numericAmount(row.actualPrice) === candidate.actualPrice)
             );
         });
-        if (matches.length !== 1) return null;
+        if (matches.length !== 1) {
+            return {
+                selection: null,
+                skipped: matches.length === 0 ? "no-matching-price-row" : "ambiguous-price-rows",
+                year,
+                amountCount: amounts.length,
+                priceRowCount: priceRows.length,
+                matchCount: matches.length,
+            };
+        }
         const match = matches[0]!;
         const duration = Number(match.duration);
-        return Number.isSafeInteger(duration) && duration > 0
-            ? { type: match.type!, duration }
-            : null;
+        if (!Number.isSafeInteger(duration) || duration <= 0) {
+            return { selection: null, skipped: "invalid-price-row-duration", year };
+        }
+        return { selection: { type: match.type!, duration }, skipped: null };
+    }
+
+    /**
+     * Extraction fails silently by design: every field parser returns null
+     * rather than throwing, so one blank contract field quietly empties the
+     * whole 서비스/요금 section of the form and nothing records why. Emit that
+     * reason once per request.
+     *
+     * Field names and counts only — a contract's own values are personal data.
+     */
+    private logPrefillGaps(
+        documentId: string,
+        candidate: EformsignContractClientPrefillCandidate,
+        voucher: VoucherSelectionOutcome,
+        resolved: { type: string | null; duration: number | null },
+    ): void {
+        const empty = ([
+            ["type", resolved.type],
+            ["duration", resolved.duration],
+            ["fullPrice", candidate.fullPrice],
+            ["grant", candidate.grant],
+            ["actualPrice", candidate.actualPrice],
+            ["startDate", candidate.startDate],
+            ["endDate", candidate.endDate],
+        ] as const).filter(([, value]) => value === null).map(([field]) => field);
+
+        if (empty.length > 0) {
+            this.logger.debug(
+                `Contract ${documentId} prefill left empty: ${empty.join(", ")}`
+                + ` (voucherClient=${candidate.voucherClient})`,
+            );
+        }
+
+        // Warn on the two states an operator can act on: the whole 서비스/요금
+        // section came back empty, or the price-row backfill ran and could not
+        // settle on a single row. A contract that carries some of the section
+        // (a 자부담 amount without a voucher type, say) is an ordinary state.
+        // `voucherClient` is itself derived from the type and grant, so it
+        // cannot gate this: a contract with neither reports false.
+        const sectionBlank = resolved.type === null
+            && resolved.duration === null
+            && candidate.fullPrice === null
+            && candidate.grant === null
+            && candidate.actualPrice === null;
+        const backfillFailed = voucher.skipped === "fewer-than-two-amounts"
+            || voucher.skipped === "no-matching-price-row"
+            || voucher.skipped === "ambiguous-price-rows"
+            || voucher.skipped === "invalid-price-row-duration";
+        if (!sectionBlank && !backfillFailed) return;
+
+        const counts: Array<[string, number | undefined]> = [
+            ["year", voucher.year],
+            ["amounts", voucher.amountCount],
+            ["priceRows", voucher.priceRowCount],
+            ["matches", voucher.matchCount],
+        ];
+        this.logger.warn(
+            `Contract ${documentId} 서비스/요금 프리필 없음`
+            + ` (바우처 유형/기간 backfill: ${voucher.skipped ?? "resolved"}`
+            + counts
+                .filter(([, value]) => value !== undefined)
+                .map(([label, value]) => `, ${label}=${value}`)
+                .join("")
+            + "). 계약서의 바우처 유형과 금액 필드를 확인하세요.",
+        );
     }
 }
 

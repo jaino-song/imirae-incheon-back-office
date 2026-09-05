@@ -14,7 +14,7 @@ import {
 } from "domain/repositories/eformsign-document-job.repository.interface";
 import { EFORMSIGN_DOC_REPOSITORY, IEformsignDocRepository } from "domain/repositories/eformsign-doc.repository.interface";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
-import { assertRequiredPhone, InvalidPhoneError } from "application/utils/normalize-phone";
+import { assertRequiredPhone, invalidPhoneFieldMessage, InvalidPhoneError } from "application/utils/normalize-phone";
 
 export interface EnqueueCreateDocumentParams {
     branchId: string;
@@ -55,7 +55,7 @@ function assertContractDataPhones(contractData: ContractDataDto): void {
             assertRequiredPhone(value as string | null | undefined);
         } catch (error) {
             if (error instanceof InvalidPhoneError) {
-                throw new BadRequestException(`${field} must be a valid Korean phone number`);
+                throw new BadRequestException(invalidPhoneFieldMessage(field));
             }
             throw error;
         }

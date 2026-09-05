@@ -53,7 +53,8 @@ export type MessageTriggerTemplateKey =
   | "REMINDER"
   | "THANKS"
   | "SURVEY"
-  | "INFO";
+  | "INFO"
+  | "SERVICE_END_NOTICE";
 
 /**
  * Variables each scheduler can derive without operator input.
@@ -94,6 +95,7 @@ export const MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS: Readonly<
   THANKS: ["name", "clientName", "phone"],
   SURVEY: ["name", "clientName", "phone"],
   INFO: ["name", "clientName", "phone"],
+  SERVICE_END_NOTICE: ["name", "clientName", "phone", "receiptUrl"],
 };
 
 // Which system template's body each SMS trigger template renders. One source of
@@ -109,6 +111,7 @@ export const SMS_TRIGGER_TO_SYSTEM_TEMPLATE: Partial<
   THANKS: "THANKS",
   SURVEY: "SURVEY",
   INFO: "INFO",
+  SERVICE_END_NOTICE: "SERVICE_END_NOTICE",
 };
 
 // Canonical source of truth for trigger templates delivered over SMS.
@@ -124,6 +127,7 @@ export const SMS_TRIGGER_TEMPLATE_KEYS: MessageTriggerTemplateKey[] = [
   "THANKS",
   "SURVEY",
   "INFO",
+  "SERVICE_END_NOTICE",
 ];
 
 // SERVICE_RECORD_LINK is scheduled by the dedicated service-record lifecycle

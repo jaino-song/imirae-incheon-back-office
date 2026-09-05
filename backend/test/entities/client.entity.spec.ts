@@ -75,10 +75,10 @@ describe("ClientEntity canonical phone identity", () => {
     });
 
     it("rejects malformed phone values on create and update without partial mutation", () => {
-        expect(() => createClient("not-a-phone")).toThrow("valid Korean phone number");
+        expect(() => createClient("not-a-phone")).toThrow("올바른 국내 전화번호 형식이 아닙니다.");
 
         const client = createClient();
-        expect(() => client.update({ phone: "not-a-phone", name: "unchanged" })).toThrow("valid Korean phone number");
+        expect(() => client.update({ phone: "not-a-phone", name: "unchanged" })).toThrow("올바른 국내 전화번호 형식이 아닙니다.");
         expect(client.phone).toBe("010-1234-5678");
         expect(client.phoneNormalized).toBe("01012345678");
     });

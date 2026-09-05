@@ -1,3 +1,5 @@
+import { SERVICE_END_NOTICE_DEFAULT_CONTENT, SERVICE_END_NOTICE_SMS_TITLE } from './service-end-notice-message';
+
 export enum SystemTemplateKey {
   CLIENT_WELCOME = 'CLIENT_WELCOME',
   SERVICE_START_REMINDER = 'SERVICE_START_REMINDER',
@@ -9,6 +11,7 @@ export enum SystemTemplateKey {
   SURVEY = 'SURVEY',
   SERVICE_INFO = 'SERVICE_INFO',
   SERVICE_RECORD_LINK = 'SERVICE_RECORD_LINK',
+  SERVICE_END_NOTICE = 'SERVICE_END_NOTICE',
   REMINDER = 'REMINDER',
   INFO = 'INFO',
 }
@@ -272,6 +275,17 @@ blog.naver.com/imirae-incheon`,
 입금이 확인되어 예약이 완료되었습니다. 산모님의 서비스를 잘 준비하고 있겠습니다. 예쁜 아가 순산하시면 연락주세요 :)
 
 아기의 건강과 엄마의 안정을 위해 최선을 다하겠습니다. 감사합니다.`,
+  },
+
+  [SystemTemplateKey.SERVICE_END_NOTICE]: {
+    key: SystemTemplateKey.SERVICE_END_NOTICE,
+    name: SERVICE_END_NOTICE_SMS_TITLE,
+    description: '서비스 종료 후 바우처 산모에게 본인부담금 영수증 다운로드 링크를 안내',
+    requiredVariables: [
+      { key: 'name', label: '산모님 성함', type: 'string', required: true },
+      { key: 'receiptUrl', label: '영수증 링크', type: 'string', required: true },
+    ],
+    defaultContent: SERVICE_END_NOTICE_DEFAULT_CONTENT,
   },
 
   [SystemTemplateKey.SURVEY]: {

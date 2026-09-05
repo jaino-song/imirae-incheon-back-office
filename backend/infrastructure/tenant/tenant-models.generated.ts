@@ -30,6 +30,7 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
     "message_trigger_rule",
     "message_trigger_rule_branch_override",
     "notification",
+    "receipt_link_token",
     "schedule_change_request",
     "service_record",
     "service_record_assignment",

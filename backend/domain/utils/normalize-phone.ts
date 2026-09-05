@@ -28,11 +28,23 @@ export function normalizePhone(raw: string | null | undefined): string | null {
  * still encounter legacy rows, but every new or changed identity must pass
  * this guard before persistence or provider work.
  */
+/**
+ * The single wording for "this phone is not a domestic number". Every write
+ * path that rejects one surfaces it to an operator, so it lives beside the
+ * error that raises it rather than being re-typed per service.
+ */
+export const INVALID_PHONE_MESSAGE = "연락처가 올바른 국내 전화번호 형식이 아닙니다.";
+
+/** Same rejection, named for the specific contract field that carried it. */
+export function invalidPhoneFieldMessage(field: string): string {
+    return `${field} 항목이 올바른 국내 전화번호 형식이 아닙니다.`;
+}
+
 export class InvalidPhoneError extends Error {
     readonly code = "INVALID_PHONE" as const;
 
     constructor() {
-        super("Phone number must be a valid Korean phone number");
+        super(INVALID_PHONE_MESSAGE);
         this.name = "InvalidPhoneError";
     }
 }

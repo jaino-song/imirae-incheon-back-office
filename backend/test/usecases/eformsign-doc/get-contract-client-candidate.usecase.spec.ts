@@ -1,3 +1,5 @@
+import { Logger } from "@nestjs/common";
+
 import { GetContractClientCandidateUsecase } from "application/usecases/eformsign-doc/get-contract-client-candidate.usecase";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
@@ -398,6 +400,119 @@ describe("GetContractClientCandidateUsecase", () => {
             careCenter: null,
             voucherClient: false,
             breastPump: false,
+        });
+    });
+
+    describe("추출 실패 로깅", () => {
+        // 계약서 필드 파서는 전부 조용히 null을 반환하므로, 왜 서비스/요금
+        // 구획이 비었는지 남기지 않으면 사후 추적이 불가능하다.
+        const gapDocument = {
+            documentId: "doc-no-amounts",
+            customerName: null,
+            customerPhone: null,
+            detailPayload: {
+                fields: [
+                    { id: "이용자 성명", value: "정소영" },
+                    { id: "이용자 연락처", value: "010-4481-1201" },
+                    { id: "이용자 주소", value: "인천 남동구 논고개로17" },
+                    { id: "계약 시작일", value: "2026-08-25" },
+                    { id: "계약 종료일", value: "2026-09-14" },
+                ],
+            },
+        };
+
+        it("서비스/요금 구획이 통째로 비면 그 사실과 이유를 경고로 남긴다", async () => {
+            const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+            findUnique.mockResolvedValue(gapDocument);
+
+            await expect(usecase.execute("doc-no-amounts", "branch-1")).resolves.toEqual(
+                expect.objectContaining({ extracted: true, type: null, duration: null }),
+            );
+
+            expect(warn).toHaveBeenCalledTimes(1);
+            const logged = String(warn.mock.calls[0]![0]);
+            expect(logged).toContain("doc-no-amounts");
+            expect(logged).toContain("amounts=0");
+            expect(logged).toContain("year=2026");
+        });
+
+        it("요금이 하나뿐이라 백필을 시작하지 못하면 그 이유를 남긴다", async () => {
+            const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+            findUnique.mockResolvedValue({
+                ...gapDocument,
+                documentId: "doc-one-amount",
+                detailPayload: {
+                    fields: [
+                        ...gapDocument.detailPayload.fields,
+                        { id: "정부지원금", value: "1,440,000" },
+                    ],
+                },
+            });
+
+            await usecase.execute("doc-one-amount", "branch-1");
+
+            expect(String(warn.mock.calls[0]![0])).toContain("fewer-than-two-amounts");
+        });
+
+        it("경고에 계약서의 개인정보 값을 담지 않는다", async () => {
+            const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+            const debug = jest.spyOn(Logger.prototype, "debug").mockImplementation(() => undefined);
+            findUnique.mockResolvedValue(gapDocument);
+
+            await usecase.execute("doc-no-amounts", "branch-1");
+
+            const logged = [...warn.mock.calls, ...debug.mock.calls].map(String).join(" ");
+            expect(logged).not.toContain("정소영");
+            expect(logged).not.toContain("4481");
+            expect(logged).not.toContain("논고개로");
+        });
+
+        it("요금 행이 하나로 확정되면 경고를 남기지 않는다", async () => {
+            const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+            findUnique.mockResolvedValue({
+                documentId: "doc-resolved",
+                customerName: null,
+                customerPhone: null,
+                detailPayload: {
+                    fields: [
+                        { id: "이용자 성명", value: "박지원" },
+                        { id: "서비스 기간", value: "2026-08-19 ~ 2026-09-15" },
+                        { id: "총 서비스 금액", value: "2,928,000" },
+                        { id: "정부지원금", value: "1,440,000" },
+                        { id: "본인부담금", value: "1,488,000" },
+                    ],
+                },
+            });
+            findVoucherPrices.mockResolvedValue([{
+                type: "A통합1형",
+                duration: BigInt(20),
+                fullPrice: "2928000",
+                grant: "1440000",
+                actualPrice: "1488000",
+            }]);
+
+            await expect(usecase.execute("doc-resolved", "branch-1")).resolves.toEqual(
+                expect.objectContaining({ type: "A통합1형", duration: 20 }),
+            );
+
+            expect(warn).not.toHaveBeenCalled();
+        });
+
+        it("detail payload를 읽지 못하면 그 사실을 경고로 남긴다", async () => {
+            const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+            findUnique.mockResolvedValue({
+                documentId: "doc-unparseable",
+                customerName: null,
+                customerPhone: null,
+                detailPayload: null,
+            });
+
+            await expect(usecase.execute("doc-unparseable")).resolves.toEqual(
+                expect.objectContaining({ extracted: false }),
+            );
+
+            expect(warn).toHaveBeenCalledTimes(1);
+            expect(String(warn.mock.calls[0]![0])).toContain("doc-unparseable");
         });
     });
 });

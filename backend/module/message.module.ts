@@ -18,6 +18,7 @@ import { MessageTriggerSchedulerService } from "application/services/message-tri
 import { MessageTriggerService } from "application/services/message-trigger.service";
 import { SmsRetryService } from "application/services/sms-retry.service";
 import { SmsTriggerDeliveryService } from "application/services/sms-trigger-delivery.service";
+import { SmsTriggerPayloadEnricherRegistry } from "application/services/sms-trigger-payload-enricher.registry";
 import { BRANCH_REPOSITORY } from "domain/repositories/branch.repository.interface";
 import { CLIENT_REPOSITORY } from "domain/repositories/client.repository.interface";
 import { EMPLOYEE_REPOSITORY } from "domain/repositories/employee.repository.interface";
@@ -69,6 +70,7 @@ import { MessageExternalAgentCapabilitiesProvider } from "application/usecases/m
         SmsRetryService,
         MessageRetrySchedulerService,
         SmsTriggerDeliveryService,
+        SmsTriggerPayloadEnricherRegistry,
         MessageTriggerDeliveryService,
         MessageTriggerService,
         MessageTriggerSchedulerService,
@@ -79,6 +81,8 @@ import { MessageExternalAgentCapabilitiesProvider } from "application/usecases/m
         MessageTriggerService,
         MESSAGE_TRIGGER_JOB_REPOSITORY,
         MESSAGE_TRIGGER_RULE_BRANCH_OVERRIDE_REPOSITORY,
+        SmsTriggerPayloadEnricherRegistry,
+        MessageTriggerSchedulerService,
     ],
 })
 export class MessageModule {}

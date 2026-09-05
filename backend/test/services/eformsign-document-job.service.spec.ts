@@ -99,7 +99,7 @@ describe("EformsignDocumentJobService", () => {
                 clientId: 7,
                 contractData: { ...validContractData, [field]: "not-a-phone" } as never,
                 requestKey: "request-1",
-            })).rejects.toThrow("valid Korean phone number");
+            })).rejects.toThrow("올바른 국내 전화번호 형식이 아닙니다.");
             expect(repository.enqueue).not.toHaveBeenCalled();
         },
     );

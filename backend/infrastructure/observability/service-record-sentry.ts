@@ -115,6 +115,11 @@ const PHONE_PATTERN = /(?:\+?82[-\s]?)?0?1[016789][-.\s]?\d{3,4}[-.\s]?\d{4}/g;
 const BEARER_PATTERN = /(bearer\s+)[^\s,;]+/gi;
 const SERVICE_RECORD_TOKEN_PATTERN =
     /(\/(?:api\/)?service-record\/link\/)[^/?#\s]+/gi;
+// Constrained to the `efr_`/`efra_` token prefix (see receipt-link-token.service.ts) rather
+// than a bare `[^/?#\s]+` segment: the sibling admin route `/receipt-links/send` has no token
+// segment, and a generic match would wrongly redact the literal "send" path.
+const RECEIPT_LINK_TOKEN_PATTERN =
+    /(\/(?:api\/)?receipt(?:-links)?\/)efra?_[^/?#\s]*/gi;
 const SERVICE_RECORD_RESOURCE_ID_PATTERN =
     /(\/(?:api\/)?(?:admin\/service-records\/(?:client|schedules)|schedule-change-requests\/schedules)\/)[^/?#\s]+/gi;
 const SERVICE_RECORD_SESSION_ID_PATTERN =
@@ -168,6 +173,7 @@ function sanitizeText(value: string): string {
         .replace(EMAIL_PATTERN, "[Email]")
         .replace(PHONE_PATTERN, "[Phone]")
         .replace(SERVICE_RECORD_TOKEN_PATTERN, `$1${FILTERED_VALUE}`)
+        .replace(RECEIPT_LINK_TOKEN_PATTERN, `$1${FILTERED_VALUE}`)
         .replace(SERVICE_RECORD_RESOURCE_ID_PATTERN, `$1${FILTERED_VALUE}`)
         .replace(SERVICE_RECORD_SESSION_ID_PATTERN, `$1${FILTERED_VALUE}`)
         .replace(UUID_PATH_SEGMENT_PATTERN, `/${FILTERED_VALUE}`);

@@ -36,6 +36,7 @@ import { CallInboxModule } from "module/call-inbox.module";
 import { ConsultationInquiryModule } from "module/consultation-inquiry.module";
 import { SystemAdminModule } from "module/system-admin.module";
 import { ServiceRecordEntryModule } from "module/service-record-entry.module";
+import { ReceiptLinkModule } from "module/receipt-link.module";
 import { getJwtSecret } from "./infrastructure/auth/jwt-secret";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import { AgentModule } from "module/agent.module";
@@ -92,6 +93,7 @@ const ENV_FILE_PATHS = [
         ConsultationInquiryModule,
         SystemAdminModule,
         ServiceRecordEntryModule,
+        ReceiptLinkModule,
     ],
     controllers: [EformsignController, HealthController],
     providers: [
