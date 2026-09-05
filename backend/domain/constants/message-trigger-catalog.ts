@@ -1,3 +1,5 @@
+import { SERVICE_END_NOTICE_SMS_TITLE } from "./service-end-notice-message";
+
 export enum MessageTriggerEventType {
     CLIENT_CREATED = "CLIENT_CREATED",
     SERVICE_START = "SERVICE_START",
@@ -31,6 +33,7 @@ export enum MessageTriggerTemplateKey {
     THANKS = "THANKS",
     SURVEY = "SURVEY",
     INFO = "INFO",
+    SERVICE_END_NOTICE = "SERVICE_END_NOTICE",
 }
 
 /** Templates whose variables and recipient can be produced by the generic rule engine. */
@@ -42,6 +45,7 @@ export const CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS: readonly MessageTriggerTemp
     MessageTriggerTemplateKey.THANKS,
     MessageTriggerTemplateKey.SURVEY,
     MessageTriggerTemplateKey.INFO,
+    MessageTriggerTemplateKey.SERVICE_END_NOTICE,
 ];
 
 export function isConfigurableSmsTriggerTemplate(
@@ -258,6 +262,20 @@ export const MESSAGE_TRIGGER_TEMPLATE_CATALOG: Record<
         requiredVariables: [{ key: "name", label: "산모님 성함" }],
         providers: {
             sms: { templateKey: "THANKS" },
+        },
+    },
+    [MessageTriggerTemplateKey.SERVICE_END_NOTICE]: {
+        key: MessageTriggerTemplateKey.SERVICE_END_NOTICE,
+        name: SERVICE_END_NOTICE_SMS_TITLE,
+        description: "서비스 종료 후 바우처 산모에게 본인부담금 영수증 다운로드 링크를 SMS로 발송",
+        allowedEventTypes: [MessageTriggerEventType.SERVICE_END],
+        allowedRecipientTypes: [MessageTriggerRecipientType.CLIENT],
+        requiredVariables: [
+            { key: "name", label: "산모님 성함" },
+            { key: "receiptUrl", label: "영수증 링크" },
+        ],
+        providers: {
+            sms: { templateKey: "SERVICE_END_NOTICE" },
         },
     },
     [MessageTriggerTemplateKey.SURVEY]: {

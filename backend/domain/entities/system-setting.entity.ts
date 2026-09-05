@@ -36,7 +36,7 @@ export const DEFAULT_MESSAGE_AUTOMATION_PAST_TRIGGER_CONFIG: MessageAutomationPa
 
 export const DEFAULT_CONTRACT_AUTO_FINALIZE_CONFIG: ContractAutoFinalizeConfig = {
     enabled: true,
-    graceDays: 0,
+    graceDays: 7,
     maxAttempts: 3,
 };
 

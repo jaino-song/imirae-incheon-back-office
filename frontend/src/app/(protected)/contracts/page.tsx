@@ -69,6 +69,7 @@ import { ContractAutomationsManager } from "@/components/app/contracts/ContractA
 import type { StatusType } from "@/components/app/v3";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { ClientFormDialog } from "@/components/app/clients/ClientFormDialog";
+import { ReceiptSendConfirmDialog } from "@/components/app/contracts/ReceiptSendConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -79,8 +80,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormField, FormHelperText, FormTextInput } from "@/components/app/ui/form-section";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -101,6 +102,7 @@ import {
   extractReRequestEvents,
 } from "@/lib/eformsign/document-details";
 import { resolveDocumentCustomerName } from "@/lib/eformsign/display-name";
+import { describeReceiptLinkError } from "@/lib/receipt-link";
 import { formatIsoDateInput } from "@/lib/date/format-iso-input";
 import { useAllVoucherPriceInfos } from "@/hooks/useVoucherData";
 import { inferVoucherDurationFromAmounts } from "@/lib/voucher/duration";
@@ -231,6 +233,11 @@ function matchesDocumentStatusTab(doc: EformsignDocument, tab: string): boolean 
 function formatDate(timestamp: number): string {
   return formatDateForDisplay(timestamp);
 }
+
+// The on-screen fallback for an unresolved customer name (see `customerName` below).
+// Off-screen copy — e.g. the receipt-link send confirmation's "OO 산모님께 …" — must
+// treat this as "no name" rather than pass the dash through as a literal name.
+const CUSTOMER_NAME_PLACEHOLDER = "–";
 
 function formatDateTime(timestamp: number): string {
   return new Date(timestamp).toLocaleString("ko-KR", {
@@ -1144,7 +1151,10 @@ export default function ContractsPage() {
   );
 }
 
-function ContractDetail({
+// Exported (in addition to the page default export) so page.test.tsx can render it in
+// isolation to prove the receipt-send trigger/confirm-dialog wiring behaviorally, without
+// standing up the full ContractsPage list/search tree.
+export function ContractDetail({
   "data-component": dataComponent,
   document: doc,
   documentClientSummary,
@@ -1174,7 +1184,7 @@ function ContractDetail({
   const detailedDocument = detailQuery.data ?? doc;
   const isBaseDetailLoading = detailQuery.isFetching || detailQuery.isPlaceholderData;
   const mappedCustomerName = documentClientSummary?.clientName.trim();
-  const customerName = resolveDocumentCustomerName(detailedDocument, mappedCustomerName) || "–";
+  const customerName = resolveDocumentCustomerName(detailedDocument, mappedCustomerName) || CUSTOMER_NAME_PLACEHOLDER;
   const isServiceRecordDocument = reviewAction === "preview";
   const serviceRecordQuery = useClientServiceRecords(documentClientSummary?.clientId ?? null, {
     enabled: isServiceRecordDocument,
@@ -1196,6 +1206,7 @@ function ContractDetail({
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>("document");
   const [isReRequestDialogOpen, setIsReRequestDialogOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [receiptSendTarget, setReceiptSendTarget] = useState<{ id: string; customerName: string } | null>(null);
   const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [isFinalizeOpen, setIsFinalizeOpen] = useState(false);
   const [isServiceRecordFinalizeConfirmOpen, setIsServiceRecordFinalizeConfirmOpen] = useState(false);
@@ -1560,6 +1571,25 @@ function ContractDetail({
         variant: "destructive",
         title: "최종 확인을 마치지 못했어요",
         description: error instanceof Error ? error.message : "잠시 후 다시 시도해 주세요",
+      });
+    },
+  });
+
+  const sendReceiptLink = useMutation({
+    mutationFn: (documentId: string) => eformsignApi.sendReceiptLink(documentId),
+    onSuccess: (result) => {
+      setReceiptSendTarget(null);
+      toast({
+        variant: "success",
+        title: "서비스 종료 안내 발송 예약",
+        description: `${result.clientName} 산모님께 1분 내 발송됩니다. 링크는 30일간 유효합니다.`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        variant: "destructive",
+        title: "영수증 문자를 보내지 못했습니다",
+        description: describeReceiptLinkError(error),
       });
     },
   });
@@ -2020,7 +2050,14 @@ function ContractDetail({
       headerAction={
         <>
           {isMobile && stepperActions}
-          {isReviewNeeded ? (
+          {isBaseDetailLoading ? (
+            <Skeleton
+              data-component={`${dataComponent}_header_action-skeleton`}
+              className="h-9 w-full"
+              role="status"
+              aria-label="계약 작업 불러오는 중"
+            />
+          ) : isReviewNeeded ? (
             <div
               className={
                 reviewAction === "finalize"
@@ -2103,40 +2140,41 @@ function ContractDetail({
               {customerName} 님에게 전자문서 작성을 재요청 할까요?
             </DialogDescription>
           </DialogHeader>
-          <div
+          <FormField
             data-component={`${dataComponent}_dialogs_rerequest_phone-field`}
             className="pb-[calc(8px*var(--glint-ui-scale,1))]"
+            htmlFor={`contract-rerequest-phone-${doc.id}`}
+            label="전송 전화번호"
           >
-            <Label
-              htmlFor={`contract-rerequest-phone-${doc.id}`}
-              className="mb-[calc(8px*var(--glint-ui-scale,1))] block text-[calc(11.52px*var(--glint-ui-scale,1))] font-semibold uppercase tracking-[0.08em] text-v3-text-muted"
-            >
-              전송 전화번호
-            </Label>
-            <Input
+            <FormTextInput
+              data-component={`${dataComponent}_dialogs_rerequest_phone-field_input`}
               id={`contract-rerequest-phone-${doc.id}`}
               type="tel"
               inputMode="numeric"
-              variant="v3"
               placeholder="010-1234-5678"
               value={formatPhoneNumber(recipientPhoneDigits)}
               onChange={(event) =>
                 setRecipientPhone(normalizePhoneNumber(event.target.value).slice(0, 11))
               }
               maxLength={13}
-              className={cn(
-                "h-[calc(48px*var(--glint-ui-scale,1))] rounded-[16px] border-[1.5px] border-v3-border bg-white px-[calc(16px*var(--glint-ui-scale,1))] text-[calc(13.6px*var(--glint-ui-scale,1))] text-v3-dark shadow-none transition-all focus-visible:border-v3-primary focus-visible:shadow-[0_0_0_3px_hsla(214,100%,34%,0.08)]",
-                hasEditedRecipientPhone &&
-                  !isRecipientPhoneValid &&
-                  "border-v3-burgundy focus-visible:border-v3-burgundy focus-visible:shadow-[0_0_0_3px_hsla(348,83%,47%,0.08)]"
-              )}
+              className="h-[calc(48px*var(--glint-ui-scale,1))] px-[calc(16px*var(--glint-ui-scale,1))]"
+              error={hasEditedRecipientPhone && !isRecipientPhoneValid}
+              aria-describedby={
+                hasEditedRecipientPhone && !isRecipientPhoneValid
+                  ? `contract-rerequest-phone-error-${doc.id}`
+                  : undefined
+              }
             />
             {hasEditedRecipientPhone && !isRecipientPhoneValid && (
-              <p className="mt-[calc(8px*var(--glint-ui-scale,1))] text-[calc(12px*var(--glint-ui-scale,1))] font-medium text-v3-burgundy">
+              <FormHelperText
+                id={`contract-rerequest-phone-error-${doc.id}`}
+                data-component={`${dataComponent}_dialogs_rerequest_phone-field_error`}
+                tone="error"
+              >
                 전송할 전화번호를 올바르게 입력해 주세요.
-              </p>
+              </FormHelperText>
             )}
-          </div>
+          </FormField>
           <DialogFooter>
             <Button
               variant="neutral"
@@ -2197,27 +2235,23 @@ function ContractDetail({
             </div>
           ) : (
             <>
-              <div
+              <FormField
                 data-component={`${dataComponent}_dialogs_finalize_end-date-field`}
                 className="pb-[calc(8px*var(--glint-ui-scale,1))]"
+                htmlFor={`contract-finalize-end-date-${doc.id}`}
+                label="서비스 완료일"
               >
-                <Label
-                  htmlFor={`contract-finalize-end-date-${doc.id}`}
-                  className="mb-[calc(8px*var(--glint-ui-scale,1))] block text-[calc(11.52px*var(--glint-ui-scale,1))] font-semibold uppercase tracking-[0.08em] text-v3-text-muted"
-                >
-                  서비스 완료일
-                </Label>
-                <Input
+                <FormTextInput
+                  data-component={`${dataComponent}_dialogs_finalize_end-date-field_input`}
                   id={`contract-finalize-end-date-${doc.id}`}
                   type="text"
                   inputMode="numeric"
-                  variant="v3"
                   placeholder="YYYY-MM-DD"
                   pattern="\d{4}-\d{2}-\d{2}"
                   value={finalizeEndDate}
                   onChange={(event) => setFinalizeEndDate(formatIsoDateInput(event.target.value))}
                 />
-              </div>
+              </FormField>
               <DialogFooter className="sm:justify-stretch">
                 <Button
                   variant="neutral"
@@ -2291,6 +2325,31 @@ function ContractDetail({
             : undefined
         }
         isReviewConfirming={isFinalizePending}
+        // 영수증 문자 발송 is a maternity-contract action ("서비스 종료 안내" — the
+        // contract's receipt link). ContractDetail is also instantiated for the
+        // 제공기록지 preview surface (reviewAction="preview"), which must not offer it.
+        onSendReceiptLink={
+          reviewAction === "preview"
+            ? undefined
+            : () =>
+                setReceiptSendTarget({
+                  id: detailedDocument.id,
+                  customerName: customerName === CUSTOMER_NAME_PLACEHOLDER ? "" : customerName,
+                })
+        }
+        isSendingReceiptLink={sendReceiptLink.isPending}
+      />
+      <ReceiptSendConfirmDialog
+        open={receiptSendTarget !== null}
+        customerName={receiptSendTarget?.customerName ?? ""}
+        isPending={sendReceiptLink.isPending}
+        onConfirm={() => receiptSendTarget && sendReceiptLink.mutate(receiptSendTarget.id)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReceiptSendTarget(null);
+          }
+        }}
+        dataComponent={dataComponent}
       />
     </DetailPanel>
   );

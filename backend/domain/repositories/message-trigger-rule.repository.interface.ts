@@ -46,6 +46,8 @@ export interface IMessageTriggerRuleRepository {
         transaction?: Prisma.TransactionClient,
     ): Promise<MessageTriggerRuleEntity | null>;
     markJobsStale(branchId: string, ruleId: string, transaction?: Prisma.TransactionClient): Promise<void>;
+    /** Idempotent upsert of a branch-less system rule row (branchId null); update is a no-op. */
+    ensureSystemRule(rule: MessageTriggerRuleEntity, transaction?: Prisma.TransactionClient): Promise<void>;
     clearJobsStaleIfUnchanged(ruleId: string, updatedAtAtReadTime: Date): Promise<boolean>;
     delete(branchId: string, id: string): Promise<void>;
     /** Delete only when the full branch-scoped approved snapshot still matches. */

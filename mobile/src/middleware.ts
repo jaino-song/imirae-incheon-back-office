@@ -189,6 +189,7 @@ const PUBLIC_ROUTES = [
   "/manifest.json",
   "/sw.js",
   "/service-record",
+  "/receipt",
   // The PDF preview loads this as a Web Worker. A redirect here would not just
   // break the preview: this middleware clears the auth cookies on its way to
   // /login, so one worker fetch landing in an expired-token window would log
@@ -210,6 +211,7 @@ const PUBLIC_API_ROUTES = [
   "/api/auth/verify-email",
   "/api/health",
   "/api/service-record",
+  "/api/receipt",
 ];
 
 // Routes that require auth but NOT branch selection

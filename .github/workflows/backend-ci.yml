@@ -104,6 +104,9 @@ jobs:
       - name: Build
         run: pnpm --filter ./backend run build
 
+      - name: Verify pdf rasterizer (pdfjs + napi-canvas on the built output)
+        run: pnpm --filter ./backend run verify:pdf-rasterizer
+
       - name: Agent capability manifest and drift gates
         run: pnpm --filter ./backend run agent:manifest:check
 
