@@ -85,7 +85,7 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
-    "@openai/agents": "^0.5.4",
+    "@openai/agents": "^0.17.0",
     "@openai/codex-sdk": "^0.111.0",
     "@playwright/test": "^1.56.1",
     "@tailwindcss/postcss": "^4",
