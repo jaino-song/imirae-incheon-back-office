@@ -184,8 +184,8 @@ test.describe("mobile messages navigation", () => {
     await page.goto("/messages/history");
 
     await expect(page.locator(".list-card .list-title-text")).toContainText("발송 기록");
-    // The zone header is one text node ("예정 1건"), so an exact-text match on
-    // 예정 finds nothing — select the header itself.
+    // The header reads "예정 1건" across a bare label node and a count span, so
+    // no element's text is exactly 예정 — select the header itself.
     await expect(page.locator(`[data-component="${UPCOMING_ZONE_HEADER}"]`)).toContainText("예정");
     await expect(page.getByText("예정 고객")).toBeVisible();
   });

@@ -56,6 +56,7 @@ import {
 } from "@/components/app/mobile-redesign/detail-sheet";
 import { MessageSectionNav } from "@/components/app/mobile-redesign/MessageSectionNav";
 import { ListCard } from "@/components/app/mobile-redesign/primitives";
+import { Skeleton } from "@/components/ui/skeleton";
 import "@/components/app/mobile-redesign/redesign.css";
 
 interface StatusMeta {
@@ -192,13 +193,38 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-function LoadingState() {
+// Loading placeholder shaped like a real row (icon + two copy lines), so the
+// list keeps its layout while either query is in flight. Mirrors desktop's
+// AnimatedSlotList skeleton slots instead of a single centered spinner.
+function RowSkeleton({ dataComponent }: { dataComponent: string }) {
   return (
-    <div className="message-data-empty" aria-label="메시지 내역 불러오는 중">
-      <Loader2 className="message-data-spinner" size={25} aria-hidden="true" />
-      <p>내역을 불러오고 있습니다.</p>
+    <div className="message-data-row" data-component={dataComponent} aria-hidden>
+      <Skeleton className="h-10 w-10 flex-none rounded-xl" />
+      <div className="message-data-row-copy">
+        <div className="message-data-row-info">
+          <Skeleton className="h-3 w-24 rounded-md" />
+          <Skeleton className="mt-2 h-3 w-40 max-w-full rounded-md" />
+        </div>
+      </div>
     </div>
   );
+}
+
+function ZoneCount({ dataComponent, isLoading, value }: {
+  dataComponent: string;
+  isLoading: boolean;
+  value: number;
+}) {
+  if (isLoading) {
+    return (
+      <Skeleton
+        className="inline-block h-3 w-7 translate-y-[1px] rounded-full"
+        data-component={dataComponent}
+      />
+    );
+  }
+
+  return <span data-component={dataComponent}>{`${value}건`}</span>;
 }
 
 function UpcomingRow({
@@ -386,9 +412,16 @@ export function MessagesHistoryPage() {
     }
   };
 
-  const isLoading = isUpcomingLoading || isHistoryLoading;
-  const upcomingZoneVisible = showUpcomingZone && (visibleUpcomingJobs.length > 0 || isUpcomingError);
-  const historyZoneVisible = showHistoryZone && (visibleHistoryRecords.length > 0 || isHistoryError);
+  // Both queries gate the whole list: the history query is often already cached
+  // while the upcoming one is still in flight, so keying each zone off its own
+  // flag would show real rows next to a loading zone. Same rule as desktop.
+  const isPanelLoading = isUpcomingLoading || isHistoryLoading;
+  const totalVisibleCount = visibleUpcomingJobs.length + visibleHistoryRecords.length;
+  // A zone stays visible at zero so its "예정 0건" label still reads; only a
+  // settled, error-free, entirely empty list collapses to the empty state.
+  const isOverallEmpty = !isPanelLoading && !isUpcomingError && !isHistoryError && totalVisibleCount === 0;
+  const upcomingZoneVisible = showUpcomingZone && !isOverallEmpty;
+  const historyZoneVisible = showHistoryZone && !isOverallEmpty;
 
   const normalizedSelectedRecord = selectedRecord
     ? normalizeMessageHistoryPresentation(selectedRecord)
@@ -407,66 +440,102 @@ export function MessagesHistoryPage() {
         list={
           <MessagePageShell
             title="발송 기록"
-            count={`${visibleUpcomingJobs.length + visibleHistoryRecords.length}건`}
+            count={isPanelLoading ? (
+              // Carries the loading announcement the removed spinner used to
+              // make; the zone counts and row placeholders stay decorative so
+              // a screen reader hears it once, not five times.
+              <Skeleton
+                role="status"
+                aria-label="발송 기록 불러오는 중"
+                className="inline-block h-3 w-8 rounded-full align-middle"
+                data-component={`${HISTORY_LIST_BASE}_content_list-card_header_count`}
+              />
+            ) : `${totalVisibleCount}건`}
             activeSection="history"
             dataComponent={HISTORY_LIST_BASE}
             filters={filterItems}
             activeFilter={MESSAGE_RECORD_STATUS_FILTER_LABELS[statusFilter]}
             onFilterChange={handleFilterChange}
           >
-            {isLoading ? (
-              <LoadingState />
-            ) : (
-              <>
-                {upcomingZoneVisible ? (
+            <>
+              {upcomingZoneVisible ? (
+                <div
+                  className="section-block"
+                  data-component={`${HISTORY_LIST_BASE}_content_list-card_body_zone-upcoming`}
+                >
                   <div
-                    className="section-block"
-                    data-component={`${HISTORY_LIST_BASE}_content_list-card_body_zone-upcoming`}
+                    className="section-header"
+                    data-component={`${HISTORY_LIST_BASE}_content_list-card_body_zone-upcoming_header`}
                   >
-                    <div
-                      className="section-header"
-                      data-component={`${HISTORY_LIST_BASE}_content_list-card_body_zone-upcoming_header`}
-                    >
-                      {isUpcomingError
-                        ? MESSAGE_RECORD_ZONE_LABELS.upcoming
-                        : `${MESSAGE_RECORD_ZONE_LABELS.upcoming} ${visibleUpcomingJobs.length}건`}
-                    </div>
-                    {isUpcomingError ? (
-                      <EmptyState message="발송 예정 내역을 불러오지 못했습니다." />
-                    ) : (
-                      visibleUpcomingJobs.map((job) => (
-                        <UpcomingRow key={job.id} job={job} onCancel={setJobPendingCancel} />
-                      ))
+                    {MESSAGE_RECORD_ZONE_LABELS.upcoming}
+                    {isUpcomingError ? null : (
+                      <>
+                        {" "}
+                        <ZoneCount
+                          dataComponent={`${HISTORY_LIST_BASE}_content_list-card_body_zone-upcoming_header_count`}
+                          isLoading={isPanelLoading}
+                          value={visibleUpcomingJobs.length}
+                        />
+                      </>
                     )}
                   </div>
-                ) : null}
-                {historyZoneVisible ? (
+                  {isUpcomingError ? (
+                    <EmptyState message="발송 예정 내역을 불러오지 못했습니다." />
+                  ) : isPanelLoading ? (
+                    Array.from({ length: 3 }, (_, index) => (
+                      <RowSkeleton
+                        key={index}
+                        dataComponent={`${HISTORY_LIST_BASE}_content_list-card_body_zone-upcoming_row-skeleton`}
+                      />
+                    ))
+                  ) : (
+                    visibleUpcomingJobs.map((job) => (
+                      <UpcomingRow key={job.id} job={job} onCancel={setJobPendingCancel} />
+                    ))
+                  )}
+                </div>
+              ) : null}
+              {historyZoneVisible ? (
+                <div
+                  className="section-block"
+                  data-component={`${HISTORY_LIST_BASE}_content_list-card_body_zone-past`}
+                >
                   <div
-                    className="section-block"
-                    data-component={`${HISTORY_LIST_BASE}_content_list-card_body_zone-past`}
+                    className="section-header"
+                    data-component={`${HISTORY_LIST_BASE}_content_list-card_body_zone-past_header`}
                   >
-                    <div
-                      className="section-header"
-                      data-component={`${HISTORY_LIST_BASE}_content_list-card_body_zone-past_header`}
-                    >
-                      {isHistoryError
-                        ? MESSAGE_RECORD_ZONE_LABELS.past
-                        : `${MESSAGE_RECORD_ZONE_LABELS.past} ${visibleHistoryRecords.length}건`}
-                    </div>
-                    {isHistoryError ? (
-                      <EmptyState message="발송 기록을 불러오지 못했습니다." />
-                    ) : (
-                      visibleHistoryRecords.map((record) => (
-                        <HistoryRow key={record.id} record={record} onSelect={setSelectedRecord} />
-                      ))
+                    {MESSAGE_RECORD_ZONE_LABELS.past}
+                    {isHistoryError ? null : (
+                      <>
+                        {" "}
+                        <ZoneCount
+                          dataComponent={`${HISTORY_LIST_BASE}_content_list-card_body_zone-past_header_count`}
+                          isLoading={isPanelLoading}
+                          value={visibleHistoryRecords.length}
+                        />
+                      </>
                     )}
                   </div>
-                ) : null}
-                {!upcomingZoneVisible && !historyZoneVisible ? (
-                  <EmptyState message="표시할 메시지가 없습니다." />
-                ) : null}
-              </>
-            )}
+                  {isHistoryError ? (
+                    <EmptyState message="발송 기록을 불러오지 못했습니다." />
+                  ) : isPanelLoading ? (
+                    Array.from({ length: 4 }, (_, index) => (
+                      <RowSkeleton
+                        key={index}
+                        dataComponent={`${HISTORY_LIST_BASE}_content_list-card_body_zone-past_row-skeleton`}
+                      />
+                    ))
+                  ) : (
+                    visibleHistoryRecords.map((record) => (
+                      <HistoryRow key={record.id} record={record} onSelect={setSelectedRecord} />
+                    ))
+                  )}
+                </div>
+              ) : null}
+              {!upcomingZoneVisible && !historyZoneVisible ? (
+                <EmptyState message="표시할 메시지가 없습니다." />
+              ) : null}
+            </>
           </MessagePageShell>
         }
         detail={
