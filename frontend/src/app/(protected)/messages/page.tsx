@@ -702,9 +702,9 @@ function MessageHistorySection() {
   const { data: historyData = [], isLoading, isError } = useMessageHistory();
   const { data: upcomingJobs = [], isLoading: isLoadingUpcoming } = useUpcomingMessageTriggerJobs();
   // The history query is often already cached (TemplateSendForm subscribes to
-  // the same key), so isLoading can settle before isLoadingUpcoming does. Both
-  // the past list and every count pill key off this combined flag so nothing
-  // shows stale/real content while the other query is still in flight.
+  // the same key), so isLoading can settle before isLoadingUpcoming does. The
+  // two zone lists and the three count pills key off this combined flag so the
+  // list panel skeletons as one unit; the detail panel is not gated by it.
   const isPanelLoading = isLoading || isLoadingUpcoming;
   const { mutateAsync: retryHistory, isPending: isRetrying } = useRetryMessageHistory();
   const cancelMutation = useCancelUpcomingMessageTriggerJob();

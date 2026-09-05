@@ -203,8 +203,8 @@ test.describe("Message read-only status surfaces", () => {
 
     await expect(page.getByText("실패 고객").first()).toBeVisible();
     await expect(page.getByText("취소 고객").first()).toBeVisible();
-    await expect(page.getByText("실패", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("취소", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("발송 실패", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("발송 취소", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("메시지 전송 권한이 필요합니다.")).not.toBeVisible();
   });
 });

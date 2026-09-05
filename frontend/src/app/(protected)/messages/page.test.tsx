@@ -691,8 +691,16 @@ describe("messages page — merged 발송 기록 section", () => {
 
     // The history query already settled with a cached record, but the past
     // list must still show only skeleton slots while the upcoming query
-    // (isPanelLoading) is in flight — never the real cached row.
-    expect((pastZone as HTMLElement).querySelector('[data-slot="skeleton"]')).not.toBeNull();
+    // (isPanelLoading) is in flight — never the real cached row. Assert on the
+    // list slots themselves: the zone's count pill is also a skeleton, so a
+    // zone-level skeleton query would pass even if real rows rendered.
+    const pastSlots = (pastZone as HTMLElement).querySelectorAll(
+      '[data-component="desktop_messages_sections_split-layout_list-panel-3_history-list_item"]',
+    );
+    expect(pastSlots).toHaveLength(4);
+    pastSlots.forEach((slot) => {
+      expect(slot.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+    });
     expect(within(pastZone as HTMLElement).queryByText("이하은")).not.toBeInTheDocument();
 
     for (const dataComponent of [
@@ -705,6 +713,27 @@ describe("messages page — merged 발송 기록 section", () => {
       expect(node).toHaveAttribute("data-slot", "skeleton");
       expect(node?.textContent ?? "").not.toMatch(/\d/);
     }
+  });
+
+  it("skeletons the upcoming zone while the history query is still loading, even with a settled upcoming job", () => {
+    mockData({
+      upcoming: [buildUpcomingJob()],
+      historyLoading: true,
+    });
+
+    render(<MessagesPage />);
+    goToHistorySection();
+
+    const upcomingZone = getZoneContainer("upcoming");
+    expect(upcomingZone).not.toBeNull();
+    const upcomingSlots = (upcomingZone as HTMLElement).querySelectorAll(
+      '[data-component="desktop_messages_sections_split-layout_list-panel-3_upcoming-list_item"]',
+    );
+    expect(upcomingSlots).toHaveLength(3);
+    upcomingSlots.forEach((slot) => {
+      expect(slot.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+    });
+    expect(within(upcomingZone as HTMLElement).queryByText("김서연")).not.toBeInTheDocument();
   });
 
   it("settles the upcoming zone at a zero count next to a real past count once both queries resolve", () => {
