@@ -701,6 +701,11 @@ function MessageHistorySection() {
   const deferredSearchValue = useDeferredValue(searchValue);
   const { data: historyData = [], isLoading, isError } = useMessageHistory();
   const { data: upcomingJobs = [], isLoading: isLoadingUpcoming } = useUpcomingMessageTriggerJobs();
+  // The history query is often already cached (TemplateSendForm subscribes to
+  // the same key), so isLoading can settle before isLoadingUpcoming does. Both
+  // the past list and every count pill key off this combined flag so nothing
+  // shows stale/real content while the other query is still in flight.
+  const isPanelLoading = isLoading || isLoadingUpcoming;
   const { mutateAsync: retryHistory, isPending: isRetrying } = useRetryMessageHistory();
   const cancelMutation = useCancelUpcomingMessageTriggerJob();
   const { data: clients = [] } = useAllClients();
@@ -907,7 +912,12 @@ function MessageHistorySection() {
         onSearchChange={setSearchValue}
         searchPlaceholder="고객명, 연락처, 템플릿, 내용 검색…"
         headerActions={
-          isLoading || isLoadingUpcoming ? undefined : (
+          isPanelLoading ? (
+            <Skeleton
+              data-component="desktop_messages_sections_history-list-count"
+              className="h-[22px] w-12 rounded-full bg-v3-dim-white"
+            />
+          ) : (
             <span
               data-component="desktop_messages_sections_history-list-count"
               className="inline-flex items-center gap-1.5 rounded-full bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary"
@@ -1004,14 +1014,19 @@ function MessageHistorySection() {
           </div>
         ) : (
           <>
-            {showUpcomingZone && (isLoadingUpcoming || filteredUpcomingJobs.length > 0) ? (
+            {showUpcomingZone && !isOverallEmpty ? (
               <div data-component="desktop_messages_sections_split-layout_list-panel-3_zone-upcoming">
                 <div
                   data-component="desktop_messages_sections_split-layout_list-panel-3_zone-upcoming_label"
                   className="flex items-center gap-2 px-1 pb-2 pt-1 text-[0.72rem] font-semibold text-v3-text-muted"
                 >
                   <span>{MESSAGE_RECORD_ZONE_LABELS.upcoming}</span>
-                  {isLoadingUpcoming ? null : (
+                  {isPanelLoading ? (
+                    <Skeleton
+                      data-component="desktop_messages_sections_split-layout_list-panel-3_zone-upcoming_count"
+                      className="h-[18px] w-7 rounded-full bg-v3-dim-white"
+                    />
+                  ) : (
                     <span
                       data-component="desktop_messages_sections_split-layout_list-panel-3_zone-upcoming_count"
                       className="inline-flex items-center rounded-full bg-v3-primary-light px-2 py-0.5 text-[0.66rem] font-semibold text-v3-primary"
@@ -1022,7 +1037,7 @@ function MessageHistorySection() {
                 </div>
                 <AnimatedSlotList<UpcomingMessageTriggerJob>
                   items={filteredUpcomingJobs}
-                  isLoading={isLoadingUpcoming}
+                  isLoading={isPanelLoading}
                   loadingCount={3}
                   className="space-y-2 pb-3"
                   itemDataComponent="desktop_messages_sections_split-layout_list-panel-3_upcoming-list_item"
@@ -1075,14 +1090,19 @@ function MessageHistorySection() {
               </div>
             ) : null}
 
-            {showPastZone && (isLoading || filteredHistoryRecords.length > 0) ? (
+            {showPastZone && !isOverallEmpty ? (
               <div data-component="desktop_messages_sections_split-layout_list-panel-3_zone-past">
                 <div
                   data-component="desktop_messages_sections_split-layout_list-panel-3_zone-past_label"
                   className="flex items-center gap-2 px-1 pb-2 pt-1 text-[0.72rem] font-semibold text-v3-text-muted"
                 >
                   <span>{MESSAGE_RECORD_ZONE_LABELS.past}</span>
-                  {isLoading ? null : (
+                  {isPanelLoading ? (
+                    <Skeleton
+                      data-component="desktop_messages_sections_split-layout_list-panel-3_zone-past_count"
+                      className="h-[18px] w-7 rounded-full bg-v3-dim-white"
+                    />
+                  ) : (
                     <span
                       data-component="desktop_messages_sections_split-layout_list-panel-3_zone-past_count"
                       className="inline-flex items-center rounded-full bg-v3-dim-white px-2 py-0.5 text-[0.66rem] font-semibold text-v3-text-muted"
@@ -1093,7 +1113,7 @@ function MessageHistorySection() {
                 </div>
                 <AnimatedSlotList<MessageHistoryRecord>
                   items={filteredHistoryRecords}
-                  isLoading={isLoading}
+                  isLoading={isPanelLoading}
                   loadingCount={4}
                   className="space-y-2"
                   itemDataComponent="desktop_messages_sections_split-layout_list-panel-3_history-list_item"

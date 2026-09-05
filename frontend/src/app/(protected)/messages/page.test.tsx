@@ -316,17 +316,21 @@ function buildHistoryRecord(overrides: Partial<MessageLogRecord> = {}): MessageL
 function mockData({
   upcoming = [],
   history = [],
+  upcomingLoading = false,
+  historyLoading = false,
 }: {
   upcoming?: UpcomingMessageTriggerJob[];
   history?: MessageLogRecord[];
+  upcomingLoading?: boolean;
+  historyLoading?: boolean;
 } = {}) {
   mockedUseUpcomingMessageTriggerJobs.mockReturnValue({
-    data: upcoming,
-    isLoading: false,
+    data: upcomingLoading ? undefined : upcoming,
+    isLoading: upcomingLoading,
   } as unknown as ReturnType<typeof useUpcomingMessageTriggerJobs>);
   mockedUseMessageHistory.mockReturnValue({
-    data: history,
-    isLoading: false,
+    data: historyLoading ? undefined : history,
+    isLoading: historyLoading,
     isError: false,
   } as unknown as ReturnType<typeof useMessageHistory>);
 }
@@ -340,6 +344,23 @@ function getZoneContainer(zone: "upcoming" | "past") {
   const suffix = zone === "upcoming" ? "zone-upcoming" : "zone-past";
   return document.querySelector(
     `[data-component="desktop_messages_sections_split-layout_list-panel-3_${suffix}"]`,
+  );
+}
+
+// The zone/header count pills keep the same data-component in both the
+// skeleton and settled state (see page.tsx), so a single query finds the
+// node either way; tests distinguish state via data-slot="skeleton"/text.
+function getCountNode(dataComponent: string) {
+  return document.querySelector(`[data-component="${dataComponent}"]`);
+}
+
+// Scopes "발송 취소" button queries to the detail panel: once the past-status
+// filter tabs read the same badge wording (see MESSAGE_RECORD_STATUS_FILTER_LABELS),
+// the "취소" tab and the upcoming-job cancel-trigger button share the exact
+// text "발송 취소", so an unscoped role query would match both.
+function getDetailPanel() {
+  return document.querySelector(
+    '[data-component="desktop_messages_sections_split-layout_detail-panel"]',
   );
 }
 
@@ -406,8 +427,8 @@ describe("messages page — merged 발송 기록 section", () => {
     expect(getZoneContainer("upcoming")).not.toBeNull();
     expect(getZoneContainer("past")).toBeNull();
 
-    // "발송" tab: only the matching zone-2 rows show.
-    fireEvent.click(screen.getByRole("button", { name: "발송" }));
+    // "발송 성공" tab: only the matching zone-2 rows show.
+    fireEvent.click(screen.getByRole("button", { name: "발송 성공" }));
     expect(getZoneContainer("upcoming")).toBeNull();
     expect(getZoneContainer("past")).not.toBeNull();
   });
@@ -428,7 +449,13 @@ describe("messages page — merged 발송 기록 section", () => {
     const upcomingZone = getZoneContainer("upcoming");
     expect(upcomingZone).not.toBeNull();
     expect(within(upcomingZone as HTMLElement).getByText("김서연")).toBeInTheDocument();
-    expect(getZoneContainer("past")).toBeNull();
+
+    // The past zone is merely empty (filtered down to zero rows), not hidden
+    // by the tab filter, so it still renders its label and a settled "0" count.
+    const pastZone = getZoneContainer("past");
+    expect(pastZone).not.toBeNull();
+    expect(getCountNode("desktop_messages_sections_split-layout_list-panel-3_zone-past_count")?.textContent).toBe("0");
+    expect(within(pastZone as HTMLElement).queryByText("이하은")).not.toBeInTheDocument();
   });
 
   it("shows the cancel reason inline on a canceled row", () => {
@@ -458,10 +485,17 @@ describe("messages page — merged 발송 기록 section", () => {
     goToHistorySection();
 
     fireEvent.click(screen.getByText("박지민"));
-    expect(screen.queryByRole("button", { name: "발송 취소" })).not.toBeInTheDocument();
+    // Scoped to the detail panel: the "취소" status tab now reads "발송 취소"
+    // too (see MESSAGE_RECORD_STATUS_FILTER_LABELS), so an unscoped query
+    // would match that tab even when the detail panel has no cancel button.
+    expect(
+      within(getDetailPanel() as HTMLElement).queryByRole("button", { name: "발송 취소" }),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText("김서연"));
-    expect(screen.getByRole("button", { name: "발송 취소" })).toBeInTheDocument();
+    expect(
+      within(getDetailPanel() as HTMLElement).getByRole("button", { name: "발송 취소" }),
+    ).toBeInTheDocument();
   });
 
   it("cancels an upcoming send after confirmation, shows exactly one success notification, and the row moves zones on refetch", async () => {
@@ -474,7 +508,7 @@ describe("messages page — merged 발송 기록 section", () => {
     goToHistorySection();
 
     fireEvent.click(screen.getByText("김서연"));
-    fireEvent.click(screen.getByRole("button", { name: "발송 취소" }));
+    fireEvent.click(within(getDetailPanel() as HTMLElement).getByRole("button", { name: "발송 취소" }));
 
     const dialog = screen.getByRole("alertdialog");
     expect(within(dialog).getByText("예정된 발송을 취소할까요?")).toBeInTheDocument();
@@ -505,7 +539,13 @@ describe("messages page — merged 발송 기록 section", () => {
     });
     rerender(<MessagesPage />);
 
-    expect(getZoneContainer("upcoming")).toBeNull();
+    // The upcoming zone is now merely empty (the job moved to history), not
+    // hidden by the tab filter, so it still renders with a settled "0" count.
+    const upcomingZone = getZoneContainer("upcoming");
+    expect(upcomingZone).not.toBeNull();
+    expect(getCountNode("desktop_messages_sections_split-layout_list-panel-3_zone-upcoming_count")?.textContent).toBe("0");
+    expect(within(upcomingZone as HTMLElement).queryByText("김서연")).not.toBeInTheDocument();
+
     const pastZone = getZoneContainer("past");
     expect(pastZone).not.toBeNull();
     expect(within(pastZone as HTMLElement).getByText("김서연")).toBeInTheDocument();
@@ -521,7 +561,7 @@ describe("messages page — merged 발송 기록 section", () => {
     goToHistorySection();
 
     fireEvent.click(screen.getByText("김서연"));
-    fireEvent.click(screen.getByRole("button", { name: "발송 취소" }));
+    fireEvent.click(within(getDetailPanel() as HTMLElement).getByRole("button", { name: "발송 취소" }));
     const dialog = screen.getByRole("alertdialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "발송 취소" }));
 
@@ -633,5 +673,74 @@ describe("messages page — merged 발송 기록 section", () => {
       "data-component",
       "desktop_messages_sections_section-content_history-section_approval-gate",
     );
+  });
+
+  it("skeletons the whole panel while the upcoming query is still loading, even with a cached history record", () => {
+    mockData({
+      history: [buildHistoryRecord()],
+      upcomingLoading: true,
+    });
+
+    render(<MessagesPage />);
+    goToHistorySection();
+
+    const upcomingZone = getZoneContainer("upcoming");
+    const pastZone = getZoneContainer("past");
+    expect(upcomingZone).not.toBeNull();
+    expect(pastZone).not.toBeNull();
+
+    // The history query already settled with a cached record, but the past
+    // list must still show only skeleton slots while the upcoming query
+    // (isPanelLoading) is in flight — never the real cached row.
+    expect((pastZone as HTMLElement).querySelector('[data-slot="skeleton"]')).not.toBeNull();
+    expect(within(pastZone as HTMLElement).queryByText("이하은")).not.toBeInTheDocument();
+
+    for (const dataComponent of [
+      "desktop_messages_sections_split-layout_list-panel-3_zone-upcoming_count",
+      "desktop_messages_sections_split-layout_list-panel-3_zone-past_count",
+      "desktop_messages_sections_history-list-count",
+    ]) {
+      const node = getCountNode(dataComponent);
+      expect(node).not.toBeNull();
+      expect(node).toHaveAttribute("data-slot", "skeleton");
+      expect(node?.textContent ?? "").not.toMatch(/\d/);
+    }
+  });
+
+  it("settles the upcoming zone at a zero count next to a real past count once both queries resolve", () => {
+    mockData({
+      history: [buildHistoryRecord()],
+    });
+
+    render(<MessagesPage />);
+    goToHistorySection();
+
+    const upcomingZone = getZoneContainer("upcoming");
+    expect(upcomingZone).not.toBeNull();
+    expect(within(upcomingZone as HTMLElement).getByText("예정")).toBeInTheDocument();
+    expect(
+      getCountNode("desktop_messages_sections_split-layout_list-panel-3_zone-upcoming_count")?.textContent,
+    ).toBe("0");
+    expect(
+      (upcomingZone as HTMLElement).querySelectorAll(
+        '[data-component="desktop_messages_sections_split-layout_list-panel-3_upcoming-list_item"]',
+      ).length,
+    ).toBe(0);
+
+    expect(
+      getCountNode("desktop_messages_sections_split-layout_list-panel-3_zone-past_count")?.textContent,
+    ).toBe("1");
+    expect(screen.getByText("1건")).toBeInTheDocument();
+  });
+
+  it("hides both zones and shows the shared empty state once both queries settle with zero items", () => {
+    mockData();
+
+    render(<MessagesPage />);
+    goToHistorySection();
+
+    expect(getZoneContainer("upcoming")).toBeNull();
+    expect(getZoneContainer("past")).toBeNull();
+    expect(screen.getByText("표시할 메시지가 없습니다.")).toBeInTheDocument();
   });
 });

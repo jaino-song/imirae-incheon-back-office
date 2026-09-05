@@ -101,12 +101,15 @@ export const MESSAGE_RECORD_ZONE_LABELS = {
 
 export type MessageRecordStatusFilter = "all" | "upcoming" | "sent" | "failed" | "canceled";
 
+// The past-status tab labels (sent/failed/canceled) deliberately reuse
+// MESSAGE_HISTORY_STATUS_LABELS above, the same copy shown on each row's
+// status badge, so the tabs and the badges cannot drift apart in wording.
 export const MESSAGE_RECORD_STATUS_FILTER_LABELS: Readonly<Record<MessageRecordStatusFilter, string>> = {
   all: "전체",
   upcoming: "예정",
-  sent: "발송",
-  failed: "실패",
-  canceled: "취소",
+  sent: MESSAGE_HISTORY_STATUS_LABELS.sent,
+  failed: MESSAGE_HISTORY_STATUS_LABELS.failed,
+  canceled: MESSAGE_HISTORY_STATUS_LABELS.canceled,
 };
 
 // A user-pressed cancel is permanent: the backend marks it so the re-sync that
