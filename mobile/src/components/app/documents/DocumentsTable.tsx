@@ -32,6 +32,7 @@ import {
 } from "@/hooks/use-documents";
 import { useDocumentCategories, useCreateDocumentCategory, DocumentCategory } from "@/hooks/use-document-categories";
 import { DataTable, type DataTableColumn } from "@/components/app/ui/datatable";
+import type { DocumentVisibilityScope } from "@babyjamjam/shared/file-storage";
 
 // Custom hook to detect mobile breakpoint (replaces MUI's useMediaQuery)
 function useIsMobile() {
@@ -103,6 +104,7 @@ export function DocumentsTable() {
         description?: string;
         categoryId: string;
         tags: string[];
+        visibilityScope: DocumentVisibilityScope;
     }) => {
         try {
             setUploadProgress(0);

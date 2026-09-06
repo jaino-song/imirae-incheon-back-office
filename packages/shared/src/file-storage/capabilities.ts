@@ -19,6 +19,8 @@ export interface DocumentUploadCapabilities {
     uploadVisibilityScope: "branch" | "all_branches";
 }
 
+export type DocumentVisibilityScope = DocumentUploadCapabilities["uploadVisibilityScope"];
+
 export const DEFAULT_DOCUMENT_UPLOAD_CAPABILITIES: DocumentUploadCapabilities = {
     maxFileSizeBytes: 25 * 1024 * 1024,
     multiple: false,

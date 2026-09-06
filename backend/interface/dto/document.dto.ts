@@ -5,6 +5,7 @@ import {
   IsNumber,
   IsDateString,
   IsBoolean,
+  IsIn,
   MaxLength,
   ArrayMaxSize,
 } from "class-validator";
@@ -127,6 +128,10 @@ export class UploadDocumentDto {
     @IsString()
     @MaxLength(100)
     categoryId!: string;
+
+    @IsOptional()
+    @IsIn(["branch", "all_branches"])
+    visibilityScope?: "branch" | "all_branches";
 
     @IsOptional()
     tags?: string[] | string;
