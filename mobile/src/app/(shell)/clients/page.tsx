@@ -32,7 +32,6 @@ import {
   ListCard,
   ListCountSkeleton,
   ListItemRow,
-  ListLoadMoreButton,
   ListLoadMoreSentinel,
   ListRowBadges,
   ListRowsSkeleton,
@@ -44,6 +43,7 @@ import {
   MobileSearchBar,
 } from "@/components/app/mobile-redesign/detail-sheet";
 import { ClientDetailContent, GROUPS, type ClientGroup, type DetailTabId } from "@/components/app/clients/client-detail";
+
 import "@/components/app/mobile-redesign/redesign.css";
 
 const CLIENTS_ROUTE_BODY_CLASS = "mobile-clients-route";
@@ -433,6 +433,10 @@ export default function ClientsPage() {
       totalItems: maxFullCount,
     });
 
+  useEffect(() => {
+    if (isInitialLoad && hasMore) loadMore();
+  }, [isInitialLoad, hasMore, loadMore]);
+
   const visibleSections = useMemo(
     () =>
       sectionsFull
@@ -481,14 +485,6 @@ export default function ClientsPage() {
               activeFilter={activeFilter}
               onFilterChange={setActiveFilter}
               scrollRef={scrollContainerRef}
-              loadMore={
-                isInitialLoad && hasMore ? (
-                  <ListLoadMoreButton
-                    data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_load-more_button"
-                    onLoadMore={loadMore}
-                  />
-                ) : null
-              }
               beforeFilters={
                 <MobileSearchBar
                   data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_search"
