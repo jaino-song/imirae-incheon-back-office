@@ -1,0 +1,53 @@
+# n8n — self-hosted on covenantlabsserver, reachable only over Tailscale.
+#   URL   : https://covenantlabsserver.taila61e66.ts.net  (tailscale serve → 127.0.0.1:5678)
+#   Data  : docker volume n8n_data (/home/node/.n8n — SQLite DB, binary data, encryption key)
+#   Ops   : cd /opt/n8n && docker compose {ps,logs -f,pull,up -d,down}
+# Secrets live in /opt/n8n/.env (chmod 600) — never commit that file.
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.37.7
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"          # loopback only; Tailscale serve fronts it with HTTPS
+    env_file:
+      - .env                            # N8N_ENCRYPTION_KEY
+    environment:
+      # public identity (behind the Tailscale HTTPS proxy)
+      N8N_HOST: covenantlabsserver.taila61e66.ts.net
+      N8N_PROTOCOL: https
+      N8N_EDITOR_BASE_URL: https://covenantlabsserver.taila61e66.ts.net/
+      N8N_WEBHOOK_URL: https://covenantlabsserver.taila61e66.ts.net/
+      N8N_PROXY_HOPS: "1"
+      N8N_SECURE_COOKIE: "true"
+      # time
+      GENERIC_TIMEZONE: Asia/Seoul
+      TZ: Asia/Seoul
+      # storage — SQLite in WAL mode (pool size > 0 turns WAL on); audio goes to disk, not RAM
+      DB_TYPE: sqlite
+      DB_SQLITE_POOL_SIZE: "4"
+      N8N_DEFAULT_BINARY_DATA_MODE: filesystem
+      # keep the DB small: prune executions older than 14 days, cap at 10k
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "336"
+      EXECUTIONS_DATA_PRUNE_MAX_COUNT: "10000"
+      # quiet + hardened
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_HIRING_BANNER_ENABLED: "false"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_LOG_LEVEL: info
+      # pin defaults n8n has announced it will lower later
+      N8N_RUNNERS_TASK_TIMEOUT: "300"
+      N8N_UNVERIFIED_PACKAGES_ENABLED: "false"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  n8n_data:

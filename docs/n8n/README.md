@@ -24,6 +24,34 @@ Google Drive Trigger (지점 폴더 1/min 감시)
 
 전사는 **1회 호출**입니다. `Get Vocabulary`가 Download file 직후 병렬로 실행되어 백엔드 어휘 사전을 버전과 함께 미리 받아두고, `Gemini Transcribe Audio`가 diarization(화자분리) 활성 상태로 gemini-3.5-transcribe를 1회 호출합니다. **이 호출이 어떤 이유로든 실패하면** — 설계상 의도된 사유는 diarization 한도(30분) 초과지만, 현재 폴백은 오류 종류를 구분하지 않으므로 일시적 429/503도 포함됩니다 — n8n이 diarization 없이 **정확히 1회만** 재시도합니다: `Build Non-Diarized Retry Request → Gemini Transcribe Audio (Non-Diarized Retry)`. 이때 웹훅 payload는 `diarized: false`로 표시됩니다. 짧은 통화가 `diarized: false`로 도착했다면 30분 한도가 아니라 일시 오류가 원인이므로, n8n 실행 로그에서 primary 노드의 오류를 확인하세요(실 API 오류 형태 확인 후 IF 노드로 diarization-한도 오류만 폴백하도록 좁히는 것이 launch checklist 항목입니다). 두 경로 모두 `Build Webhook Payload`로 수렴해 raw diarized transcript(`transcriptRaw`, 역할 매핑 없음)를 만듭니다 — 용어 교정과 화자→역할 매핑, 통화 요약은 이제 백엔드 refine → extract 단계에서 처리합니다(n8n은 순수 plumbing). 마지막 노드가 idempotent webhook(`driveFileId` = 멱등 키)으로 백엔드에 보냅니다.
 
+## n8n 인스턴스 (셀프호스트)
+
+n8n은 클라우드가 아니라 **`covenantlabsserver`에 docker compose로 셀프호스트**되어 있습니다 (2026-09-03 구축, n8n `2.37.7`). 인바운드가 필요한 노드가 없으므로(Drive 트리거는 폴링, 나머지는 아웃바운드 호출) 공개 노출 없이 **Tailscale 안에서만** 접근합니다.
+
+| 항목 | 값 |
+|---|---|
+| 에디터 URL | `https://covenantlabsserver.taila61e66.ts.net` (tailnet 전용, `tailscale serve` → `127.0.0.1:5678`) |
+| Google OAuth 리디렉션 URI | `https://covenantlabsserver.taila61e66.ts.net/rest/oauth2-credential/callback` (Google Cloud 콘솔의 OAuth 클라이언트에 등록) |
+| 서버 경로 | `/opt/n8n/compose.yml` — 이 레포의 [`self-host/compose.yml`](./self-host/compose.yml)과 동일하게 유지 |
+| 비밀 | `/opt/n8n/.env` = `N8N_ENCRYPTION_KEY` 하나 (chmod 600). 자격증명 복호화 키이므로 볼륨과 함께 백업 |
+| 데이터 | docker volume `n8n_data` — SQLite(WAL), 오디오 바이너리는 디스크, 실행 이력 14일 보관 |
+
+운영 명령 (`ssh covenant`):
+
+```bash
+cd /opt/n8n
+docker compose ps / logs -f          # 상태·로그
+docker compose pull && docker compose up -d   # compose.yml의 이미지 태그를 올린 뒤 업그레이드
+docker compose down                  # 중지 (볼륨은 유지)
+```
+
+CLI로 템플릿을 넣을 때는 JSON에 `id`가 있어야 합니다(레포 템플릿에는 없음 → 서버 측 사본에 16자 영숫자 id를 추가):
+
+```bash
+docker cp wf.json n8n:/tmp/wf.json
+docker exec -u node n8n n8n import:workflow --input=/tmp/wf.json
+```
+
 ## 지점 연결 절차
 
 ### ① 템플릿 import
