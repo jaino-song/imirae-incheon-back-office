@@ -11,3 +11,7 @@ NEXT_PUBLIC_E2E_TEST=
 E2E_USER_ID=
 E2E_ORG_ID=
 OPENAI_API_KEY=
+
+# Optional local-only automatic login. Never set these on a deployment.
+LOCAL_AUTO_LOGIN_EMAIL=
+LOCAL_AUTO_LOGIN_PASSWORD=

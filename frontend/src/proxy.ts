@@ -1,3 +1,4 @@
+import { tryLocalAutoLogin } from "@/lib/auth/local-auto-login";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtDecode } from "jwt-decode";
@@ -147,6 +148,19 @@ export async function proxy(request: NextRequest) {
 
   if (mobileRedirectUrl) {
     return NextResponse.redirect(mobileRedirectUrl);
+  }
+
+  const isLocalLoginNavigation = pathname === "/" || pathname === "/login" ||
+    !PUBLIC_ROUTES.some((route) => pathname.startsWith(route));
+  if (isLocalLoginNavigation) {
+    const session = await tryLocalAutoLogin(request);
+    if (session && !isAccessTokenExpiredOrInvalid(session.accessToken)) {
+      const target = pathname === "/login" ? new URL("/", request.url) : request.nextUrl;
+      const response = NextResponse.redirect(target);
+      setAuthSessionCookies(response.cookies, { ...session, autoLogin: true });
+      response.headers.set("Cache-Control", "no-store");
+      return response;
+    }
   }
 
   let authToken = request.cookies.get("auth_token")?.value;
